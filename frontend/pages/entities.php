@@ -220,14 +220,14 @@ foreach ($allUsers as $user) {
 
 <!-- Modal Ajouter/Modifier Entité -->
 <div class="modal-overlay" id="entityModal">
-    <div class="modal-content modal-large">
+    <div class="modal-content modal-medium">
         <button class="modal-close" id="closeEntityModal">×</button>
         
         <div class="modal-header">
             <h2 id="modalTitle">Ajouter une entité</h2>
         </div>
         
-        <div class="modal-body">
+        <div class="modal-body modal-scrollable">
             <form id="entityForm">
                 <input type="hidden" id="entityId" name="entityId">
                 
@@ -247,14 +247,26 @@ foreach ($allUsers as $user) {
                 </div>
                 
                 <div class="form-group">
-                    <label>Modules autorisés</label>
-                    <div class="modules-checkboxes">
-                        <?php foreach ($services as $service): ?>
-                            <label class="checkbox-label">
-                                <input type="checkbox" name="modules[]" value="<?= htmlspecialchars((string) $service['_id']) ?>">
-                                <span><?= htmlspecialchars($service['icon']) ?> <?= htmlspecialchars($service['name']) ?></span>
-                            </label>
-                        <?php endforeach; ?>
+                    <label for="modulesSelect">Modules autorisés</label>
+                    <div class="custom-select-wrapper">
+                        <div class="custom-select" id="modulesSelect">
+                            <div class="select-trigger">
+                                <span class="select-placeholder">Rechercher et sélectionner des modules...</span>
+                                <span class="select-arrow">▼</span>
+                            </div>
+                            <div class="select-dropdown">
+                                <input type="text" class="select-search" placeholder="Rechercher un module..." id="moduleSearch">
+                                <div class="select-options" id="moduleOptions">
+                                    <?php foreach ($services as $service): ?>
+                                        <div class="select-option" data-value="<?= htmlspecialchars((string) $service['_id']) ?>">
+                                            <span><?= htmlspecialchars($service['icon']) ?> <?= htmlspecialchars($service['name']) ?></span>
+                                            <span class="select-check">✓</span>
+                                        </div>
+                                    <?php endforeach; ?>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="selected-modules" id="selectedModules"></div>
                     </div>
                 </div>
                 
@@ -448,21 +460,147 @@ foreach ($allUsers as $user) {
     font-style: italic;
 }
 
-.modules-checkboxes {
-    display: flex;
-    flex-direction: column;
-    gap: var(--spacing-sm);
+.modal-medium {
+    max-width: 500px;
 }
 
-.checkbox-label {
+.modal-scrollable {
+    max-height: 60vh;
+    overflow-y: auto;
+    padding-right: var(--spacing-sm);
+}
+
+/* Custom Select with Search */
+.custom-select-wrapper {
+    position: relative;
+    margin-bottom: var(--spacing-md);
+}
+
+.custom-select {
+    position: relative;
+}
+
+.select-trigger {
     display: flex;
+    justify-content: space-between;
     align-items: center;
-    gap: var(--spacing-sm);
+    padding: var(--spacing-md);
+    border: 1px solid var(--color-light);
+    border-radius: 4px;
     cursor: pointer;
+    background: white;
+    transition: border-color 0.2s;
 }
 
-.modal-large {
-    max-width: 600px;
+.select-trigger:hover {
+    border-color: var(--color-primary);
+}
+
+.select-placeholder {
+    color: #999;
+}
+
+.select-arrow {
+    transition: transform 0.2s;
+}
+
+.custom-select.active .select-arrow {
+    transform: rotate(180deg);
+}
+
+.select-dropdown {
+    display: none;
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    background: white;
+    border: 1px solid var(--color-light);
+    border-radius: 4px;
+    box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+    z-index: 1000;
+    margin-top: 4px;
+}
+
+.custom-select.active .select-dropdown {
+    display: block;
+}
+
+.select-search {
+    width: 100%;
+    padding: var(--spacing-md);
+    border: none;
+    border-bottom: 1px solid var(--color-light);
+    border-radius: 4px 4px 0 0;
+    outline: none;
+}
+
+.select-options {
+    max-height: 200px;
+    overflow-y: auto;
+}
+
+.select-option {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: var(--spacing-md);
+    cursor: pointer;
+    transition: background 0.2s;
+    border-bottom: 1px solid var(--color-light);
+}
+
+.select-option:last-child {
+    border-bottom: none;
+}
+
+.select-option:hover {
+    background: var(--color-light);
+}
+
+.select-option.selected {
+    background: #e6f3ff;
+}
+
+.select-option.selected .select-check {
+    display: inline;
+}
+
+.select-check {
+    display: none;
+    color: var(--color-primary);
+    font-weight: bold;
+}
+
+.select-option.hidden {
+    display: none;
+}
+
+.selected-modules {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--spacing-xs);
+    margin-top: var(--spacing-sm);
+}
+
+.selected-module-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--spacing-xs);
+    padding: 4px 8px;
+    background: var(--color-light);
+    border-radius: 12px;
+    font-size: 0.85rem;
+}
+
+.selected-module-tag .remove-module {
+    cursor: pointer;
+    color: #999;
+    font-weight: bold;
+}
+
+.selected-module-tag .remove-module:hover {
+    color: #dc3545;
 }
 
 .modal-actions {
@@ -611,6 +749,94 @@ document.addEventListener('DOMContentLoaded', function() {
     });
     document.getElementById('userModal').addEventListener('click', function(e) {
         if (e.target === this) closeModal('userModal');
+    });
+    
+    // Custom Select avec recherche pour les modules
+    const modulesSelect = document.getElementById('modulesSelect');
+    const selectTrigger = modulesSelect.querySelector('.select-trigger');
+    const selectDropdown = modulesSelect.querySelector('.select-dropdown');
+    const selectSearch = document.getElementById('moduleSearch');
+    const selectOptions = document.querySelectorAll('.select-option');
+    const selectedModulesDiv = document.getElementById('selectedModules');
+    let selectedModules = [];
+    
+    // Ouvrir/fermer le dropdown
+    selectTrigger.addEventListener('click', function(e) {
+        e.stopPropagation();
+        modulesSelect.classList.toggle('active');
+        if (modulesSelect.classList.contains('active')) {
+            selectSearch.focus();
+        }
+    });
+    
+    // Recherche dans les options
+    selectSearch.addEventListener('input', function() {
+        const searchTerm = this.value.toLowerCase();
+        selectOptions.forEach(option => {
+            const text = option.textContent.toLowerCase();
+            if (text.includes(searchTerm)) {
+                option.classList.remove('hidden');
+            } else {
+                option.classList.add('hidden');
+            }
+        });
+    });
+    
+    // Sélectionner une option
+    selectOptions.forEach(option => {
+        option.addEventListener('click', function(e) {
+            e.stopPropagation();
+            const value = this.getAttribute('data-value');
+            const text = this.querySelector('span').textContent.trim();
+            
+            // Toggle sélection
+            if (this.classList.contains('selected')) {
+                // Désélectionner
+                this.classList.remove('selected');
+                selectedModules = selectedModules.filter(m => m.value !== value);
+            } else {
+                // Sélectionner
+                this.classList.add('selected');
+                selectedModules.push({ value, text });
+            }
+            
+            updateSelectedModules();
+        });
+    });
+    
+    // Mettre à jour l'affichage des modules sélectionnés
+    function updateSelectedModules() {
+        selectedModulesDiv.innerHTML = '';
+        if (selectedModules.length > 0) {
+            selectedModules.forEach(module => {
+                const tag = document.createElement('div');
+                tag.className = 'selected-module-tag';
+                tag.innerHTML = `
+                    <span>${module.text}</span>
+                    <span class="remove-module" data-value="${module.value}">×</span>
+                `;
+                selectedModulesDiv.appendChild(tag);
+                
+                // Retirer un module
+                tag.querySelector('.remove-module').addEventListener('click', function() {
+                    const valueToRemove = this.getAttribute('data-value');
+                    selectedModules = selectedModules.filter(m => m.value !== valueToRemove);
+                    selectOptions.forEach(opt => {
+                        if (opt.getAttribute('data-value') === valueToRemove) {
+                            opt.classList.remove('selected');
+                        }
+                    });
+                    updateSelectedModules();
+                });
+            });
+        }
+    }
+    
+    // Fermer le dropdown en cliquant en dehors
+    document.addEventListener('click', function(e) {
+        if (!modulesSelect.contains(e.target)) {
+            modulesSelect.classList.remove('active');
+        }
     });
 });
 </script>
