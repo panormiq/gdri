@@ -49,14 +49,28 @@ $userRole = getUserRole();
                 <!-- Navigation -->
                 <nav class="nav" id="nav">
                     <ul class="nav-list">
-                        <li><a href="<?php echo url('index.php'); ?>" class="nav-link">Accueil</a></li>
-                        <li><a href="<?php echo url('pages/agents.php'); ?>" class="nav-link">Nos Agents</a></li>
-                        <li><a href="<?php echo url('pages/contact.php'); ?>" class="nav-link">Contact</a></li>
-                        
                         <?php if ($isLoggedIn): ?>
-                            <li><a href="<?php echo url('pages/dashboard.php'); ?>" class="nav-link">Dashboard</a></li>
-                            <li><a href="<?php echo url('auth/logout.php'); ?>" class="nav-link">Déconnexion</a></li>
+                            <?php if ($userRole === 'ADMIN_GDRI'): ?>
+                                <!-- Navigation Admin GDRI -->
+                                <li><a href="<?php echo url('pages/dashboard.php'); ?>" class="nav-link">Dashboard</a></li>
+                                <li><a href="<?php echo url('pages/modules.php'); ?>" class="nav-link">Modules</a></li>
+                                <li><a href="<?php echo url('pages/entities.php'); ?>" class="nav-link">Entités</a></li>
+                                <li><a href="<?php echo url('auth/logout.php'); ?>" class="nav-link">Déconnexion</a></li>
+                            <?php elseif ($userRole === 'ADMIN_ENTITY'): ?>
+                                <!-- Navigation Admin Entity -->
+                                <li><a href="<?php echo url('pages/dashboard.php'); ?>" class="nav-link">Dashboard</a></li>
+                                <li><a href="<?php echo url('pages/users.php'); ?>" class="nav-link">Utilisateurs</a></li>
+                                <li><a href="<?php echo url('auth/logout.php'); ?>" class="nav-link">Déconnexion</a></li>
+                            <?php else: ?>
+                                <!-- Navigation User Entity -->
+                                <li><a href="<?php echo url('pages/dashboard.php'); ?>" class="nav-link">Dashboard</a></li>
+                                <li><a href="<?php echo url('auth/logout.php'); ?>" class="nav-link">Déconnexion</a></li>
+                            <?php endif; ?>
                         <?php else: ?>
+                            <!-- Navigation publique -->
+                            <li><a href="<?php echo url('index.php'); ?>" class="nav-link">Accueil</a></li>
+                            <li><a href="<?php echo url('pages/agents.php'); ?>" class="nav-link">Nos Agents</a></li>
+                            <li><a href="<?php echo url('pages/contact.php'); ?>" class="nav-link">Contact</a></li>
                             <li><button id="loginBtn" class="btn btn-primary">Connexion</button></li>
                         <?php endif; ?>
                     </ul>
