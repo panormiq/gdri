@@ -98,7 +98,8 @@ async function handleLoginSubmit(e) {
 
     try {
         // Envoi de la requête au backend
-        const response = await fetch('/auth/login-process.php', {
+        const baseUrl = window.BASE_URL || '/';
+        const response = await fetch(`${baseUrl}auth/login-process.php`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
@@ -111,7 +112,8 @@ async function handleLoginSubmit(e) {
         if (data.success) {
             showSuccess('Connexion réussie ! Redirection...');
             setTimeout(() => {
-                window.location.href = data.redirect || '/pages/dashboard.php';
+                const redirectUrl = data.redirect ? `${baseUrl}${data.redirect.replace(/^\//, '')}` : `${baseUrl}pages/dashboard.php`;
+                window.location.href = redirectUrl;
             }, 1000);
         } else {
             showError(data.message || 'Erreur de connexion');

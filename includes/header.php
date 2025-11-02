@@ -26,6 +26,12 @@ $userRole = getUserRole();
     
     <!-- Favicon -->
     <link rel="icon" type="image/png" href="<?php echo url('assets/images/logo-gdri.png'); ?>">
+    
+    <!-- Variables JavaScript globales -->
+    <script>
+        // Configuration globale pour JavaScript
+        window.BASE_URL = '<?php echo defined('BASE_URL') ? BASE_URL : '/'; ?>';
+    </script>
 </head>
 <body>
     <!-- Header / Navigation -->

@@ -6,7 +6,9 @@
  * Reçoit les données du formulaire de login et vérifie les credentials
  */
 
+require_once '../config/config.php';
 require_once '../config/database.php';
+require_once '../includes/functions.php';
 require_once 'session.php';
 
 // Définir le type de contenu JSON
@@ -78,7 +80,7 @@ try {
     );
     
     // Déterminer la redirection selon le rôle
-    $redirect = '/pages/dashboard.php';
+    $redirect = 'pages/dashboard.php'; // Chemin relatif sans slash initial
     
     jsonResponse(true, 'Connexion réussie', $redirect);
     
