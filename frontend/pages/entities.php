@@ -58,13 +58,24 @@ foreach ($allUsers as $user) {
     </div>
 </section>
 
+<!-- Tabs Navigation -->
+<section class="section">
+    <div class="container">
+        <div class="tabs-nav">
+            <button class="tab-btn active" data-tab="entities-tab">Entités</button>
+            <button class="tab-btn" data-tab="users-tab">Utilisateurs</button>
+        </div>
+    </div>
+</section>
+
 <!-- Section Liste des Entités -->
 <section class="section">
     <div class="container">
-        <div class="section-title">
-            <h2>Liste des Entités</h2>
-            <button class="btn btn-primary" id="addEntityBtn">+ Ajouter une entité</button>
-        </div>
+        <div class="tab-content active" id="entities-tab">
+            <div class="section-title">
+                <h2>Liste des Entités</h2>
+                <button class="btn btn-primary" id="addEntityBtn">+ Ajouter une entité</button>
+            </div>
         
         <div class="entities-grid" id="entitiesGrid">
             <?php if (empty($entities)): ?>
@@ -148,6 +159,62 @@ foreach ($allUsers as $user) {
                     </div>
                 <?php endforeach; ?>
             <?php endif; ?>
+        </div>
+        </div>
+        
+        <!-- Section Liste des Utilisateurs -->
+        <div class="tab-content" id="users-tab">
+            <div class="section-title">
+                <h2>Liste des Utilisateurs</h2>
+                <button class="btn btn-primary" id="addUserBtn" disabled>+ Ajouter un utilisateur</button>
+                <small class="text-muted">Sélectionnez une entité pour ajouter un utilisateur</small>
+            </div>
+            
+            <div class="users-grid" id="usersGrid">
+                <?php if (empty($allUsers)): ?>
+                    <div class="empty-state">
+                        <p>Aucun utilisateur enregistré.</p>
+                    </div>
+                <?php else: ?>
+                    <?php foreach ($allUsers as $user): ?>
+                        <?php if ($user['role'] === 'ADMIN_GDRI') continue; ?>
+                        <div class="user-card">
+                            <div class="user-header">
+                                <h3><?= htmlspecialchars($user['email']) ?></h3>
+                                <div class="user-actions">
+                                    <button class="btn-icon toggle-user" data-user-id="<?= htmlspecialchars((string) $user['_id']) ?>" title="<?= $user['status'] === 'active' ? 'Désactiver' : 'Activer' ?>">
+                                        <?= $user['status'] === 'active' ? '✅' : '❌' ?>
+                                    </button>
+                                </div>
+                            </div>
+                            
+                            <div class="user-details">
+                                <p><strong>Rôle :</strong> 
+                                    <span class="badge badge-info">
+                                        <?= htmlspecialchars($user['role']) ?>
+                                    </span>
+                                </p>
+                                <p><strong>Statut :</strong> 
+                                    <span class="badge <?= $user['status'] === 'active' ? 'badge-success' : 'badge-warning' ?>">
+                                        <?= $user['status'] === 'active' ? 'Actif' : 'Inactif' ?>
+                                    </span>
+                                </p>
+                                <?php if ($user['entity_id']): ?>
+                                    <?php 
+                                    $userEntity = array_filter($entities, function($e) use ($user) {
+                                        return (string) $e['_id'] === (string) $user['entity_id'];
+                                    });
+                                    $userEntity = reset($userEntity);
+                                    ?>
+                                    <?php if ($userEntity): ?>
+                                        <p><strong>Entité :</strong> <?= htmlspecialchars($userEntity['name']) ?></p>
+                                    <?php endif; ?>
+                                <?php endif; ?>
+                            </div>
+                        </div>
+                    <?php endforeach; ?>
+                <?php endif; ?>
+            </div>
         </div>
     </div>
 </section>
@@ -407,13 +474,110 @@ foreach ($allUsers as $user) {
     padding: var(--spacing-xl);
     color: var(--color-gray);
 }
+
+/* Tabs Styles */
+.tabs-nav {
+    display: flex;
+    gap: var(--spacing-md);
+    border-bottom: 2px solid var(--color-light);
+    margin-bottom: var(--spacing-lg);
+}
+
+.tab-btn {
+    background: none;
+    border: none;
+    padding: var(--spacing-md) var(--spacing-lg);
+    font-size: 1rem;
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -2px;
+    color: var(--color-gray);
+    transition: all 0.2s;
+}
+
+.tab-btn:hover {
+    color: var(--color-primary);
+}
+
+.tab-btn.active {
+    color: var(--color-primary);
+    border-bottom-color: var(--color-primary);
+    font-weight: 600;
+}
+
+.tab-content {
+    display: none;
+}
+
+.tab-content.active {
+    display: block;
+}
+
+.users-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: var(--spacing-lg);
+    margin-top: var(--spacing-lg);
+}
+
+.user-card {
+    background: white;
+    border-radius: 8px;
+    padding: var(--spacing-lg);
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    border: 1px solid var(--color-light);
+}
+
+.user-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: var(--spacing-md);
+    padding-bottom: var(--spacing-md);
+    border-bottom: 1px solid var(--color-light);
+}
+
+.user-header h3 {
+    margin: 0;
+    font-size: 1rem;
+    color: var(--color-primary);
+}
+
+.user-actions {
+    display: flex;
+    gap: var(--spacing-sm);
+}
+
+.user-details p {
+    margin: var(--spacing-sm) 0;
+    color: var(--color-gray);
+}
 </style>
 
 <script>
 // Scripts de gestion des entités
 document.addEventListener('DOMContentLoaded', function() {
     console.log('Page entités chargée');
-    // TODO: Ajouter la logique JavaScript pour gérer les entités
+    
+    // Gestion des tabs
+    const tabBtns = document.querySelectorAll('.tab-btn');
+    const tabContents = document.querySelectorAll('.tab-content');
+    
+    tabBtns.forEach(btn => {
+        btn.addEventListener('click', function() {
+            const targetTab = this.getAttribute('data-tab');
+            
+            // Désactiver tous les tabs
+            tabBtns.forEach(b => b.classList.remove('active'));
+            tabContents.forEach(c => c.classList.remove('active'));
+            
+            // Activer le tab cliqué
+            this.classList.add('active');
+            document.getElementById(targetTab).classList.add('active');
+        });
+    });
+    
+    // TODO: Ajouter la logique JavaScript pour gérer les entités et utilisateurs
 });
 </script>
 
