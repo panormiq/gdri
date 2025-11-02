@@ -246,7 +246,7 @@
             <ol>
                 <li>Si tout est ✅, cliquez sur "Initialiser la base de données"</li>
                 <li>Notez les identifiants de l'admin GDRI</li>
-                <li>Accédez au site : <a href="../index.php">http://localhost/gdri/</a></li>
+                <li>Accédez au site : <a href="../index.php">http://localhost/gdri-dev/</a></li>
                 <li>Connectez-vous avec les identifiants</li>
             </ol>
         </div>

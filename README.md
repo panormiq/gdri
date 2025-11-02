@@ -34,7 +34,7 @@ Site vitrine et plateforme d'agents IA pour GDR-Innovation.
 
 5. **Lancer le serveur**
    - Démarrer Apache dans XAMPP
-   - Accéder à : http://localhost/gdri
+   - Accéder à : http://localhost/gdri-dev
 
 ## Informations de contact
 

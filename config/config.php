@@ -28,7 +28,7 @@ define('SITE_ADDRESS', '921 impasse de la grange de rideaux');
 define('SITE_SIRET', '800944 407');
 
 // URLs
-define('BASE_URL', '/gdri/');
+define('BASE_URL', '/gdri-dev/');
 
 // Rôles utilisateurs
 define('ROLE_ADMIN_GDRI', 'ADMIN_GDRI');

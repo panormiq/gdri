@@ -75,7 +75,7 @@
 1. **Ouvrir PowerShell**
    - Naviguez vers le dossier du projet :
      ```powershell
-     cd C:\xampp\htdocs\gdri
+     cd C:\xampp\htdocs\gdri-dev
      ```
 
 2. **Installer les dépendances**
@@ -92,13 +92,13 @@
    - Copiez votre logo depuis :
      `C:\Users\guyvarchc\Documents\programation\front_end\public\logo-gdri.png`
    - Vers :
-     `C:\xampp\htdocs\gdri\assets\images\logo-gdri.png`
+     `C:\xampp\htdocs\gdri-dev\assets\images\logo-gdri.png`
 
 ## Étape 6 : Initialisation de la base de données
 
 1. **Lancer le script d'initialisation**
    - Ouvrez un navigateur
-   - Allez sur : `http://localhost/gdri/install/init-db.php`
+   - Allez sur : `http://localhost/gdri-dev/install/init-db.php`
    - Suivez les instructions à l'écran
    - Notez bien les identifiants de l'admin GDRI créé
 
@@ -108,7 +108,7 @@
 
 2. **Accéder au site**
    - Ouvrez un navigateur
-   - Allez sur : `http://localhost/gdri/`
+   - Allez sur : `http://localhost/gdri-dev/`
 
 3. **Tester la connexion**
    - Cliquez sur "Connexion"

@@ -118,7 +118,7 @@ Structure prête avec 3 collections :
 ```powershell
 # Télécharger depuis https://getcomposer.org/Composer-Setup.exe
 # Puis dans le terminal :
-cd C:\xampp\htdocs\gdri
+cd C:\xampp\htdocs\gdri-dev
 composer install
 ```
 
@@ -130,20 +130,20 @@ composer install
 ### 3. Copier le logo
 ```powershell
 # Copier logo-gdri.png vers :
-C:\xampp\htdocs\gdri\assets\images\logo-gdri.png
+C:\xampp\htdocs\gdri-dev\assets\images\logo-gdri.png
 
 # OU utiliser le script :
-cd C:\xampp\htdocs\gdri\install
+cd C:\xampp\htdocs\gdri-dev\install
 .\copy-logo.ps1
 ```
 
 ### 4. Initialiser la base de données
 Ouvrir dans le navigateur :
-- Test : http://localhost/gdri/install/test-connection.php
-- Init : http://localhost/gdri/install/init-db.php
+- Test : http://localhost/gdri-dev/install/test-connection.php
+- Init : http://localhost/gdri-dev/install/init-db.php
 
 ### 5. Accéder au site
-http://localhost/gdri/
+http://localhost/gdri-dev/
 
 ## 🔮 Phase 2 (à venir)
 

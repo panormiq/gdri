@@ -54,7 +54,7 @@ function hasRole($role) {
  * @return string Le chemin racine
  */
 function getRootPath() {
-    return '/';
+    return defined('BASE_URL') ? BASE_URL : '/';
 }
 
 /**

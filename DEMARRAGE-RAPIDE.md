@@ -40,19 +40,19 @@
 6. Redémarrer Apache dans XAMPP
 
 ### 3️⃣ Copier le logo et initialiser
-1. Copier votre logo vers : `C:\xampp\htdocs\gdri\assets\images\logo-gdri.png`
+1. Copier votre logo vers : `C:\xampp\htdocs\gdri-dev\assets\images\logo-gdri.png`
    
    **OU** utiliser le script PowerShell :
    ```powershell
-   cd C:\xampp\htdocs\gdri\install
+   cd C:\xampp\htdocs\gdri-dev\install
    .\copy-logo.ps1
    ```
 
 2. Initialiser la base de données :
-   - Ouvrir : http://localhost/gdri/install/init-db.php
+   - Ouvrir : http://localhost/gdri-dev/install/init-db.php
    - Noter les identifiants de l'admin GDRI
 
-3. Accéder au site : http://localhost/gdri/
+3. Accéder au site : http://localhost/gdri-dev/
 
 ## 📖 Documentation complète
 
