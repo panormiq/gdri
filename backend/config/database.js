@@ -37,7 +37,7 @@ class Database {
   }
 
   /**
-   * Retourne une collection MongoDB
+   * Retourne une collection MongoDB de la base principale
    * @param {string} name - Nom de la collection
    * @returns {MongoDB.Collection} La collection demandée
    */
@@ -46,6 +46,32 @@ class Database {
       throw new Error('Database not connected. Call connect() first.');
     }
     return this.db.collection(name);
+  }
+
+  /**
+   * Retourne la base de données d'une entité spécifique
+   * @param {string} entityId - ID de l'entité
+   * @returns {Promise<MongoDB.Database>} La base de données de l'entité
+   */
+  async getEntityDatabase(entityId) {
+    if (!this.client) {
+      throw new Error('Database not connected. Call connect() first.');
+    }
+    
+    // Nom de la base de données pour l'entité
+    const dbName = `GDR-ENTITY-${entityId}`;
+    return this.client.db(dbName);
+  }
+
+  /**
+   * Retourne une collection MongoDB d'une entité spécifique
+   * @param {string} entityId - ID de l'entité
+   * @param {string} collectionName - Nom de la collection
+   * @returns {Promise<MongoDB.Collection>} La collection demandée
+   */
+  async getEntityCollection(entityId, collectionName) {
+    const entityDb = await this.getEntityDatabase(entityId);
+    return entityDb.collection(collectionName);
   }
 
   /**
