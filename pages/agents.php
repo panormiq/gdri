@@ -4,6 +4,7 @@
  * Fichier : pages/agents.php
  */
 
+require_once '../config/config.php';
 require_once '../auth/session.php';
 require_once '../includes/functions.php';
 
