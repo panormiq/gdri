@@ -1,0 +1,159 @@
+/**
+ * Media queries - Responsive design
+ * Mobile-first approach
+ */
+
+/* Tablet (768px et moins) */
+@media (max-width: 768px) {
+    :root {
+        --font-size-h1: 36px;
+        --font-size-h2: 28px;
+        --font-size-h3: 24px;
+        --font-size-h4: 20px;
+        --spacing-xl: 32px;
+        --spacing-xxl: 48px;
+    }
+
+    /* Navigation mobile */
+    .menu-toggle {
+        display: flex;
+    }
+
+    .nav {
+        position: fixed;
+        top: var(--header-height);
+        left: 0;
+        right: 0;
+        background-color: var(--color-white);
+        flex-direction: column;
+        padding: var(--spacing-md);
+        box-shadow: var(--shadow-md);
+        transform: translateX(-100%);
+        transition: transform var(--transition-normal);
+    }
+
+    .nav.active {
+        transform: translateX(0);
+    }
+
+    .nav-links,
+    .nav-list {
+        flex-direction: column;
+        gap: var(--spacing-md);
+        width: 100%;
+    }
+
+    .nav-link {
+        padding: var(--spacing-sm) 0;
+        border-bottom: 1px solid var(--color-light);
+    }
+
+    .btn-login {
+        width: 100%;
+        margin-top: var(--spacing-sm);
+    }
+
+    /* Menu burger animation */
+    .menu-toggle.active span:nth-child(1) {
+        transform: rotate(45deg) translate(7px, 7px);
+    }
+
+    .menu-toggle.active span:nth-child(2) {
+        opacity: 0;
+    }
+
+    .menu-toggle.active span:nth-child(3) {
+        transform: rotate(-45deg) translate(7px, -7px);
+    }
+
+    /* Hero */
+    .hero {
+        padding: var(--spacing-xl) 0;
+    }
+
+    /* Cards grid */
+    .cards-grid {
+        grid-template-columns: 1fr;
+    }
+
+    /* Footer */
+    .footer-content {
+        grid-template-columns: 1fr;
+        text-align: center;
+    }
+
+    /* Modal */
+    .modal {
+        width: 95%;
+        padding: var(--spacing-md);
+        margin: var(--spacing-md);
+    }
+}
+
+/* Mobile (480px et moins) */
+@media (max-width: 480px) {
+    :root {
+        --font-size-h1: 28px;
+        --font-size-h2: 24px;
+        --font-size-h3: 20px;
+        --font-size-h4: 18px;
+        --spacing-md: 16px;
+        --spacing-lg: 24px;
+    }
+
+    .container {
+        padding: 0 var(--spacing-sm);
+    }
+
+    .logo img {
+        height: 40px;
+    }
+
+    .logo-text {
+        font-size: 18px;
+    }
+
+    .hero-slogan {
+        font-size: 20px;
+    }
+
+    .hero-description {
+        font-size: var(--font-size-base);
+    }
+
+    .section {
+        padding: var(--spacing-xl) 0;
+    }
+
+    .card {
+        padding: var(--spacing-md);
+    }
+}
+
+/* Large screens (1400px et plus) */
+@media (min-width: 1400px) {
+    :root {
+        --max-width: 1400px;
+    }
+}
+
+/* Print styles */
+@media print {
+    .header,
+    .footer,
+    .btn,
+    .modal-overlay {
+        display: none !important;
+    }
+
+    main {
+        margin-top: 0;
+    }
+
+    .section {
+        page-break-inside: avoid;
+    }
+}
+
+
+

@@ -1,0 +1,67 @@
+# Configuration Apache pour GDRI
+# Fichier : .htaccess
+
+# Activer le moteur de réécriture
+RewriteEngine On
+
+# Rediriger le www vers non-www (optionnel)
+# RewriteCond %{HTTP_HOST} ^www\.(.*)$ [NC]
+# RewriteRule ^(.*)$ http://%1/$1 [R=301,L]
+
+# Protection des fichiers sensibles
+<FilesMatch "(\.env|\.git|composer\.json|composer\.lock|\.md)$">
+    Order allow,deny
+    Deny from all
+</FilesMatch>
+
+# Empêcher l'affichage du contenu des dossiers
+Options -Indexes
+
+# Gestion des erreurs personnalisées (optionnel)
+# ErrorDocument 404 /gdri/errors/404.php
+# ErrorDocument 403 /gdri/errors/403.php
+# ErrorDocument 500 /gdri/errors/500.php
+
+# Compression Gzip pour améliorer les performances
+<IfModule mod_deflate.c>
+    AddOutputFilterByType DEFLATE text/html text/plain text/xml text/css text/javascript application/javascript application/json
+</IfModule>
+
+# Cache des fichiers statiques
+<IfModule mod_expires.c>
+    ExpiresActive On
+    ExpiresByType image/jpg "access plus 1 year"
+    ExpiresByType image/jpeg "access plus 1 year"
+    ExpiresByType image/gif "access plus 1 year"
+    ExpiresByType image/png "access plus 1 year"
+    ExpiresByType text/css "access plus 1 month"
+    ExpiresByType application/javascript "access plus 1 month"
+</IfModule>
+
+# Sécurité - Headers HTTP
+<IfModule mod_headers.c>
+    # Empêcher le clickjacking
+    Header always set X-Frame-Options "SAMEORIGIN"
+    
+    # Empêcher le MIME sniffing
+    Header always set X-Content-Type-Options "nosniff"
+    
+    # Activer le filtre XSS
+    Header always set X-XSS-Protection "1; mode=block"
+    
+    # Référer policy
+    Header always set Referrer-Policy "strict-origin-when-cross-origin"
+</IfModule>
+
+# PHP Configuration
+<IfModule mod_php.c>
+    php_value upload_max_filesize 10M
+    php_value post_max_size 10M
+    php_value max_execution_time 300
+    php_value memory_limit 256M
+</IfModule>
+
+
+
+
+

@@ -1,0 +1,71 @@
+/**
+ * Variables CSS - Thème GDRI
+ * Couleurs extraites du logo de l'entreprise
+ */
+
+:root {
+    /* Couleurs principales */
+    --color-primary: #9edbeb;      /* Bleu clair */
+    --color-secondary: #b9e821;    /* Vert citron */
+    --color-dark: #606163;         /* Gris foncé */
+    --color-light: #e4e4e4;        /* Gris clair */
+    
+    /* Variations de couleurs */
+    --color-primary-dark: #7bc4d6;
+    --color-primary-light: #c5eaf3;
+    --color-secondary-dark: #a0c91d;
+    --color-secondary-light: #d4f06b;
+    
+    /* Couleurs neutres */
+    --color-white: #ffffff;
+    --color-black: #1a1a1a;
+    --color-gray: #757575;
+    
+    /* Couleurs système */
+    --color-success: #4caf50;
+    --color-error: #f44336;
+    --color-warning: #ff9800;
+    --color-info: #2196f3;
+    
+    /* Typographie */
+    --font-primary: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    --font-size-base: 16px;
+    --font-size-small: 14px;
+    --font-size-large: 18px;
+    --font-size-h1: 48px;
+    --font-size-h2: 36px;
+    --font-size-h3: 28px;
+    --font-size-h4: 24px;
+    
+    /* Espacements */
+    --spacing-xs: 8px;
+    --spacing-sm: 16px;
+    --spacing-md: 24px;
+    --spacing-lg: 32px;
+    --spacing-xl: 48px;
+    --spacing-xxl: 64px;
+    
+    /* Bordures */
+    --border-radius-sm: 4px;
+    --border-radius-md: 8px;
+    --border-radius-lg: 16px;
+    --border-radius-full: 9999px;
+    
+    /* Ombres */
+    --shadow-sm: 0 2px 4px rgba(0, 0, 0, 0.1);
+    --shadow-md: 0 4px 8px rgba(0, 0, 0, 0.15);
+    --shadow-lg: 0 8px 16px rgba(0, 0, 0, 0.2);
+    
+    /* Transitions */
+    --transition-fast: 0.2s ease;
+    --transition-normal: 0.3s ease;
+    --transition-slow: 0.5s ease;
+    
+    /* Layout */
+    --max-width: 1200px;
+    --header-height: 80px;
+    --footer-height: 60px;
+}
+
+
+

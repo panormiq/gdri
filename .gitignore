@@ -1,0 +1,52 @@
+# Dépendances
+/vendor/
+composer.phar
+
+# Fichiers de configuration sensibles
+config/local.php
+.env
+
+# Logs
+*.log
+/logs/
+
+# Fichiers temporaires
+*.tmp
+*.temp
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# Installation
+install/db-initialized.lock
+
+# Node modules
+node_modules/
+package-lock.json
+
+# SSL certificates
+ssl-certs/
+
+# Fichiers de test
+test-acme.txt
+
+# Images uploadées (garder le dossier mais pas les images)
+# Décommenter si nécessaire
+# assets/images/*
+# !assets/images/.gitkeep
+
+
+
+
+
