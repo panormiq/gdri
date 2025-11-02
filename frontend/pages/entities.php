@@ -1,0 +1,420 @@
+<?php
+/**
+ * Gestion des Entités - Admin GDRI
+ * Fichier : pages/entities.php
+ * 
+ * Permet de gérer les entreprises/entités clientes et leurs utilisateurs
+ */
+
+require_once '../config/config.php';
+require_once '../auth/session.php';
+require_once '../includes/functions.php';
+
+// Seul ADMIN_GDRI peut accéder
+if (!hasRole(ROLE_ADMIN_GDRI)) {
+    redirect(url('pages/dashboard.php'));
+}
+
+$page_title = 'Gestion des Entités';
+
+require_once '../includes/header.php';
+
+// Récupérer toutes les entités
+$db = getDatabase();
+$entitiesCollection = $db->entities;
+$entities = $entitiesCollection->find([])->toArray();
+
+// Récupérer tous les services/modules disponibles
+$servicesCollection = $db->services;
+$services = $servicesCollection->find([])->toArray();
+
+// Récupérer tous les utilisateurs
+$usersCollection = $db->users;
+$allUsers = $usersCollection->find([])->toArray();
+
+// Mapper les utilisateurs par entité pour l'affichage
+$usersByEntity = [];
+foreach ($allUsers as $user) {
+    if ($user['entity_id']) {
+        $entityId = (string) $user['entity_id'];
+        if (!isset($usersByEntity[$entityId])) {
+            $usersByEntity[$entityId] = [];
+        }
+        $usersByEntity[$entityId][] = $user;
+    }
+}
+?>
+
+<!-- Section Hero -->
+<section class="hero">
+    <div class="container">
+        <div class="hero-content">
+            <h1>Gestion des Entités</h1>
+            <p class="hero-description">
+                Gérez les entreprises clientes et leurs accès aux modules IA
+            </p>
+        </div>
+    </div>
+</section>
+
+<!-- Section Liste des Entités -->
+<section class="section">
+    <div class="container">
+        <div class="section-title">
+            <h2>Liste des Entités</h2>
+            <button class="btn btn-primary" id="addEntityBtn">+ Ajouter une entité</button>
+        </div>
+        
+        <div class="entities-grid" id="entitiesGrid">
+            <?php if (empty($entities)): ?>
+                <div class="empty-state">
+                    <p>Aucune entité enregistrée pour le moment.</p>
+                </div>
+            <?php else: ?>
+                <?php foreach ($entities as $entity): ?>
+                    <div class="entity-card" data-entity-id="<?= htmlspecialchars((string) $entity['_id']) ?>">
+                        <div class="entity-header">
+                            <h3><?= htmlspecialchars($entity['name']) ?></h3>
+                            <div class="entity-actions">
+                                <button class="btn-icon edit-entity" data-entity-id="<?= htmlspecialchars((string) $entity['_id']) ?>" title="Modifier">
+                                    ✏️
+                                </button>
+                                <button class="btn-icon toggle-entity" data-entity-id="<?= htmlspecialchars((string) $entity['_id']) ?>" title="<?= $entity['status'] === 'active' ? 'Désactiver' : 'Activer' ?>">
+                                    <?= $entity['status'] === 'active' ? '✅' : '❌' ?>
+                                </button>
+                            </div>
+                        </div>
+                        
+                        <div class="entity-details">
+                            <p><strong>SIRET :</strong> <?= htmlspecialchars($entity['siret']) ?></p>
+                            <p><strong>Adresse :</strong> <?= htmlspecialchars($entity['address']) ?></p>
+                            <p><strong>Statut :</strong> 
+                                <span class="badge <?= $entity['status'] === 'active' ? 'badge-success' : 'badge-warning' ?>">
+                                    <?= $entity['status'] === 'active' ? 'Actif' : 'Inactif' ?>
+                                </span>
+                            </p>
+                        </div>
+                        
+                        <!-- Modules autorisés -->
+                        <div class="entity-modules">
+                            <h4>Modules autorisés :</h4>
+                            <?php if (empty($entity['services_authorized'])): ?>
+                                <p class="text-muted">Aucun module autorisé</p>
+                            <?php else: ?>
+                                <div class="modules-list">
+                                    <?php foreach ($entity['services_authorized'] as $serviceId): ?>
+                                        <?php 
+                                        $service = array_filter($services, function($s) use ($serviceId) {
+                                            return (string) $s['_id'] === (string) $serviceId;
+                                        });
+                                        $service = reset($service);
+                                        ?>
+                                        <?php if ($service): ?>
+                                            <span class="module-badge"><?= htmlspecialchars($service['icon']) ?> <?= htmlspecialchars($service['name']) ?></span>
+                                        <?php endif; ?>
+                                    <?php endforeach; ?>
+                                </div>
+                            <?php endif; ?>
+                            <button class="btn btn-sm btn-outline manage-modules" data-entity-id="<?= htmlspecialchars((string) $entity['_id']) ?>">
+                                Gérer les modules
+                            </button>
+                        </div>
+                        
+                        <!-- Utilisateurs de l'entité -->
+                        <div class="entity-users">
+                            <h4>Utilisateurs :</h4>
+                            <?php 
+                            $entityUsers = $usersByEntity[(string) $entity['_id']] ?? [];
+                            ?>
+                            <?php if (empty($entityUsers)): ?>
+                                <p class="text-muted">Aucun utilisateur</p>
+                            <?php else: ?>
+                                <ul class="users-list">
+                                    <?php foreach ($entityUsers as $user): ?>
+                                        <li>
+                                            <?= htmlspecialchars($user['email']) ?>
+                                            <span class="badge badge-info">
+                                                <?= htmlspecialchars($user['role']) ?>
+                                            </span>
+                                        </li>
+                                    <?php endforeach; ?>
+                                </ul>
+                            <?php endif; ?>
+                            <button class="btn btn-sm btn-outline add-user" data-entity-id="<?= htmlspecialchars((string) $entity['_id']) ?>">
+                                + Ajouter un utilisateur
+                            </button>
+                        </div>
+                    </div>
+                <?php endforeach; ?>
+            <?php endif; ?>
+        </div>
+    </div>
+</section>
+
+<!-- Modal Ajouter/Modifier Entité -->
+<div class="modal-overlay" id="entityModal">
+    <div class="modal-content modal-large">
+        <button class="modal-close" id="closeEntityModal">×</button>
+        
+        <div class="modal-header">
+            <h2 id="modalTitle">Ajouter une entité</h2>
+        </div>
+        
+        <div class="modal-body">
+            <form id="entityForm">
+                <input type="hidden" id="entityId" name="entityId">
+                
+                <div class="form-group">
+                    <label for="entityName">Nom de l'entreprise *</label>
+                    <input type="text" id="entityName" name="name" required>
+                </div>
+                
+                <div class="form-group">
+                    <label for="entitySiret">SIRET *</label>
+                    <input type="text" id="entitySiret" name="siret" required pattern="[0-9]{9,14}">
+                </div>
+                
+                <div class="form-group">
+                    <label for="entityAddress">Adresse *</label>
+                    <textarea id="entityAddress" name="address" rows="3" required></textarea>
+                </div>
+                
+                <div class="form-group">
+                    <label>Modules autorisés</label>
+                    <div class="modules-checkboxes">
+                        <?php foreach ($services as $service): ?>
+                            <label class="checkbox-label">
+                                <input type="checkbox" name="modules[]" value="<?= htmlspecialchars((string) $service['_id']) ?>">
+                                <span><?= htmlspecialchars($service['icon']) ?> <?= htmlspecialchars($service['name']) ?></span>
+                            </label>
+                        <?php endforeach; ?>
+                    </div>
+                </div>
+                
+                <div class="form-error" id="formError"></div>
+                <div class="form-success" id="formSuccess"></div>
+                
+                <div class="modal-actions">
+                    <button type="button" class="btn btn-secondary" id="cancelEntityForm">Annuler</button>
+                    <button type="submit" class="btn btn-primary">Enregistrer</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Modal Ajouter Utilisateur -->
+<div class="modal-overlay" id="userModal">
+    <div class="modal-content">
+        <button class="modal-close" id="closeUserModal">×</button>
+        
+        <div class="modal-header">
+            <h2>Ajouter un utilisateur</h2>
+        </div>
+        
+        <div class="modal-body">
+            <form id="userForm">
+                <input type="hidden" id="userEntityId" name="entityId">
+                
+                <div class="form-group">
+                    <label for="userEmail">Email *</label>
+                    <input type="email" id="userEmail" name="email" required>
+                </div>
+                
+                <div class="form-group">
+                    <label for="userPassword">Mot de passe *</label>
+                    <input type="password" id="userPassword" name="password" required minlength="6">
+                </div>
+                
+                <div class="form-group">
+                    <label for="userRole">Rôle *</label>
+                    <select id="userRole" name="role" required>
+                        <option value="ADMIN_ENTITY">Administrateur d'Entité</option>
+                        <option value="USER_ENTITY">Utilisateur</option>
+                    </select>
+                </div>
+                
+                <div class="form-error" id="userFormError"></div>
+                <div class="form-success" id="userFormSuccess"></div>
+                
+                <div class="modal-actions">
+                    <button type="button" class="btn btn-secondary" id="cancelUserForm">Annuler</button>
+                    <button type="submit" class="btn btn-primary">Créer</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Style spécifique pour cette page -->
+<style>
+.entities-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
+    gap: var(--spacing-lg);
+    margin-top: var(--spacing-lg);
+}
+
+.entity-card {
+    background: white;
+    border-radius: 8px;
+    padding: var(--spacing-lg);
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    border: 1px solid var(--color-light);
+}
+
+.entity-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: var(--spacing-md);
+    padding-bottom: var(--spacing-md);
+    border-bottom: 1px solid var(--color-light);
+}
+
+.entity-header h3 {
+    margin: 0;
+    color: var(--color-primary);
+}
+
+.entity-actions {
+    display: flex;
+    gap: var(--spacing-sm);
+}
+
+.btn-icon {
+    background: none;
+    border: none;
+    font-size: 1.2rem;
+    cursor: pointer;
+    padding: 4px;
+    border-radius: 4px;
+    transition: background 0.2s;
+}
+
+.btn-icon:hover {
+    background: var(--color-light);
+}
+
+.entity-details p {
+    margin: var(--spacing-sm) 0;
+    color: var(--color-gray);
+}
+
+.badge {
+    display: inline-block;
+    padding: 4px 12px;
+    border-radius: 12px;
+    font-size: 0.85rem;
+    font-weight: 600;
+}
+
+.badge-success {
+    background: #d4edda;
+    color: #155724;
+}
+
+.badge-warning {
+    background: #fff3cd;
+    color: #856404;
+}
+
+.badge-info {
+    background: #d1ecf1;
+    color: #0c5460;
+}
+
+.entity-modules,
+.entity-users {
+    margin-top: var(--spacing-md);
+    padding-top: var(--spacing-md);
+    border-top: 1px solid var(--color-light);
+}
+
+.entity-modules h4,
+.entity-users h4 {
+    font-size: 0.9rem;
+    margin-bottom: var(--spacing-sm);
+    color: var(--color-gray);
+}
+
+.modules-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--spacing-xs);
+    margin-bottom: var(--spacing-sm);
+}
+
+.module-badge {
+    display: inline-block;
+    padding: 4px 8px;
+    background: var(--color-light);
+    border-radius: 4px;
+    font-size: 0.85rem;
+}
+
+.users-list {
+    list-style: none;
+    padding: 0;
+    margin: var(--spacing-sm) 0;
+}
+
+.users-list li {
+    padding: var(--spacing-xs) 0;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.text-muted {
+    color: #999;
+    font-style: italic;
+}
+
+.modules-checkboxes {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-sm);
+}
+
+.checkbox-label {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    cursor: pointer;
+}
+
+.modal-large {
+    max-width: 600px;
+}
+
+.modal-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: var(--spacing-md);
+    margin-top: var(--spacing-lg);
+}
+
+.section-title {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.empty-state {
+    text-align: center;
+    padding: var(--spacing-xl);
+    color: var(--color-gray);
+}
+</style>
+
+<script>
+// Scripts de gestion des entités
+document.addEventListener('DOMContentLoaded', function() {
+    console.log('Page entités chargée');
+    // TODO: Ajouter la logique JavaScript pour gérer les entités
+});
+</script>
+
+<?php require_once '../includes/footer.php'; ?>
+
