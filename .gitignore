@@ -35,6 +35,9 @@ install/db-initialized.lock
 node_modules/
 package-lock.json
 
+# Nodemon
+nodemon.json
+
 # SSL certificates
 ssl-certs/
 
