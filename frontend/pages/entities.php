@@ -166,8 +166,7 @@ foreach ($allUsers as $user) {
         <div class="tab-content" id="users-tab">
             <div class="section-title">
                 <h2>Liste des Utilisateurs</h2>
-                <button class="btn btn-primary" id="addUserBtn" disabled>+ Ajouter un utilisateur</button>
-                <small class="text-muted">Sélectionnez une entité pour ajouter un utilisateur</small>
+                <button class="btn btn-primary" id="addUserBtn">+ Ajouter un utilisateur</button>
             </div>
             
             <div class="users-grid" id="usersGrid">
@@ -282,7 +281,17 @@ foreach ($allUsers as $user) {
         
         <div class="modal-body">
             <form id="userForm">
-                <input type="hidden" id="userEntityId" name="entityId">
+                <div class="form-group">
+                    <label for="userEntity">Entité *</label>
+                    <select id="userEntity" name="entityId" required>
+                        <option value="">Sélectionner une entité</option>
+                        <?php foreach ($entities as $entity): ?>
+                            <option value="<?= htmlspecialchars((string) $entity['_id']) ?>">
+                                <?= htmlspecialchars($entity['name']) ?>
+                            </option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
                 
                 <div class="form-group">
                     <label for="userEmail">Email *</label>
@@ -577,7 +586,32 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     });
     
-    // TODO: Ajouter la logique JavaScript pour gérer les entités et utilisateurs
+    // Gestion des modals
+    const openModal = (modalId) => {
+        document.getElementById(modalId).style.display = 'flex';
+    };
+    
+    const closeModal = (modalId) => {
+        document.getElementById(modalId).style.display = 'none';
+    };
+    
+    // Ouvrir modal entité
+    document.getElementById('addEntityBtn').addEventListener('click', () => openModal('entityModal'));
+    document.getElementById('closeEntityModal').addEventListener('click', () => closeModal('entityModal'));
+    document.getElementById('cancelEntityForm').addEventListener('click', () => closeModal('entityModal'));
+    
+    // Ouvrir modal utilisateur
+    document.getElementById('addUserBtn').addEventListener('click', () => openModal('userModal'));
+    document.getElementById('closeUserModal').addEventListener('click', () => closeModal('userModal'));
+    document.getElementById('cancelUserForm').addEventListener('click', () => closeModal('userModal'));
+    
+    // Fermer les modals en cliquant en dehors
+    document.getElementById('entityModal').addEventListener('click', function(e) {
+        if (e.target === this) closeModal('entityModal');
+    });
+    document.getElementById('userModal').addEventListener('click', function(e) {
+        if (e.target === this) closeModal('userModal');
+    });
 });
 </script>
 
