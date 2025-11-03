@@ -5,6 +5,8 @@
   "description": "Analyse les intentions des messages pour classification et actions personnalisées",
   "author": "GDR-Innovation",
   "routes": ["/api/analyse"],
-  "dependencies": []
+  "dependencies": [],
+  "requiredServices": [],
+  "compatibleVersion": ">=1.0.0"
 }
 
