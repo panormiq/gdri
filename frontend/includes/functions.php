@@ -60,10 +60,27 @@ function getRootPath() {
 /**
  * Génère une URL complète à partir d'un chemin relatif
  * @param string $path Le chemin relatif
- * @return string L'URL complète
+ * @return string L'URL complète (normalisée)
  */
 function url($path = '') {
-    return getRootPath() . ltrim($path, '/');
+    $baseUrl = getRootPath();
+    $cleanPath = ltrim($path, '/');
+    $finalUrl = $baseUrl . $cleanPath;
+    
+    // Normaliser les slashes multiples (sauf après http:// ou https://)
+    $finalUrl = preg_replace('#(?<!:)/+#', '/', $finalUrl);
+    
+    return $finalUrl;
+}
+
+/**
+ * Retourne l'URL de base de l'API
+ * @return string L'URL de base de l'API
+ */
+if (!function_exists('getApiBaseUrl')) {
+    function getApiBaseUrl() {
+        return defined('API_BASE_URL') ? API_BASE_URL : 'http://localhost:3000/api';
+    }
 }
 
 /**

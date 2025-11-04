@@ -71,9 +71,28 @@ $services = $servicesCollection->find([])->toArray();
                         </p>
                         
                         <div class="module-actions">
-                            <button class="btn btn-outline toggle-module" data-module-id="<?= htmlspecialchars((string) $service['_id']) ?>">
-                                <?= $service['status'] === 'active' ? 'Désactiver' : 'Activer' ?>
-                            </button>
+                            <?php if (stripos($service['name'], 'mail') !== false): ?>
+                                <!-- Liens spécifiques pour le module Mail -->
+                                <div class="module-links">
+                                    <a href="<?= url('pages/modules/mail-config.php') ?>" class="btn btn-primary">
+                                        ⚙️ Configuration
+                                    </a>
+                                    <a href="<?= url('pages/modules/mail-test.php') ?>" class="btn btn-outline">
+                                        🧪 Test
+                                    </a>
+                                </div>
+                            <?php elseif (stripos($service['name'], 'facebook') !== false): ?>
+                                <!-- Lien vers la configuration de l'agent IA pour Facebook -->
+                                <div class="module-links">
+                                    <a href="<?= url('pages/modules/analyse-intention-config.php') ?>" class="btn btn-primary">
+                                        ⚙️ Configurer l'agent IA
+                                    </a>
+                                </div>
+                            <?php else: ?>
+                                <button class="btn btn-outline toggle-module" data-module-id="<?= htmlspecialchars((string) $service['_id']) ?>">
+                                    <?= $service['status'] === 'active' ? 'Désactiver' : 'Activer' ?>
+                                </button>
+                            <?php endif; ?>
                         </div>
                     </div>
                 <?php endforeach; ?>

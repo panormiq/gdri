@@ -1,0 +1,76 @@
+═══════════════════════════════════════════════════════════════
+FIX : Permissions MongoDB pour accès aux bases d'entités
+═══════════════════════════════════════════════════════════════
+
+PROBLÈME ACTUEL :
+L'utilisateur gdri_admin n'a pas les droits pour créer/accéder aux
+bases GDR-ENTITY-*
+
+SOLUTION :
+Donner les permissions globales à gdri_admin
+
+═══════════════════════════════════════════════════════════════
+ÉTAPE 1 : Ouvrir MongoDB Compass ou MongoDB Shell
+═══════════════════════════════════════════════════════════════
+
+Option A - MongoDB Compass :
+1. Ouvrir MongoDB Compass
+2. Se connecter à : mongodb://localhost:27017
+3. Se connecter à la base "admin"
+
+Option B - MongoDB Shell (mongosh) :
+1. Ouvrir PowerShell
+2. Aller dans : C:\Program Files\MongoDB\Server\[version]\bin\
+3. Exécuter : .\mongosh.exe
+
+═══════════════════════════════════════════════════════════════
+ÉTAPE 2 : Exécuter la commande suivante
+═══════════════════════════════════════════════════════════════
+
+use admin
+db.grantRolesToUser("gdri_admin", [ { role: "readWriteAnyDatabase", db: "admin" } ])
+
+═══════════════════════════════════════════════════════════════
+ÉTAPE 3 : Vérifier que ça a fonctionné
+═══════════════════════════════════════════════════════════════
+
+db.getUser("gdri_admin")
+
+Vous devriez voir :
+- roles: [ { role: "readWriteAnyDatabase", db: "admin" } ]
+
+═══════════════════════════════════════════════════════════════
+ÉTAPE 4 : Redémarrer le backend Node.js
+═══════════════════════════════════════════════════════════════
+
+Dans PowerShell :
+npm run dev
+
+═══════════════════════════════════════════════════════════════
+ÉTAPE 5 : Tester
+═══════════════════════════════════════════════════════════════
+
+1. Se reconnecter sur le site (pour rafraîchir la session)
+2. Aller sur : http://localhost/gdri-dev/frontend/pages/modules.php
+3. Cliquer sur "⚙️ Configuration" sur la card Mail
+4. Ça devrait fonctionner !
+
+═══════════════════════════════════════════════════════════════
+ALTERNATIVE (si vous n'avez pas accès MongoDB) :
+═══════════════════════════════════════════════════════════════
+
+En développement local, vous pouvez désactiver temporairement 
+l'authentification MongoDB :
+
+1. Arrêter MongoDB (Services Windows)
+2. Modifier C:\Program Files\MongoDB\Server\[version]\bin\mongod.cfg :
+   Commenter :
+   #security:
+   #  authorization: enabled
+3. Redémarrer MongoDB
+4. Redémarrer le backend Node.js
+
+⚠️ NE JAMAIS FAIRE ÇA EN PRODUCTION !
+
+═══════════════════════════════════════════════════════════════
+

@@ -1,0 +1,16 @@
+NOTRE APPLICATION UTILISE L'AUTORISATION BUSINESS_MANAGEMENT POUR :
+
+1. Recevoir les webhooks en temps réel (commentaires, mentions) pour une réactivité accrue
+2. Analyser automatiquement les intentions des messages (routing intelligent vers SAV, commercial, technique)
+3. Améliorer notre service client grâce à un traitement automatique et une meilleure organisation
+
+VALEUR AJOUTÉE :
+- Réponse en quelques minutes au lieu de plusieurs heures
+- Routing intelligent des messages vers les bons services
+- Statistiques agrégées pour optimiser notre stratégie client
+
+RESPECT DE LA CONFIDENTIALITÉ :
+- Données sécurisées et chiffrées
+- Conformité RGPD
+- Aucun partage avec des tiers
+

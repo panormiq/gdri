@@ -24,7 +24,7 @@
             <div class="footer-section">
                 <h3>Notre adresse</h3>
                 <p class="footer-address">
-                    921 impasse de la grange de rideaux
+                    <?php echo str_replace(', ', '<br>', SITE_ADDRESS); ?>
                 </p>
             </div>
 
@@ -35,6 +35,7 @@
                     <li><a href="<?php echo url('index.php'); ?>">Accueil</a></li>
                     <li><a href="<?php echo url('pages/agents.php'); ?>">Nos Agents</a></li>
                     <li><a href="<?php echo url('pages/contact.php'); ?>">Contact</a></li>
+                    <li><a href="<?php echo url('pages/privacy-policy.php'); ?>">Politique de confidentialité</a></li>
                 </ul>
             </div>
         </div>

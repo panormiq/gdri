@@ -1,0 +1,12 @@
+{
+  "name": "facebook",
+  "displayName": "Module Facebook",
+  "version": "1.0.0",
+  "description": "Récupère et analyse les notifications Facebook via webhooks. Envoie des alertes mail si nécessaire.",
+  "author": "GDR-Innovation",
+  "routes": ["/api/facebook"],
+  "dependencies": [],
+  "requiredServices": ["mail"],
+  "compatibleVersion": ">=1.0.0"
+}
+

@@ -1,0 +1,103 @@
+SCRIPT VIDÉO - DÉMONSTRATION BUSINESS_MANAGEMENT
+================================================
+
+Durée recommandée : 3-5 minutes
+Format : Capture d'écran avec narration
+
+---
+
+PARTIE 1 : PRÉSENTATION (30 secondes)
+--------------------------------------
+
+"Bonjour, je vais vous présenter comment notre application GDRI utilise 
+l'autorisation business_management de Facebook pour améliorer notre service 
+client et notre communication avec nos utilisateurs."
+
+---
+
+PARTIE 2 : CONNEXION À FACEBOOK (1 minute)
+------------------------------------------
+
+[Montrer la connexion à Facebook dans l'application]
+
+"Notre application se connecte à Facebook via l'API Graph pour accéder 
+aux informations de notre Page Facebook. Nous utilisons l'autorisation 
+business_management pour gérer notre Page de manière professionnelle."
+
+---
+
+PARTIE 3 : RÉCEPTION DES WEBHOOKS (1-2 minutes)
+-------------------------------------------------
+
+[Montrer la réception d'un webhook - commentaire ou mention]
+
+"Lorsqu'un utilisateur commente sur notre Page ou nous mentionne, 
+Facebook envoie un webhook à notre serveur. Vous pouvez voir ici 
+que le webhook est bien reçu et traité."
+
+[Exécuter le script test-webhook-video-demo.js]
+
+"Le système détecte automatiquement le commentaire et l'analyse 
+pour déterminer l'intention : s'agit-il d'une demande commerciale, 
+d'un problème SAV, d'une question technique ?"
+
+---
+
+PARTIE 4 : ANALYSE D'INTENTION (1-2 minutes)
+----------------------------------------------
+
+[Montrer l'analyse IA en cours]
+
+"Notre système utilise l'intelligence artificielle pour analyser 
+le message en temps réel. Il détecte plusieurs intentions simultanées 
+si nécessaire, et détermine la priorité de traitement."
+
+[Montrer les résultats de l'analyse]
+
+"Comme vous pouvez le voir, le système a identifié :
+- Une intention principale : [catégorie détectée]
+- Des sous-intentions : [liste]
+- Une priorité : [urgent/medium/low]
+- Des destinataires suggérés : [emails]"
+
+---
+
+PARTIE 5 : GESTION DES ACTIONS (30 secondes)
+---------------------------------------------
+
+[Montrer le tableau de bord ou les logs]
+
+"Grâce à l'autorisation business_management, nous pouvons :
+- Recevoir les webhooks en temps réel
+- Analyser les intentions automatiquement
+- Router les messages vers les bons services
+- Suivre les statistiques de notre Page"
+
+---
+
+PARTIE 6 : CONCLUSION (30 secondes)
+-----------------------------------
+
+"En résumé, l'autorisation business_management nous permet de :
+1. Améliorer notre réactivité client
+2. Automatiser le traitement des messages
+3. Optimiser notre service client
+4. Analyser les tendances de communication
+
+Tout cela dans le respect de la confidentialité et des politiques Facebook."
+
+---
+
+POINTS CLÉS À MONTRER
+---------------------
+
+✓ Démontrer la réception d'un webhook (commentaire ou mention)
+✓ Montrer l'analyse d'intention en temps réel
+✓ Afficher les résultats de l'analyse (catégories, priorités)
+✓ Expliquer comment cela améliore le service client
+✓ Mentionner le respect de la confidentialité
+
+---
+
+FIN DU SCRIPT
+
