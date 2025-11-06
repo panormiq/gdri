@@ -124,17 +124,52 @@ router.get('/test', async (req, res) => {
  */
 router.get('/agent-config', authenticateJWT, async (req, res) => {
   try {
-    // TODO: Récupérer depuis MongoDB
+    const { entity_id } = req.user;
+
+    if (!entity_id) {
+      return res.json({
+        success: true,
+        data: {
+          basePrompt: '',
+          defaultEmail: '',
+          customIntentions: [],
+          smtp_profiles: {}
+        }
+      });
+    }
+
+    // Récupérer depuis MongoDB
+    const configCollection = database.getCollection('analyse_intention_configs');
+    
+    const config = await configCollection.findOne({
+      entity_id: entity_id
+    });
+
+    if (!config || !config.config) {
+      // Pas de configuration sauvegardée, retourner des valeurs vides
+      return res.json({
+        success: true,
+        data: {
+          basePrompt: '',
+          defaultEmail: '',
+          customIntentions: [],
+          smtp_profiles: {}
+        }
+      });
+    }
+
+    // Retourner la configuration sauvegardée
     res.json({
       success: true,
       data: {
-        basePrompt: '',
-        defaultEmail: '',
-        customIntentions: [],
-        smtpSettings: {}
+        basePrompt: config.config.basePrompt || config.config.base_prompt || '',
+        defaultEmail: config.config.defaultEmail || config.config.default_email || '',
+        customIntentions: config.config.customIntentions || config.config.intentions || [],
+        smtp_profiles: config.config.smtp_profiles || config.config.smtpSettings || {}
       }
     });
   } catch (error) {
+    console.error('Erreur récupération config analyse-intention:', error);
     res.status(500).json({
       success: false,
       message: error.message
@@ -147,14 +182,52 @@ router.get('/agent-config', authenticateJWT, async (req, res) => {
  */
 router.post('/agent-config', authenticateJWT, async (req, res) => {
   try {
-    const { basePrompt, defaultEmail, customIntentions, smtpSettings } = req.body;
+    const { entity_id, user_id } = req.user;
+    // Accepter les deux formats (snake_case et camelCase)
+    const basePrompt = req.body.basePrompt || req.body.base_prompt || '';
+    const defaultEmail = req.body.defaultEmail || req.body.default_email || '';
+    const customIntentions = req.body.customIntentions || req.body.intentions || [];
+    const smtp_profiles = req.body.smtp_profiles || req.body.smtpSettings || {};
 
-    // TODO: Sauvegarder dans MongoDB
+    if (!entity_id) {
+      return res.status(400).json({
+        success: false,
+        message: 'entity_id requis. Veuillez d\'abord créer/associer une entité à votre compte.'
+      });
+    }
+
+    // Sauvegarder dans MongoDB
+    const configCollection = database.getCollection('analyse_intention_configs');
+
+    const configToSave = {
+      basePrompt: basePrompt,
+      defaultEmail: defaultEmail,
+      customIntentions: customIntentions,
+      smtp_profiles: smtp_profiles
+    };
+
+    // Sauvegarder/mettre à jour la config
+    await configCollection.updateOne(
+      {
+        entity_id: entity_id
+      },
+      {
+        $set: {
+          entity_id: entity_id,
+          config: configToSave,
+          updated_at: new Date(),
+          updated_by: user_id
+        }
+      },
+      { upsert: true }
+    );
+
     res.json({
       success: true,
-      message: 'Configuration sauvegardée'
+      message: 'Configuration sauvegardée avec succès'
     });
   } catch (error) {
+    console.error('Erreur sauvegarde config analyse-intention:', error);
     res.status(500).json({
       success: false,
       message: error.message

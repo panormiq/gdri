@@ -10,6 +10,7 @@ require_once '../config/config.php';
 require_once '../config/database.php';
 require_once '../auth/session.php';
 require_once '../includes/functions.php';
+require_once '../includes/jwt-helper.php';
 
 // Seul ADMIN_GDRI peut accéder
 if (!hasRole(ROLE_ADMIN_GDRI)) {
@@ -122,7 +123,7 @@ foreach ($allUsers as $user) {
                                         $service = reset($service);
                                         ?>
                                         <?php if ($service): ?>
-                                            <span class="module-badge"><?= htmlspecialchars($service['icon']) ?> <?= htmlspecialchars($service['name']) ?></span>
+                                            <span class="module-badge" data-service-id="<?= htmlspecialchars((string) $serviceId) ?>"><?= htmlspecialchars($service['icon']) ?> <?= htmlspecialchars($service['name']) ?></span>
                                         <?php endif; ?>
                                     <?php endforeach; ?>
                                 </div>
@@ -733,15 +734,137 @@ document.addEventListener('DOMContentLoaded', function() {
         document.getElementById(modalId).style.display = 'none';
     };
     
-    // Ouvrir modal entité
-    document.getElementById('addEntityBtn').addEventListener('click', () => openModal('entityModal'));
-    document.getElementById('closeEntityModal').addEventListener('click', () => closeModal('entityModal'));
-    document.getElementById('cancelEntityForm').addEventListener('click', () => closeModal('entityModal'));
+    // Ouvrir modal entité (nouvelle entité)
+    document.getElementById('addEntityBtn').addEventListener('click', () => {
+        // Réinitialiser le formulaire
+        document.getElementById('entityForm').reset();
+        document.getElementById('entityId').value = '';
+        document.getElementById('modalTitle').textContent = 'Ajouter une entité';
+        
+        // Afficher tous les champs
+        const fieldsToShow = ['entityName', 'entitySiret', 'entityAddress'];
+        fieldsToShow.forEach(fieldId => {
+            const field = document.getElementById(fieldId);
+            if (field) {
+                field.closest('.form-group').style.display = 'block';
+                field.setAttribute('required', 'required');
+            }
+        });
+        
+        // Réinitialiser les modules sélectionnés
+        selectedModules = [];
+        selectOptions.forEach(opt => opt.classList.remove('selected'));
+        updateSelectedModules();
+        selectTrigger.querySelector('.select-placeholder').textContent = 'Rechercher et sélectionner des modules...';
+        
+        openModal('entityModal');
+    });
+    
+    document.getElementById('closeEntityModal').addEventListener('click', () => {
+        // Réafficher tous les champs avant de fermer
+        const fieldsToShow = ['entityName', 'entitySiret', 'entityAddress'];
+        fieldsToShow.forEach(fieldId => {
+            const field = document.getElementById(fieldId);
+            if (field) {
+                field.closest('.form-group').style.display = 'block';
+            }
+        });
+        closeModal('entityModal');
+    });
+    
+    document.getElementById('cancelEntityForm').addEventListener('click', () => {
+        // Réafficher tous les champs avant de fermer
+        const fieldsToShow = ['entityName', 'entitySiret', 'entityAddress'];
+        fieldsToShow.forEach(fieldId => {
+            const field = document.getElementById(fieldId);
+            if (field) {
+                field.closest('.form-group').style.display = 'block';
+            }
+        });
+        closeModal('entityModal');
+    });
     
     // Ouvrir modal utilisateur
     document.getElementById('addUserBtn').addEventListener('click', () => openModal('userModal'));
     document.getElementById('closeUserModal').addEventListener('click', () => closeModal('userModal'));
     document.getElementById('cancelUserForm').addEventListener('click', () => closeModal('userModal'));
+    
+    // Gérer les modules d'une entité
+    document.querySelectorAll('.manage-modules').forEach(btn => {
+        btn.addEventListener('click', function() {
+            const entityId = this.getAttribute('data-entity-id');
+            if (!entityId) return;
+            
+            // Trouver l'entité dans la liste
+            const entityCard = document.querySelector(`[data-entity-id="${entityId}"]`);
+            if (!entityCard) return;
+            
+            // Ouvrir le modal d'entité en mode édition
+            const entityIdInput = document.getElementById('entityId');
+            const modalTitle = document.getElementById('modalTitle');
+            const entityForm = document.getElementById('entityForm');
+            
+            entityIdInput.value = entityId;
+            modalTitle.textContent = 'Gérer les modules de l\'entité';
+            
+            // Masquer les champs non nécessaires pour la gestion des modules
+            const fieldsToHide = ['entityName', 'entitySiret', 'entityAddress'];
+            fieldsToHide.forEach(fieldId => {
+                const field = document.getElementById(fieldId);
+                if (field) {
+                    field.closest('.form-group').style.display = 'none';
+                    field.removeAttribute('required');
+                }
+            });
+            
+            // Ouvrir le modal
+            openModal('entityModal');
+            
+            // Charger les modules autorisés
+            loadEntityModules(entityId);
+        });
+    });
+    
+    // Fonction pour charger les modules d'une entité
+    function loadEntityModules(entityId) {
+        try {
+            // Récupérer l'entité depuis les données PHP déjà chargées
+            const entityCard = document.querySelector(`[data-entity-id="${entityId}"]`);
+            if (!entityCard) return;
+            
+            // Réinitialiser la sélection
+            selectedModules = [];
+            selectOptions.forEach(opt => opt.classList.remove('selected'));
+            
+            // Récupérer les modules autorisés depuis les badges affichés
+            const moduleBadges = entityCard.querySelectorAll('.module-badge[data-service-id]');
+            moduleBadges.forEach(badge => {
+                const serviceId = badge.getAttribute('data-service-id');
+                const serviceText = badge.textContent.trim();
+                
+                // Trouver l'option correspondante et la sélectionner
+                selectOptions.forEach(option => {
+                    if (option.getAttribute('data-value') === serviceId) {
+                        option.classList.add('selected');
+                        selectedModules.push({ value: serviceId, text: serviceText });
+                    }
+                });
+            });
+            
+            // Mettre à jour l'affichage
+            updateSelectedModules();
+            
+            // Mettre à jour le placeholder si des modules sont sélectionnés
+            if (selectedModules.length > 0) {
+                selectTrigger.querySelector('.select-placeholder').textContent = `${selectedModules.length} module(s) sélectionné(s)`;
+            } else {
+                selectTrigger.querySelector('.select-placeholder').textContent = 'Rechercher et sélectionner des modules...';
+            }
+            
+        } catch (error) {
+            console.error('Erreur lors du chargement des modules:', error);
+        }
+    }
     
     // Fermer les modals en cliquant en dehors
     document.getElementById('entityModal').addEventListener('click', function(e) {
@@ -836,6 +959,95 @@ document.addEventListener('DOMContentLoaded', function() {
     document.addEventListener('click', function(e) {
         if (!modulesSelect.contains(e.target)) {
             modulesSelect.classList.remove('active');
+        }
+    });
+    
+    // Gestion de la soumission du formulaire
+    const entityForm = document.getElementById('entityForm');
+    entityForm.addEventListener('submit', async function(e) {
+        e.preventDefault();
+        
+        const entityId = document.getElementById('entityId').value;
+        const formError = document.getElementById('formError');
+        const formSuccess = document.getElementById('formSuccess');
+        
+        // Cacher les messages précédents
+        formError.style.display = 'none';
+        formSuccess.style.display = 'none';
+        
+        try {
+            // Récupérer les modules sélectionnés
+            const servicesAuthorized = selectedModules.map(m => m.value);
+            
+            // Déterminer si on est en mode création ou mise à jour des modules
+            const isUpdateModulesOnly = entityId && document.getElementById('entityName').closest('.form-group').style.display === 'none';
+            
+            let response;
+            
+            if (isUpdateModulesOnly) {
+                // Mise à jour des modules uniquement
+                const apiUrl = '<?php echo getApiBaseUrl(); ?>/entities/' + entityId + '/services';
+                const jwtToken = '<?php echo getJWTToken(); ?>';
+                
+                response = await fetch(apiUrl, {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': 'Bearer ' + jwtToken
+                    },
+                    body: JSON.stringify({
+                        services_authorized: servicesAuthorized
+                    })
+                });
+            } else {
+                // Création d'une nouvelle entité
+                const name = document.getElementById('entityName').value;
+                const siret = document.getElementById('entitySiret').value;
+                const address = document.getElementById('entityAddress').value;
+                
+                if (!name || !siret || !address) {
+                    formError.textContent = 'Veuillez remplir tous les champs requis';
+                    formError.style.display = 'block';
+                    return;
+                }
+                
+                const apiUrl = '<?php echo getApiBaseUrl(); ?>/entities';
+                const jwtToken = '<?php echo getJWTToken(); ?>';
+                
+                response = await fetch(apiUrl, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': 'Bearer ' + jwtToken
+                    },
+                    body: JSON.stringify({
+                        name,
+                        siret,
+                        address,
+                        services_authorized: servicesAuthorized
+                    })
+                });
+            }
+            
+            const data = await response.json();
+            
+            if (!response.ok) {
+                throw new Error(data.message || 'Erreur lors de la sauvegarde');
+            }
+            
+            // Succès
+            formSuccess.textContent = data.message || 'Opération réussie';
+            formSuccess.style.display = 'block';
+            
+            // Recharger la page après 1 seconde
+            setTimeout(() => {
+                window.location.reload();
+            }, 1000);
+            
+        } catch (error) {
+            console.error('Erreur:', error);
+            formError.textContent = error.message || 'Une erreur est survenue';
+            formError.style.display = 'block';
         }
     });
 });

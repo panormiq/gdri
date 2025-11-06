@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Checklist Test Frontend</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .checklist {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+        }
+        .section {
+            margin: 20px 0;
+            padding: 15px;
+            background: #f9f9f9;
+            border-left: 4px solid #007bff;
+        }
+        .section h2 {
+            margin-top: 0;
+            color: #007bff;
+        }
+        .test-item {
+            margin: 10px 0;
+            padding: 10px;
+            background: white;
+            border-radius: 4px;
+        }
+        .test-item label {
+            display: flex;
+            align-items: center;
+            cursor: pointer;
+        }
+        .test-item input[type="checkbox"] {
+            margin-right: 10px;
+            width: 20px;
+            height: 20px;
+        }
+        .url {
+            font-family: monospace;
+            background: #e9ecef;
+            padding: 2px 6px;
+            border-radius: 3px;
+            color: #d63384;
+        }
+        .btn {
+            display: inline-block;
+            padding: 10px 20px;
+            background: #007bff;
+            color: white;
+            text-decoration: none;
+            border-radius: 4px;
+            margin: 10px 5px;
+        }
+        .btn:hover {
+            background: #0056b3;
+        }
+        .summary {
+            margin-top: 30px;
+            padding: 20px;
+            background: #d4edda;
+            border-radius: 4px;
+        }
+    </style>
+</head>
+<body>
+    <div class="checklist">
+        <h1>✅ Checklist Test Frontend</h1>
+        <p>Cochez chaque élément après l'avoir testé</p>
+
+        <div class="section">
+            <h2>1. Tests de base</h2>
+            <div class="test-item">
+                <label>
+                    <input type="checkbox" onchange="updateSummary()">
+                    Page d'accueil s'affiche (<span class="url">index.php</span>)
+                </label>
+            </div>
+            <div class="test-item">
+                <label>
+                    <input type="checkbox" onchange="updateSummary()">
+                    CSS chargé (page stylée, pas brute HTML)
+                </label>
+            </div>
+            <div class="test-item">
+                <label>
+                    <input type="checkbox" onchange="updateSummary()">
+                    JavaScript chargé (pas d'erreurs console F12)
+                </label>
+            </div>
+            <div class="test-item">
+                <label>
+                    <input type="checkbox" onchange="updateSummary()">
+                    Logo/images s'affichent
+                </label>
+            </div>
+        </div>
+
+        <div class="section">
+            <h2>2. Navigation</h2>
+            <div class="test-item">
+                <label>
+                    <input type="checkbox" onchange="updateSummary()">
+                    Tous les liens de navigation fonctionnent
+                </label>
+            </div>
+            <div class="test-item">
+                <label>
+                    <input type="checkbox" onchange="updateSummary()">
+                    Menu mobile fonctionne (si applicable)
+                </label>
+            </div>
+            <div class="test-item">
+                <label>
+                    <input type="checkbox" onchange="updateSummary()">
+                    Footer avec liens fonctionnels
+                </label>
+            </div>
+        </div>
+
+        <div class="section">
+            <h2>3. Pages principales</h2>
+            <div class="test-item">
+                <label>
+                    <input type="checkbox" onchange="updateSummary()">
+                    Dashboard fonctionne
+                </label>
+            </div>
+            <div class="test-item">
+                <label>
+                    <input type="checkbox" onchange="updateSummary()">
+                    Page Modules fonctionne
+                </label>
+            </div>
+            <div class="test-item">
+                <label>
+                    <input type="checkbox" onchange="updateSummary()">
+                    Page Agents fonctionne
+                </label>
+            </div>
+            <div class="test-item">
+                <label>
+                    <input type="checkbox" onchange="updateSummary()">
+                    Page Contact fonctionne
+                </label>
+            </div>
+        </div>
+
+        <div class="section">
+            <h2>4. Configuration</h2>
+            <div class="test-item">
+                <label>
+                    <input type="checkbox" onchange="updateSummary()">
+                    Page Mail Config accessible
+                </label>
+            </div>
+            <div class="test-item">
+                <label>
+                    <input type="checkbox" onchange="updateSummary()">
+                    Page Analyse Intention Config accessible
+                </label>
+            </div>
+            <div class="test-item">
+                <label>
+                    <input type="checkbox" onchange="updateSummary()">
+                    Formulaires de configuration fonctionnent
+                </label>
+            </div>
+        </div>
+
+        <div class="section">
+            <h2>5. Console navigateur (F12)</h2>
+            <div class="test-item">
+                <label>
+                    <input type="checkbox" onchange="updateSummary()">
+                    Pas d'erreurs en rouge dans la console
+                </label>
+            </div>
+            <div class="test-item">
+                <label>
+                    <input type="checkbox" onchange="updateSummary()">
+                    Onglet Network: tous les CSS chargent (200)
+                </label>
+            </div>
+            <div class="test-item">
+                <label>
+                    <input type="checkbox" onchange="updateSummary()">
+                    Onglet Network: tous les JS chargent (200)
+                </label>
+            </div>
+            <div class="test-item">
+                <label>
+                    <input type="checkbox" onchange="updateSummary()">
+                    Pas de 404 (fichiers non trouvés)
+                </label>
+            </div>
+        </div>
+
+        <div class="section">
+            <h2>6. URLs</h2>
+            <div class="test-item">
+                <label>
+                    <input type="checkbox" onchange="updateSummary()">
+                    Test URLs: BASE_URL correct (<span class="url">/gdri/frontend/</span>)
+                </label>
+            </div>
+            <div class="test-item">
+                <label>
+                    <input type="checkbox" onchange="updateSummary()">
+                    URLs CSS correctes (<span class="url">/gdri/frontend/assets/css/...</span>)
+                </label>
+            </div>
+        </div>
+
+        <div class="summary" id="summary">
+            <h3>Résumé</h3>
+            <p id="summaryText">Cochez les éléments ci-dessus pour voir le résumé</p>
+            <a href="test-urls.php" class="btn">Tester les URLs</a>
+            <a href="index.php" class="btn">Retour à l'accueil</a>
+        </div>
+    </div>
+
+    <script>
+        function updateSummary() {
+            const checkboxes = document.querySelectorAll('input[type="checkbox"]');
+            const checked = Array.from(checkboxes).filter(cb => cb.checked);
+            const total = checkboxes.length;
+            const percentage = Math.round((checked.length / total) * 100);
+
+            const summaryText = document.getElementById('summaryText');
+            
+            if (checked.length === total) {
+                summaryText.innerHTML = `✅ <strong>Tous les tests sont passés!</strong> (${checked.length}/${total})<br>Vous pouvez merger dans master.`;
+                summaryText.parentElement.style.background = '#d4edda';
+            } else if (checked.length > 0) {
+                summaryText.innerHTML = `📊 Progression: ${checked.length}/${total} tests (${percentage}%)`;
+                summaryText.parentElement.style.background = '#fff3cd';
+            } else {
+                summaryText.innerHTML = `Commencez à cocher les tests ci-dessus`;
+                summaryText.parentElement.style.background = '#f8f9fa';
+            }
+        }
+    </script>
+</body>
+</html>
+

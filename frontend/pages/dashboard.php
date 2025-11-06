@@ -9,6 +9,7 @@
 require_once '../config/config.php';
 require_once '../auth/session.php';
 require_once '../includes/functions.php';
+require_once '../includes/jwt-helper.php';
 
 // Vérifier si l'utilisateur est connecté
 if (!isLoggedIn()) {
@@ -19,6 +20,10 @@ $page_title = 'Dashboard';
 $userRole = getUserRole();
 
 require_once '../includes/header.php';
+
+// Token JWT pour les appels API
+$jwt_token = getJWTToken();
+$api_base_url = getApiBaseUrl();
 ?>
 
 <!-- Section Hero -->
@@ -214,6 +219,28 @@ require_once '../includes/header.php';
         </div>
     </div>
 </section>
+
+<!-- Modal de configuration des services -->
+<?php require_once '../includes/modals/service-setup-modal.php'; ?>
+
+<!-- Scripts -->
+<script>
+    // Variables globales pour le modal
+    window.API_BASE_URL = '<?php echo $api_base_url; ?>';
+    window.JWT_TOKEN = '<?php echo $jwt_token; ?>';
+</script>
+<script src="<?php echo url('assets/js/service-setup-modal.js'); ?>"></script>
+<script>
+    // Vérifier et afficher le modal au chargement de la page
+    document.addEventListener('DOMContentLoaded', function() {
+        // Attendre que le modal soit initialisé
+        setTimeout(() => {
+            if (window.serviceSetupModal) {
+                window.serviceSetupModal.show();
+            }
+        }, 500); // Petit délai pour s'assurer que tout est chargé
+    });
+</script>
 
 <?php require_once '../includes/footer.php'; ?>
 

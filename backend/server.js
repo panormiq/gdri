@@ -27,6 +27,14 @@ app.get('/api/health', (req, res) => {
   });
 });
 
+// Routes globales pour la gestion des configurations de services
+const serviceConfigRoutes = require('./routes/service-config');
+app.use('/api/services', serviceConfigRoutes);
+
+// Routes globales pour la gestion des entités
+const entitiesRoutes = require('./routes/entities');
+app.use('/api/entities', entitiesRoutes);
+
 /**
  * Point d'entrée principal
  */

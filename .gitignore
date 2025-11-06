@@ -1,26 +1,41 @@
 # Dépendances
-/vendor/
-composer.phar
+node_modules/
+vendor/
+frontend/vendor/
 
-# Fichiers de configuration sensibles
-config/local.php
+# Fichiers de configuration locaux
 .env
+.env.local
+*.env.local
+
+# Fichiers de cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+
+# Bases de données locales
+*.db
+*.sqlite
+*.sqlite3
+app.db
+backendIA/app.db
 
 # Logs
 *.log
-/logs/
+logs/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
 
-# Fichiers temporaires
-*.tmp
-*.temp
+# Fichiers système
+.DS_Store
+Thumbs.db
 *.swp
 *.swo
 *~
-
-# OS
-.DS_Store
-Thumbs.db
-desktop.ini
 
 # IDE
 .vscode/
@@ -28,28 +43,16 @@ desktop.ini
 *.sublime-project
 *.sublime-workspace
 
-# Installation
-install/db-initialized.lock
+# Fichiers temporaires
+*.tmp
+*.temp
+test-urls.php
 
-# Node modules
-node_modules/
-package-lock.json
+# Certificats SSL (à ne pas commiter)
+ssl-certs/*.key
+ssl-certs/*.crt
+ssl-certs/*.pem
 
-# Nodemon
-nodemon.json
-
-# SSL certificates
-ssl-certs/
-
-# Fichiers de test
-test-acme.txt
-
-# Images uploadées (garder le dossier mais pas les images)
-# Décommenter si nécessaire
-# assets/images/*
-# !assets/images/.gitkeep
-
-
-
-
-
+# Fichiers de build
+dist/
+build/

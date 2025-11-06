@@ -31,6 +31,9 @@ $userRole = getUserRole();
     <script>
         // Configuration globale pour JavaScript
         window.BASE_URL = '<?php echo defined('BASE_URL') ? BASE_URL : '/'; ?>';
+        <?php if (isLoggedIn()): ?>
+        window.API_BASE_URL = '<?php echo defined('API_BASE_URL') ? API_BASE_URL : 'http://localhost:3000/api'; ?>';
+        <?php endif; ?>
     </script>
 </head>
 <body>
@@ -88,6 +91,23 @@ $userRole = getUserRole();
 
     <!-- Espace pour le header fixe -->
     <div style="height: var(--header-height);"></div>
+
+    <!-- Bandeau de développement (visible uniquement en mode dev) -->
+    <?php if (ENVIRONMENT === 'development'): ?>
+    <div class="dev-banner" style="background: linear-gradient(135deg, #ffc107 0%, #ff9800 100%); color: #000; padding: 8px 0; text-align: center; font-size: 0.9rem; font-weight: 600; box-shadow: 0 2px 4px rgba(0,0,0,0.1); position: relative; z-index: 999;">
+        <div class="container" style="display: flex; align-items: center; justify-content: center; gap: 10px;">
+            <span style="font-size: 1.2rem;">🛠️</span>
+            <span>Mode Développement - Branche: <?php 
+                try {
+                    $gitBranch = @shell_exec('git rev-parse --abbrev-ref HEAD 2>nul');
+                    echo htmlspecialchars(trim($gitBranch) ?: 'non détecté');
+                } catch (Exception $e) {
+                    echo 'non détecté';
+                }
+            ?></span>
+        </div>
+    </div>
+    <?php endif; ?>
 
 <?php if (!$isLoggedIn): ?>
 <!-- Modal de connexion -->
