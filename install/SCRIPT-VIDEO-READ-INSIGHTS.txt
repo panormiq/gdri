@@ -1,0 +1,96 @@
+SCRIPT VIDÉO - DÉMONSTRATION READ_INSIGHTS
+===========================================
+
+Durée recommandée : 2-3 minutes
+Format : Capture d'écran avec narration
+
+---
+
+PARTIE 1 : PRÉSENTATION (30 secondes)
+--------------------------------------
+
+"Bonjour, je vais vous présenter comment notre application GDRI utilise 
+l'autorisation read_insights de Facebook pour analyser les statistiques 
+de notre Page et optimiser notre stratégie client."
+
+---
+
+PARTIE 2 : CONNEXION À L'API GRAPH (30 secondes)
+-------------------------------------------------
+
+[Montrer l'appel à l'API Graph Facebook]
+
+"Notre application se connecte à l'API Graph Facebook avec l'autorisation 
+read_insights pour accéder aux statistiques agrégées de notre Page."
+
+---
+
+PARTIE 3 : AFFICHAGE DES INSIGHTS (1 minute)
+---------------------------------------------
+
+[Exécuter le script test-read-insights.js]
+
+"Comme vous pouvez le voir, nous récupérons plusieurs métriques importantes :
+- Le nombre total de fans de la Page
+- Le taux d'engagement (utilisateurs qui interagissent)
+- Le nombre d'engagements par publication
+- Les messages reçus
+- Les retours négatifs"
+
+[Montrer les résultats affichés]
+
+---
+
+PARTIE 4 : ANALYSE DES TENDANCES (1 minute)
+---------------------------------------------
+
+[Montrer l'analyse automatique]
+
+"Notre système analyse automatiquement ces données pour identifier des tendances :
+- Si le taux d'engagement est élevé, cela signifie que notre communauté est active
+- Si le taux de retours négatifs est faible, notre contenu est bien reçu
+- Le volume de messages nous aide à dimensionner notre système d'analyse automatique"
+
+[Montrer les recommandations]
+
+"Grâce à ces insights, nous pouvons :
+- Optimiser notre stratégie de contenu
+- Améliorer notre réactivité client
+- Identifier les meilleurs moments pour publier"
+
+---
+
+PARTIE 5 : RESPECT DE LA CONFIDENTIALITÉ (30 secondes)
+-------------------------------------------------------
+
+"Important : nous utilisons uniquement des données agrégées et anonymisées.
+Aucune donnée personnelle identifiante n'est utilisée, conformément aux 
+politiques Facebook et au RGPD."
+
+---
+
+PARTIE 6 : CONCLUSION (30 secondes)
+-----------------------------------
+
+"En résumé, l'autorisation read_insights nous permet de :
+1. Analyser les tendances de notre Page
+2. Optimiser notre stratégie client
+3. Améliorer notre service grâce aux données agrégées
+4. Respecter la confidentialité des utilisateurs"
+
+---
+
+POINTS CLÉS À MONTRER
+---------------------
+
+✓ Démontrer l'accès aux insights via l'API Graph
+✓ Afficher les métriques récupérées
+✓ Montrer l'analyse automatique des tendances
+✓ Expliquer comment cela améliore le service
+✓ Insister sur l'utilisation de données agrégées uniquement
+✓ Mentionner le respect de la confidentialité
+
+---
+
+FIN DU SCRIPT
+

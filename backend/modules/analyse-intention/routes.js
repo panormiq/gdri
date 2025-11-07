@@ -16,9 +16,10 @@ let aiService = null;
 
 function getAIService() {
   if (!aiService) {
+    // Appel direct à Ollama (plus de backendIA)
     aiService = new AIService({
-      backendIAUrl: process.env.BACKENDIA_URL || 'http://localhost:8000',
-      appToken: process.env.BACKENDIA_APP_TOKEN || 'dev-token-123456789-quick-access'
+      ollamaUrl: process.env.OLLAMA_URL || 'http://localhost:11434',
+      model: process.env.OLLAMA_MODEL || 'mistral:latest'
     });
   }
   return aiService;
@@ -69,6 +70,18 @@ router.post('/', async (req, res) => {
       message: error.message
     });
   }
+});
+
+/**
+ * GET /api/analyse - Test simple pour vérifier que les routes sont chargées
+ */
+router.get('/', (req, res) => {
+  console.log('✅ Route /api/analyse/ testée - Module fonctionne !');
+  res.json({
+    success: true,
+    message: 'Module analyse-intention fonctionne',
+    routes: ['/config', '/test', '/agent-config']
+  });
 });
 
 /**
@@ -124,6 +137,9 @@ router.get('/test', async (req, res) => {
  */
 router.get('/agent-config', authenticateJWT, async (req, res) => {
   try {
+    console.log('📥 GET /api/analyse/agent-config - Requête reçue');
+    console.log('👤 User:', req.user ? { entity_id: req.user.entity_id, role: req.user.role } : 'Non authentifié');
+    
     const { entity_id } = req.user;
 
     if (!entity_id) {

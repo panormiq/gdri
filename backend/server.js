@@ -23,8 +23,15 @@ app.get('/api/health', (req, res) => {
   res.json({ 
     status: 'ok', 
     timestamp: new Date().toISOString(),
-    modules: moduleRegistry.getModules().length
+    modules: moduleRegistry.getModules().length,
+    loadedModules: moduleRegistry.getModules().filter(m => m.loaded).map(m => m.name)
   });
+});
+
+// Middleware de logging pour toutes les requêtes API
+app.use('/api', (req, res, next) => {
+  console.log(`📥 ${req.method} ${req.path} - Origin: ${req.headers.origin || 'N/A'}`);
+  next();
 });
 
 // Routes globales pour la gestion des configurations de services

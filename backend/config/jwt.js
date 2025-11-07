@@ -30,10 +30,13 @@ function verifyToken(token) {
  * @param {Function} next - Middleware suivant
  */
 function authenticateJWT(req, res, next) {
+  console.log('🔐 authenticateJWT - Route:', req.path, req.method);
+  
   // Récupérer le token depuis le header Authorization
   const authHeader = req.headers.authorization;
   
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    console.log('❌ authenticateJWT - Token manquant');
     return res.status(401).json({
       success: false,
       message: 'Token manquant ou invalide'
@@ -44,11 +47,14 @@ function authenticateJWT(req, res, next) {
   const decoded = verifyToken(token);
 
   if (!decoded) {
+    console.log('❌ authenticateJWT - Token invalide');
     return res.status(401).json({
       success: false,
       message: 'Token invalide ou expiré'
     });
   }
+  
+  console.log('✅ authenticateJWT - Token valide pour:', decoded.email);
 
   // Ajouter les infos utilisateur à la requête
   req.user = {

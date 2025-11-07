@@ -6,7 +6,7 @@
 module.exports = {
   // Configuration serveur
   port: process.env.PORT || 3000,
-  host: process.env.HOST || 'localhost',
+  host: process.env.HOST || '0.0.0.0', // 0.0.0.0 pour être accessible depuis Apache
   
   // Configuration MongoDB
   mongo: {

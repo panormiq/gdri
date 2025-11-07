@@ -305,6 +305,10 @@ Pour chaque intention détectée, indiquez :
 const API_BASE_URL = '<?= $api_base_url ?>';
 const JWT_TOKEN = '<?= $jwt_token ?>';
 
+// Debug : afficher l'URL de l'API au chargement
+console.log('🌐 Configuration Agent Facebook - API_BASE_URL:', API_BASE_URL);
+console.log('🔑 JWT_TOKEN présent:', JWT_TOKEN ? 'Oui (' + JWT_TOKEN.substring(0, 20) + '...)' : 'Non');
+
 let intentions = []; // Tableau pour stocker les intentions
 let smtpProfiles = []; // Tableau pour stocker les profils SMTP
 let editingIntentionIndex = null;
@@ -878,11 +882,22 @@ async function loadDefaultMailSmtp() {
 // Charger la configuration
 document.getElementById('loadConfigBtn').addEventListener('click', async () => {
     try {
+        console.log('🔍 Chargement config - URL:', `${API_BASE_URL}/analyse/agent-config`);
+        console.log('🔍 Token JWT présent:', JWT_TOKEN ? 'Oui' : 'Non');
+        
         const response = await fetch(`${API_BASE_URL}/analyse/agent-config`, {
             headers: {
                 'Authorization': `Bearer ${JWT_TOKEN}`
             }
         });
+        
+        console.log('📡 Réponse reçue - Status:', response.status, response.statusText);
+        
+        if (!response.ok) {
+            const errorText = await response.text();
+            console.error('❌ Erreur HTTP:', response.status, errorText);
+            throw new Error(`Erreur ${response.status}: ${errorText}`);
+        }
         
         const data = await response.json();
         

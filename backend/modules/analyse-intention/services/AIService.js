@@ -1,5 +1,5 @@
 /**
- * Service pour l'interaction avec le backendIA (Python/Ollama)
+ * Service pour l'interaction directe avec Ollama (sans backendIA)
  * Fichier : backend/modules/analyse-intention/services/AIService.js
  */
 
@@ -8,68 +8,88 @@ const https = require('https');
 
 class AIService {
   constructor(config = {}) {
-    this.backendIAUrl = config.backendIAUrl || process.env.BACKENDIA_URL || 'http://localhost:8000';
-    this.appToken = config.appToken || process.env.BACKENDIA_APP_TOKEN || 'dev-token-123456789-quick-access';
-    this.timeout = config.timeout || 300000; // 5 minutes par défaut (augmenté pour l'analyse IA)
+    // Appel direct à Ollama (plus de backendIA)
+    this.ollamaUrl = config.ollamaUrl || process.env.OLLAMA_URL || 'http://localhost:11434';
+    this.model = config.model || process.env.OLLAMA_MODEL || 'mistral:latest';
+    this.timeout = config.timeout || 300000; // 5 minutes par défaut
   }
 
   /**
-   * Envoyer un prompt d'analyse au backendIA
+   * Envoyer un prompt d'analyse directement à Ollama avec streaming
    * @param {string} prompt - Le prompt à envoyer
    * @param {object} options - Options supplémentaires (model, temperature, etc.)
-   * @returns {Promise<object>} Réponse du backendIA
+   * @returns {Promise<object>} Réponse d'Ollama
    */
   async sendAnalysisPrompt(prompt, options = {}) {
     try {
+      const model = options.model || this.model;
+      console.log(`  🔗 Connexion directe à Ollama: ${this.ollamaUrl}/api/generate`);
+      console.log(`  🤖 Modèle: ${model}`);
+      console.log(`  📝 Longueur du prompt: ${prompt.length} caractères`);
+      console.log(`  📡 Mode: Streaming activé`);
+      
       const requestBody = {
+        model: model,
         prompt: prompt,
-        model: options.model || null, // null = utilise le modèle par défaut du backendIA
-        stream: false, // Pour l'analyse, on ne veut pas de streaming
-        temperature: options.temperature || 0.7,
-        max_tokens: options.max_tokens || null,
-        top_p: options.top_p || null,
-        top_k: options.top_k || null
+        stream: true, // Streaming activé pour voir la progression
+        options: {}
       };
 
-      // Supprimer les valeurs null
-      Object.keys(requestBody).forEach(key => {
-        if (requestBody[key] === null) {
-          delete requestBody[key];
-        }
-      });
+      // Ajouter les options Ollama
+      if (options.temperature !== undefined) {
+        requestBody.options.temperature = options.temperature;
+      }
+      if (options.max_tokens !== undefined) {
+        requestBody.options.num_predict = options.max_tokens;
+      }
+      if (options.top_p !== undefined) {
+        requestBody.options.top_p = options.top_p;
+      }
+      if (options.top_k !== undefined) {
+        requestBody.options.top_k = options.top_k;
+      }
 
-      // Faire l'appel HTTP au backendIA
-      const response = await this.makeRequest('/api/prompt', {
+      const startTime = Date.now();
+      console.log(`  ⏳ Envoi de la requête à Ollama... (timeout: ${this.timeout}ms)`);
+      console.log('');
+      
+      // Faire l'appel HTTP direct à Ollama avec streaming
+      const response = await this.makeStreamingRequest('/api/generate', {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${this.appToken}`
+          'Content-Type': 'application/json'
         },
         body: JSON.stringify(requestBody)
+      }, (chunk) => {
+        // Callback pour afficher la progression
+        if (chunk.response) {
+          process.stdout.write(chunk.response);
+        }
       });
-
-      // Parser la réponse
-      const responseData = JSON.parse(response);
+      
+      const duration = ((Date.now() - startTime) / 1000).toFixed(2);
+      console.log('');
+      console.log(`  ⏱️  Réponse complète reçue d'Ollama en ${duration}s`);
 
       // Retourner au format attendu par IntentionService
       return {
         success: true,
         data: {
-          response: responseData.response || responseData.data?.response || '',
-          model: responseData.model || 'mistral:latest',
-          processing_time: responseData.processing_time || null,
-          created_at: responseData.created_at || new Date().toISOString()
+          response: response.fullResponse,
+          model: response.model || model,
+          processing_time: duration,
+          created_at: new Date().toISOString()
         }
       };
 
     } catch (error) {
-      console.error('Erreur AIService.sendAnalysisPrompt:', error);
-      console.error('Détails:', error.details || error.response || error.message);
+      console.error('  ❌ Erreur AIService.sendAnalysisPrompt:', error);
+      console.error('  Détails:', error.details || error.response || error.message);
       
       return {
         success: false,
         error: {
-          message: error.message || 'Erreur lors de l\'appel au backendIA',
+          message: error.message || 'Erreur lors de l\'appel à Ollama',
           details: error.details || error.response || 'Aucun détail disponible',
           statusCode: error.statusCode || null
         }
@@ -78,45 +98,55 @@ class AIService {
   }
 
   /**
-   * Tester la connexion au backendIA
+   * Tester la connexion à Ollama
    * @returns {Promise<object>} Résultat du test
    */
   async testConnection() {
     try {
-      const response = await this.makeRequest('/health', {
-        method: 'GET',
+      // Tester avec un prompt simple
+      const testResponse = await this.makeStreamingRequest('/api/generate', {
+        method: 'POST',
         headers: {
-          'Authorization': `Bearer ${this.appToken}`
-        }
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          model: this.model,
+          prompt: 'Test',
+          stream: false
+        })
       });
 
       return {
         success: true,
-        message: 'Connexion au backendIA réussie',
-        data: JSON.parse(response)
+        message: 'Connexion à Ollama réussie',
+        data: {
+          model: this.model,
+          ollama_url: this.ollamaUrl
+        }
       };
     } catch (error) {
       return {
         success: false,
-        message: 'Impossible de se connecter au backendIA',
+        message: 'Impossible de se connecter à Ollama',
         error: {
           message: error.message,
           statusCode: error.statusCode || null,
-          details: error.details || 'Vérifiez que le backendIA est démarré'
+          details: error.details || 'Vérifiez qu\'Ollama est démarré (ollama serve)'
         }
       };
     }
   }
 
   /**
-   * Faire une requête HTTP au backendIA
+   * Faire une requête HTTP avec streaming à Ollama
    * @param {string} path - Chemin de l'endpoint
    * @param {object} options - Options de la requête (method, headers, body)
-   * @returns {Promise<string>} Réponse du serveur
+   * @param {function} onChunk - Callback appelé pour chaque chunk reçu
+   * @returns {Promise<object>} Réponse complète avec fullResponse et model
    */
-  makeRequest(path, options = {}) {
+  makeStreamingRequest(path, options = {}, onChunk = null) {
     return new Promise((resolve, reject) => {
-      const url = new URL(path, this.backendIAUrl);
+      const url = new URL(path, this.ollamaUrl);
       const isHttps = url.protocol === 'https:';
       const httpModule = isHttps ? https : http;
 
@@ -129,28 +159,91 @@ class AIService {
         timeout: this.timeout
       };
 
+      let fullResponse = '';
+      let model = null;
+      let buffer = '';
+
       const req = httpModule.request(requestOptions, (res) => {
-        let data = '';
+        if (res.statusCode < 200 || res.statusCode >= 300) {
+          let errorData = '';
+          res.on('data', (chunk) => { errorData += chunk; });
+          res.on('end', () => {
+            const error = new Error(`HTTP ${res.statusCode}: ${res.statusMessage}`);
+            error.statusCode = res.statusCode;
+            error.response = errorData;
+            try {
+              const parsed = JSON.parse(errorData);
+              error.details = parsed.detail || parsed.message || errorData;
+            } catch (e) {
+              error.details = errorData;
+            }
+            reject(error);
+          });
+          return;
+        }
 
         res.on('data', (chunk) => {
-          data += chunk;
+          buffer += chunk.toString();
+          
+          // Parser les lignes JSON (Ollama envoie une ligne JSON par chunk)
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || ''; // Garder la dernière ligne incomplète dans le buffer
+          
+          for (const line of lines) {
+            if (line.trim()) {
+              try {
+                const data = JSON.parse(line);
+                
+                // Accumuler la réponse
+                if (data.response) {
+                  fullResponse += data.response;
+                  
+                  // Appeler le callback si fourni
+                  if (onChunk && typeof onChunk === 'function') {
+                    onChunk(data);
+                  }
+                }
+                
+                // Récupérer le modèle
+                if (data.model) {
+                  model = data.model;
+                }
+                
+                // Si done=true, on a fini
+                if (data.done) {
+                  break;
+                }
+              } catch (e) {
+                // Ignorer les lignes non-JSON valides
+                continue;
+              }
+            }
+          }
         });
 
         res.on('end', () => {
-          if (res.statusCode >= 200 && res.statusCode < 300) {
-            resolve(data);
-          } else {
-            const error = new Error(`HTTP ${res.statusCode}: ${res.statusMessage}`);
-            error.statusCode = res.statusCode;
-            error.response = data;
+          // Traiter le dernier buffer s'il reste quelque chose
+          if (buffer.trim()) {
             try {
-              const parsed = JSON.parse(data);
-              error.details = parsed.detail || parsed.message || data;
+              const data = JSON.parse(buffer);
+              if (data.response) {
+                fullResponse += data.response;
+                if (onChunk && typeof onChunk === 'function') {
+                  onChunk(data);
+                }
+              }
+              if (data.model) {
+                model = data.model;
+              }
             } catch (e) {
-              error.details = data;
+              // Ignorer si ce n'est pas du JSON valide
             }
-            reject(error);
           }
+          
+          resolve({
+            fullResponse: fullResponse,
+            model: model || this.model
+          });
         });
       });
 
