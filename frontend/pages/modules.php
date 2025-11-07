@@ -24,6 +24,35 @@ require_once '../includes/header.php';
 $db = getDatabase();
 $servicesCollection = $db->services;
 $services = $servicesCollection->find([])->toArray();
+
+// Supprimer les doublons éventuels (même slug ou même nom)
+$uniqueServices = [];
+foreach ($services as $service) {
+    $key = null;
+    if (isset($service['slug']) && $service['slug']) {
+        $key = strtolower(trim($service['slug']));
+    } elseif (isset($service['name'])) {
+        $key = strtolower(trim(preg_replace('/\s+/', '-', $service['name'])));
+    }
+
+    if ($key === null) {
+        $uniqueServices[] = $service;
+        continue;
+    }
+
+    if (!isset($uniqueServices[$key])) {
+        $uniqueServices[$key] = $service;
+    } else {
+        // Préférer un service actif si doublon
+        $currentStatus = isset($uniqueServices[$key]['status']) ? $uniqueServices[$key]['status'] : '';
+        $newStatus = isset($service['status']) ? $service['status'] : '';
+        if ($newStatus === 'active' && $currentStatus !== 'active') {
+            $uniqueServices[$key] = $service;
+        }
+    }
+}
+
+$services = array_values($uniqueServices);
 ?>
 
 <!-- Section Hero -->
@@ -86,6 +115,12 @@ $services = $servicesCollection->find([])->toArray();
                                 <div class="module-links">
                                     <a href="<?= url('pages/modules/analyse-intention-config.php') ?>" class="btn btn-primary">
                                         ⚙️ Configurer l'agent IA
+                                    </a>
+                                </div>
+                            <?php elseif (stripos($service['name'], 'document') !== false): ?>
+                                <div class="module-links">
+                                    <a href="<?= url('pages/modules/document-agent.php') ?>" class="btn btn-primary">
+                                        📄 Utiliser le module
                                     </a>
                                 </div>
                             <?php else: ?>
