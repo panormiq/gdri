@@ -119,7 +119,7 @@ $services = array_values($uniqueServices);
                                 </div>
                             <?php elseif (stripos($service['name'], 'document') !== false): ?>
                                 <div class="module-links">
-                                    <a href="<?= url('pages/modules/document-agent.php') ?>" class="btn btn-primary">
+                                    <a href="<?= url('pages/modules/document-agent/index.php') ?>" class="btn btn-primary">
                                         📄 Utiliser le module
                                     </a>
                                 </div>
