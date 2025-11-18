@@ -72,69 +72,52 @@ define('SITE_SIRET', '800944 407');
  * Fonctionne en localhost et en production sans modification
  */
 function getBaseUrl() {
-    // Utiliser ENVIRONMENT pour déterminer le mode
-    // Si ENVIRONMENT = 'production', on force le mode production
-    // Sinon, on détecte automatiquement selon HTTP_HOST
-    
     $forceProduction = (ENVIRONMENT === 'production');
-    
-    // Détecter si on est en localhost ou en production
-    $isLocalhost = (
-        !$forceProduction && // Si on force la prod, on ignore la détection
-        isset($_SERVER['HTTP_HOST']) && 
-        ($_SERVER['HTTP_HOST'] === 'localhost' || 
-         $_SERVER['HTTP_HOST'] === '127.0.0.1' ||
-         strpos($_SERVER['HTTP_HOST'], 'localhost') !== false ||
-         strpos($_SERVER['HTTP_HOST'], '127.0.0.1') !== false)
-    );
-    
-    // Toujours utiliser SCRIPT_NAME pour extraire le chemin
+    $host = $_SERVER['HTTP_HOST'] ?? '';
     $scriptName = $_SERVER['SCRIPT_NAME'] ?? '/index.php';
-    
-    // Extraire le chemin jusqu'à "frontend"
-    $pathParts = array_filter(explode('/', $scriptName));
-    $pathParts = array_values($pathParts); // Réindexer
-    
-    $frontendPos = array_search('frontend', $pathParts);
-    
-    if ($frontendPos !== false) {
-        // Reconstruire le chemin jusqu'à frontend inclus
-        // Exemple: /gdri/frontend/ ou /frontend/
-        $baseParts = array_slice($pathParts, 0, $frontendPos + 1);
-        $basePath = '/' . implode('/', $baseParts) . '/';
-    } else {
-        // Si "frontend" n'est pas trouvé dans le chemin
-        if ($isLocalhost) {
-            // En localhost, chercher "gdri"
-            $gdriPos = array_search('gdri', $pathParts);
-            if ($gdriPos !== false) {
-                $basePath = '/gdri/frontend/';
-            } else {
-                $basePath = '/frontend/';
-            }
+
+    // Déterminer si le script courant est déjà servi depuis /frontend/
+    $servesFromFrontend = (strpos($scriptName, '/frontend/') !== false);
+
+    // Détecter les contextes localhost
+    $isLocalhost = (
+        isset($_SERVER['HTTP_HOST']) &&
+        (
+            $_SERVER['HTTP_HOST'] === 'localhost' ||
+            $_SERVER['HTTP_HOST'] === '127.0.0.1' ||
+            strpos($_SERVER['HTTP_HOST'], 'localhost') !== false ||
+            strpos($_SERVER['HTTP_HOST'], '127.0.0.1') !== false
+        )
+    );
+
+    // 1. Cas localhost (avec /gdri/ éventuel)
+    if (!$forceProduction && $isLocalhost) {
+        $pathParts = array_values(array_filter(explode('/', $scriptName)));
+        $frontendPos = array_search('frontend', $pathParts);
+
+        if ($frontendPos !== false) {
+            $baseParts = array_slice($pathParts, 0, $frontendPos + 1);
+            $basePath = '/' . implode('/', $baseParts) . '/';
+        } elseif (array_search('gdri', $pathParts) !== false) {
+            $basePath = '/gdri/frontend/';
         } else {
-            // En production, détecter selon HTTP_HOST
-            $host = $_SERVER['HTTP_HOST'] ?? '';
-            if (strpos($host, 'gdri.fr') !== false || strpos($host, 'gdr-innovation.fr') !== false) {
-                // En production, les fichiers peuvent être à la racine ou dans /frontend/
-                // On essaie de détecter depuis le chemin du script
-                if (strpos($scriptName, '/frontend/') !== false) {
-                    $basePath = '/frontend/';
-                } else {
-                    // Si le script est à la racine, les assets sont peut-être aussi à la racine
-                    $basePath = '/';
-                }
-            } else {
-                // Fallback: utiliser /frontend/
-                $basePath = '/frontend/';
-            }
+            $basePath = '/frontend/';
         }
     }
-    
-    // Normaliser les slashes multiples
-    $basePath = preg_replace('#(?<!:)/+#', '/', $basePath);
-    
-    return $basePath;
+    // 2. Cas production : on force /frontend/ pour servir les assets
+    elseif (
+        $forceProduction ||
+        strpos($host, 'gdri.fr') !== false ||
+        strpos($host, 'gdr-innovation.fr') !== false
+    ) {
+        $basePath = $servesFromFrontend ? '/frontend/' : '/frontend/';
+    }
+    // 3. Fallback : utiliser /frontend/
+    else {
+        $basePath = '/frontend/';
+    }
+
+    return preg_replace('#(?<!:)/+#', '/', $basePath);
 }
 
 /**
