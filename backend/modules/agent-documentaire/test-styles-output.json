@@ -1,0 +1,83 @@
+{
+  "Normal": {
+    "id": "Normal",
+    "name": "Normal",
+    "type": "paragraph",
+    "paragraph": {
+      "alignment": "left",
+      "spacing": {
+        "before": 0,
+        "after": 0,
+        "line": 1.15
+      },
+      "indentation": {
+        "left": 0,
+        "right": 0,
+        "firstLine": 0
+      }
+    },
+    "run": {
+      "bold": false,
+      "italic": false,
+      "underline": false,
+      "fontSize": 12,
+      "fontFamily": "Arial",
+      "color": "#000000",
+      "caps": false
+    }
+  },
+  "Heading1": {
+    "id": "Heading1",
+    "name": "heading 1",
+    "type": "paragraph",
+    "paragraph": {
+      "alignment": "left",
+      "spacing": {
+        "before": 12,
+        "after": 6,
+        "line": 1.15
+      },
+      "indentation": {
+        "left": 0,
+        "right": 0,
+        "firstLine": 0
+      }
+    },
+    "run": {
+      "bold": true,
+      "italic": false,
+      "underline": false,
+      "fontSize": 16,
+      "fontFamily": "Arial",
+      "color": "#000000",
+      "caps": false
+    }
+  },
+  "Heading2": {
+    "id": "Heading2",
+    "name": "heading 2",
+    "type": "paragraph",
+    "paragraph": {
+      "alignment": "left",
+      "spacing": {
+        "before": 10,
+        "after": 4,
+        "line": 1.15
+      },
+      "indentation": {
+        "left": 0,
+        "right": 0,
+        "firstLine": 0
+      }
+    },
+    "run": {
+      "bold": true,
+      "italic": false,
+      "underline": false,
+      "fontSize": 14,
+      "fontFamily": "Arial",
+      "color": "#000000",
+      "caps": false
+    }
+  }
+}

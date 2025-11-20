@@ -23,6 +23,11 @@ $userRole = getUserRole();
     <link rel="stylesheet" href="<?php echo url('assets/css/main.css'); ?>">
     <link rel="stylesheet" href="<?php echo url('assets/css/modal.css'); ?>">
     <link rel="stylesheet" href="<?php echo url('assets/css/responsive.css'); ?>">
+    <?php if (!empty($extra_styles) && is_array($extra_styles)): ?>
+        <?php foreach ($extra_styles as $stylePath): ?>
+            <link rel="stylesheet" href="<?php echo htmlspecialchars($stylePath); ?>">
+        <?php endforeach; ?>
+    <?php endif; ?>
     
     <!-- Favicon -->
     <link rel="icon" type="image/png" href="<?php echo url('assets/images/logo-gdri.png'); ?>">

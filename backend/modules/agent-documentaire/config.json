@@ -1,0 +1,12 @@
+{
+  "enabled": true,
+  "storagePath": "./storage",
+  "documentsPath": "./storage/documents",
+  "imagesPath": "./storage/images",
+  "defaultTestFile": "./src-test/MÉMOIRE TECHNIQUE CD 22VPRO - PORT DE BONIFACIO - Copie.docx",
+  "allowedFormats": ["docx"],
+  "maxFileSize": 52428800,
+  "imageFormats": ["png", "jpg", "jpeg"],
+  "defaultImageFormat": "png"
+}
+

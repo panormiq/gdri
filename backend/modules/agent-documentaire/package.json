@@ -1,0 +1,16 @@
+{
+  "name": "agent-documentaire",
+  "displayName": "Agent Documentaire",
+  "version": "1.0.0",
+  "description": "Transforme documents Word en modèles techniques pour simplifier rédactions futures",
+  "author": "GDR-Innovation",
+  "routes": ["/api/agent-documentaire"],
+  "dependencies": {
+    "mammoth": "^1.6.0",
+    "adm-zip": "^0.5.10",
+    "xml2js": "^0.6.2"
+  },
+  "requiredServices": [],
+  "compatibleVersion": ">=1.0.0"
+}
+

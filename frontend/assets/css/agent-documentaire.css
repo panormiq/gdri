@@ -1,0 +1,376 @@
+/* Agent Documentaire - Styles */
+
+:root {
+  --doc-editor-bg: #f5f7fb;
+  --doc-border: #e0e6f0;
+  --doc-accent: #9edbeb;
+  --doc-accent-strong: #4b9ed8;
+  --doc-text-muted: #6c7a89;
+}
+
+.doc-editor-wrapper {
+  padding: var(--spacing-lg, 32px) 0;
+  background: var(--doc-editor-bg);
+}
+
+.doc-editor-wrapper .container {
+  max-width: 1600px;
+}
+
+/* Boutons de vue dans le hero */
+.hero-actions .btn.view-tab {
+  transition: all 0.3s ease;
+  position: relative;
+}
+
+button.btn.btn-outline.view-tab.is-active,
+.hero-actions button.btn.view-tab.is-active {
+  background: #4b9ed8 !important;
+  color: #ffffff !important;
+  border-color: #4b9ed8 !important;
+  box-shadow: 0 6px 16px rgba(75, 158, 216, 0.5) !important;
+  transform: translateY(-2px) !important;
+  font-weight: 700 !important;
+}
+
+.hero-actions .btn.view-tab:not(.is-active):hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+}
+
+/* Conteneur des vues */
+.view-container {
+  display: none;
+}
+
+.view-container.is-active {
+  display: block;
+}
+
+/* Vue texte : grid des 3 colonnes */
+.view-text.is-active {
+  display: grid;
+  grid-template-columns: 280px minmax(0, 6fr) 280px;
+  gap: 24px;
+}
+
+/* Vue card : grid 2 colonnes */
+.view-card.is-active {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 300px;
+  gap: 24px;
+}
+
+/* Panneaux */
+.doc-panel {
+  background: #fff;
+  border: 1px solid var(--doc-border);
+  border-radius: 12px;
+  box-shadow: 0 12px 40px rgba(15, 23, 42, 0.06);
+  display: flex;
+  flex-direction: column;
+  min-height: 70vh;
+  position: relative;
+  overflow: hidden;
+}
+
+.doc-panel__header {
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--doc-border);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.doc-panel__header h3 {
+  margin: 0;
+  font-size: 1.05rem;
+  color: #1f2d3d;
+}
+
+.doc-panel__body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 20px;
+  position: relative;
+}
+
+/* Pour les colonnes avec sommaire et annexes, ne pas étirer */
+.doc-panel__body--compact {
+  flex: 0 1 auto !important;
+  height: auto !important;
+  min-height: 0 !important;
+}
+
+.sommaire-list,
+.annexes-list {
+  height: auto;
+}
+
+.doc-panel__separator {
+  height: 1px;
+  background: var(--doc-border);
+  margin: 0;
+}
+
+/* Sections */
+.section {
+  margin-bottom: 20px;
+  padding: 16px;
+  border-left: 3px solid var(--doc-border);
+  transition: border-color 0.2s ease;
+}
+
+.section:hover {
+  border-left-color: var(--doc-accent-strong);
+}
+
+.section.level-1 {
+  border-left-width: 4px;
+}
+
+.section.level-2 {
+  margin-left: 20px;
+}
+
+.section.level-3 {
+  margin-left: 40px;
+}
+
+.section-title {
+  margin: 0 0 12px 0;
+  color: #1f2d3d;
+  cursor: pointer;
+  transition: color 0.2s ease;
+}
+
+.section-title:hover {
+  color: var(--doc-accent-strong);
+}
+
+.section p {
+  margin: 8px 0;
+  line-height: 1.6;
+}
+
+/* Styles pour le contenu (colonne 2 - vue texte) */
+.content-area .section p {
+  margin: 0;
+  padding: 0;
+}
+
+.content-area .section img {
+  max-width: 100%;
+  height: auto;
+  margin: 12px 0;
+  border-radius: 8px;
+  display: block;
+}
+
+/* Styles par défaut pour les sections */
+.section img {
+  max-width: 100%;
+  height: auto;
+  margin: 12px 0;
+  border-radius: 8px;
+}
+
+/* Sommaire */
+.sommaire-list .section {
+  padding: 2px 0;
+  margin-bottom: 0;
+  border-radius: 6px;
+  border-left: 3px solid transparent;
+  text-align: left;
+}
+
+.sommaire-list .section:hover {
+  background: rgba(158, 219, 235, 0.1);
+  border-left-color: var(--doc-accent-strong);
+}
+
+.sommaire-list .section-title {
+  font-size: 0.95rem;
+  margin: 0;
+  padding: 2px 8px;
+  text-align: left;
+  display: block;
+  cursor: pointer;
+  transition: color 0.2s;
+}
+
+.sommaire-list .section-title:hover {
+  color: var(--doc-accent-strong);
+}
+
+/* Indentation des niveaux dans le sommaire */
+.sommaire-list .section .section {
+  margin-left: 20px;
+  padding: 2px 0;
+  margin-top: 0;
+}
+
+.sommaire-list .section .section .section {
+  margin-left: 20px;
+}
+
+/* Annexes */
+.annexes-list {
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 2px solid rgba(158, 219, 235, 0.2);
+}
+
+.annexes-list .section {
+  padding: 2px 0;
+  margin-bottom: 0;
+  border-radius: 6px;
+  border-left: 3px solid #e9b731;
+  text-align: left;
+}
+
+.annexes-list .section:hover {
+  background: rgba(233, 183, 49, 0.1);
+}
+
+.annexes-list .section-title {
+  font-size: 0.95rem;
+  margin: 0;
+  padding: 2px 8px;
+  text-align: left;
+  display: block;
+  cursor: pointer;
+  transition: color 0.2s;
+}
+
+.annexes-list .section-title:hover {
+  color: #e9b731;
+}
+
+/* Cards */
+.cards-breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  font-size: 0.85rem;
+}
+
+.breadcrumb-item {
+  color: var(--doc-text-muted);
+}
+
+.breadcrumb-item.is-active {
+  color: var(--doc-accent-strong);
+  font-weight: 600;
+}
+
+.cards-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 16px;
+}
+
+.section-card {
+  background: #fff;
+  border: 2px solid var(--doc-border);
+  border-radius: 12px;
+  padding: 20px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.section-card:hover {
+  border-color: var(--doc-accent-strong);
+  box-shadow: 0 8px 24px rgba(75, 158, 216, 0.15);
+  transform: translateY(-2px);
+}
+
+.section-card__numbering {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--doc-accent-strong);
+  background: rgba(158, 219, 235, 0.2);
+  padding: 4px 10px;
+  border-radius: 6px;
+  display: inline-block;
+  margin-bottom: 12px;
+}
+
+.section-card__title {
+  font-size: 1rem;
+  font-weight: 600;
+  color: #1f2d3d;
+  margin: 0 0 12px 0;
+}
+
+.section-card__meta {
+  display: flex;
+  gap: 12px;
+  font-size: 0.85rem;
+  color: var(--doc-text-muted);
+}
+
+.section-card__badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* Propriétés */
+.properties-area {
+  font-size: 0.9rem;
+}
+
+.property-item {
+  margin-bottom: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--doc-border);
+}
+
+.property-item:last-child {
+  border-bottom: none;
+}
+
+.property-label {
+  display: block;
+  font-weight: 600;
+  color: #1f2d3d;
+  margin-bottom: 4px;
+}
+
+.property-value {
+  color: var(--doc-text-muted);
+}
+
+/* Responsive */
+@media (max-width: 1200px) {
+  .view-text.is-active {
+    grid-template-columns: 240px minmax(0, 1fr);
+  }
+
+  .view-text.is-active .doc-panel:last-child {
+    grid-column: 1 / -1;
+  }
+
+  .view-card.is-active {
+    grid-template-columns: 1fr;
+  }
+
+  .cards-grid {
+    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  }
+}
+
+@media (max-width: 900px) {
+  .cards-grid {
+    grid-template-columns: 1fr;
+  }
+  .view-text.is-active {
+    grid-template-columns: 1fr;
+  }
+
+  .doc-panel {
+    min-height: auto;
+  }
+}

@@ -203,7 +203,25 @@ class ExtractSection {
           foundFirstTitle = true;
           trimStackForLevel(level);
           
-          const sectionTitle = numbering?.text || headingText || `Section ${sectionOrder + 1}`;
+          // Déterminer le titre de la section
+          const sectionTitle = numbering?.text || headingText || '';
+          
+          // DEBUG : Voir ce qui est extrait
+          if (paragraphText && paragraphText.includes('équipement')) {
+            console.log(`🐞 DEBUG titre équipements:`);
+            console.log(`   - paragraphText: "${paragraphText}"`);
+            console.log(`   - numbering?.full: "${numbering?.full}"`);
+            console.log(`   - numbering?.text: "${numbering?.text}"`);
+            console.log(`   - headingText: "${headingText}"`);
+            console.log(`   - sectionTitle: "${sectionTitle}"`);
+          }
+          
+          // Ne créer une section que si elle a un vrai titre (pas vide)
+          if (!sectionTitle || sectionTitle.trim() === '') {
+            console.log(`⚠️  Titre vide ignoré (niveau ${level})`);
+            continue;
+          }
+          
           const sectionNumbering = numbering?.full || null;
           const isAnnex = this.isAnnexSection(sectionTitle, level, sectionStack);
           

@@ -1,0 +1,55 @@
+{
+  "metadata": {
+    "title": "Document sans titre",
+    "createdAt": "2025-11-18T23:57:47.278Z",
+    "updatedAt": "2025-11-18T23:57:47.278Z"
+  },
+  "stats": {
+    "stylesCount": 38,
+    "sectionsCount": 10,
+    "tocEntriesCount": 55,
+    "imagesCount": 50,
+    "extractionDuration": "0.52s"
+  },
+  "tocInfo": {
+    "found": true,
+    "method": "existing",
+    "entriesCount": 55
+  },
+  "sectionsPreview": [
+    {
+      "title": "CD 22VPRO",
+      "type": "section",
+      "level": 2,
+      "numbering": null,
+      "contentCount": 0
+    },
+    {
+      "title": "Introduction / Présentation",
+      "type": "introduction",
+      "level": 0,
+      "contentCount": 3
+    },
+    {
+      "title": "Sommaire",
+      "type": "section",
+      "level": 1,
+      "numbering": null,
+      "contentCount": 0
+    },
+    {
+      "title": "TOC \\h \\z \\t \"Zep - Titre 1;1;Zep - titre 2;2;Zep - titre 3;3\"SommairePAGEREF _Toc106719246 \\h2",
+      "type": "section",
+      "level": 1,
+      "numbering": null,
+      "contentCount": 10
+    },
+    {
+      "title": "ANNEXESPAGEREF _Toc106719280 \\h21",
+      "type": "section",
+      "level": 1,
+      "numbering": null,
+      "contentCount": 0
+    }
+  ]
+}

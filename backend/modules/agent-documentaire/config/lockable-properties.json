@@ -1,0 +1,41 @@
+{
+  "default": {
+    "image": {
+      "position": false,
+      "width": true,
+      "height": true,
+      "crop": false,
+      "rotation": true
+    },
+    "paragraph": {
+      "fontSize": false,
+      "fontFamily": true,
+      "alignment": false,
+      "color": false,
+      "backgroundColor": false
+    },
+    "heading": {
+      "level": true,
+      "fontSize": true,
+      "fontFamily": true
+    },
+    "table": {
+      "columns": true,
+      "rows": true,
+      "width": false
+    }
+  },
+  "templates": {
+    "technical_document": {
+      "image": {
+        "position": true,
+        "width": true,
+        "height": true
+      },
+      "paragraph": {
+        "fontFamily": true
+      }
+    }
+  }
+}
+

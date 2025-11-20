@@ -51,6 +51,11 @@
 <script src="<?php echo url('assets/js/navigation.js'); ?>"></script>
 <script src="<?php echo url('assets/js/modal.js'); ?>"></script>
 <script src="<?php echo url('assets/js/form-validation.js'); ?>"></script>
+<?php if (!empty($extra_scripts) && is_array($extra_scripts)): ?>
+    <?php foreach ($extra_scripts as $scriptPath): ?>
+        <script src="<?php echo htmlspecialchars($scriptPath); ?>"></script>
+    <?php endforeach; ?>
+<?php endif; ?>
 
 </body>
 </html>
