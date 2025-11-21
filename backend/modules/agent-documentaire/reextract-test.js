@@ -3,8 +3,10 @@
  */
 
 const path = require('path');
+const fs = require('fs').promises;
 const WordToJson = require('./extractors/wordtojson');
 const { MongoClient } = require('mongodb');
+const config = require('./config.json');
 
 async function reextract() {
   let client;
@@ -25,6 +27,29 @@ async function reextract() {
     console.log('📊 Sections:', jsonContent.sections ? jsonContent.sections.length : 0);
     console.log('📑 TOC:', jsonContent.toc ? jsonContent.toc.length : 0);
     console.log('🖼️  Images:', jsonContent.images ? jsonContent.images.length : 0);
+    
+    // Copier les images vers le dossier default-test
+    if (jsonContent.images && jsonContent.images.length > 0) {
+      console.log('\n📷 Copie des images vers default-test...');
+      const imagesPath = path.resolve(__dirname, config.imagesPath);
+      const sourceDocId = path.basename(testFile, '.docx');
+      const sourceDir = path.join(imagesPath, sourceDocId);
+      const targetDir = path.join(imagesPath, 'default-test');
+      
+      await fs.mkdir(targetDir, { recursive: true });
+      
+      for (const image of jsonContent.images) {
+        const sourcePath = path.join(sourceDir, image.name);
+        const targetPath = path.join(targetDir, image.name);
+        try {
+          await fs.copyFile(sourcePath, targetPath);
+          console.log(`  ✅ ${image.name}`);
+        } catch (err) {
+          console.log(`  ⚠️  ${image.name} (erreur: ${err.message})`);
+        }
+      }
+      console.log('✅ Images copiées avec succès');
+    }
     
     console.log('\n🔍 DEBUG - Vérification avant sauvegarde:');
     console.log('   - Type de sections:', typeof jsonContent.sections);
@@ -59,11 +84,16 @@ async function reextract() {
       lockable_properties: {}
     };
     
-    // Remplacer le document existant
-    console.log('💾 Sauvegarde dans MongoDB...');
-    await collection.replaceOne({ _id: 'default-test' }, document, { upsert: true });
+    // Supprimer l ancien document pour forcer un remplacement complet
+    console.log('Suppression de l ancien document...');
+    const deleteResult = await collection.deleteOne({ _id: 'default-test' });
+    console.log('Supprime:', deleteResult.deletedCount, 'document(s)');
     
-    console.log('✅ Document sauvegardé avec succès !');
+    // Inserer le nouveau document
+    console.log('Sauvegarde dans MongoDB...');
+    await collection.insertOne(document);
+    
+    console.log('Document sauvegarde avec succes !');
     console.log('\n📋 Résumé:');
     console.log('   - Sections:', jsonContent.sections ? jsonContent.sections.length : 0);
     console.log('   - TOC entries:', jsonContent.toc ? jsonContent.toc.length : 0);

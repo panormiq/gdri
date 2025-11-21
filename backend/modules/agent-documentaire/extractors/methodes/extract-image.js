@@ -58,6 +58,8 @@ class ExtractImage {
       drawingElement = imageXml;
     }
 
+    console.log('🖼️ [DEBUG ExtractImage] Type d\'image détecté - isAnchor:', isAnchor, 'hasInline:', !!inlineElement, 'hasAnchor:', !!anchorElement);
+    
     // Extraire les propriétés de base
     const result = {
       type: 'image',
@@ -115,6 +117,8 @@ class ExtractImage {
    * Extrait les propriétés depuis un wp:anchor (image positionnée absolument)
    */
   static extractFromAnchor(anchorElement, result, relationshipsObj, images) {
+    console.log('🔍 [DEBUG ExtractImage] extractFromAnchor appelé');
+    console.log('🔍 [DEBUG ExtractImage] anchorElement keys:', Object.keys(anchorElement));
     // Position (wp:positionH, wp:positionV)
     const positionH = anchorElement['wp:positionH'];
     const positionV = anchorElement['wp:positionV'];
@@ -139,7 +143,9 @@ class ExtractImage {
     // Extraire le drawing depuis l'anchor
       const drawing = anchorElement['a:graphic']?.[0]?.['a:graphicData']?.[0]?.['pic:pic'];
       if (drawing) {
-        ExtractImage.extractDrawingProperties(drawing, result, relationshipsObj, images);
+        // Si drawing est un tableau, prendre le premier élément
+        const picElement = Array.isArray(drawing) ? drawing[0] : drawing;
+        ExtractImage.extractDrawingProperties(picElement, result, relationshipsObj, images);
       }
 
     // Effets de bord (wp:effectExtent)
@@ -159,6 +165,8 @@ class ExtractImage {
    * Extrait les propriétés depuis un wp:inline (image dans le flux)
    */
   static extractFromInline(inlineElement, result, relationshipsObj, images) {
+    console.log('🔍 [DEBUG ExtractImage] extractFromInline appelé');
+    console.log('🔍 [DEBUG ExtractImage] inlineElement keys:', Object.keys(inlineElement));
     // Dimensions (wp:extent)
     const extent = inlineElement['wp:extent'];
     if (extent) {
@@ -175,7 +183,9 @@ class ExtractImage {
     // Extraire le drawing
       const drawing = inlineElement['a:graphic']?.[0]?.['a:graphicData']?.[0]?.['pic:pic'];
       if (drawing) {
-        ExtractImage.extractDrawingProperties(drawing, result, relationshipsObj, images);
+        // Si drawing est un tableau, prendre le premier élément
+        const picElement = Array.isArray(drawing) ? drawing[0] : drawing;
+        ExtractImage.extractDrawingProperties(picElement, result, relationshipsObj, images);
       }
   }
 
@@ -183,9 +193,14 @@ class ExtractImage {
    * Extrait les propriétés depuis un w:drawing
    */
   static extractFromDrawing(drawingElement, result, relationshipsObj, images) {
+    console.log('🔍 [DEBUG ExtractImage] extractFromDrawing appelé');
+    console.log('🔍 [DEBUG ExtractImage] drawingElement keys:', Object.keys(drawingElement));
     const graphic = drawingElement['a:graphic']?.[0]?.['a:graphicData']?.[0]?.['pic:pic'];
+    console.log('🔍 [DEBUG ExtractImage] graphic trouvé:', graphic ? 'OUI' : 'NON');
     if (graphic) {
-      ExtractImage.extractDrawingProperties(graphic, result, relationshipsObj, images);
+      // Si graphic est un tableau, prendre le premier élément
+      const picElement = Array.isArray(graphic) ? graphic[0] : graphic;
+      ExtractImage.extractDrawingProperties(picElement, result, relationshipsObj, images);
     }
   }
 
@@ -193,8 +208,14 @@ class ExtractImage {
    * Extrait les propriétés depuis un pic:pic (élément de dessin)
    */
   static extractDrawingProperties(picElement, result, relationshipsObj, images) {
+    console.log('🔍 [DEBUG ExtractImage] extractDrawingProperties appelé, picElement:', picElement ? 'OK' : 'NULL');
+    if (picElement) {
+      console.log('🔍 [DEBUG ExtractImage] picElement keys:', Object.keys(picElement));
+      console.log('🔍 [DEBUG ExtractImage] picElement type:', Array.isArray(picElement) ? 'ARRAY' : typeof picElement);
+    }
     // Référence vers l'image (pic:blipFill > a:blip > r:embed)
     const blipFill = picElement['pic:blipFill'];
+    console.log('🔍 [DEBUG ExtractImage] blipFill:', blipFill ? 'OUI' : 'NULL');
     if (blipFill) {
       const blipFillArray = Array.isArray(blipFill) ? blipFill : [blipFill];
       for (const blip of blipFillArray) {
@@ -204,18 +225,23 @@ class ExtractImage {
           for (const b of blipArray) {
             const attrs = b['$'] || {};
             const rId = attrs['r:embed'] || attrs['r:link'];
+            console.log('🔍 [DEBUG ExtractImage] rId trouvé:', rId || 'NULL');
             
             if (rId && relationshipsObj) {
               // Trouver l'image dans les relations
               const relationship = this.findRelationship(relationshipsObj, rId);
+              console.log('🔍 [DEBUG ExtractImage] relationship trouvé:', relationship || 'NULL');
               if (relationship) {
                 const imageName = relationship.split('/').pop();
+                console.log('🔍 [DEBUG ExtractImage] image.name trouvé:', imageName);
                 result.src = imageName;
+                result.name = imageName;
                 
                 // Trouver l'image dans la liste
                 const image = images.find(img => img.name === imageName);
                 if (image) {
                   result.src = image.name;
+                  result.name = image.name;
                 }
               }
             }
@@ -388,32 +414,52 @@ class ExtractImage {
    * Trouve une relation dans relationshipsObj
    */
   static findRelationship(relationshipsObj, rId) {
+    console.log('🔍 [DEBUG findRelationship] Recherche de rId:', rId);
     if (!relationshipsObj || !rId) {
+      console.log('🔍 [DEBUG findRelationship] relationshipsObj ou rId est NULL');
       return null;
     }
+
+    console.log('🔍 [DEBUG findRelationship] relationshipsObj keys:', Object.keys(relationshipsObj));
 
     // Structure peut varier selon le parsing
     let relationships = null;
     if (relationshipsObj['Relationships']) {
       relationships = relationshipsObj['Relationships'];
+      console.log('🔍 [DEBUG findRelationship] Utilisation de Relationships (avec s)');
+    } else if (relationshipsObj['Relationship']) {
+      relationships = relationshipsObj['Relationship'];
+      console.log('🔍 [DEBUG findRelationship] Utilisation de Relationship (sans s)');
     } else if (relationshipsObj['r:Relationships']) {
       relationships = relationshipsObj['r:Relationships'];
+      console.log('🔍 [DEBUG findRelationship] Utilisation de r:Relationships');
+    } else if (relationshipsObj['r:Relationship']) {
+      relationships = relationshipsObj['r:Relationship'];
+      console.log('🔍 [DEBUG findRelationship] Utilisation de r:Relationship');
     } else if (Array.isArray(relationshipsObj)) {
       relationships = relationshipsObj;
+      console.log('🔍 [DEBUG findRelationship] relationshipsObj est déjà un tableau');
     }
 
     if (!relationships) {
+      console.log('🔍 [DEBUG findRelationship] relationships est NULL');
       return null;
     }
 
     const relArray = Array.isArray(relationships) ? relationships : [relationships];
+    console.log('🔍 [DEBUG findRelationship] Nombre de relations:', relArray.length);
+    
     for (const rel of relArray) {
       const attrs = rel['$'] || {};
+      console.log('🔍 [DEBUG findRelationship] Vérification relation - Id:', attrs['Id'], 'rId recherché:', rId);
       if (attrs['Id'] === rId || attrs['r:id'] === rId) {
-        return attrs['Target'] || attrs['r:target'];
+        const target = attrs['Target'] || attrs['r:target'];
+        console.log('🔍 [DEBUG findRelationship] ✅ MATCH TROUVÉ ! Target:', target);
+        return target;
       }
     }
 
+    console.log('🔍 [DEBUG findRelationship] ❌ Aucun match trouvé');
     return null;
   }
 

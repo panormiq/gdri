@@ -261,14 +261,27 @@ class ExtractSection {
         } else if (config.type === 'paragraph' || config.type === 'image' || config.type === 'table') {
               let extracted;
               if (config.type === 'paragraph') {
-                extracted = await method(element, documentStyles);
+                // Passer aussi images et relationshipsObj pour détecter les images dans les paragraphes
+                extracted = await method(element, documentStyles, images, relationshipsObj);
               } else if (config.type === 'image') {
                 extracted = await method(element, images, relationshipsObj);
+                if (extracted) {
+                  // FORCER TOUTES LES IMAGES À ÊTRE INLINE (pas absolute)
+                  if (extracted.position) {
+                    extracted.position.isAbsolute = false;
+                    extracted.position.x = 0;
+                    extracted.position.y = 0;
+                  }
+                  console.log('🖼️  Image extraite (forcée inline):', extracted.src || extracted.name || 'no name');
+                }
               } else if (config.type === 'table') {
                 extracted = await method(element);
               }
               
           if (!extracted) {
+            if (config.type === 'image') {
+              console.log('⚠️  Image extraction returned null/undefined');
+            }
             continue;
           }
           

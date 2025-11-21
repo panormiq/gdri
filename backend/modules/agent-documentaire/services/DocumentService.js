@@ -349,6 +349,32 @@ class DocumentService {
   }
 
   /**
+   * Sauvegarde les images extraites sur le disque
+   * @param {string} documentId - ID du document
+   * @param {Array} images - Tableau des images extraites (avec name et data)
+   * @returns {Promise<void>}
+   */
+  async saveImages(documentId, images) {
+    if (!images || images.length === 0) {
+      console.log('📷 Aucune image à sauvegarder');
+      return;
+    }
+
+    const documentImagesPath = path.join(this.imagesPath, documentId);
+    await this.ensureDirectoryExists(documentImagesPath);
+
+    console.log(`📷 Sauvegarde de ${images.length} image(s)...`);
+
+    for (const image of images) {
+      const imagePath = path.join(documentImagesPath, image.name);
+      await fs.writeFile(imagePath, image.data);
+      console.log(`  ✅ ${image.name}`);
+    }
+
+    console.log('✅ Images sauvegardées avec succès');
+  }
+
+  /**
    * Récupère le chemin d'une image
    * @param {string} documentId - ID du document
    * @param {string} imageId - ID de l'image
@@ -367,6 +393,8 @@ class DocumentService {
   async createDefaultDocument() {
     const wordFilePath = await this.loadWordDocument();
     const jsonContent = await WordExtractionService.extract(wordFilePath);
+    
+    // Note: Les images sont déjà sauvegardées par WordExtractionService.extract()
 
     const document = {
       _id: 'default-test',

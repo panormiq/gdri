@@ -177,15 +177,6 @@
         const text = item.text || '';
         const styles = item.styles || {};
         
-        // DEBUG : Logger si on trouve une couleur de fond
-        if (styles.backgroundColor || styles.runBackgroundColor) {
-          console.log('[FRONTEND DEBUG] Paragraphe avec couleur de fond:', {
-            text: text.substring(0, 50),
-            backgroundColor: styles.backgroundColor,
-            runBackgroundColor: styles.runBackgroundColor
-          });
-        }
-        
         // Si le paragraphe est vide, afficher &nbsp; pour faciliter l'édition future
         const displayText = text.trim() === '' ? '&nbsp;' : text;
         
@@ -200,25 +191,92 @@
           html += `<p${paragraphStyleString}><span style="background-color: ${styles.runBackgroundColor}">${displayText}</span></p>`;
         } else {
           // Background de paragraphe (ou pas de background)
-          const styleAttr = stylesToCSS(styles);
-          const styleString = styleAttr ? ` style="${styleAttr}"` : '';
+          // Pour les paragraphes vides, s'assurer que le background est visible
+          const styleProps = [];
+          const cssStyles = stylesToCSS(styles);
+          if (cssStyles) {
+            styleProps.push(cssStyles);
+          }
+          // Pour les paragraphes vides avec background, ajouter une hauteur minimum
+          if (displayText === '&nbsp;' && styles.backgroundColor) {
+            styleProps.push('min-height: 1em');
+          }
+          const styleString = styleProps.length > 0 ? ` style="${styleProps.join('; ')}"` : '';
           html += `<p${styleString}>${displayText}</p>`;
         }
       } else if (item.type === 'image') {
-        const src = item.src || '';
+        const imageSrc = item.src || item.name || '';
         const alt = item.alt || 'Image';
         const width = item.width || '';
         const height = item.height || '';
-        let styleAttr = '';
+        const position = item.position || {};
+        const paragraphBgColor = item.paragraphBackgroundColor || '';
+        const textAlign = item.textAlign || '';
         
-        if (width || height) {
-          const styleProps = [];
-          if (width) styleProps.push(`width: ${width}px`);
-          if (height) styleProps.push(`height: ${height}px`);
-          styleAttr = ` style="${styleProps.join('; ')}"`;
+        console.log('🖼️ [DEBUG FRONTEND] Image:', imageSrc, 'position.isAbsolute:', position.isAbsolute, 'position.x:', position.x, 'position.y:', position.y);
+        
+        // Extraire juste le nom du fichier (si c'est un chemin complet)
+        const imageName = imageSrc.includes('/') ? imageSrc.split('/').pop() : imageSrc;
+        
+        // Construire l'URL de l'image via l'API
+        const imageUrl = imageName ? `${apiBase}/agent-documentaire/document/${documentId}/image/${imageName}` : '';
+        
+        // Construire les styles de l'image
+        const imgStyleProps = [];
+        if (width) imgStyleProps.push(`width: ${width}px`);
+        if (height) imgStyleProps.push(`height: ${height}px`);
+        
+        // Position absolue SEULEMENT pour les images anchor (isAbsolute = true)
+        if (position.isAbsolute === true) {
+          console.log('🖼️ [DEBUG FRONTEND] Image en position ABSOLUTE');
+          imgStyleProps.push('position: absolute');
+          if (position.x !== undefined && position.x !== 0) imgStyleProps.push(`left: ${position.x}px`);
+          if (position.y !== undefined && position.y !== 0) imgStyleProps.push(`top: ${position.y}px`);
+      } else {
+          console.log('🖼️ [DEBUG FRONTEND] Image en position NORMALE (inline)');
         }
         
-        html += `<img src="${src}" alt="${alt}"${styleAttr} />`;
+        // Gestion du centrage et des marges
+        if (paragraphBgColor) {
+          // Avec fond de paragraphe: pas de marges (pour éviter les bandes blanches)
+          imgStyleProps.push('margin: 0');
+          if (textAlign === 'center') {
+            // Pour centrer avec text-align, l'image doit être inline-block
+            imgStyleProps.push('display: inline-block');
+            imgStyleProps.push('vertical-align: top'); // Éviter l'espace en bas
+          } else {
+            imgStyleProps.push('display: block');
+          }
+        } else {
+          // Sans fond: comportement normal avec marges
+          if (textAlign === 'center') {
+            imgStyleProps.push('display: block');
+            imgStyleProps.push('margin-left: auto');
+            imgStyleProps.push('margin-right: auto');
+          }
+        }
+        
+        const imgStyleAttr = imgStyleProps.length > 0 ? ` style="${imgStyleProps.join('; ')}"` : '';
+        
+        // Construire les styles du conteneur (pour background et alignement)
+        const containerStyles = [];
+        if (paragraphBgColor) {
+          containerStyles.push(`background-color: ${paragraphBgColor}`);
+          containerStyles.push('padding: 0'); // Pas de padding pour éviter les espaces blancs
+          containerStyles.push('margin: 0'); // Pas de margin pour coller au contenu
+        }
+        if (textAlign) containerStyles.push(`text-align: ${textAlign}`);
+        
+        // Si l'image a des propriétés de paragraphe, l'envelopper dans un div
+        if (imageUrl) {
+          if (containerStyles.length > 0) {
+            html += `<div style="${containerStyles.join('; ')}">`;
+            html += `<img src="${imageUrl}" alt="${alt}"${imgStyleAttr} />`;
+            html += `</div>`;
+          } else {
+            html += `<img src="${imageUrl}" alt="${alt}"${imgStyleAttr} />`;
+          }
+        }
       }
     });
 
@@ -423,7 +481,7 @@
     if (e.clientY < midpoint) {
       target.classList.add('drop-above');
       target.classList.remove('drop-below', 'drop-inside');
-    } else {
+      } else {
       target.classList.add('drop-below');
       target.classList.remove('drop-above', 'drop-inside');
     }
@@ -457,8 +515,8 @@
     const target = e.target.closest('.draggable-section');
     if (!target || target === draggedElement) {
       cleanupDragClasses();
-      return;
-    }
+        return;
+      }
 
     const targetSection = findSectionById(target.dataset.sectionId, sectionsTree);
     if (!targetSection || !draggedSection) {
@@ -764,8 +822,8 @@
         if (found) return found;
       }
     }
-    return null;
-  }
+        return null;
+      }
 
   /**
    * Affiche les propriétés d'une card
