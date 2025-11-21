@@ -121,6 +121,10 @@ class ExtractSection {
         const styleInfo = this.getHeadingInfoFromStyle(styleId, styleHierarchy);
         if (styleInfo?.isToc) {
           if (!sommaireSection) {
+            // Vérifier si le paragraphe du sommaire a un saut de page
+            const ExtractParagraph = require('./extract-paragraph');
+            const hasPageBreak = ExtractParagraph.hasPageBreak(element);
+            
             sommaireSection = {
               id: `sommaire_${Date.now()}`,
               type: 'section',
@@ -131,7 +135,8 @@ class ExtractSection {
               isSommaire: true,
               content: [],
               children: [],
-              showInToc: false
+              showInToc: false,
+              hasPageBreak: hasPageBreak // Ajouter l'indicateur de saut de page
             };
             sections.push(sommaireSection);
           }
@@ -154,10 +159,10 @@ class ExtractSection {
       
       const method = config?.getMethod ? config.getMethod() : config?.method;
       if (!config || (!method && !isHeading)) {
-        continue;
-      }
-      
-      try {
+          continue;
+        }
+        
+        try {
         if (isHeading) {
           const headingExtraction = config.type === 'heading' && method
             ? await method(element, documentStyles)
@@ -176,6 +181,10 @@ class ExtractSection {
           const normalizedTitle = (headingText || '').trim().toLowerCase();
           if (normalizedTitle === 'sommaire') {
             if (!sommaireSection) {
+              // Vérifier si le paragraphe du titre Sommaire a un saut de page
+              const ExtractParagraph = require('./extract-paragraph');
+              const hasPageBreak = ExtractParagraph.hasPageBreak(element);
+              
               sommaireSection = {
                 id: `sommaire_${Date.now()}`,
                 type: 'section',
@@ -186,7 +195,8 @@ class ExtractSection {
                 isSommaire: true,
                 content: [],
                 children: [],
-                showInToc: false
+                showInToc: false,
+                hasPageBreak: hasPageBreak // Ajouter l'indicateur de saut de page
               };
               sections.push(sommaireSection);
             }
@@ -200,21 +210,11 @@ class ExtractSection {
             pushIntroductionSection();
           }
           
-          foundFirstTitle = true;
+              foundFirstTitle = true;
           trimStackForLevel(level);
           
           // Déterminer le titre de la section
           const sectionTitle = numbering?.text || headingText || '';
-          
-          // DEBUG : Voir ce qui est extrait
-          if (paragraphText && paragraphText.includes('équipement')) {
-            console.log(`🐞 DEBUG titre équipements:`);
-            console.log(`   - paragraphText: "${paragraphText}"`);
-            console.log(`   - numbering?.full: "${numbering?.full}"`);
-            console.log(`   - numbering?.text: "${numbering?.text}"`);
-            console.log(`   - headingText: "${headingText}"`);
-            console.log(`   - sectionTitle: "${sectionTitle}"`);
-          }
           
           // Ne créer une section que si elle a un vrai titre (pas vide)
           if (!sectionTitle || sectionTitle.trim() === '') {
@@ -225,40 +225,49 @@ class ExtractSection {
           const sectionNumbering = numbering?.full || null;
           const isAnnex = this.isAnnexSection(sectionTitle, level, sectionStack);
           
-          const newSection = {
-            id: `sec_${Date.now()}_${sectionOrder++}`,
-            type: 'section',
+          // Vérifier si le paragraphe du titre a un saut de page
+          const ExtractParagraph = require('./extract-paragraph');
+          const hasPageBreak = ExtractParagraph.hasPageBreak(element);
+          
+            const newSection = {
+              id: `sec_${Date.now()}_${sectionOrder++}`,
+              type: 'section',
             level,
             title: sectionTitle,
             numbering: sectionNumbering,
-            order: sectionOrder,
+              order: sectionOrder,
             isAnnex,
-            content: [],
-            children: [],
+              content: [],
+              children: [],
             linkedAnnexes: []
-          };
+            };
           
-          if (sectionStack.length === 0) {
-            sections.push(newSection);
-          } else {
+          // Ajouter l'indicateur de saut de page si présent
+          if (hasPageBreak) {
+            newSection.hasPageBreak = true;
+          }
+            
+            if (sectionStack.length === 0) {
+              sections.push(newSection);
+            } else {
             const parent = sectionStack[sectionStack.length - 1];
             parent.children.push(newSection);
-          }
-          
-          sectionStack.push(newSection);
-          currentSection = newSection;
-          
-          console.log(`📑 Section créée : "${newSection.title}" (niveau ${level})`);
+            }
+            
+            sectionStack.push(newSection);
+            currentSection = newSection;
+            
+            console.log(`📑 Section créée : "${newSection.title}" (niveau ${level})`);
         } else if (config.type === 'paragraph' || config.type === 'image' || config.type === 'table') {
-          let extracted;
-          if (config.type === 'paragraph') {
-            extracted = await method(element, documentStyles);
-          } else if (config.type === 'image') {
-            extracted = await method(element, images, relationshipsObj);
-          } else if (config.type === 'table') {
-            extracted = await method(element);
-          }
-          
+              let extracted;
+              if (config.type === 'paragraph') {
+                extracted = await method(element, documentStyles);
+              } else if (config.type === 'image') {
+                extracted = await method(element, images, relationshipsObj);
+              } else if (config.type === 'table') {
+                extracted = await method(element);
+              }
+              
           if (!extracted) {
             continue;
           }

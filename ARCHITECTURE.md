@@ -130,6 +130,66 @@ Transfert automatique au bon service selon l'analyse d'intention, prépare des r
 ### 3. Agent Documentaire Dossier technique
 Transforme documents Word en modèles techniques pour simplifier rédactions futures.
 
+**Structure du module :**
+```
+backend/modules/agent-documentaire/
+├── index.js                      # Point d'entrée
+├── routes.js                     # Routes API
+├── services/
+│   └── DocumentService.js        # Service principal (CRUD documents)
+├── extractors/                   # Extraction Word → JSON
+│   ├── wordtojson.js             # Point d'entrée extraction
+│   └── methodes/                 # Méthodes d'extraction par tag
+│       ├── extract-paragraph.js
+│       ├── extract-heading.js
+│       ├── extract-image.js
+│       ├── extract-table.js
+│       ├── extract-section.js    # Gestion sections/chapitres
+│       └── extract-toc.js        # Extraction table des matières
+├── generators/                   # Génération JSON → HTML
+│   ├── jsontohtml.js             # Point d'entrée génération
+│   └── methodes/                 # Méthodes de génération par type
+│       ├── generate-paragraph.js
+│       ├── generate-heading.js
+│       ├── generate-image.js
+│       ├── generate-table.js
+│       └── generate-section.js
+├── storage/                      # Stockage fichiers
+│   ├── documents/                # Documents Word originaux
+│   └── images/                   # Images extraites
+├── config/
+│   └── lockable-properties.json # Configuration des verrous
+└── src-test/                     # Fichiers de test
+```
+
+**Workflow :**
+- Word → JSON (extraction unique, JSON stocké en MongoDB comme source de vérité)
+- JSON → HTML (génération à la volée pour affichage uniquement)
+- Modifications WYSIWYG → API → Mise à jour directe du JSON
+- HTML régénéré depuis JSON mis à jour
+
+**Routes API :**
+- `POST /api/agent-documentaire/upload` - Upload fichier Word
+- `POST /api/agent-documentaire/extract/:documentId` - Extraire Word → JSON
+- `GET /api/agent-documentaire/document/:documentId` - Récupérer JSON
+- `PUT /api/agent-documentaire/document/:documentId` - Mettre à jour JSON
+- `PUT /api/agent-documentaire/document/:documentId/sections` - Réorganiser sections
+- `GET /api/agent-documentaire/document/:documentId/html` - Générer HTML
+- `GET /api/agent-documentaire/document/:documentId/image/:imageId` - Récupérer image
+
+**Fonctions principales :**
+- `DocumentService.uploadWordDocument(req)` - Upload d'un fichier Word
+- `DocumentService.loadWordDocument(filename)` - Charge fichier Word (fichier par défaut si filename null)
+- `DocumentService.extractWordToJson(documentId, filename)` - Extraction Word → JSON
+- `DocumentService.getDocument(documentId)` - Récupère un document
+- `DocumentService.updateDocument(documentId, jsonContent)` - Met à jour le JSON
+- `DocumentService.reorganizeSections(documentId, sections)` - Réorganise les sections
+- `DocumentService.renumberSections(sections)` - Recalcule niveaux + numérotation à partir de l'arbre
+- `DocumentService.generateTocFromSections(sections)` - Génère le TOC plat cohérent avec les sections
+- `DocumentService.generateHtmlFromJson(documentId)` - Génère HTML depuis JSON
+- `WordToJson.extract(wordFilePath)` - Extraction Word → JSON (extractors/wordtojson.js)
+- `JsonToHtml.generate(jsonContent)` - Génération JSON → HTML (generators/jsontohtml.js)
+
 ### 4. Agent Facebook
 Récupère et analyse les notifications Facebook, envoie des alertes mail si réponse nécessaire.
 

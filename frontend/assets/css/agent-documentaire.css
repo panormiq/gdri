@@ -50,7 +50,7 @@ button.btn.btn-outline.view-tab.is-active,
 /* Vue texte : grid des 3 colonnes */
 .view-text.is-active {
   display: grid;
-  grid-template-columns: 280px minmax(0, 6fr) 280px;
+  grid-template-columns: 280px minmax(0, 6fr) 420px; /* Col 3: 420px (1.5x 280px) */
   gap: 24px;
 }
 
@@ -116,16 +116,22 @@ button.btn.btn-outline.view-tab.is-active,
 /* Sections */
 .section {
   margin-bottom: 20px;
-  padding: 16px;
-  border-left: 3px solid var(--doc-border);
+  padding: 0; /* Pas de padding par défaut dans le contenu */
+  border-left: none; /* Pas de bordure par défaut */
   transition: border-color 0.2s ease;
 }
 
-.section:hover {
-  border-left-color: var(--doc-accent-strong);
+/* Bordure et padding uniquement dans le sommaire et les annexes */
+.sommaire-list .section,
+.annexes-list .section {
+  padding: 16px;
+  border-left: 3px solid var(--doc-border);
 }
 
-.section.level-1 {
+/* Hover désactivé pour le contenu - uniquement actif dans sommaire/annexes */
+
+.sommaire-list .section.level-1,
+.annexes-list .section.level-1 {
   border-left-width: 4px;
 }
 
@@ -144,9 +150,7 @@ button.btn.btn-outline.view-tab.is-active,
   transition: color 0.2s ease;
 }
 
-.section-title:hover {
-  color: var(--doc-accent-strong);
-}
+/* Hover désactivé pour le contenu - uniquement actif dans sommaire/annexes */
 
 .section p {
   margin: 8px 0;
@@ -373,4 +377,31 @@ button.btn.btn-outline.view-tab.is-active,
   .doc-panel {
     min-height: auto;
   }
+}
+
+/* ===================================
+   SAUTS DE PAGE
+   =================================== */
+.page-break {
+  margin: 24px 0;
+  padding: 12px 0;
+  border-top: 2px dashed #cbd5e0;
+  border-bottom: 2px dashed #cbd5e0;
+  text-align: center;
+  position: relative;
+  background: linear-gradient(to bottom, transparent 0%, #f7fafc 50%, transparent 100%);
+}
+
+.page-break span {
+  display: inline-block;
+  padding: 4px 16px;
+  background: white;
+  color: #718096;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  border: 1px solid #cbd5e0;
+  border-radius: 4px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.1);
 }

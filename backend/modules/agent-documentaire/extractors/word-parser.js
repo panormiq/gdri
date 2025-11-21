@@ -140,6 +140,41 @@ class WordParser {
   }
 
   /**
+   * Vérifie si un élément contient xml:space="preserve" quelque part
+   * @param {Object} element - Élément XML à vérifier
+   * @returns {boolean} True si xml:space="preserve" est trouvé
+   */
+  static hasXmlSpacePreserve(element) {
+    if (!element || typeof element !== 'object') {
+      return false;
+    }
+    
+    // Vérifier l'élément actuel
+    if (element['$'] && element['$']['xml:space'] === 'preserve') {
+      return true;
+    }
+    
+    // Vérifier récursivement tous les enfants
+    for (const [key, value] of Object.entries(element)) {
+      if (key === '$') continue;
+      
+      if (Array.isArray(value)) {
+        for (const item of value) {
+          if (typeof item === 'object' && this.hasXmlSpacePreserve(item)) {
+            return true;
+          }
+        }
+      } else if (typeof value === 'object' && value !== null) {
+        if (this.hasXmlSpacePreserve(value)) {
+          return true;
+        }
+      }
+    }
+    
+    return false;
+  }
+
+  /**
    * Extrait le texte brut d'un élément (pour debug/affichage)
    * @param {Object} element - Élément XML
    * @param {number} maxDepth - Profondeur maximale de récursion
@@ -150,10 +185,11 @@ class WordParser {
       return '';
     }
 
-    let text = '';
+    // Si c'est le premier appel, vérifier si l'élément contient xml:space="preserve"
+    const hasPreserve = !preserveSpaces && this.hasXmlSpacePreserve(element);
     
-    // Vérifier si cet élément a xml:space="preserve"
-    const hasPreserveSpace = element['$'] && element['$']['xml:space'] === 'preserve';
+    let text = '';
+    let foundPreserveSpace = hasPreserve; // Tracker si on trouve xml:space="preserve" quelque part
     
     for (const [key, value] of Object.entries(element)) {
       if (key === '$') {
@@ -163,21 +199,25 @@ class WordParser {
       // Si c'est w:t (texte), extraire directement
       if (key === 'w:t') {
         if (Array.isArray(value)) {
-          text += value.map(v => {
-            if (typeof v === 'string') return v;
-            if (typeof v === 'object' && v['_']) {
-              // Respecter xml:space="preserve" si présent
-              const xmlSpace = v['$'] && v['$']['xml:space'] === 'preserve';
-              return xmlSpace ? v['_'] : v['_'];
+          value.forEach(v => {
+            if (typeof v === 'string') {
+              text += v;
+            } else if (typeof v === 'object' && v['_']) {
+              // Vérifier xml:space="preserve"
+              if (v['$'] && v['$']['xml:space'] === 'preserve') {
+                foundPreserveSpace = true;
+              }
+              text += v['_'];
             }
-            return '';
-          }).join('');
+          });
         } else if (typeof value === 'string') {
           text += value;
         } else if (typeof value === 'object' && value['_']) {
-          // Respecter xml:space="preserve" si présent sur l'élément w:t
-          const xmlSpace = value['$'] && value['$']['xml:space'] === 'preserve';
-          text += xmlSpace ? value['_'] : value['_'];
+          // Vérifier xml:space="preserve" sur l'élément w:t
+          if (value['$'] && value['$']['xml:space'] === 'preserve') {
+            foundPreserveSpace = true;
+          }
+          text += value['_'];
         }
       } else if (Array.isArray(value)) {
         // Parcourir récursivement
@@ -195,10 +235,11 @@ class WordParser {
       }
     }
     
-    // Ne trim() QUE si :
-    // 1. On est au niveau racine (preserveSpaces = false)
-    // 2. ET l'élément n'a pas xml:space="preserve"
-    return (preserveSpaces || hasPreserveSpace) ? text : text.trim();
+    // Ne JAMAIS trim() si preserveSpaces=true (appels récursifs)
+    // Trim() uniquement au niveau racine ET si aucun preserve trouvé
+    const shouldTrim = !preserveSpaces && !foundPreserveSpace;
+    
+    return shouldTrim ? text.trim() : text;
   }
 
   /**

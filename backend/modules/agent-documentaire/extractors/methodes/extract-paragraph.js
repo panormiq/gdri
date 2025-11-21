@@ -23,9 +23,16 @@ class ExtractParagraph {
     // Extraire le texte du paragraphe
     const text = WordParser.extractText(paragraphXml);
     
+    // Vérifier s'il y a un saut de page dans ce paragraphe
+    const hasPageBreak = ExtractParagraph.hasPageBreak(paragraphXml);
+    
     // Si le paragraphe est vide, retourner quand même un paragraphe vide
     if (!text || text.trim().length === 0) {
-      return ExtractParagraph.getEmptyParagraph();
+      const emptyPar = ExtractParagraph.getEmptyParagraph();
+      if (hasPageBreak) {
+        emptyPar.hasPageBreak = true;
+      }
+      return emptyPar;
     }
 
     // Déterminer le style du paragraphe
@@ -42,7 +49,7 @@ class ExtractParagraph {
     const runs = WordParser.findElementsByTag(paragraphXml, 'w:r');
     const runProps = ExtractParagraph.extractRunProperties(runs, documentStyles, styleName);
 
-    return {
+    const paragraph = {
       type: 'paragraph',
       id: `par_${Date.now()}_${Math.random()}`,
       text: text,
@@ -51,6 +58,13 @@ class ExtractParagraph {
         ...paragraphProps
       }
     };
+    
+    // Ajouter l'indicateur de saut de page si présent
+    if (hasPageBreak) {
+      paragraph.hasPageBreak = true;
+    }
+    
+    return paragraph;
   }
 
   /**
@@ -293,6 +307,40 @@ class ExtractParagraph {
       },
       isEmpty: true
     };
+  }
+
+  /**
+   * Vérifie si un paragraphe contient un saut de page
+   * @param {Object} paragraphXml - Élément XML du paragraphe (w:p)
+   * @returns {boolean} True si le paragraphe contient un saut de page
+   */
+  static hasPageBreak(paragraphXml) {
+    if (!paragraphXml || typeof paragraphXml !== 'object') {
+      return false;
+    }
+
+    // Chercher w:r (runs) dans le paragraphe
+    const runs = WordParser.findElementsByTag(paragraphXml, 'w:r');
+    
+    for (const run of runs) {
+      // Chercher w:br dans chaque run
+      const breaks = WordParser.findElementsByTag(run, 'w:br');
+      
+      for (const br of breaks) {
+        // Vérifier si c'est un saut de page (w:type="page")
+        if (br['$'] && br['$']['w:type'] === 'page') {
+          return true;
+        }
+      }
+      
+      // Chercher aussi w:lastRenderedPageBreak (saut de page rendu par Word)
+      const lastRenderedBreaks = WordParser.findElementsByTag(run, 'w:lastRenderedPageBreak');
+      if (lastRenderedBreaks && lastRenderedBreaks.length > 0) {
+        return true;
+      }
+    }
+    
+    return false;
   }
 }
 

@@ -149,6 +149,11 @@
 
     let html = `<div id="${sectionId}" class="section level-${level}" data-section-id="${sectionId}">`;
     
+    // Si la section a un saut de page, ajouter un séparateur avant le titre
+    if (section.hasPageBreak) {
+      html += `<div class="page-break"><span>Saut de page</span></div>`;
+    }
+    
     // Titre (ne pas afficher pour l'introduction dans la vue texte)
     if (!hideTitle && !isIntroduction) {
       const headingTag = `h${Math.min(level + 1, 6)}`;
@@ -159,12 +164,20 @@
     // Contenu (paragraphes, images, etc.)
     content.forEach(item => {
       if (item.type === 'paragraph') {
+        // Si le paragraphe a un saut de page, ajouter un séparateur
+        if (item.hasPageBreak) {
+          html += `<div class="page-break"><span>Saut de page</span></div>`;
+        }
+        
         const text = item.text || '';
         const styles = item.styles || {};
         const styleAttr = stylesToCSS(styles);
         const styleString = styleAttr ? ` style="${styleAttr}"` : '';
         
-        html += `<p${styleString}>${text}</p>`;
+        // Si le paragraphe est vide, afficher &nbsp; pour faciliter l'édition future
+        const displayText = text.trim() === '' ? '&nbsp;' : text;
+        
+        html += `<p${styleString}>${displayText}</p>`;
       } else if (item.type === 'image') {
         const src = item.src || '';
         const alt = item.alt || 'Image';
