@@ -78,8 +78,8 @@ class WordToJson {
       explicitArray: true,  // Toujours créer des tableaux
       mergeAttrs: false,    // Ne pas merger les attributs
       explicitRoot: false,  // Ne pas wrapper dans un objet root
-      trim: true,           // Supprimer les espaces en début/fin
-      normalize: true,      // Normaliser les espaces
+      trim: false,          // NE PAS supprimer les espaces (respect de xml:space="preserve")
+      normalize: false,     // NE PAS normaliser les espaces (respect de xml:space="preserve")
       explicitCharkey: false, // Utiliser '_' pour le texte (par défaut)
       charkey: '_',         // Clé pour le texte dans les éléments mixtes
       attrkey: '$',         // Clé pour les attributs

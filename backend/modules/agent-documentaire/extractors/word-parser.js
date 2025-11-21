@@ -202,22 +202,28 @@ class WordParser {
           value.forEach(v => {
             if (typeof v === 'string') {
               text += v;
-            } else if (typeof v === 'object' && v['_']) {
+            } else if (typeof v === 'object') {
               // Vérifier xml:space="preserve"
               if (v['$'] && v['$']['xml:space'] === 'preserve') {
                 foundPreserveSpace = true;
               }
-              text += v['_'];
+              // Extraire le texte même s'il est vide ou juste des espaces
+              if (v['_'] !== undefined) {
+                text += v['_'];
+              }
             }
           });
         } else if (typeof value === 'string') {
           text += value;
-        } else if (typeof value === 'object' && value['_']) {
+        } else if (typeof value === 'object') {
           // Vérifier xml:space="preserve" sur l'élément w:t
           if (value['$'] && value['$']['xml:space'] === 'preserve') {
             foundPreserveSpace = true;
           }
-          text += value['_'];
+          // Extraire le texte même s'il est vide ou juste des espaces
+          if (value['_'] !== undefined) {
+            text += value['_'];
+          }
         }
       } else if (Array.isArray(value)) {
         // Parcourir récursivement

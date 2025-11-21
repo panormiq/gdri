@@ -49,9 +49,13 @@ button.btn.btn-outline.view-tab.is-active,
 
 /* Vue texte : grid des 3 colonnes */
 .view-text.is-active {
-  display: grid;
+  display: grid !important; /* !important pour surcharger .view-container.is-active */
   grid-template-columns: 280px minmax(0, 6fr) 420px; /* Col 3: 420px (1.5x 280px) */
   gap: 24px;
+  height: calc(100vh - 300px); /* Hauteur fixe pour permettre scroll indépendant */
+  max-height: calc(100vh - 300px);
+  overflow: hidden; /* Empêche le scroll sur le conteneur principal */
+  align-items: stretch;
 }
 
 /* Vue card : grid 2 colonnes */
@@ -72,6 +76,19 @@ button.btn.btn-outline.view-tab.is-active,
   min-height: 70vh;
   position: relative;
   overflow: hidden;
+}
+
+/* Dans la vue texte, les panneaux prennent toute la hauteur */
+.view-text.is-active .doc-panel {
+  height: 100%;
+  min-height: 0;
+  max-height: 100%;
+}
+
+/* Chaque doc-panel__body a son propre scroll */
+.view-text.is-active .doc-panel__body {
+  overflow-y: auto;
+  max-height: 100%;
 }
 
 .doc-panel__header {
@@ -95,11 +112,18 @@ button.btn.btn-outline.view-tab.is-active,
   position: relative;
 }
 
-/* Pour les colonnes avec sommaire et annexes, ne pas étirer */
+/* Pour les colonnes avec sommaire et annexes, ne pas étirer (sauf dans vue texte avec scroll) */
 .doc-panel__body--compact {
   flex: 0 1 auto !important;
   height: auto !important;
   min-height: 0 !important;
+}
+
+/* Dans la vue texte, les colonnes compactes doivent aussi scroller */
+.view-text.is-active .doc-panel__body--compact {
+  flex: 1 !important;
+  height: 100% !important;
+  overflow-y: auto !important;
 }
 
 .sommaire-list,
@@ -110,7 +134,19 @@ button.btn.btn-outline.view-tab.is-active,
 .doc-panel__separator {
   height: 1px;
   background: var(--doc-border);
-  margin: 0;
+  margin: 16px 0;
+}
+
+/* Sections internes (pour sommaire + annexes dans un seul body) */
+.doc-panel__section {
+  margin-bottom: 0;
+}
+
+.doc-panel__section-title {
+  margin: 0 0 12px 0;
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: var(--doc-text-primary, #1e293b);
 }
 
 /* Sections */
@@ -251,6 +287,62 @@ button.btn.btn-outline.view-tab.is-active,
   color: #e9b731;
 }
 
+/* ===================================
+   DRAG & DROP
+   =================================== */
+.draggable-section {
+  cursor: move;
+  position: relative;
+  transition: opacity 0.2s ease, background-color 0.2s ease;
+}
+
+.draggable-section.dragging {
+  opacity: 0.5;
+  background: rgba(158, 219, 235, 0.2);
+}
+
+.draggable-section.drag-over {
+  background: rgba(158, 219, 235, 0.15);
+}
+
+/* Indicateurs de position de drop */
+.draggable-section.drop-above::before {
+  content: '';
+  position: absolute;
+  top: -2px;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: var(--doc-accent-strong, #3b82f6);
+  border-radius: 2px;
+  z-index: 10;
+}
+
+.draggable-section.drop-below::after {
+  content: '';
+  position: absolute;
+  bottom: -2px;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: var(--doc-accent-strong, #3b82f6);
+  border-radius: 2px;
+  z-index: 10;
+}
+
+/* Curseur pendant le drag */
+.draggable-section:active {
+  cursor: grabbing;
+}
+
+/* Désactiver la sélection de texte pendant le drag */
+.sommaire-list.dragging-active,
+.annexes-list.dragging-active {
+  user-select: none;
+  -webkit-user-select: none;
+  -moz-user-select: none;
+}
+
 /* Cards */
 .cards-breadcrumb {
   display: flex;
@@ -345,6 +437,173 @@ button.btn.btn-outline.view-tab.is-active,
 
 .property-value {
   color: var(--doc-text-muted);
+}
+
+/* ===================================
+   MODAL
+   =================================== */
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+  backdrop-filter: blur(4px);
+}
+
+.modal-content {
+  background: white;
+  border-radius: 12px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+  width: 90%;
+  max-width: 500px;
+  max-height: 90vh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.modal-header {
+  padding: 20px 24px;
+  border-bottom: 1px solid #e2e8f0;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.modal-header h3 {
+  margin: 0;
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: #1e293b;
+}
+
+.modal-close {
+  background: none;
+  border: none;
+  font-size: 28px;
+  line-height: 1;
+  color: #64748b;
+  cursor: pointer;
+  padding: 0;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  transition: all 0.2s ease;
+}
+
+.modal-close:hover {
+  background: #f1f5f9;
+  color: #1e293b;
+}
+
+.modal-body {
+  padding: 24px;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.modal-footer {
+  padding: 16px 24px;
+  border-top: 1px solid #e2e8f0;
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+}
+
+.form-group {
+  margin-bottom: 20px;
+}
+
+.form-group label {
+  display: block;
+  margin-bottom: 8px;
+  font-weight: 500;
+  color: #334155;
+  font-size: 0.95rem;
+}
+
+.form-control {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  font-size: 1rem;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  font-family: inherit;
+}
+
+.form-control:focus {
+  outline: none;
+  border-color: var(--doc-accent-strong, #3b82f6);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+.section-level-info {
+  padding: 12px;
+  background: #f1f5f9;
+  border-radius: 6px;
+  font-size: 0.9rem;
+  color: #475569;
+  margin-top: 12px;
+}
+
+.section-level-info strong {
+  color: #1e293b;
+}
+
+/* ===================================
+   MENU CONTEXTUEL (CLIC DROIT)
+   =================================== */
+.context-menu {
+  position: fixed;
+  z-index: 10000;
+  background: white;
+  border-radius: 8px;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+  padding: 4px 0;
+  min-width: 200px;
+}
+
+.context-menu-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.context-menu-item {
+  padding: 10px 16px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  transition: background-color 0.15s ease;
+  color: #334155;
+  font-size: 0.95rem;
+}
+
+.context-menu-item:hover {
+  background: #f1f5f9;
+}
+
+.context-menu-item svg {
+  flex-shrink: 0;
+}
+
+.context-menu-item--danger {
+  color: #dc2626;
+}
+
+.context-menu-item--danger:hover {
+  background: #fee2e2;
 }
 
 /* Responsive */

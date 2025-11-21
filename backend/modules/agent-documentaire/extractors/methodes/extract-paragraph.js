@@ -90,7 +90,8 @@ class ExtractParagraph {
         left: baseParagraphProps.indentation?.left || 0,
         right: baseParagraphProps.indentation?.right || 0,
         firstLine: baseParagraphProps.indentation?.firstLine || 0
-      }
+      },
+      backgroundColor: baseParagraphProps.backgroundColor || null
     };
 
     if (!pPr || typeof pPr !== 'object') {
@@ -146,6 +147,18 @@ class ExtractParagraph {
       }
     }
 
+    // Couleur de fond du paragraphe (w:shd)
+    const shd = pPr['w:shd']?.[0]?.['$'];
+    if (shd && shd['w:fill']) {
+      const fill = shd['w:fill'];
+      console.log('[DEBUG] Couleur de fond paragraphe trouvée:', fill);
+      // Convertir la couleur (format: RRGGBB ou auto)
+      if (fill && fill !== 'auto' && fill !== '000000') {
+        props.backgroundColor = `#${fill}`;
+        console.log('✅ backgroundColor appliqué:', props.backgroundColor);
+      }
+    }
+
     return props;
   }
 
@@ -169,7 +182,8 @@ class ExtractParagraph {
       fontSize: baseRunProps.fontSize || 12,
       fontFamily: baseRunProps.fontFamily || 'Arial',
       color: baseRunProps.color || '#000000',
-      caps: baseRunProps.caps || false
+      caps: baseRunProps.caps || false,
+      runBackgroundColor: baseRunProps.runBackgroundColor || null
     };
 
     // Parcourir les runs et prendre le style du premier run avec du texte
@@ -235,6 +249,15 @@ class ExtractParagraph {
           const capsVal = rPrItem['w:caps']?.[0]?.['$']?.['w:val'];
           if (capsVal !== 'false' && capsVal !== '0' && capsVal !== false) {
             props.caps = true;
+          }
+        }
+        // Couleur de fond du run (w:shd)
+        const shd = rPrItem['w:shd']?.[0]?.['$'];
+        if (shd && shd['w:fill']) {
+          const fill = shd['w:fill'];
+          // Convertir la couleur (format: RRGGBB ou auto)
+          if (fill && fill !== 'auto' && fill !== '000000') {
+            props.runBackgroundColor = `#${fill}`;
           }
         }
       }

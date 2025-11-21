@@ -42,23 +42,23 @@ require_once '../../../includes/header.php';
             <div class="view-container view-text is-active">
                 <!-- COLONNE 1 : Sommaire + Annexes -->
                 <aside class="doc-panel doc-panel--toc">
-                    <div class="doc-panel__header">
-                        <h3>Sommaire</h3>
-                    </div>
                     <div class="doc-panel__body doc-panel__body--compact">
-                        <div class="sommaire-list" data-sommaire-list>
-                            <p class="text-muted">Chargement...</p>
+                        <!-- Sommaire -->
+                        <div class="doc-panel__section">
+                            <h3 class="doc-panel__section-title">Sommaire</h3>
+                            <div class="sommaire-list" data-sommaire-list>
+                                <p class="text-muted">Chargement...</p>
+                            </div>
                         </div>
-                    </div>
-                    
-                    <div class="doc-panel__separator"></div>
-                    
-                    <div class="doc-panel__header">
-                        <h3>Annexes</h3>
-                    </div>
-                    <div class="doc-panel__body doc-panel__body--compact">
-                        <div class="annexes-list" data-annexes-list>
-                            <p class="text-muted">Aucune annexe</p>
+                        
+                        <div class="doc-panel__separator"></div>
+                        
+                        <!-- Annexes -->
+                        <div class="doc-panel__section">
+                            <h3 class="doc-panel__section-title">Annexes</h3>
+                            <div class="annexes-list" data-annexes-list>
+                                <p class="text-muted">Aucune annexe</p>
+                            </div>
                         </div>
                     </div>
                 </aside>
@@ -125,5 +125,63 @@ require_once '../../../includes/header.php';
         </div>
     </div>
 </section>
+
+<!-- Modal Ajout/Édition de section -->
+<div class="modal-overlay" id="sectionModal" style="display: none;">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3 id="modalTitle">Ajouter une section</h3>
+            <button class="modal-close" id="modalClose">&times;</button>
+        </div>
+        <div class="modal-body">
+            <form id="sectionForm">
+                <input type="hidden" id="sectionId" name="sectionId">
+                <input type="hidden" id="sectionLevel" name="level" value="1">
+                <input type="hidden" id="sectionParent" name="parent" value="">
+                <input type="hidden" id="sectionContext" name="sectionContext" value="sommaire">
+                
+                <div class="form-group">
+                    <label for="sectionTitle">Titre</label>
+                    <input type="text" id="sectionTitle" name="title" class="form-control" required autofocus>
+                </div>
+                
+                <div id="sectionLevelInfo" class="section-level-info">
+                    <!-- Info niveau/parent affichée dynamiquement -->
+                </div>
+            </form>
+        </div>
+        <div class="modal-footer">
+            <button type="button" class="btn btn-outline" id="modalCancel">Annuler</button>
+            <button type="button" class="btn btn-primary" id="modalSave">Enregistrer</button>
+        </div>
+    </div>
+</div>
+
+<!-- Menu contextuel (clic droit) -->
+<div class="context-menu" id="contextMenu" style="display: none;">
+    <ul class="context-menu-list">
+        <li class="context-menu-item" data-action="add-child">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <line x1="12" y1="5" x2="12" y2="19"></line>
+                <line x1="5" y1="12" x2="19" y2="12"></line>
+            </svg>
+            <span>Ajouter une sous-section</span>
+        </li>
+        <li class="context-menu-item" data-action="edit">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+                <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+            </svg>
+            <span>Éditer</span>
+        </li>
+        <li class="context-menu-item context-menu-item--danger" data-action="delete">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="3 6 5 6 21 6"></polyline>
+                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+            </svg>
+            <span>Supprimer</span>
+        </li>
+    </ul>
+</div>
 
 <?php require_once '../../../includes/footer.php'; ?>
