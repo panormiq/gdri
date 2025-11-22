@@ -21,9 +21,10 @@ class ExtractSection {
    * @param {Array} toc - Table des matières (pour identifier le premier titre et créer la section introduction)
    * @param {Object} styleHierarchy - Hiérarchie des styles
    * @param {Object} numberingFormats - Formats de numérotation extraits depuis numbering.xml
+   * @param {string} documentXmlRaw - XML brut du document (pour préserver l'ordre des éléments)
    * @returns {Promise<Object>} { sections }
    */
-  static async extract(documentObj, images, relationshipsObj = null, documentStyles = {}, toc = [], styleHierarchy = null, numberingFormats = null) {
+  static async extract(documentObj, images, relationshipsObj = null, documentStyles = {}, toc = [], styleHierarchy = null, numberingFormats = null, documentXmlRaw = null) {
     // TODO: Implémenter l'extraction des sections
     // - Détecter les titres (headings) pour créer les sections
     // - Grouper le contenu sous chaque section
@@ -313,8 +314,16 @@ class ExtractSection {
         } else if (config.type === 'paragraph' || config.type === 'image' || config.type === 'table') {
               let extracted;
               if (config.type === 'paragraph') {
+                // Extraire le XML brut du paragraphe depuis le XML brut du document
+                let paragraphRawXml = null;
+                if (documentXmlRaw) {
+                  paragraphRawXml = ExtractSection.extractParagraphRawXml(element, documentXmlRaw);
+                }
+                
                 // Passer aussi images et relationshipsObj pour détecter les images dans les paragraphes
-                extracted = await method(element, documentStyles, images, relationshipsObj);
+                // Et passer le XML brut pour préserver l'ordre
+                const ExtractParagraph = require('./extract-paragraph');
+                extracted = ExtractParagraph.extract(element, documentStyles, images, relationshipsObj, paragraphRawXml);
               } else if (config.type === 'image') {
                 extracted = await method(element, images, relationshipsObj);
               if (extracted) {
@@ -498,6 +507,49 @@ class ExtractSection {
   /**
    * Déduit le niveau depuis une numérotation textuelle (ex: I., II.1., 1.2.3.)
    */
+  /**
+   * Extrait le XML brut d'un paragraphe depuis le XML brut du document
+   * @param {Object} paragraphElement - Élément XML parsé du paragraphe
+   * @param {string} documentXmlRaw - XML brut du document
+   * @returns {string|null} XML brut du paragraphe ou null
+   */
+  static extractParagraphRawXml(paragraphElement, documentXmlRaw) {
+    if (!paragraphElement || !documentXmlRaw) {
+      return null;
+    }
+    
+    // Extraire les attributs du paragraphe pour le trouver dans le XML brut
+    const attrs = paragraphElement['$'] || {};
+    const paraId = attrs['w14:paraId'] || attrs['w:rsidR'] || attrs['w:rsidRDefault'];
+    
+    if (!paraId) {
+      return null;
+    }
+    
+    // Chercher le paragraphe dans le XML brut en utilisant les attributs
+    // Format: <w:p w14:paraId="..." ...>...</w:p>
+    const paraIdEscaped = paraId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const regex = new RegExp(`<w:p[^>]*w14:paraId="${paraIdEscaped}"[^>]*>([\\s\\S]*?)</w:p>`, 'i');
+    const match = documentXmlRaw.match(regex);
+    
+    if (match && match[1]) {
+      return match[0]; // Retourner le XML complet du paragraphe
+    }
+    
+    // Fallback : chercher avec w:rsidR
+    const rsidR = attrs['w:rsidR'];
+    if (rsidR) {
+      const rsidREscaped = rsidR.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const regex2 = new RegExp(`<w:p[^>]*w:rsidR="${rsidREscaped}"[^>]*>([\\s\\S]*?)</w:p>`, 'i');
+      const match2 = documentXmlRaw.match(regex2);
+      if (match2 && match2[1]) {
+        return match2[0];
+      }
+    }
+    
+    return null;
+  }
+
   static getLevelFromNumbering(numbering) {
     if (!numbering || typeof numbering !== 'string') {
       return null;

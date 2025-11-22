@@ -869,28 +869,10 @@
         return;
       }
       
-      // Sommaire : compter dans la numérotation mais ne pas afficher
+      // Sommaire : ignorer complètement (ne pas compter, ne pas afficher)
       const isSommaire = section.type === 'sommaire' || section.isSommaire;
       if (isSommaire) {
-        section.numbering = null; // Ne pas afficher la numérotation
-        // Mais compter le sommaire dans la numérotation pour les sections suivantes
-        // Le sommaire a level: 0, donc il est au niveau 0 de la numérotation
-        const levelIndex = 0; // Le sommaire est toujours au niveau 0
-        
-        // Initialiser le compteur pour ce niveau si nécessaire
-        if (!levelCounters[levelIndex]) {
-          levelCounters[levelIndex] = 0;
-        }
-        
-        // Incrémenter le compteur pour ce niveau (le sommaire compte comme section 0)
-        levelCounters[levelIndex]++;
-        
-        // Réinitialiser les compteurs des niveaux inférieurs
-        for (let i = levelIndex + 1; i < 10; i++) {
-          levelCounters[i] = 0;
-        }
-        
-        // Traiter les enfants
+        section.numbering = null;
         if (section.children && section.children.length > 0) {
           section.children.forEach(child => {
             processSection(child, []);

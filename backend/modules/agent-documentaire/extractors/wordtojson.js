@@ -168,7 +168,8 @@ class WordToJson {
       documentStyles,  // Passer les styles généraux
       result.toc,  // Passer le TOC pour identifier le premier titre
       styleHierarchy,  // Passer la hiérarchie des styles (maintenant avec styles TOC)
-      numberingFormats  // Passer les formats de numérotation
+      numberingFormats,  // Passer les formats de numérotation
+      documentXml  // Passer le XML brut pour préserver l'ordre des éléments
     );
     result.sections = sections;
     

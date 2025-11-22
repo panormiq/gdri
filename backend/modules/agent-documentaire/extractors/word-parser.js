@@ -228,6 +228,10 @@ class WordParser {
       } else if (key === 'w:tab') {
         // Convertir les tabs en espaces pour faciliter l'extraction de numérotation
         text += ' ';
+      } else if (key === 'w:br' || key === 'w:lastRenderedPageBreak') {
+        // Ignorer les sauts de ligne et sauts de page lors de l'extraction du texte
+        // Ils ne doivent pas interrompre l'extraction du texte
+        continue;
       } else if (key === 'w:hyperlink') {
         // Extraire récursivement le texte des hyperliens (contient souvent la numérotation)
         if (Array.isArray(value)) {

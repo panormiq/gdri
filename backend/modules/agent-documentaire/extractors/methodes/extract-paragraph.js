@@ -17,7 +17,7 @@ class ExtractParagraph {
    * @param {Object} relationshipsObj - Relations du document (optionnel)
    * @returns {Object} Paragraphe extrait ou Image
    */
-  static extract(paragraphXml, documentStyles = {}, images = null, relationshipsObj = null) {
+  static extract(paragraphXml, documentStyles = {}, images = null, relationshipsObj = null, paragraphRawXml = null) {
     if (!paragraphXml || typeof paragraphXml !== 'object') {
       return ExtractParagraph.getDefaultParagraph();
     }
@@ -58,8 +58,9 @@ class ExtractParagraph {
       }
     }
 
-    // Extraire le texte du paragraphe
-    const text = WordParser.extractText(paragraphXml);
+    // Extraire le texte du paragraphe en parcourant les runs dans l'ordre
+    // Cela garantit que l'ordre du texte est préservé, même si Object.entries() ne le garantit pas
+    const text = ExtractParagraph.extractTextFromParagraph(paragraphXml, paragraphRawXml);
     
     // Vérifier s'il y a un saut de page dans ce paragraphe
     const hasPageBreak = ExtractParagraph.hasPageBreak(paragraphXml);
@@ -108,6 +109,107 @@ class ExtractParagraph {
     }
     
     return paragraph;
+  }
+
+  /**
+   * Extrait le texte d'un paragraphe en parcourant les runs dans l'ordre
+   * Cela garantit que l'ordre du texte est préservé
+   * @param {Object} paragraphXml - Élément XML du paragraphe (w:p)
+   * @param {string} rawXml - XML brut du paragraphe (optionnel, pour préserver l'ordre)
+   * @returns {string} Texte extrait
+   */
+  static extractTextFromParagraph(paragraphXml, rawXml = null) {
+    if (!paragraphXml || typeof paragraphXml !== 'object') {
+      return '';
+    }
+    
+    // Dans Word XML, un paragraphe peut contenir :
+    // - w:r (runs directs)
+    // - w:smartTag (tags intelligents qui contiennent des runs)
+    // - w:hyperlink (hyperliens qui contiennent des runs)
+    // - etc.
+    // 
+    // Le problème : xml2js crée des tableaux séparés pour chaque type d'élément,
+    // donc on perd l'ordre d'origine entre les types différents.
+    // 
+    // Solution : si on a le XML brut, on peut parser l'ordre des balises,
+    // sinon on utilise une approche qui tente de préserver l'ordre
+    
+    let text = '';
+    
+    // Si on a le XML brut, parser l'ordre des balises
+    if (rawXml) {
+      // Extraire l'ordre des balises depuis le XML brut
+      const tagOrder = [];
+      const tagRegex = /<(w:r|w:smartTag|w:hyperlink|w:ins|w:del|w:moveFrom|w:moveTo)(?:\s|>)/g;
+      let match;
+      while ((match = tagRegex.exec(rawXml)) !== null) {
+        tagOrder.push(match[1]);
+      }
+      
+      // Créer un mapping des éléments par type
+      const elementsByType = {
+        'w:r': paragraphXml['w:r'] || [],
+        'w:smartTag': paragraphXml['w:smartTag'] || [],
+        'w:hyperlink': paragraphXml['w:hyperlink'] || [],
+        'w:ins': paragraphXml['w:ins'] || [],
+        'w:del': paragraphXml['w:del'] || [],
+        'w:moveFrom': paragraphXml['w:moveFrom'] || [],
+        'w:moveTo': paragraphXml['w:moveTo'] || []
+      };
+      
+      // Compteurs pour chaque type
+      const counters = {
+        'w:r': 0,
+        'w:smartTag': 0,
+        'w:hyperlink': 0,
+        'w:ins': 0,
+        'w:del': 0,
+        'w:moveFrom': 0,
+        'w:moveTo': 0
+      };
+      
+      // Parcourir les balises dans l'ordre du XML brut
+      for (const tag of tagOrder) {
+        const elements = Array.isArray(elementsByType[tag]) ? elementsByType[tag] : [elementsByType[tag]];
+        if (elements.length > 0 && counters[tag] < elements.length) {
+          const element = elements[counters[tag]];
+          if (element && typeof element === 'object') {
+            const elementText = WordParser.extractText(element);
+            if (elementText && elementText.trim().length > 0) {
+              text += elementText;
+            }
+          }
+          counters[tag]++;
+        }
+      }
+    } else {
+      // Fallback : utiliser getChildElements
+      const children = WordParser.getChildElements(paragraphXml);
+      const textElements = children.filter(child => 
+        child.tag === 'w:r' || 
+        child.tag === 'w:smartTag' || 
+        child.tag === 'w:hyperlink' ||
+        child.tag === 'w:ins' ||
+        child.tag === 'w:del' ||
+        child.tag === 'w:moveFrom' ||
+        child.tag === 'w:moveTo'
+      );
+      
+      for (const textElement of textElements) {
+        const elementText = WordParser.extractText(textElement.element);
+        if (elementText && elementText.trim().length > 0) {
+          text += elementText;
+        }
+      }
+    }
+    
+    // Si on n'a pas trouvé de texte, utiliser extractText standard (fallback)
+    if (!text) {
+      text = WordParser.extractText(paragraphXml);
+    }
+    
+    return text;
   }
 
   /**
