@@ -131,5 +131,78 @@ router.get('/document/:documentId/image/:imageId', async (req, res) => {
   }
 });
 
+/**
+ * POST /document/:documentId/pdf-from-html
+ * Générer un PDF depuis le HTML fourni par le frontend (pixel perfect)
+ * Le HTML contient déjà tous les styles inline et les images en base64
+ */
+router.post('/document/:documentId/pdf-from-html', async (req, res) => {
+  try {
+    const { documentId } = req.params;
+    const { html } = req.body;
+    
+    if (!html) {
+      return res.status(400).json({ success: false, error: 'HTML requis' });
+    }
+    
+    const documentService = getDocumentService();
+    const pdfBuffer = await documentService.generatePdfFromHtmlString(html, documentId);
+    
+    // Récupérer le titre du document pour le nom du fichier
+    const document = await documentService.getDocument(documentId);
+    const filename = `${document.title || 'document'}.pdf`.replace(/[^a-z0-9.-]/gi, '_');
+    
+    // Envoyer le PDF
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.send(pdfBuffer);
+  } catch (error) {
+    console.error('Erreur génération PDF:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+/**
+ * GET /document/:documentId/pdf
+ * Générer et télécharger un PDF depuis le HTML (pixel perfect)
+ * 
+ * Query params optionnels :
+ * - format: Format de page (A4, Letter, etc.) - défaut: A4
+ * - scale: Échelle de rendu (0.1 à 2.0) - défaut: 1.0
+ * - margin: Marges personnalisées (JSON string) - défaut: marges du document Word
+ */
+router.get('/document/:documentId/pdf', async (req, res) => {
+  try {
+    const { documentId } = req.params;
+    const documentService = getDocumentService();
+    
+    // Options PDF depuis les query params (optionnel)
+    const options = {
+      format: req.query.format || 'A4',
+      scale: req.query.scale ? parseFloat(req.query.scale) : 1.0,
+      margin: req.query.margin ? JSON.parse(req.query.margin) : undefined
+    };
+    
+    // Validation de l'échelle
+    if (options.scale < 0.1 || options.scale > 2.0) {
+      options.scale = 1.0;
+    }
+    
+    const pdfBuffer = await documentService.generatePdfFromHtml(documentId, options);
+    
+    // Récupérer le titre du document pour le nom du fichier
+    const document = await documentService.getDocument(documentId);
+    const filename = `${document.title || 'document'}.pdf`.replace(/[^a-z0-9.-]/gi, '_');
+    
+    // Envoyer le PDF
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.send(pdfBuffer);
+  } catch (error) {
+    console.error('Erreur génération PDF:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
 module.exports = router;
 

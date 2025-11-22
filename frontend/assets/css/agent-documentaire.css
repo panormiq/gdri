@@ -683,3 +683,77 @@ button.btn.btn-outline.view-tab.is-active,
   border-radius: 4px;
   box-shadow: 0 1px 3px rgba(0,0,0,0.1);
 }
+
+/* ===================================
+   SOMMAIRE DYNAMIQUE (colonne 2)
+   =================================== */
+.dynamic-toc {
+  margin: 20px 0;
+  padding: 0;
+  /* Les marges gauche/droite seront appliquées via JavaScript sur .toc-entry */
+}
+
+.toc-entry {
+  display: flex;
+  align-items: baseline;
+  margin: 4px 0;
+  padding: 2px 0;
+  font-size: 0.95rem;
+  line-height: 1.5;
+  cursor: pointer;
+  transition: color 0.2s ease;
+  position: relative;
+  /* Les marges de page seront appliquées dynamiquement via JavaScript */
+}
+
+.toc-entry:hover {
+  color: var(--doc-accent-strong, #9edbeb);
+}
+
+.toc-numbering {
+  margin-right: 8px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.toc-title {
+  flex: 0 1 auto;
+  margin-right: 8px;
+}
+
+.toc-dots {
+  flex: 1 1 auto;
+  overflow: hidden;
+  white-space: nowrap;
+  text-align: left;
+  margin: 0 8px;
+  color: #cbd5e0;
+  letter-spacing: 2px;
+  min-width: 20px;
+  position: relative;
+  /* Aligner sur la ligne de base pour que les points soient à la même hauteur que le texte */
+  align-self: baseline;
+}
+
+/* Créer une ligne de points qui s'étire jusqu'au numéro de page */
+.toc-dots::after {
+  content: '';
+  position: absolute;
+  bottom: 0.4em;
+  left: 0;
+  right: 0;
+  border-bottom: 1px dotted #cbd5e0;
+  pointer-events: none;
+  /* S'assurer que la bordure s'étire jusqu'au numéro de page */
+  width: 100%;
+}
+
+.toc-page {
+  flex: 0 0 auto;
+  margin-left: 8px;
+  font-weight: 500;
+  white-space: nowrap;
+  text-align: right;
+  /* S'assurer que le numéro de page est aligné sur la ligne de base */
+  align-self: baseline;
+}

@@ -349,6 +349,326 @@ class DocumentService {
   }
 
   /**
+   * Génère un PDF depuis le HTML du document
+   * @param {string} documentId - ID du document
+   * @param {Object} options - Options de génération PDF (format, marges, etc.)
+   * @returns {Promise<Buffer>} Buffer du PDF généré
+   */
+  async generatePdfFromHtml(documentId, options = {}) {
+    const puppeteer = require('puppeteer');
+    const fs = require('fs').promises;
+    const document = await this.getDocument(documentId);
+    
+    // Générer le HTML avec les images en base64 pour le PDF
+    const html = await this.generateHtmlForPdf(documentId, document.json_content);
+
+    // Lancer Puppeteer avec options optimisées
+    const browser = await puppeteer.launch({
+      headless: true,
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+        '--disable-accelerated-2d-canvas',
+        '--disable-gpu'
+      ]
+    });
+    
+    try {
+      const page = await browser.newPage();
+      
+      // Augmenter le timeout de navigation (60 secondes au lieu de 30)
+      page.setDefaultNavigationTimeout(60000);
+      page.setDefaultTimeout(60000);
+      
+      // Définir un viewport pour un rendu cohérent (A4 en pixels à 96 DPI)
+      await page.setViewport({
+        width: 794,  // A4 width en pixels (210mm à 96 DPI)
+        height: 1123, // A4 height en pixels (297mm à 96 DPI)
+        deviceScaleFactor: 2 // Pour un rendu plus net
+      });
+
+      // Définir le contenu HTML - utiliser 'load' au lieu de 'networkidle0' 
+      // car les images sont déjà en base64 (pas de requêtes réseau à attendre)
+      // 'load' attend que toutes les ressources (images, CSS) soient chargées
+      await page.setContent(html, {
+        waitUntil: 'load', // 'load' est plus rapide que 'networkidle0' pour du contenu inline
+        timeout: 60000 // 60 secondes de timeout
+      });
+
+      // Attendre un peu que le rendu se stabilise (CSS, layout, etc.)
+      // Utiliser une Promise avec setTimeout au lieu de waitForTimeout (déprécié)
+      await new Promise(resolve => setTimeout(resolve, 1000));
+
+      // Vérifier que les images base64 sont bien chargées (devrait être instantané)
+      const imagesStatus = await page.evaluate(() => {
+        const images = Array.from(document.images);
+        const loaded = images.filter(img => img.complete && img.naturalWidth > 0);
+        return {
+          total: images.length,
+          loaded: loaded.length,
+          allLoaded: images.length === 0 || loaded.length === images.length
+        };
+      });
+
+      if (!imagesStatus.allLoaded && imagesStatus.total > 0) {
+        console.warn(`⚠️ ${imagesStatus.loaded}/${imagesStatus.total} images chargées`);
+      }
+
+      // Utiliser les marges du document Word si disponibles
+      const pageMargins = document.json_content.pageMargins || {
+        top: 70.85,   // 2.5cm en points
+        right: 70.85,
+        bottom: 70.85,
+        left: 70.85
+      };
+
+      // Convertir les marges de points en mm pour Puppeteer
+      const marginTop = options.margin?.top || `${pageMargins.top * 0.352778}mm`;
+      const marginRight = options.margin?.right || `${pageMargins.right * 0.352778}mm`;
+      const marginBottom = options.margin?.bottom || `${pageMargins.bottom * 0.352778}mm`;
+      const marginLeft = options.margin?.left || `${pageMargins.left * 0.352778}mm`;
+
+      // Générer le PDF avec options optimisées pour pixel perfect
+      const pdfOptions = {
+        format: options.format || 'A4',
+        margin: {
+          top: marginTop,
+          right: marginRight,
+          bottom: marginBottom,
+          left: marginLeft
+        },
+        printBackground: true, // Inclure les couleurs de fond
+        preferCSSPageSize: false,
+        displayHeaderFooter: false,
+        // Options pour un rendu de qualité
+        scale: options.scale || 1.0,
+        // Qualité d'impression optimale
+        quality: 100
+      };
+
+      const pdfBuffer = await page.pdf(pdfOptions);
+      
+      return pdfBuffer;
+    } finally {
+      await browser.close();
+    }
+  }
+
+  /**
+   * Génère un PDF depuis un HTML fourni directement (depuis le frontend)
+   * Le HTML contient tous les styles, les images seront converties en base64 côté backend
+   * @param {string} html - HTML complet avec styles (images en URLs)
+   * @param {string} documentId - ID du document (pour récupérer les marges et images)
+   * @param {Object} options - Options de génération PDF
+   * @returns {Promise<Buffer>} Buffer du PDF généré
+   */
+  async generatePdfFromHtmlString(html, documentId, options = {}) {
+    const puppeteer = require('puppeteer');
+    const fs = require('fs').promises;
+    const path = require('path');
+    const document = await this.getDocument(documentId);
+    
+    // Convertir les images en base64 avant de générer le PDF
+    html = await this.convertImageUrlsToBase64(html, documentId);
+    
+    // Lancer Puppeteer avec options optimisées
+    const browser = await puppeteer.launch({
+      headless: true,
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+        '--disable-accelerated-2d-canvas',
+        '--disable-gpu'
+      ]
+    });
+    
+    try {
+      const page = await browser.newPage();
+      
+      // Augmenter le timeout de navigation (60 secondes)
+      page.setDefaultNavigationTimeout(60000);
+      page.setDefaultTimeout(60000);
+      
+      // Définir un viewport pour un rendu cohérent (A4 en pixels à 96 DPI)
+      await page.setViewport({
+        width: 794,  // A4 width en pixels (210mm à 96 DPI)
+        height: 1123, // A4 height en pixels (297mm à 96 DPI)
+        deviceScaleFactor: 2 // Pour un rendu plus net
+      });
+
+      // Définir le contenu HTML - 'load' attend que toutes les ressources soient chargées
+      await page.setContent(html, {
+        waitUntil: 'load',
+        timeout: 60000
+      });
+
+      // Attendre un peu que le rendu se stabilise
+      await new Promise(resolve => setTimeout(resolve, 1000));
+
+      // Utiliser les marges du document Word si disponibles
+      const pageMargins = document.json_content.pageMargins || {
+        top: 70.85,
+        right: 70.85,
+        bottom: 70.85,
+        left: 70.85
+      };
+
+      // Convertir les marges de points en mm pour Puppeteer
+      const marginTop = options.margin?.top || `${pageMargins.top * 0.352778}mm`;
+      const marginRight = options.margin?.right || `${pageMargins.right * 0.352778}mm`;
+      const marginBottom = options.margin?.bottom || `${pageMargins.bottom * 0.352778}mm`;
+      const marginLeft = options.margin?.left || `${pageMargins.left * 0.352778}mm`;
+
+      // Générer le PDF avec options optimisées
+      const pdfOptions = {
+        format: options.format || 'A4',
+        margin: {
+          top: marginTop,
+          right: marginRight,
+          bottom: marginBottom,
+          left: marginLeft
+        },
+        printBackground: true,
+        preferCSSPageSize: false,
+        displayHeaderFooter: false,
+        scale: options.scale || 1.0
+      };
+
+      const pdfBuffer = await page.pdf(pdfOptions);
+      
+      return pdfBuffer;
+    } finally {
+      await browser.close();
+    }
+  }
+
+  /**
+   * Convertit les URLs d'images dans le HTML en base64
+   * @param {string} html - HTML avec images en URLs
+   * @param {string} documentId - ID du document
+   * @returns {Promise<string>} HTML avec images en base64
+   */
+  async convertImageUrlsToBase64(html, documentId) {
+    const fs = require('fs').promises;
+    const path = require('path');
+    
+    const imagesDir = path.join(this.imagesPath, documentId);
+    
+    // Fonction pour convertir une image en base64
+    const imageToBase64 = async (imageName) => {
+      try {
+        const imagePath = path.join(imagesDir, imageName);
+        await fs.access(imagePath);
+        const imageBuffer = await fs.readFile(imagePath);
+        const ext = path.extname(imageName).toLowerCase();
+        const mimeType = ext === '.png' ? 'image/png' : 
+                        ext === '.jpg' || ext === '.jpeg' ? 'image/jpeg' :
+                        ext === '.gif' ? 'image/gif' : 'image/png';
+        return `data:${mimeType};base64,${imageBuffer.toString('base64')}`;
+      } catch (error) {
+        console.warn(`⚠️ Image non trouvée: ${imageName}`, error.message);
+        return null;
+      }
+    };
+
+    // Trouver toutes les références d'images dans le HTML
+    const imageRegex = /src=["']([^"']+)["']/g;
+    const imageMatches = [...html.matchAll(imageRegex)];
+    
+    console.log(`📄 Conversion de ${imageMatches.length} image(s) en base64 pour le PDF...`);
+    
+    // Remplacer chaque image par sa version base64
+    let convertedCount = 0;
+    for (const match of imageMatches) {
+      const imageUrl = match[1];
+      
+      // Ignorer les images déjà en base64
+      if (imageUrl.startsWith('data:')) {
+        continue;
+      }
+      
+      let imageName = null;
+      
+      // Vérifier si c'est une URL d'API (format: /api/agent-documentaire/document/.../image/...)
+      if (imageUrl.includes('/image/')) {
+        imageName = imageUrl.split('/image/').pop();
+      } else {
+        // Si c'est juste un nom de fichier
+        imageName = imageUrl.split('/').pop();
+      }
+      
+      if (imageName) {
+        const base64Image = await imageToBase64(imageName);
+        if (base64Image) {
+          // Remplacer uniquement la première occurrence pour éviter les doublons
+          html = html.replace(match[0], `src="${base64Image}"`);
+          convertedCount++;
+        } else {
+          console.warn(`⚠️ Image non convertie: ${imageName}`);
+        }
+      }
+    }
+    
+    console.log(`✅ ${convertedCount} image(s) convertie(s) en base64`);
+    return html;
+  }
+
+  /**
+   * Génère le HTML optimisé pour le PDF (avec images en base64)
+   * @param {string} documentId - ID du document
+   * @param {Object} jsonContent - Contenu JSON du document
+   * @returns {Promise<string>} HTML optimisé pour PDF
+   */
+  async generateHtmlForPdf(documentId, jsonContent) {
+    // Générer le HTML de base
+    let html = await HtmlGenerationService.generate(jsonContent, {
+      includeStyles: true,
+      includeToc: true
+    });
+
+    // Convertir les images en base64
+    html = await this.convertImageUrlsToBase64(html, documentId);
+
+    // Ajouter des styles CSS supplémentaires pour le PDF
+    const pdfStyles = `
+      <style>
+        @page {
+          size: A4;
+          margin: 0;
+        }
+        body {
+          margin: 0;
+          padding: 0;
+        }
+        /* Assurer que les images ne se cassent pas sur plusieurs pages */
+        img {
+          max-width: 100%;
+          height: auto;
+          page-break-inside: avoid;
+        }
+        /* Éviter les coupures de page dans les sections */
+        .section {
+          page-break-inside: avoid;
+        }
+        .section-title {
+          page-break-after: avoid;
+        }
+        /* Assurer que les tableaux ne se cassent pas */
+        table {
+          page-break-inside: avoid;
+        }
+      </style>
+    `;
+
+    // Insérer les styles PDF avant la fermeture de </head>
+    html = html.replace('</head>', pdfStyles + '</head>');
+
+    return html;
+  }
+
+  /**
    * Sauvegarde les images extraites sur le disque
    * @param {string} documentId - ID du document
    * @param {Array} images - Tableau des images extraites (avec name et data)

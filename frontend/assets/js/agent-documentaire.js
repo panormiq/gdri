@@ -219,6 +219,7 @@
     const content = section.content || [];
     const children = section.children || [];
     const isIntroduction = section.type === 'introduction';
+    const isSommaire = section.type === 'sommaire' || section.isSommaire;
 
     let html = `<div id="${sectionId}" class="section level-${level}" data-section-id="${sectionId}">`;
     
@@ -240,9 +241,14 @@
       html += `<${headingTag} class="section-title"${titleStyleString}>${displayTitle}</${headingTag}>`;
     }
 
-    // Contenu (paragraphes, images, etc.)
-    content.forEach(item => {
-      if (item.type === 'paragraph') {
+    // Si c'est une section sommaire, remplacer le contenu par un sommaire dynamique
+    if (isSommaire) {
+      // Générer le sommaire dynamique depuis toutes les sections (pas seulement les enfants)
+      html += generateDynamicTocHTML(sectionsTree);
+    } else {
+      // Contenu normal (paragraphes, images, etc.)
+      content.forEach(item => {
+        if (item.type === 'paragraph') {
         // Si le paragraphe a un saut de page, ajouter un séparateur
         if (item.hasPageBreak) {
           html += `<div class="page-break"><span>Saut de page</span></div>`;
@@ -375,18 +381,88 @@
             html += `<div style="${containerStyles.join('; ')}">`;
             html += `<img src="${imageUrl}" alt="${alt}"${imgStyleAttr}${transparencyAttr} class="needs-transparency-processing" />`;
             html += `</div>`;
-          } else {
-            html += `<img src="${imageUrl}" alt="${alt}"${imgStyleAttr}${transparencyAttr} class="needs-transparency-processing" />`;
-          }
+        } else {
+          html += `<img src="${imageUrl}" alt="${alt}"${imgStyleAttr}${transparencyAttr} class="needs-transparency-processing" />`;
         }
       }
-    });
+        }
+      });
+    }
 
-    // Enfants récursifs
-    children.forEach(child => {
-      html += generateSectionHTML(child, level + 1, hideTitle);
-    });
+    // Enfants récursifs (sauf pour le sommaire qui affiche déjà toutes les sections)
+    if (!isSommaire) {
+      children.forEach(child => {
+        html += generateSectionHTML(child, level + 1, hideTitle);
+      });
+    }
 
+    html += '</div>';
+    return html;
+  }
+
+  /**
+   * Génère le HTML du sommaire dynamique pour la colonne 2 (contenu)
+   * Structure : indentation | numérotation | titre | ....... | page
+   * @param {Array} sections - Arbre de sections
+   * @param {number} maxLevel - Niveau maximum (défaut: 3)
+   * @returns {string} HTML du sommaire
+   */
+  function generateDynamicTocHTML(sections, maxLevel = 3) {
+    if (!Array.isArray(sections)) return '';
+    
+    let html = '<div class="dynamic-toc">';
+    
+    const traverse = (sectionList, level = 1) => {
+      if (!Array.isArray(sectionList)) return;
+      
+      sectionList.forEach(section => {
+        // Ignorer introduction, sommaire, et sections annexes parentes
+        if (section.type === 'introduction' || section.isSommaire) {
+          // Traverser les enfants mais ne pas les afficher
+          if (section.children && section.children.length > 0) {
+            traverse(section.children, level);
+          }
+          return;
+        }
+        
+        const sectionLevel = section.level || 1;
+        
+        // Ne pas afficher si niveau > maxLevel
+        if (sectionLevel > maxLevel) {
+          // Traverser quand même les enfants
+          if (section.children && section.children.length > 0) {
+            traverse(section.children, sectionLevel);
+          }
+          return;
+        }
+        
+        const sectionId = section.id || '';
+        const title = section.title || '(Sans titre)';
+        const numbering = section.numbering || '';
+        
+        // Indentation selon le niveau en pixels (s'ajoute aux marges de page)
+        const indent = (sectionLevel - 1) * 20; // Indentation en pixels
+        
+        // Les marges de page sont appliquées sur chaque entrée, l'indentation s'ajoute en padding-left
+        html += `<div class="toc-entry" 
+                     data-section-id="${sectionId}" 
+                     data-level="${sectionLevel}"
+                     style="margin-left: ${pageMargins.left}pt; margin-right: ${pageMargins.right}pt; padding-left: ${indent}px;">`;
+        html += `<span class="toc-numbering">${numbering || ''}</span>`;
+        html += `<span class="toc-title">${title}</span>`;
+        html += `<span class="toc-dots">.......</span>`;
+        html += `<span class="toc-page">?</span>`; // Sera calculé plus tard
+        html += '</div>';
+        
+        // Traverser les enfants
+        if (section.children && section.children.length > 0) {
+          traverse(section.children, sectionLevel);
+        }
+      });
+    };
+    
+    traverse(sections);
+    
     html += '</div>';
     return html;
   }
@@ -394,6 +470,7 @@
   /**
    * Génère le HTML du sommaire récursivement jusqu'au niveau 3
    * NE GÉNÈRE QUE LES TITRES - pas de contenu
+   * UTILISÉ UNIQUEMENT POUR LA COLONNE DE GAUCHE (navigation)
    */
   function generateSommaireHTML(section, maxLevel = 3) {
     if (!section) return '';
@@ -973,6 +1050,91 @@
     
     // Traiter les images qui ont besoin de transparence
     processImageTransparency();
+    
+    // Calculer les numéros de page après le rendu
+    setTimeout(() => {
+      calculatePageNumbers();
+      attachDynamicTocClickEvents();
+    }, 100);
+  }
+
+  /**
+   * Attache les événements de clic sur les entrées du sommaire dynamique
+   * pour scroller vers la section correspondante
+   */
+  function attachDynamicTocClickEvents() {
+    const contentArea = document.querySelector('[data-content-area]');
+    if (!contentArea) return;
+    
+    const tocEntries = contentArea.querySelectorAll('.dynamic-toc .toc-entry');
+    tocEntries.forEach(entry => {
+      entry.addEventListener('click', () => {
+        const sectionId = entry.dataset.sectionId;
+        if (!sectionId) return;
+        
+        // Trouver la section correspondante dans le contenu
+        const targetSection = contentArea.querySelector(`.section[data-section-id="${sectionId}"]`);
+        
+        if (targetSection) {
+          // Scroller vers la section
+          targetSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          
+          // Effet visuel temporaire
+          targetSection.style.transition = 'background-color 0.3s';
+          targetSection.style.backgroundColor = '#e3f2fd';
+          setTimeout(() => {
+            targetSection.style.backgroundColor = '';
+          }, 1000);
+        }
+      });
+    });
+  }
+
+  /**
+   * Calcule les numéros de page depuis les positions des sections dans le DOM
+   * et met à jour le sommaire dynamique
+   */
+  function calculatePageNumbers() {
+    const contentArea = document.querySelector('[data-content-area]');
+    if (!contentArea) return;
+    
+    // Hauteur approximative d'une page A4 en pixels (à 96 DPI, ~1123px = 29.7cm)
+    const contentAreaRect = contentArea.getBoundingClientRect();
+    const pageHeight = 1123; // Hauteur approximative d'une page A4 en pixels
+    const pageNumbers = {}; // Map sectionId -> pageNumber
+    
+    // Parcourir toutes les sections dans le contenu
+    const sections = contentArea.querySelectorAll('.section[data-section-id]');
+    sections.forEach(section => {
+      const sectionId = section.dataset.sectionId;
+      if (!sectionId) return;
+      
+      // Obtenir la position du titre de la section (ou de la section elle-même)
+      const sectionTitle = section.querySelector('.section-title');
+      const elementToMeasure = sectionTitle || section;
+      const rect = elementToMeasure.getBoundingClientRect();
+      
+      // Position relative au début du contenu
+      const relativeTop = rect.top - contentAreaRect.top + contentArea.scrollTop;
+      
+      // Calculer le numéro de page (commence à 1)
+      // On suppose que la première page commence au début du contenu
+      const pageNumber = Math.max(1, Math.floor(relativeTop / pageHeight) + 1);
+      
+      pageNumbers[sectionId] = pageNumber;
+    });
+    
+    // Mettre à jour les numéros de page dans le sommaire dynamique
+    const tocEntries = contentArea.querySelectorAll('.dynamic-toc .toc-entry');
+    tocEntries.forEach(entry => {
+      const sectionId = entry.dataset.sectionId;
+      if (!sectionId) return;
+      
+      const pageSpan = entry.querySelector('.toc-page');
+      if (pageSpan && pageNumbers[sectionId]) {
+        pageSpan.textContent = pageNumbers[sectionId];
+      }
+    });
   }
   
   /**

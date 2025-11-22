@@ -15,8 +15,9 @@ const app = express();
 
 // Middlewares
 app.use(cors(config.cors));
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+// Augmenter la limite de taille du body pour les gros HTML (50MB)
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
 // Route de santé
 app.get('/api/health', (req, res) => {

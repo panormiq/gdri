@@ -30,6 +30,7 @@ require_once '../../../includes/header.php';
                 <a class="btn btn-outline" href="<?= url('pages/modules/document-agent/index.php'); ?>">⬅️ Retour</a>
                 <button class="btn btn-outline view-tab is-active" data-view="text">📄 Vue texte</button>
                 <button class="btn btn-outline view-tab" data-view="card">🃏 Vue card</button>
+                <button class="btn btn-primary" id="exportPdfBtn" title="Exporter en PDF">📄 Exporter PDF</button>
             </div>
         </div>
     </div>
