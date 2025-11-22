@@ -225,6 +225,20 @@ class WordParser {
             text += value['_'];
           }
         }
+      } else if (key === 'w:tab') {
+        // Convertir les tabs en espaces pour faciliter l'extraction de numérotation
+        text += ' ';
+      } else if (key === 'w:hyperlink') {
+        // Extraire récursivement le texte des hyperliens (contient souvent la numérotation)
+        if (Array.isArray(value)) {
+          for (const item of value) {
+            if (typeof item === 'object') {
+              text += this.extractText(item, maxDepth - 1, true);
+            }
+          }
+        } else if (typeof value === 'object' && value !== null) {
+          text += this.extractText(value, maxDepth - 1, true);
+        }
       } else if (Array.isArray(value)) {
         // Parcourir récursivement
         for (const item of value) {

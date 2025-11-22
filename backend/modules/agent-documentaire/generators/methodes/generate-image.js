@@ -71,7 +71,7 @@ class GenerateImage {
     } else {
       cssProperties.push('position: relative');
       cssProperties.push('display: block');
-      cssProperties.push('margin: 20px auto');
+      // Pas de margin codé en dur - utiliser les marges extraites du Word
     }
     
     // Dimensions
@@ -104,14 +104,26 @@ class GenerateImage {
       }
     }
     
+    // Border radius (coins arrondis extraits du Word)
+    if (image.borderRadius !== null && image.borderRadius !== undefined) {
+      cssProperties.push(`border-radius: ${image.borderRadius}pt`);
+    }
+    
     // Shadow
-    if (image.shadow) {
+    if (image.shadow && image.shadow.enabled) {
       const shadow = image.shadow;
       const offsetX = shadow.offsetX || 0;
       const offsetY = shadow.offsetY || 0;
       const blur = shadow.blur || 0;
-      const color = shadow.color || 'rgba(0,0,0,0.3)';
-      cssProperties.push(`box-shadow: ${offsetX}pt ${offsetY}pt ${blur}pt ${color}`);
+      // La couleur est déjà en rgba() combinée depuis l'extraction
+      const color = shadow.color || 'rgba(0, 0, 0, 0.3)';
+      
+      // Pour les ombres internes, utiliser inset
+      if (shadow.type === 'inner') {
+        cssProperties.push(`box-shadow: inset ${offsetX}pt ${offsetY}pt ${blur}pt ${color}`);
+      } else {
+        cssProperties.push(`box-shadow: ${offsetX}pt ${offsetY}pt ${blur}pt ${color}`);
+      }
     }
     
     return cssProperties.join('; ');

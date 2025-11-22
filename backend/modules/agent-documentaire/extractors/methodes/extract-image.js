@@ -58,8 +58,6 @@ class ExtractImage {
       drawingElement = imageXml;
     }
 
-    console.log('🖼️ [DEBUG ExtractImage] Type d\'image détecté - isAnchor:', isAnchor, 'hasInline:', !!inlineElement, 'hasAnchor:', !!anchorElement);
-    
     // Extraire les propriétés de base
     const result = {
       type: 'image',
@@ -91,8 +89,10 @@ class ExtractImage {
         offsetX: 0,
         offsetY: 0,
         color: '#000000',
-        opacity: 0.3
+        opacity: 0.3,
+        type: 'outer' // 'outer' ou 'inner'
       },
+      borderRadius: null, // Rayon des coins arrondis en points
       locked: {
         position: isAnchor, // Les anchors sont généralement verrouillés en position
         width: false,
@@ -117,8 +117,6 @@ class ExtractImage {
    * Extrait les propriétés depuis un wp:anchor (image positionnée absolument)
    */
   static extractFromAnchor(anchorElement, result, relationshipsObj, images) {
-    console.log('🔍 [DEBUG ExtractImage] extractFromAnchor appelé');
-    console.log('🔍 [DEBUG ExtractImage] anchorElement keys:', Object.keys(anchorElement));
     // Position (wp:positionH, wp:positionV)
     const positionH = anchorElement['wp:positionH'];
     const positionV = anchorElement['wp:positionV'];
@@ -165,8 +163,6 @@ class ExtractImage {
    * Extrait les propriétés depuis un wp:inline (image dans le flux)
    */
   static extractFromInline(inlineElement, result, relationshipsObj, images) {
-    console.log('🔍 [DEBUG ExtractImage] extractFromInline appelé');
-    console.log('🔍 [DEBUG ExtractImage] inlineElement keys:', Object.keys(inlineElement));
     // Dimensions (wp:extent)
     const extent = inlineElement['wp:extent'];
     if (extent) {
@@ -193,10 +189,7 @@ class ExtractImage {
    * Extrait les propriétés depuis un w:drawing
    */
   static extractFromDrawing(drawingElement, result, relationshipsObj, images) {
-    console.log('🔍 [DEBUG ExtractImage] extractFromDrawing appelé');
-    console.log('🔍 [DEBUG ExtractImage] drawingElement keys:', Object.keys(drawingElement));
     const graphic = drawingElement['a:graphic']?.[0]?.['a:graphicData']?.[0]?.['pic:pic'];
-    console.log('🔍 [DEBUG ExtractImage] graphic trouvé:', graphic ? 'OUI' : 'NON');
     if (graphic) {
       // Si graphic est un tableau, prendre le premier élément
       const picElement = Array.isArray(graphic) ? graphic[0] : graphic;
@@ -208,14 +201,8 @@ class ExtractImage {
    * Extrait les propriétés depuis un pic:pic (élément de dessin)
    */
   static extractDrawingProperties(picElement, result, relationshipsObj, images) {
-    console.log('🔍 [DEBUG ExtractImage] extractDrawingProperties appelé, picElement:', picElement ? 'OK' : 'NULL');
-    if (picElement) {
-      console.log('🔍 [DEBUG ExtractImage] picElement keys:', Object.keys(picElement));
-      console.log('🔍 [DEBUG ExtractImage] picElement type:', Array.isArray(picElement) ? 'ARRAY' : typeof picElement);
-    }
     // Référence vers l'image (pic:blipFill > a:blip > r:embed)
     const blipFill = picElement['pic:blipFill'];
-    console.log('🔍 [DEBUG ExtractImage] blipFill:', blipFill ? 'OUI' : 'NULL');
     if (blipFill) {
       const blipFillArray = Array.isArray(blipFill) ? blipFill : [blipFill];
       for (const blip of blipFillArray) {
@@ -225,15 +212,12 @@ class ExtractImage {
           for (const b of blipArray) {
             const attrs = b['$'] || {};
             const rId = attrs['r:embed'] || attrs['r:link'];
-            console.log('🔍 [DEBUG ExtractImage] rId trouvé:', rId || 'NULL');
             
             if (rId && relationshipsObj) {
               // Trouver l'image dans les relations
               const relationship = this.findRelationship(relationshipsObj, rId);
-              console.log('🔍 [DEBUG ExtractImage] relationship trouvé:', relationship || 'NULL');
               if (relationship) {
                 const imageName = relationship.split('/').pop();
-                console.log('🔍 [DEBUG ExtractImage] image.name trouvé:', imageName);
                 result.src = imageName;
                 result.name = imageName;
                 
@@ -242,6 +226,24 @@ class ExtractImage {
                 if (image) {
                   result.src = image.name;
                   result.name = image.name;
+                }
+              }
+            }
+            
+            // Extraire les informations de transparence (a:clrChange)
+            const clrChange = b['a:clrChange'];
+            if (clrChange) {
+              const clrChangeArray = Array.isArray(clrChange) ? clrChange : [clrChange];
+              for (const change of clrChangeArray) {
+                const clrFrom = change['a:clrFrom']?.[0]?.['a:srgbClr']?.[0]?.['$']?.['val'];
+                const clrTo = change['a:clrTo']?.[0]?.['a:srgbClr']?.[0];
+                
+                if (clrFrom && clrTo) {
+                  // Vérifier si la couleur de destination a un alpha de 0 (transparent)
+                  const alpha = clrTo['a:alpha']?.[0]?.['$']?.['val'];
+                  if (alpha === '0') {
+                    result.colorToTransparent = `#${clrFrom}`;
+                  }
                 }
               }
             }
@@ -295,6 +297,65 @@ class ExtractImage {
           }
         }
 
+        // Coins arrondis (a:prstGeom avec prst="roundRect")
+        const prstGeom = sp['a:prstGeom'];
+        if (prstGeom) {
+          const prstGeomArray = Array.isArray(prstGeom) ? prstGeom : [prstGeom];
+          for (const geom of prstGeomArray) {
+            const attrs = geom['$'] || {};
+            // Vérifier si c'est un rectangle arrondi
+            if (attrs['prst'] === 'roundRect') {
+              // Extraire les valeurs d'ajustement (a:avLst > a:gd avec name="adj")
+              const avLst = geom['a:avLst'];
+              if (avLst) {
+                const avLstArray = Array.isArray(avLst) ? avLst : [avLst];
+                for (const av of avLstArray) {
+                  const gd = av['a:gd'];
+                  if (gd) {
+                    const gdArray = Array.isArray(gd) ? gd : [gd];
+                    for (const g of gdArray) {
+                      const gdAttrs = g['$'] || {};
+                      // Le nom "adj" contient le rayon en pourcentage (0-100000)
+                      if (gdAttrs['name'] === 'adj') {
+                        let adjValue = null;
+                        
+                        // Essayer d'abord la formule (fmla)
+                        const adjVal = gdAttrs['fmla'];
+                        if (adjVal) {
+                          // La formule peut être "val 50000" ou similaire
+                          const match = adjVal.match(/(\d+)/);
+                          if (match) {
+                            adjValue = parseInt(match[1]);
+                          }
+                        }
+                        
+                        // Si pas de formule, utiliser la valeur directe (val)
+                        if (adjValue === null) {
+                          const val = gdAttrs['val'];
+                          if (val) {
+                            adjValue = parseInt(val);
+                          }
+                        }
+                        
+                        // Convertir en rayon en points
+                        if (adjValue !== null) {
+                          // adjValue est en 1000èmes (0-100000 = 0-100%)
+                          const percentage = adjValue / 1000;
+                          // Calculer le rayon en points basé sur la plus petite dimension
+                          const minDimension = Math.min(result.width || 0, result.height || 0);
+                          if (minDimension > 0) {
+                            result.borderRadius = (minDimension * percentage) / 100;
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+
         // Bordures (a:ln)
         const ln = sp['a:ln'];
         if (ln) {
@@ -340,69 +401,21 @@ class ExtractImage {
           }
         }
 
-        // Ombres (a:effectLst > a:outerShdw)
+        // Ombres (a:effectLst > a:outerShdw ou a:innerShdw)
         const effectLst = sp['a:effectLst'];
         if (effectLst) {
           const effectArray = Array.isArray(effectLst) ? effectLst : [effectLst];
           for (const effect of effectArray) {
+            // Ombre externe (a:outerShdw)
             const outerShdw = effect['a:outerShdw'];
             if (outerShdw) {
-              const shadowArray = Array.isArray(outerShdw) ? outerShdw : [outerShdw];
-              for (const shadow of shadowArray) {
-                result.shadow.enabled = true;
-                const attrs = shadow['$'] || {};
-
-                // Décalage (dist en EMU)
-                if (attrs['dist']) {
-                  const dist = ExtractImage.emuToPoints(parseInt(attrs['dist']) || 0);
-                  result.shadow.offsetX = dist;
-                  result.shadow.offsetY = dist;
-                }
-
-                // Direction (dir en 60000èmes de degré)
-                if (attrs['dir']) {
-                  const dir = parseInt(attrs['dir']) / 60000;
-                  const dist = ExtractImage.emuToPoints(parseInt(attrs['dist']) || 0);
-                  result.shadow.offsetX = Math.cos(dir * Math.PI / 180) * dist;
-                  result.shadow.offsetY = Math.sin(dir * Math.PI / 180) * dist;
-                }
-
-                // Flou (blurRad en EMU)
-                const blurRad = shadow['a:blurRad'];
-                if (blurRad) {
-                  const blurArray = Array.isArray(blurRad) ? blurRad : [blurRad];
-                  for (const blur of blurArray) {
-                    const blurAttrs = blur['$'] || {};
-                    if (blurAttrs['val']) {
-                      result.shadow.blur = ExtractImage.emuToPoints(parseInt(blurAttrs['val']) || 0);
-                    }
-                  }
-                }
-
-                // Couleur de l'ombre (a:srgbClr)
-                const srgbClr = shadow['a:srgbClr'];
-                if (srgbClr) {
-                  const clrArray = Array.isArray(srgbClr) ? srgbClr : [srgbClr];
-                  for (const clr of clrArray) {
-                    const clrAttrs = clr['$'] || {};
-                    if (clrAttrs['val']) {
-                      result.shadow.color = '#' + clrAttrs['val'];
-                    }
-                    // Opacité (alpha)
-                    const alpha = clr['a:alpha'];
-                    if (alpha) {
-                      const alphaArray = Array.isArray(alpha) ? alpha : [alpha];
-                      for (const a of alphaArray) {
-                        const alphaAttrs = a['$'] || {};
-                        if (alphaAttrs['val']) {
-                          // val est en 1000èmes (100000 = 100%)
-                          result.shadow.opacity = parseInt(alphaAttrs['val']) / 1000;
-                        }
-                      }
-                    }
-                  }
-                }
-              }
+              ExtractImage.extractShadow(outerShdw, result, 'outer');
+            }
+            
+            // Ombre interne (a:innerShdw)
+            const innerShdw = effect['a:innerShdw'];
+            if (innerShdw) {
+              ExtractImage.extractShadow(innerShdw, result, 'inner');
             }
           }
         }
@@ -411,55 +424,120 @@ class ExtractImage {
   }
 
   /**
+   * Extrait les propriétés d'une ombre (outer ou inner)
+   * @param {Object} shadowElement - Élément XML de l'ombre (a:outerShdw ou a:innerShdw)
+   * @param {Object} result - Objet image où stocker les propriétés
+   * @param {string} type - Type d'ombre ('outer' ou 'inner')
+   */
+  static extractShadow(shadowElement, result, type = 'outer') {
+    const shadowArray = Array.isArray(shadowElement) ? shadowElement : [shadowElement];
+    for (const shadow of shadowArray) {
+      result.shadow.enabled = true;
+      result.shadow.type = type;
+      const attrs = shadow['$'] || {};
+
+      // Décalage (dist en EMU)
+      if (attrs['dist']) {
+        const dist = ExtractImage.emuToPoints(parseInt(attrs['dist']) || 0);
+        result.shadow.offsetX = dist;
+        result.shadow.offsetY = dist;
+      }
+
+      // Direction (dir en 60000èmes de degré)
+      if (attrs['dir']) {
+        const dir = parseInt(attrs['dir']) / 60000;
+        const dist = ExtractImage.emuToPoints(parseInt(attrs['dist']) || 0);
+        result.shadow.offsetX = Math.cos(dir * Math.PI / 180) * dist;
+        result.shadow.offsetY = Math.sin(dir * Math.PI / 180) * dist;
+      }
+
+      // Flou (blurRad en EMU)
+      const blurRad = shadow['a:blurRad'];
+      if (blurRad) {
+        const blurArray = Array.isArray(blurRad) ? blurRad : [blurRad];
+        for (const blur of blurArray) {
+          const blurAttrs = blur['$'] || {};
+          if (blurAttrs['val']) {
+            result.shadow.blur = ExtractImage.emuToPoints(parseInt(blurAttrs['val']) || 0);
+          }
+        }
+      }
+
+      // Couleur et opacité de l'ombre (a:srgbClr)
+      let shadowColor = '#000000';
+      let shadowOpacity = 0.3;
+      
+      const srgbClr = shadow['a:srgbClr'];
+      if (srgbClr) {
+        const clrArray = Array.isArray(srgbClr) ? srgbClr : [srgbClr];
+        for (const clr of clrArray) {
+          const clrAttrs = clr['$'] || {};
+          if (clrAttrs['val']) {
+            shadowColor = '#' + clrAttrs['val'];
+          }
+          // Opacité (alpha)
+          const alpha = clr['a:alpha'];
+          if (alpha) {
+            const alphaArray = Array.isArray(alpha) ? alpha : [alpha];
+            for (const a of alphaArray) {
+              const alphaAttrs = a['$'] || {};
+              if (alphaAttrs['val']) {
+                // val est en 1000èmes (100000 = 100%)
+                shadowOpacity = parseInt(alphaAttrs['val']) / 1000;
+              }
+            }
+          }
+        }
+      }
+      
+      // Convertir hex en RGB pour créer rgba()
+      const hex = shadowColor.replace('#', '');
+      const r = parseInt(hex.substring(0, 2), 16);
+      const g = parseInt(hex.substring(2, 4), 16);
+      const b = parseInt(hex.substring(4, 6), 16);
+      
+      // Stocker la couleur en rgba() combinée
+      result.shadow.color = `rgba(${r}, ${g}, ${b}, ${shadowOpacity})`;
+      result.shadow.opacity = shadowOpacity;
+    }
+  }
+
+  /**
    * Trouve une relation dans relationshipsObj
    */
   static findRelationship(relationshipsObj, rId) {
-    console.log('🔍 [DEBUG findRelationship] Recherche de rId:', rId);
     if (!relationshipsObj || !rId) {
-      console.log('🔍 [DEBUG findRelationship] relationshipsObj ou rId est NULL');
       return null;
     }
-
-    console.log('🔍 [DEBUG findRelationship] relationshipsObj keys:', Object.keys(relationshipsObj));
 
     // Structure peut varier selon le parsing
     let relationships = null;
     if (relationshipsObj['Relationships']) {
       relationships = relationshipsObj['Relationships'];
-      console.log('🔍 [DEBUG findRelationship] Utilisation de Relationships (avec s)');
     } else if (relationshipsObj['Relationship']) {
       relationships = relationshipsObj['Relationship'];
-      console.log('🔍 [DEBUG findRelationship] Utilisation de Relationship (sans s)');
     } else if (relationshipsObj['r:Relationships']) {
       relationships = relationshipsObj['r:Relationships'];
-      console.log('🔍 [DEBUG findRelationship] Utilisation de r:Relationships');
     } else if (relationshipsObj['r:Relationship']) {
       relationships = relationshipsObj['r:Relationship'];
-      console.log('🔍 [DEBUG findRelationship] Utilisation de r:Relationship');
     } else if (Array.isArray(relationshipsObj)) {
       relationships = relationshipsObj;
-      console.log('🔍 [DEBUG findRelationship] relationshipsObj est déjà un tableau');
     }
 
     if (!relationships) {
-      console.log('🔍 [DEBUG findRelationship] relationships est NULL');
       return null;
     }
 
     const relArray = Array.isArray(relationships) ? relationships : [relationships];
-    console.log('🔍 [DEBUG findRelationship] Nombre de relations:', relArray.length);
     
     for (const rel of relArray) {
       const attrs = rel['$'] || {};
-      console.log('🔍 [DEBUG findRelationship] Vérification relation - Id:', attrs['Id'], 'rId recherché:', rId);
       if (attrs['Id'] === rId || attrs['r:id'] === rId) {
         const target = attrs['Target'] || attrs['r:target'];
-        console.log('🔍 [DEBUG findRelationship] ✅ MATCH TROUVÉ ! Target:', target);
         return target;
       }
     }
 
-    console.log('🔍 [DEBUG findRelationship] ❌ Aucun match trouvé');
     return null;
   }
 
@@ -506,9 +584,11 @@ class ExtractImage {
         blur: 0,
         offsetX: 0,
         offsetY: 0,
-        color: '#000000',
-        opacity: 0.3
+        color: 'rgba(0, 0, 0, 0.3)',
+        opacity: 0.3,
+        type: 'outer'
       },
+      borderRadius: null,
       locked: {
         position: false,
         width: true,

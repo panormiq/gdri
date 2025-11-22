@@ -108,10 +108,20 @@ class ExtractHeading {
       }
       if (spacing['w:line']) {
         const lineValue = spacing['w:line'];
+        const lineRule = spacing['w:lineRule']; // "auto", "exact", "atLeast"
+        
         if (lineValue === 'auto') {
           props.spacing.line = 1.15;
+          props.spacing.lineType = 'multiple';
+        } else if (lineRule === 'exact' || lineRule === 'atLeast') {
+          // Valeur fixe en twips (1/20 de point)
+          const lineInTwips = parseInt(lineValue) || 0;
+          props.spacing.line = StyleExtractor.twipsToPoints(lineInTwips);
+          props.spacing.lineType = 'fixed';
         } else {
+          // Multiple en 240èmes de ligne
           props.spacing.line = parseInt(lineValue) / 240;
+          props.spacing.lineType = 'multiple';
         }
       }
     }

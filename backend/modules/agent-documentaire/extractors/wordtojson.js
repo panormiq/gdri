@@ -17,6 +17,7 @@ const { getTagConfig, getSupportedTags } = require('./word-tags-config');
 // Extracteur de styles
 const StyleExtractor = require('./style-extractor');
 const StyleHierarchy = require('./style-hierarchy');
+const NumberingExtractor = require('./numbering-extractor');
 
 // Méthode d'extraction principale
 const extractSection = require('./methodes/extract-section');
@@ -39,6 +40,7 @@ class WordToJson {
     let documentXml = null;
     let relationshipsXml = null;
     let stylesXml = null;
+    let numberingXml = null;
     const images = [];
     
     for (const entry of zipEntries) {
@@ -49,6 +51,8 @@ class WordToJson {
       } else if (entry.entryName === 'word/styles.xml') {
         // IMPORTANT : Extraire les styles généraux AVANT de parser le contenu
         stylesXml = entry.getData().toString('utf8');
+      } else if (entry.entryName === 'word/numbering.xml') {
+        numberingXml = entry.getData().toString('utf8');
       } else if (entry.entryName.startsWith('word/media/')) {
         // Extraire les images
         const imageData = entry.getData();
@@ -68,6 +72,10 @@ class WordToJson {
     // ÉTAPE 1 : Extraire les styles généraux AVANT de parser le contenu
     console.log('📋 Extraction des styles généraux...');
     const documentStyles = await StyleExtractor.extract(stylesXml);
+    
+    // ÉTAPE 1.2 : Extraire les formats de numérotation
+    console.log('🔢 Extraction des formats de numérotation...');
+    const numberingFormats = await NumberingExtractor.extract(numberingXml);
     
     // ÉTAPE 1.5 : Analyser la hiérarchie des styles personnalisés
     console.log('📊 Analyse de la hiérarchie des styles...');
@@ -100,6 +108,7 @@ class WordToJson {
       },
       styles: documentStyles, // Styles généraux du document
       styleHierarchy: styleHierarchy, // Hiérarchie des styles de titres
+      numberingFormats: numberingFormats, // Formats de numérotation par niveau
       sections: [],
       toc: [],
       images: [],
@@ -158,12 +167,16 @@ class WordToJson {
       relationshipsObj,
       documentStyles,  // Passer les styles généraux
       result.toc,  // Passer le TOC pour identifier le premier titre
-      styleHierarchy  // Passer la hiérarchie des styles (maintenant avec styles TOC)
+      styleHierarchy,  // Passer la hiérarchie des styles (maintenant avec styles TOC)
+      numberingFormats  // Passer les formats de numérotation
     );
     result.sections = sections;
     
     // Extraire et sauvegarder les images
     result.images = await this.extractAndSaveImages(images, wordFilePath);
+    
+    // Extraire les marges de page
+    result.pageMargins = this.extractPageMargins(documentObj);
     
     return result;
   }
@@ -174,6 +187,47 @@ class WordToJson {
   static extractTitle(documentObj) {
     // TODO: Extraire le titre depuis les propriétés du document
     return 'Document sans titre';
+  }
+  
+  /**
+   * Extrait les marges de page depuis w:sectPr
+   * @param {Object} documentObj - Objet XML parsé du document
+   * @returns {Object} Marges en points (pt)
+   */
+  static extractPageMargins(documentObj) {
+    const WordParser = require('./word-parser');
+    const StyleExtractor = require('./style-extractor');
+    
+    // Récupérer le body
+    const body = WordParser.getBody(documentObj);
+    if (!body) {
+      return { top: 70.85, right: 70.85, bottom: 70.85, left: 70.85 }; // Marges par défaut Word (2.5cm = 70.85pt)
+    }
+    
+    // Chercher w:sectPr dans le body
+    const sectPr = body['w:sectPr'];
+    if (!sectPr || !Array.isArray(sectPr) || sectPr.length === 0) {
+      return { top: 70.85, right: 70.85, bottom: 70.85, left: 70.85 }; // Marges par défaut
+    }
+    
+    // Extraire w:pgMar
+    const pgMar = sectPr[0]['w:pgMar'];
+    if (!pgMar || !Array.isArray(pgMar) || pgMar.length === 0) {
+      return { top: 70.85, right: 70.85, bottom: 70.85, left: 70.85 }; // Marges par défaut
+    }
+    
+    const margins = pgMar[0]['$'];
+    if (!margins) {
+      return { top: 70.85, right: 70.85, bottom: 70.85, left: 70.85 }; // Marges par défaut
+    }
+    
+    // Convertir twips en points (1 pt = 20 twips)
+    return {
+      top: StyleExtractor.twipsToPoints(parseInt(margins['w:top']) || 1417),
+      right: StyleExtractor.twipsToPoints(parseInt(margins['w:right']) || 1417),
+      bottom: StyleExtractor.twipsToPoints(parseInt(margins['w:bottom']) || 1417),
+      left: StyleExtractor.twipsToPoints(parseInt(margins['w:left']) || 1417)
+    };
   }
   
   /**

@@ -112,24 +112,16 @@ button.btn.btn-outline.view-tab.is-active,
   position: relative;
 }
 
-/* Retirer le padding de la colonne de contenu (middle column) pour que les images avec fond touchent les bords */
-/* Utiliser une marge négative pour compenser le padding du parent doc-panel__body (20px) */
+/* Retirer le padding du doc-panel__body qui contient la content-area (colonne de contenu) */
+.doc-panel__body:has(.content-area) {
+  padding: 0;
+}
+
+/* Le conteneur de contenu sans marge/padding car les marges de page sont appliquées aux éléments */
 .content-area {
   padding: 0;
-  margin: -20px;
-  width: calc(100% + 40px); /* Compenser les marges négatives */
-}
-
-/* Ajouter du padding aux éléments SAUF les divs avec background (qui contiennent les images) */
-.content-area .section > *:not(div[style*="background-color"]) {
-  margin-left: 20px;
-  margin-right: 20px;
-}
-
-/* Les divs avec background (images) doivent toucher les bords */
-.content-area .section > div[style*="background-color"] {
-  margin-left: 0;
-  margin-right: 0;
+  margin: 0;
+  width: 100%;
 }
 
 /* Pour les colonnes avec sommaire et annexes, ne pas étirer (sauf dans vue texte avec scroll) */
@@ -210,7 +202,7 @@ button.btn.btn-outline.view-tab.is-active,
 
 .section p {
   margin: 8px 0;
-  line-height: 1.6;
+  /* line-height extrait du Word, pas codé en dur */
 }
 
 /* Styles pour le contenu (colonne 2 - vue texte) */
@@ -223,8 +215,8 @@ button.btn.btn-outline.view-tab.is-active,
   max-width: 100%;
   height: auto;
   margin: 12px 0;
-  border-radius: 8px;
   display: block;
+  /* border-radius extrait du Word, pas codé en dur */
 }
 
 /* Ensure image containers don't overlap */
@@ -239,7 +231,7 @@ button.btn.btn-outline.view-tab.is-active,
   max-width: 100%;
   height: auto;
   margin: 12px 0;
-  border-radius: 8px;
+  /* border-radius extrait du Word, pas codé en dur */
 }
 
 /* Sommaire */

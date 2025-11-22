@@ -126,7 +126,7 @@ class JsonToHtml {
       
       body {
         font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-        line-height: 1.6;
+        /* line-height extrait du Word pour le contenu, pas codé en dur */
         color: #333;
         background: #f5f5f5;
         padding: 20px;
@@ -205,7 +205,7 @@ class JsonToHtml {
       
       .paragraph {
         margin-bottom: 15px;
-        line-height: 1.8;
+        /* line-height extrait du Word, pas codé en dur */
       }
       
       .image {
@@ -216,7 +216,7 @@ class JsonToHtml {
       .image img {
         max-width: 100%;
         height: auto;
-        border-radius: 4px;
+        /* border-radius extrait du Word, pas codé en dur */
         box-shadow: 0 2px 8px rgba(0,0,0,0.1);
       }
       

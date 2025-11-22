@@ -87,9 +87,16 @@ class GenerateParagraph {
       cssProperties.push(`background-color: ${styles.backgroundColor}`);
     }
     
-    // Line height
-    if (styles.lineHeight) {
-      cssProperties.push(`line-height: ${styles.lineHeight}`);
+    // Line height (depuis spacing.line)
+    if (styles.spacing && styles.spacing.line) {
+      // Appliquer selon le type : fixe (en pt) ou multiple (sans unité)
+      if (styles.spacing.lineType === 'fixed') {
+        // Valeur fixe en points : ex. 30pt
+        cssProperties.push(`line-height: ${styles.spacing.line}pt`);
+      } else {
+        // Multiple relatif : ex. 1.5 (sans unité)
+        cssProperties.push(`line-height: ${styles.spacing.line}`);
+      }
     }
     
     // Margin

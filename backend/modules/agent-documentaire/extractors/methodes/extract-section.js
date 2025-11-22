@@ -19,9 +19,11 @@ class ExtractSection {
    * @param {Object} relationshipsObj - Relations du document (pour les images)
    * @param {Object} documentStyles - Styles généraux du document (depuis word/styles.xml)
    * @param {Array} toc - Table des matières (pour identifier le premier titre et créer la section introduction)
+   * @param {Object} styleHierarchy - Hiérarchie des styles
+   * @param {Object} numberingFormats - Formats de numérotation extraits depuis numbering.xml
    * @returns {Promise<Object>} { sections }
    */
-  static async extract(documentObj, images, relationshipsObj = null, documentStyles = {}, toc = [], styleHierarchy = null) {
+  static async extract(documentObj, images, relationshipsObj = null, documentStyles = {}, toc = [], styleHierarchy = null, numberingFormats = null) {
     // TODO: Implémenter l'extraction des sections
     // - Détecter les titres (headings) pour créer les sections
     // - Grouper le contenu sous chaque section
@@ -33,7 +35,6 @@ class ExtractSection {
     // ÉTAPE 1 : Récupérer le corps du document avec WordParser
     const body = WordParser.getBody(documentObj);
     if (!body) {
-      console.warn('⚠️  Corps du document (w:body) non trouvé');
       return { sections };
     }
     
@@ -44,7 +45,6 @@ class ExtractSection {
     
     // ÉTAPE 3 : Récupérer tous les éléments de premier niveau (w:p, w:tbl, etc.)
     const topLevelElements = WordParser.getTopLevelElements(documentObj);
-    console.log(`📄 ${topLevelElements.length} éléments de premier niveau trouvés`);
     
     // ÉTAPE 4 : Parcourir chaque élément et utiliser word-tags-config pour identifier le type
     let currentSection = null;
@@ -68,7 +68,6 @@ class ExtractSection {
         };
         sections.unshift(introSection);
         introductionInserted = true;
-        console.log(`📝 Section introduction créée avec ${introSection.content.length} éléments`);
       }
     };
     
@@ -159,11 +158,11 @@ class ExtractSection {
       
       const method = config?.getMethod ? config.getMethod() : config?.method;
       if (!config || (!method && !isHeading)) {
-          continue;
-        }
-        
+              continue;
+            }
+            
         try {
-        if (isHeading) {
+          if (isHeading) {
           const headingExtraction = config.type === 'heading' && method
             ? await method(element, documentStyles)
             : null;
@@ -178,25 +177,70 @@ class ExtractSection {
             level = 1;
           }
           
+          // Trouver le bon format de numérotation selon le style et mettre à jour numberingFormats
+          if (numberingFormats && styleId) {
+            const style = documentStyles[styleId];
+            if (style && style.numId) {
+              // Trouver l'abstractNumId via le numId
+              const abstractNumId = numberingFormats.numIdMapping?.[style.numId];
+              if (abstractNumId && numberingFormats.abstractNumMap) {
+                const abstractNum = numberingFormats.abstractNumMap[abstractNumId];
+                if (abstractNum) {
+                  const levels = abstractNum['w:lvl'] || [];
+                  // Trouver le niveau correspondant (level - 1 car level est 1-based et ilvl est 0-based)
+                  const levelIndex = level - 1;
+                  for (const lvl of levels) {
+                    const lvlIndex = parseInt(lvl['$']?.['w:ilvl']) || 0;
+                    if (lvlIndex === levelIndex) {
+                      const NumberingExtractor = require('../numbering-extractor');
+                      const numberingFormatForLevel = NumberingExtractor.extractLevelFormat(lvl, levelIndex);
+                      // Mettre à jour numberingFormats.formats avec le bon format pour ce niveau
+                      if (!numberingFormats.formats[levelIndex] || numberingFormats.formats[levelIndex].numFmt !== numberingFormatForLevel.numFmt) {
+                        numberingFormats.formats[levelIndex] = {
+                          level: levelIndex,
+                          format: numberingFormatForLevel.format,
+                          start: numberingFormatForLevel.start || 1,
+                          numFmt: numberingFormatForLevel.numFmt,
+                          ...numberingFormatForLevel
+                        };
+                        console.log(`   ✅ Format mis à jour pour niveau ${levelIndex} (style "${styleId}", numId=${style.numId}, abstractNumId=${abstractNumId}): format="${numberingFormatForLevel.format}", numFmt="${numberingFormatForLevel.numFmt}"`);
+                      }
+                      break;
+                    }
+                  }
+                }
+              }
+            }
+          }
+          
           const normalizedTitle = (headingText || '').trim().toLowerCase();
           if (normalizedTitle === 'sommaire') {
             if (!sommaireSection) {
-              // Vérifier si le paragraphe du titre Sommaire a un saut de page
+              // Vérifier si le paragraphe du titre Sommaire a un saut de page et extraire ses styles
               const ExtractParagraph = require('./extract-paragraph');
               const hasPageBreak = ExtractParagraph.hasPageBreak(element);
+              
+              // Extraire les styles du titre Sommaire
+              const titleStyleName = WordParser.getParagraphStyle(element) || 'Normal';
+              const pPr = element['w:pPr'];
+              const pPrArray = Array.isArray(pPr) ? pPr : (pPr ? [pPr] : []);
+              const titleStyles = ExtractParagraph.extractParagraphProperties(pPrArray[0] || {}, documentStyles, titleStyleName);
+              const runs = WordParser.findElementsByTag(element, 'w:r');
+              const runStyles = ExtractParagraph.extractRunProperties(runs, documentStyles, titleStyleName);
               
               sommaireSection = {
                 id: `sommaire_${Date.now()}`,
                 type: 'section',
                 title: headingText || 'Sommaire',
-                level: 0,
+                  level: 0,
                 order: sectionOrder++,
-                isAnnex: false,
+                  isAnnex: false,
                 isSommaire: true,
                 content: [],
-                children: [],
+                  children: [],
                 showInToc: false,
-                hasPageBreak: hasPageBreak // Ajouter l'indicateur de saut de page
+                hasPageBreak: hasPageBreak, // Ajouter l'indicateur de saut de page
+                titleStyles: { ...titleStyles, ...runStyles } // Styles du titre
               };
               sections.push(sommaireSection);
             }
@@ -218,16 +262,25 @@ class ExtractSection {
           
           // Ne créer une section que si elle a un vrai titre (pas vide)
           if (!sectionTitle || sectionTitle.trim() === '') {
-            console.log(`⚠️  Titre vide ignoré (niveau ${level})`);
             continue;
           }
           
           const sectionNumbering = numbering?.full || null;
           const isAnnex = this.isAnnexSection(sectionTitle, level, sectionStack);
           
-          // Vérifier si le paragraphe du titre a un saut de page
+          // Vérifier si le paragraphe du titre a un saut de page et extraire ses styles
           const ExtractParagraph = require('./extract-paragraph');
           const hasPageBreak = ExtractParagraph.hasPageBreak(element);
+          
+          // Extraire les styles du titre (couleur, fond, police, etc.)
+          const titleStyleName = WordParser.getParagraphStyle(element) || 'Normal';
+          const pPr = element['w:pPr'];
+          const pPrArray = Array.isArray(pPr) ? pPr : (pPr ? [pPr] : []);
+          const titleStyles = ExtractParagraph.extractParagraphProperties(pPrArray[0] || {}, documentStyles, titleStyleName);
+          
+          // Extraire aussi les styles de run (gras, couleur texte, etc.)
+          const runs = WordParser.findElementsByTag(element, 'w:r');
+          const runStyles = ExtractParagraph.extractRunProperties(runs, documentStyles, titleStyleName);
           
             const newSection = {
               id: `sec_${Date.now()}_${sectionOrder++}`,
@@ -239,7 +292,8 @@ class ExtractSection {
             isAnnex,
               content: [],
               children: [],
-            linkedAnnexes: []
+            linkedAnnexes: [],
+            titleStyles: { ...titleStyles, ...runStyles } // Combiner styles de paragraphe et de run
             };
           
           // Ajouter l'indicateur de saut de page si présent
@@ -256,8 +310,6 @@ class ExtractSection {
             
             sectionStack.push(newSection);
             currentSection = newSection;
-            
-            console.log(`📑 Section créée : "${newSection.title}" (niveau ${level})`);
         } else if (config.type === 'paragraph' || config.type === 'image' || config.type === 'table') {
               let extracted;
               if (config.type === 'paragraph') {
@@ -265,23 +317,19 @@ class ExtractSection {
                 extracted = await method(element, documentStyles, images, relationshipsObj);
               } else if (config.type === 'image') {
                 extracted = await method(element, images, relationshipsObj);
-                if (extracted) {
+              if (extracted) {
                   // FORCER TOUTES LES IMAGES À ÊTRE INLINE (pas absolute)
                   if (extracted.position) {
                     extracted.position.isAbsolute = false;
                     extracted.position.x = 0;
                     extracted.position.y = 0;
                   }
-                  console.log('🖼️  Image extraite (forcée inline):', extracted.src || extracted.name || 'no name');
                 }
               } else if (config.type === 'table') {
                 extracted = await method(element);
               }
               
           if (!extracted) {
-            if (config.type === 'image') {
-              console.log('⚠️  Image extraction returned null/undefined');
-            }
             continue;
           }
           
@@ -299,15 +347,13 @@ class ExtractSection {
           targetSection.content.push(extracted);
         }
       } catch (error) {
-        console.error(`❌ Erreur lors de l'extraction de ${tag}:`, error.message);
+        // Erreur lors de l'extraction
       }
     }
     
     if (introductionContent.length > 0 && !introductionInserted) {
       pushIntroductionSection();
     }
-    
-    console.log(`✅ Extraction terminée : ${sections.length} sections`);
     
     return {
       sections

@@ -1,22 +1,21 @@
 /**
- * Extracteur de styles Word
+ * Style Extractor - Extraction des styles depuis styles.xml
  * Fichier : backend/modules/agent-documentaire/extractors/style-extractor.js
  * 
- * Fonction : Extrait les styles généraux du document Word depuis word/styles.xml
- * Ces styles sont ensuite utilisés comme base pour tous les éléments du document
+ * Fonction : Extrait et convertit les styles Word
  */
 
 const xml2js = require('xml2js');
 
 class StyleExtractor {
   /**
-   * Extrait les styles depuis word/styles.xml
-   * @param {string} stylesXml - Contenu XML de word/styles.xml
-   * @returns {Promise<Object>} Objet avec tous les styles indexés par leur ID
+   * Extrait les styles depuis styles.xml
+   * @param {string} stylesXml - Contenu XML de styles.xml
+   * @returns {Promise<Object>} Objet contenant les styles extraits
    */
   static async extract(stylesXml) {
     if (!stylesXml) {
-      console.warn('⚠️  word/styles.xml non trouvé, utilisation des styles par défaut');
+      console.log('⚠️  Fichier styles.xml non trouvé, utilisation des styles par défaut');
       return this.getDefaultStyles();
     }
 
@@ -24,159 +23,172 @@ class StyleExtractor {
       explicitArray: true,
       mergeAttrs: false,
       explicitRoot: false,
-      trim: true,
-      normalize: true,
-      charkey: '_',
-      attrkey: '$'
+      attrkey: '$',
+      charkey: '_'
     });
 
-    const stylesObj = await parser.parseStringPromise(stylesXml);
-    const styles = {};
-
-    // Structure de word/styles.xml :
-    // {
-    //   "w:styles": {
-    //     "w:style": [
-    //       {
-    //         "$": { "w:type": "paragraph", "w:styleId": "Heading1" },
-    //         "w:name": [{ "$": { "w:val": "heading 1" } }],
-    //         "w:pPr": [...],  // Propriétés de paragraphe
-    //         "w:rPr": [...]   // Propriétés de run (formatage)
-    //       }
-    //     ]
-    //   }
-    // }
-
-    // Les styles peuvent être directement dans w:style ou dans w:styles[0]['w:style']
-    let styleArray = [];
-    if (stylesObj['w:style']) {
-      // Styles directement à la racine
-      styleArray = Array.isArray(stylesObj['w:style']) ? stylesObj['w:style'] : [stylesObj['w:style']];
-    } else if (stylesObj['w:styles']) {
-      // Styles dans w:styles wrapper
-      const stylesElement = Array.isArray(stylesObj['w:styles']) ? stylesObj['w:styles'][0] : stylesObj['w:styles'];
-      styleArray = stylesElement?.['w:style'] || [];
-      if (!Array.isArray(styleArray)) {
-        styleArray = [styleArray];
+    try {
+      const stylesObj = await parser.parseStringPromise(stylesXml);
+      const styles = {};
+      
+      // Extraire les styles depuis w:style
+      const styleElements = stylesObj['w:style'];
+      if (styleElements && Array.isArray(styleElements)) {
+        for (const styleElement of styleElements) {
+          const style = this.extractStyle(styleElement);
+          if (style && style.id) {
+            styles[style.id] = style;
+          }
+        }
       }
-    }
-    
-    if (styleArray.length === 0) {
+      
+      console.log(`✅ ${Object.keys(styles).length} styles extraits`);
+      return styles;
+    } catch (error) {
+      console.error('❌ Erreur parsing styles.xml:', error.message);
       return this.getDefaultStyles();
     }
-    
-    for (const style of styleArray) {
-      const attrs = style['$'] || {};
-      const styleId = attrs['w:styleId'];
-      const styleType = attrs['w:type']; // paragraph, character, table, etc.
-
-      if (!styleId) {
-        continue;
-      }
-
-      // Extraire le nom du style
-      const nameElement = style['w:name'];
-      const styleName = nameElement?.[0]?.['$']?.['w:val'] || styleId;
-
-      // Extraire les propriétés de hiérarchie (w:next, w:basedOn)
-      const nextElement = style['w:next'];
-      const nextStyle = nextElement?.[0]?.['$']?.['w:val'] || null;
-      
-      const basedOnElement = style['w:basedOn'];
-      const basedOnStyle = basedOnElement?.[0]?.['$']?.['w:val'] || null;
-
-      // Extraire les propriétés de paragraphe (w:pPr)
-      const pPr = style['w:pPr']?.[0] || {};
-      const paragraphProps = this.extractParagraphProperties(pPr);
-
-      // Extraire les propriétés de run (w:rPr)
-      const rPr = style['w:rPr']?.[0] || {};
-      const runProps = this.extractRunProperties(rPr);
-
-      // Stocker le style avec les informations de hiérarchie
-      styles[styleId] = {
-        id: styleId,
-        name: styleName,
-        type: styleType,
-        next: nextStyle,        // Style suivant dans la hiérarchie
-        basedOn: basedOnStyle,  // Style de base
-        paragraph: paragraphProps,
-        run: runProps
-      };
-    }
-
-    console.log(`✅ ${Object.keys(styles).length} styles extraits`);
-    return styles;
   }
 
   /**
-   * Extrait les propriétés de paragraphe depuis w:pPr
-   * @param {Object} pPr - Élément w:pPr
-   * @returns {Object} Propriétés de paragraphe
+   * Extrait un style individuel
+   * @param {Object} styleElement - Élément w:style
+   * @returns {Object} Style extrait
    */
-  static extractParagraphProperties(pPr) {
-    const props = {
-      alignment: 'left',
-      spacing: {
-        before: 0,
-        after: 0,
-        line: 1.15
-      },
-      indentation: {
-        left: 0,
-        right: 0,
-        firstLine: 0
-      }
-    };
-
-    // Alignement (w:jc)
-    const jc = pPr['w:jc']?.[0]?.['$']?.['w:val'];
-    if (jc) {
-      const alignmentMap = {
-        'left': 'left',
-        'center': 'center',
-        'right': 'right',
-        'both': 'justify',
-        'justify': 'justify'
-      };
-      props.alignment = alignmentMap[jc] || 'left';
+  static extractStyle(styleElement) {
+    const attrs = styleElement['$'] || {};
+    const styleId = attrs['w:styleId'];
+    const styleType = attrs['w:type'];
+    
+    if (!styleId) {
+      return null;
     }
 
-    // Interlignes et marges (w:spacing)
-    const spacing = pPr['w:spacing']?.[0]?.['$'];
-    if (spacing) {
-      if (spacing['w:before']) {
-        props.spacing.before = this.twipsToPoints(parseInt(spacing['w:before']) || 0);
+    const nameElement = styleElement['w:name'];
+    const name = nameElement && nameElement[0] && nameElement[0]['$'] ? nameElement[0]['$']['w:val'] : styleId;
+
+    const style = {
+      id: styleId,
+      name: name,
+      type: styleType,
+      next: null,
+      basedOn: null
+    };
+
+    // Extraire basedOn
+    const basedOnElement = styleElement['w:basedOn'];
+    if (basedOnElement && basedOnElement[0] && basedOnElement[0]['$']) {
+      style.basedOn = basedOnElement[0]['$']['w:val'];
+    }
+
+    // Extraire next
+    const nextElement = styleElement['w:next'];
+    if (nextElement && nextElement[0] && nextElement[0]['$']) {
+      style.next = nextElement[0]['$']['w:val'];
+    }
+
+    // Extraire les propriétés de paragraphe si présentes
+    if (styleType === 'paragraph') {
+      const pPr = styleElement['w:pPr'];
+      if (pPr && pPr[0]) {
+        style.paragraph = this.extractParagraphPropertiesFromStyle(pPr[0]);
+        
+        // Extraire le numId depuis w:pPr > w:numPr > w:numId
+        const numPr = pPr[0]['w:numPr'];
+        if (numPr && numPr[0]) {
+          const numId = numPr[0]['w:numId'];
+          if (numId && numId[0] && numId[0]['$']) {
+            style.numId = parseInt(numId[0]['$']['w:val']);
+          }
+        }
+      } else {
+        style.paragraph = {
+          alignment: 'left',
+          spacing: { before: 0, after: 0, line: 1.15 },
+          indentation: { left: 0, right: 0, firstLine: 0 }
+        };
       }
-      if (spacing['w:after']) {
-        props.spacing.after = this.twipsToPoints(parseInt(spacing['w:after']) || 0);
-      }
-      if (spacing['w:line']) {
-        // w:line peut être un nombre (en 240èmes) ou "auto"
-        const lineValue = spacing['w:line'];
+    }
+
+    // Extraire les propriétés de run si présentes
+    const rPr = styleElement['w:rPr'];
+    if (rPr && rPr[0]) {
+      style.run = this.extractRunPropertiesFromStyle(rPr[0]);
+    } else if (styleType === 'paragraph') {
+      style.run = {
+        bold: false,
+        italic: false,
+        underline: false,
+        fontSize: 12,
+        fontFamily: 'Arial',
+        color: '#000000',
+        caps: false
+      };
+    }
+
+    return style;
+  }
+
+  /**
+   * Extrait les propriétés de paragraphe depuis un style
+   */
+  static extractParagraphPropertiesFromStyle(pPr) {
+    const props = {
+      alignment: 'left',
+      spacing: { before: 0, after: 0, line: 1.15 },
+      indentation: { left: 0, right: 0, firstLine: 0 },
+      backgroundColor: null
+    };
+
+    // Alignement
+    const jc = pPr['w:jc'];
+    if (jc && jc[0] && jc[0]['$']) {
+      const val = jc[0]['$']['w:val'];
+      props.alignment = val === 'both' ? 'justify' : (val || 'left');
+    }
+
+    // Espacement
+    const spacing = pPr['w:spacing'];
+    if (spacing && spacing[0] && spacing[0]['$']) {
+      const s = spacing[0]['$'];
+      if (s['w:before']) props.spacing.before = this.twipsToPoints(parseInt(s['w:before']) || 0);
+      if (s['w:after']) props.spacing.after = this.twipsToPoints(parseInt(s['w:after']) || 0);
+      if (s['w:line']) {
+        const lineValue = s['w:line'];
+        const lineRule = s['w:lineRule']; // "auto", "exact", "atLeast"
+        
         if (lineValue === 'auto') {
-          props.spacing.line = 1.15; // Par défaut
+          props.spacing.line = 1.15;
+          props.spacing.lineType = 'multiple';
+        } else if (lineRule === 'exact' || lineRule === 'atLeast') {
+          // Valeur fixe en twips (1/20 de point)
+          const lineInTwips = parseInt(lineValue) || 0;
+          props.spacing.line = this.twipsToPoints(lineInTwips);
+          props.spacing.lineType = 'fixed';
         } else {
+          // Multiple en 240èmes de ligne
           props.spacing.line = parseInt(lineValue) / 240;
+          props.spacing.lineType = 'multiple';
         }
       }
     }
 
-    // Indentation (w:ind)
-    const ind = pPr['w:ind']?.[0]?.['$'];
-    if (ind) {
-      if (ind['w:left']) {
-        props.indentation.left = this.twipsToPoints(parseInt(ind['w:left']) || 0);
-      }
-      if (ind['w:right']) {
-        props.indentation.right = this.twipsToPoints(parseInt(ind['w:right']) || 0);
-      }
-      if (ind['w:firstLine']) {
-        props.indentation.firstLine = this.twipsToPoints(parseInt(ind['w:firstLine']) || 0);
-      }
-      if (ind['w:hanging']) {
-        // Indentation négative (retrait)
-        props.indentation.firstLine = -this.twipsToPoints(parseInt(ind['w:hanging']) || 0);
+    // Indentation
+    const ind = pPr['w:ind'];
+    if (ind && ind[0] && ind[0]['$']) {
+      const i = ind[0]['$'];
+      if (i['w:left']) props.indentation.left = this.twipsToPoints(parseInt(i['w:left']) || 0);
+      if (i['w:right']) props.indentation.right = this.twipsToPoints(parseInt(i['w:right']) || 0);
+      if (i['w:firstLine']) props.indentation.firstLine = this.twipsToPoints(parseInt(i['w:firstLine']) || 0);
+      if (i['w:hanging']) props.indentation.firstLine = -this.twipsToPoints(parseInt(i['w:hanging']) || 0);
+    }
+
+    // Couleur de fond du paragraphe (w:shd)
+    const shd = pPr['w:shd'];
+    if (shd && shd[0] && shd[0]['$']) {
+      const fill = shd[0]['$']['w:fill'];
+      if (fill && fill !== 'auto') {
+        props.backgroundColor = `#${fill}`;
       }
     }
 
@@ -184,11 +196,9 @@ class StyleExtractor {
   }
 
   /**
-   * Extrait les propriétés de run (formatage) depuis w:rPr
-   * @param {Object} rPr - Élément w:rPr
-   * @returns {Object} Propriétés de run
+   * Extrait les propriétés de run depuis un style
    */
-  static extractRunProperties(rPr) {
+  static extractRunPropertiesFromStyle(rPr) {
     const props = {
       bold: false,
       italic: false,
@@ -196,75 +206,57 @@ class StyleExtractor {
       fontSize: 12,
       fontFamily: 'Arial',
       color: '#000000',
-      caps: false
+      caps: false,
+      runBackgroundColor: null
     };
 
-    // Gras (w:b)
-    if (rPr['w:b'] && rPr['w:b'].length > 0) {
-      const bVal = rPr['w:b'][0]['$']?.['w:val'];
-      props.bold = bVal !== 'false' && bVal !== '0' && bVal !== false;
+    // Gras
+    if (rPr['w:b']) props.bold = true;
+    
+    // Italique
+    if (rPr['w:i']) props.italic = true;
+    
+    // Souligné
+    if (rPr['w:u']) props.underline = true;
+    
+    // Majuscules
+    if (rPr['w:caps']) props.caps = true;
+
+    // Taille de police
+    const sz = rPr['w:sz'];
+    if (sz && sz[0] && sz[0]['$']) {
+      props.fontSize = this.halfPointsToPoints(parseInt(sz[0]['$']['w:val']) || 24);
     }
 
-    // Italique (w:i)
-    if (rPr['w:i'] && rPr['w:i'].length > 0) {
-      const iVal = rPr['w:i'][0]['$']?.['w:val'];
-      props.italic = iVal !== 'false' && iVal !== '0' && iVal !== false;
+    // Famille de police
+    const rFonts = rPr['w:rFonts'];
+    if (rFonts && rFonts[0] && rFonts[0]['$']) {
+      props.fontFamily = rFonts[0]['$']['w:ascii'] || rFonts[0]['$']['w:hAnsi'] || 'Arial';
     }
 
-    // Souligné (w:u)
-    if (rPr['w:u'] && rPr['w:u'].length > 0) {
-      const uVal = rPr['w:u'][0]['$']?.['w:val'];
-      props.underline = uVal && uVal !== 'none' && uVal !== 'false';
-    }
-
-    // Taille de police (w:sz)
-    const sz = rPr['w:sz']?.[0]?.['$']?.['w:val'];
-    if (sz) {
-      // w:sz est en demi-points (ex: 24 = 12pt)
-      props.fontSize = parseInt(sz) / 2;
-    }
-
-    // Police (w:rFonts)
-    const rFonts = rPr['w:rFonts']?.[0]?.['$'];
-    if (rFonts) {
-      // w:ascii, w:hAnsi, w:eastAsia, w:cs
-      props.fontFamily = rFonts['w:ascii'] || rFonts['w:hAnsi'] || 'Arial';
-    }
-
-    // Couleur (w:color)
-    const color = rPr['w:color']?.[0]?.['$'];
-    if (color && color['w:val']) {
-      const colorVal = color['w:val'];
-      // Word utilise des codes hexadécimaux sans #
-      if (colorVal.length === 6) {
+    // Couleur
+    const color = rPr['w:color'];
+    if (color && color[0] && color[0]['$']) {
+      const colorVal = color[0]['$']['w:val'];
+      if (colorVal && colorVal !== 'auto') {
         props.color = `#${colorVal}`;
-      } else if (colorVal.startsWith('#')) {
-        props.color = colorVal;
       }
     }
 
-    // Majuscules (w:caps)
-    if (rPr['w:caps'] && rPr['w:caps'].length > 0) {
-      const capsVal = rPr['w:caps'][0]['$']?.['w:val'];
-      props.caps = capsVal !== 'false' && capsVal !== '0' && capsVal !== false;
+    // Couleur de fond du run (w:shd)
+    const shd = rPr['w:shd'];
+    if (shd && shd[0] && shd[0]['$']) {
+      const fill = shd[0]['$']['w:fill'];
+      if (fill && fill !== 'auto') {
+        props.runBackgroundColor = `#${fill}`;
+      }
     }
 
     return props;
   }
 
   /**
-   * Convertit des twips en points
-   * 1 twip = 1/20 point = 1/1440 inch
-   * @param {number} twips - Valeur en twips
-   * @returns {number} Valeur en points
-   */
-  static twipsToPoints(twips) {
-    return twips / 20;
-  }
-
-  /**
-   * Retourne les styles par défaut si word/styles.xml n'est pas disponible
-   * @returns {Object} Styles par défaut
+   * Retourne les styles par défaut
    */
   static getDefaultStyles() {
     return {
@@ -272,6 +264,8 @@ class StyleExtractor {
         id: 'Normal',
         name: 'Normal',
         type: 'paragraph',
+        next: null,
+        basedOn: null,
         paragraph: {
           alignment: 'left',
           spacing: { before: 0, after: 0, line: 1.15 },
@@ -284,71 +278,50 @@ class StyleExtractor {
           fontSize: 12,
           fontFamily: 'Arial',
           color: '#000000',
-          caps: false
-        }
-      },
-      'Heading1': {
-        id: 'Heading1',
-        name: 'heading 1',
-        type: 'paragraph',
-        paragraph: {
-          alignment: 'left',
-          spacing: { before: 12, after: 6, line: 1.15 },
-          indentation: { left: 0, right: 0, firstLine: 0 }
-        },
-        run: {
-          bold: true,
-          italic: false,
-          underline: false,
-          fontSize: 16,
-          fontFamily: 'Arial',
-          color: '#000000',
-          caps: false
-        }
-      },
-      'Heading2': {
-        id: 'Heading2',
-        name: 'heading 2',
-        type: 'paragraph',
-        paragraph: {
-          alignment: 'left',
-          spacing: { before: 10, after: 4, line: 1.15 },
-          indentation: { left: 0, right: 0, firstLine: 0 }
-        },
-        run: {
-          bold: true,
-          italic: false,
-          underline: false,
-          fontSize: 14,
-          fontFamily: 'Arial',
-          color: '#000000',
-          caps: false
+          caps: false,
+          runBackgroundColor: null
         }
       }
     };
   }
 
   /**
-   * Fusionne un style général avec des propriétés inline
-   * Les propriétés inline prennent le dessus sur le style général
-   * @param {Object} baseStyle - Style de base (depuis styles.xml)
-   * @param {Object} inlineProps - Propriétés inline (depuis w:pPr ou w:rPr)
-   * @returns {Object} Style fusionné
+   * Convertit des twips en points
+   * 1 twip = 1/20 point
+   * @param {number} twips - Valeur en twips
+   * @returns {number} Valeur en points
    */
-  static mergeStyle(baseStyle, inlineProps) {
-    return {
-      ...baseStyle,
-      ...inlineProps,
-      // Fusionner les objets imbriqués
-      spacing: {
-        ...(baseStyle.spacing || {}),
-        ...(inlineProps.spacing || {})
-      },
-      indentation: {
-        ...(baseStyle.indentation || {}),
-        ...(inlineProps.indentation || {})
-      }
-    };
+  static twipsToPoints(twips) {
+    return twips / 20;
+  }
+
+  /**
+   * Convertit des points en twips
+   * @param {number} points - Valeur en points
+   * @returns {number} Valeur en twips
+   */
+  static pointsToTwips(points) {
+    return points * 20;
+  }
+
+  /**
+   * Convertit des EMU (English Metric Units) en points
+   * 1 EMU = 1/914400 inch = 1/12700 point
+   * @param {number} emu - Valeur en EMU
+   * @returns {number} Valeur en points
+   */
+  static emuToPoints(emu) {
+    return emu / 12700;
+  }
+
+  /**
+   * Convertit des demi-points en points
+   * Word utilise des demi-points pour certaines valeurs (fontSize)
+   * @param {number} halfPoints - Valeur en demi-points
+   * @returns {number} Valeur en points
+   */
+  static halfPointsToPoints(halfPoints) {
+    return halfPoints / 2;
   }
 }
 

@@ -17,40 +17,44 @@
   let currentCardParent = null; // Pour la navigation dans les cards
 
   /**
+   * Stocke les marges de page Word pour les appliquer aux paragraphes
+   */
+  let pageMargins = { top: 70.85, right: 70.85, bottom: 70.85, left: 70.85 }; // Valeurs par défaut (2.5cm)
+  
+  function applyPageMargins(margins) {
+    if (margins) {
+      pageMargins = margins;
+    }
+  }
+
+  /**
    * Charge le document depuis l'API
    */
   async function loadDocument() {
-    console.log('[DEBUG] loadDocument() appelé');
-    console.log('[DEBUG] documentId:', documentId);
-    console.log('[DEBUG] apiBase:', apiBase);
-    
     if (!documentId || !apiBase) {
-      console.warn('❌ Document ID ou API non disponible');
-      console.log('documentId:', documentId);
-      console.log('apiBase:', apiBase);
       return;
     }
 
     const url = `${apiBase}/agent-documentaire/document/${documentId}`;
-    console.log('[DEBUG] Appel API:', url);
 
     try {
       const response = await fetch(url);
-      console.log('[DEBUG] Réponse HTTP:', response.status, response.statusText);
-      
+
       const payload = await response.json();
-      console.log('[DEBUG] Payload reçu:', payload);
       
       if (!payload.success) {
         throw new Error(payload.error || 'Erreur API');
       }
 
       documentJson = payload.data.json_content;
-      console.log('[DEBUG] documentJson:', documentJson);
       
       sectionsTree = Array.isArray(documentJson.sections) ? documentJson.sections : [];
-      console.log('✅ Document chargé:', sectionsTree.length, 'sections');
-      console.log('[DEBUG] sectionsTree:', sectionsTree);
+
+      // Appliquer les marges de page au conteneur de contenu
+      applyPageMargins(documentJson.pageMargins);
+
+      // Recalculer la numérotation avec les formats Word
+      recalculateNumbering();
 
       renderAll();
     } catch (error) {
@@ -70,8 +74,10 @@
 
   /**
    * Convertit les styles Word en CSS inline
+   * @param {Object} styles - Styles extraits
+   * @param {boolean} isTitle - Si true, c'est un titre de section (gestion spéciale des marges avec backgroundColor)
    */
-  function stylesToCSS(styles) {
+  function stylesToCSS(styles, isTitle = false) {
     if (!styles || typeof styles !== 'object') return '';
     
     const cssProps = [];
@@ -109,6 +115,11 @@
       cssProps.push(`background-color: ${styles.backgroundColor}`);
     }
     
+    // Couleur de fond du run (texte uniquement)
+    if (styles.runBackgroundColor && !styles.backgroundColor) {
+      cssProps.push(`background-color: ${styles.runBackgroundColor}`);
+    }
+    
     // Espacement
     if (styles.spacing) {
       if (styles.spacing.before) {
@@ -117,22 +128,79 @@
       if (styles.spacing.after) {
         cssProps.push(`margin-bottom: ${styles.spacing.after}pt`);
       }
-      if (styles.spacing.line) {
-        cssProps.push(`line-height: ${styles.spacing.line}`);
+      // Line-height : ne pas appliquer aux titres (ils utilisent leur propre line-height CSS)
+      // Appliquer uniquement aux paragraphes
+      if (!isTitle && styles.spacing && styles.spacing.line) {
+        // Appliquer selon le type : fixe (en pt) ou multiple (sans unité)
+        if (styles.spacing.lineType === 'fixed') {
+          // Valeur fixe en points : ex. 30pt
+          cssProps.push(`line-height: ${styles.spacing.line}pt`);
+        } else {
+          // Multiple relatif : ex. 1.5 (sans unité)
+          cssProps.push(`line-height: ${styles.spacing.line}`);
+        }
       }
     }
     
-    // Indentation
+    // Indentation + Marges de page Word
     if (styles.indentation) {
-      if (styles.indentation.left) {
-        cssProps.push(`margin-left: ${styles.indentation.left}pt`);
+      if (styles.backgroundColor) {
+        // Éléments avec fond de couleur (titre ou paragraphe)
+        const leftIndent = styles.indentation.left || 0;
+        const rightIndent = styles.indentation.right || 0;
+        
+        // TITRES : Word ignore la marge négative à gauche (réserve 2.5cm pour numérotation)
+        // PARAGRAPHES : Word applique les marges négatives des deux côtés (fond pleine largeur)
+        if (isTitle) {
+          // Titre avec fond : marge gauche normale (2.5cm) + marge droite négative
+          cssProps.push(`margin-left: ${pageMargins.left}pt`);
+          if (rightIndent < 0) {
+            cssProps.push(`margin-right: ${rightIndent}pt`);
+          }
+          // Pas de padding codé en dur - extrait du Word si présent
+        } else {
+          // Paragraphe avec fond : appliquer les marges négatives des deux côtés
+          if (leftIndent < 0) {
+            cssProps.push(`margin-left: ${leftIndent}pt`);
+          }
+          if (rightIndent < 0) {
+            cssProps.push(`margin-right: ${rightIndent}pt`);
+          }
+          // Pas de padding codé en dur - extrait du Word si présent
+        }
+        
+        if (styles.indentation.firstLine) {
+          cssProps.push(`text-indent: ${styles.indentation.firstLine}pt`);
+        }
+      } else {
+        // Comportement normal : ajouter les marges de page aux marges de paragraphe
+        if (styles.indentation.left !== undefined) {
+          const totalLeft = styles.indentation.left + pageMargins.left;
+          cssProps.push(`margin-left: ${totalLeft}pt`);
+        } else {
+          // Pas de marge de paragraphe, appliquer seulement la marge de page
+          cssProps.push(`margin-left: ${pageMargins.left}pt`);
+        }
+        
+        if (styles.indentation.right !== undefined) {
+          const totalRight = styles.indentation.right + pageMargins.right;
+          cssProps.push(`margin-right: ${totalRight}pt`);
+        } else {
+          // Pas de marge de paragraphe, appliquer seulement la marge de page
+          cssProps.push(`margin-right: ${pageMargins.right}pt`);
+        }
+        
+        if (styles.indentation.firstLine) {
+          cssProps.push(`text-indent: ${styles.indentation.firstLine}pt`);
+        }
       }
-      if (styles.indentation.right) {
-        cssProps.push(`margin-right: ${styles.indentation.right}pt`);
-      }
-      if (styles.indentation.firstLine) {
-        cssProps.push(`text-indent: ${styles.indentation.firstLine}pt`);
-      }
+    } else if (!styles.backgroundColor) {
+      // Aucune indentation définie, appliquer les marges de page par défaut
+      cssProps.push(`margin-left: ${pageMargins.left}pt`);
+      cssProps.push(`margin-right: ${pageMargins.right}pt`);
+    } else {
+      // backgroundColor sans indentation : pas de padding codé en dur
+      // Le fond s'étend jusqu'aux marges comme dans Word
     }
     
     return cssProps.length > 0 ? cssProps.join('; ') : '';
@@ -163,7 +231,13 @@
     if (!hideTitle && !isIntroduction) {
       const headingTag = `h${Math.min(level + 1, 6)}`;
       const displayTitle = numbering ? `${numbering} ${title}` : title;
-      html += `<${headingTag} class="section-title">${displayTitle}</${headingTag}>`;
+      
+      // Appliquer les styles du titre (couleur, fond, police, etc.)
+      const titleStyles = section.titleStyles || {};
+      const titleStyleAttr = stylesToCSS(titleStyles, true); // isTitle=true pour gestion spéciale des marges
+      const titleStyleString = titleStyleAttr ? ` style="${titleStyleAttr}"` : '';
+      
+      html += `<${headingTag} class="section-title"${titleStyleString}>${displayTitle}</${headingTag}>`;
     }
 
     // Contenu (paragraphes, images, etc.)
@@ -213,8 +287,6 @@
         const paragraphBgColor = item.paragraphBackgroundColor || '';
         const textAlign = item.textAlign || '';
         
-        console.log('🖼️ [DEBUG FRONTEND] Image:', imageSrc, 'position.isAbsolute:', position.isAbsolute, 'position.x:', position.x, 'position.y:', position.y);
-        
         // Extraire juste le nom du fichier (si c'est un chemin complet)
         const imageName = imageSrc.includes('/') ? imageSrc.split('/').pop() : imageSrc;
         
@@ -226,14 +298,32 @@
         if (width) imgStyleProps.push(`width: ${width}px`);
         if (height) imgStyleProps.push(`height: ${height}px`);
         
+        // Border radius extrait du Word
+        if (item.borderRadius !== null && item.borderRadius !== undefined) {
+          imgStyleProps.push(`border-radius: ${item.borderRadius}pt`);
+        }
+        
+        // Ombre extraite du Word
+        if (item.shadow && item.shadow.enabled) {
+          const shadow = item.shadow;
+          const offsetX = shadow.offsetX || 0;
+          const offsetY = shadow.offsetY || 0;
+          const blur = shadow.blur || 0;
+          const color = shadow.color || 'rgba(0, 0, 0, 0.3)';
+          
+          // Pour les ombres internes, utiliser inset
+          if (shadow.type === 'inner') {
+            imgStyleProps.push(`box-shadow: inset ${offsetX}pt ${offsetY}pt ${blur}pt ${color}`);
+          } else {
+            imgStyleProps.push(`box-shadow: ${offsetX}pt ${offsetY}pt ${blur}pt ${color}`);
+          }
+        }
+        
         // Position absolue SEULEMENT pour les images anchor (isAbsolute = true)
         if (position.isAbsolute === true) {
-          console.log('🖼️ [DEBUG FRONTEND] Image en position ABSOLUTE');
           imgStyleProps.push('position: absolute');
           if (position.x !== undefined && position.x !== 0) imgStyleProps.push(`left: ${position.x}px`);
           if (position.y !== undefined && position.y !== 0) imgStyleProps.push(`top: ${position.y}px`);
-      } else {
-          console.log('🖼️ [DEBUG FRONTEND] Image en position NORMALE (inline)');
         }
         
         // Gestion du centrage et des marges
@@ -248,11 +338,15 @@
             imgStyleProps.push('display: block');
           }
         } else {
-          // Sans fond: comportement normal avec marges
+          // Sans fond: comportement normal avec marges de page
           if (textAlign === 'center') {
             imgStyleProps.push('display: block');
             imgStyleProps.push('margin-left: auto');
             imgStyleProps.push('margin-right: auto');
+          } else {
+            // Appliquer les marges de page directement sur l'image si pas de conteneur
+            imgStyleProps.push(`margin-left: ${pageMargins.left}pt`);
+            imgStyleProps.push(`margin-right: ${pageMargins.right}pt`);
           }
         }
         
@@ -264,17 +358,25 @@
           containerStyles.push(`background-color: ${paragraphBgColor}`);
           containerStyles.push('padding: 0'); // Pas de padding pour éviter les espaces blancs
           containerStyles.push('margin: 0'); // Pas de margin pour coller au contenu
+        } else {
+          // Pas de fond de paragraphe : appliquer les marges de page
+          containerStyles.push(`margin-left: ${pageMargins.left}pt`);
+          containerStyles.push(`margin-right: ${pageMargins.right}pt`);
         }
         if (textAlign) containerStyles.push(`text-align: ${textAlign}`);
         
         // Si l'image a des propriétés de paragraphe, l'envelopper dans un div
         if (imageUrl) {
+          // Ajouter un attribut data pour la transparence si nécessaire
+          const colorToTransparent = item.colorToTransparent || '';
+          const transparencyAttr = colorToTransparent ? ` data-transparent-color="${colorToTransparent}"` : '';
+          
           if (containerStyles.length > 0) {
             html += `<div style="${containerStyles.join('; ')}">`;
-            html += `<img src="${imageUrl}" alt="${alt}"${imgStyleAttr} />`;
+            html += `<img src="${imageUrl}" alt="${alt}"${imgStyleAttr}${transparencyAttr} class="needs-transparency-processing" />`;
             html += `</div>`;
           } else {
-            html += `<img src="${imageUrl}" alt="${alt}"${imgStyleAttr} />`;
+            html += `<img src="${imageUrl}" alt="${alt}"${imgStyleAttr}${transparencyAttr} class="needs-transparency-processing" />`;
           }
         }
       }
@@ -631,52 +733,227 @@
   }
 
   /**
-   * Recalcule la numérotation de toutes les sections
+   * Formate un numéro selon le format Word (decimal, upperRoman, lowerRoman, etc.)
+   * @param {number} num - Numéro à formater
+   * @param {string} numFmt - Format Word (decimal, upperRoman, lowerRoman, upperLetter, lowerLetter)
+   * @returns {string} Numéro formaté
    */
-  function recalculateNumbering() {
-    let level1Counter = 0;
-    
-    sectionsTree.forEach(section => {
-      // Ignorer sommaire et introduction
-      if (section.type === 'sommaire' || section.type === 'introduction' || section.isSommaire) {
-        section.numbering = null;
-        return;
-      }
-      
-      level1Counter++;
-      section.numbering = toRoman(level1Counter);
-      recalculateChildNumbering(section, section.numbering);
-    });
+  function formatNumber(num, numFmt = 'decimal') {
+    switch (numFmt) {
+      case 'decimal':
+        return num.toString();
+      case 'upperRoman':
+        return toRoman(num).toUpperCase();
+      case 'lowerRoman':
+        return toRoman(num).toLowerCase();
+      case 'upperLetter':
+        return toLetter(num - 1).toUpperCase();
+      case 'lowerLetter':
+        return toLetter(num - 1).toLowerCase();
+      default:
+        return num.toString();
+    }
   }
 
   /**
-   * Recalcule la numérotation des enfants récursivement
+   * Convertit un index en lettre (0=A, 1=B, etc.)
+   * @param {number} index - Index (0-based)
+   * @returns {string} Lettre
    */
-  function recalculateChildNumbering(section, parentNumbering) {
-    if (!section.children || section.children.length === 0) return;
+  function toLetter(index) {
+    let result = '';
+    while (index >= 0) {
+      result = String.fromCharCode(97 + (index % 26)) + result;
+      index = Math.floor(index / 26) - 1;
+    }
+    return result;
+  }
+
+  /**
+   * Génère la numérotation selon le format Word et les numéros de chaque niveau
+   * @param {string} format - Format Word (ex: "%1.", "%1.%2.", etc.)
+   * @param {Array<number>} levelNumbers - Numéros pour chaque niveau [niveau0, niveau1, niveau2, ...]
+   * @param {Object} numberingFormats - Formats de numérotation extraits depuis Word
+   * @returns {string} Numérotation générée (ex: "I.", "1.1.", etc.)
+   */
+  function generateNumbering(format, levelNumbers, numberingFormats) {
+    if (!format || !numberingFormats) {
+      // Fallback : utiliser le format simple
+      return levelNumbers.map(n => n.toString()).join('.') + '.';
+    }
+
+    let result = format;
     
-    let counter = 0;
-    section.children.forEach(child => {
-      counter++;
+    // Dans Word, %1 = niveau 1, %2 = niveau 2, etc.
+    // Mais levelNumbers est indexé à partir de 0 : [niveau0, niveau1, niveau2, ...]
+    // Donc levelNumbers[0] = niveau 1, levelNumbers[1] = niveau 2, etc.
+    
+    // Trouver tous les placeholders dans le format (%1, %2, %3, etc.)
+    const placeholderRegex = /%(\d+)/g;
+    const placeholders = [];
+    let match;
+    while ((match = placeholderRegex.exec(format)) !== null) {
+      const levelNum = parseInt(match[1]); // 1, 2, 3, etc. (niveau Word)
+      const levelIndex = levelNum - 1; // 0, 1, 2, etc. (index dans levelNumbers)
+      placeholders.push({
+        placeholder: match[0], // "%1", "%2", etc.
+        levelNum: levelNum, // 1, 2, 3, etc.
+        levelIndex: levelIndex // 0, 1, 2, etc.
+      });
+    }
+    
+    // Remplacer chaque placeholder par le numéro formaté
+    for (const placeholder of placeholders) {
+      const { placeholder: placeholderStr, levelNum: placeholderLevelNum, levelIndex } = placeholder;
       
-      // Pour les annexes, utiliser la numérotation romaine de niveau 1
-      const titleLower = (child.title || '').toLowerCase().trim();
-      if (titleLower === 'annexes' || titleLower === 'annexe') {
-        child.numbering = null;
-        recalculateChildNumbering(child, '');
+      // Dans Word, les placeholders dans w:lvlText sont relatifs au niveau actuel :
+      // - %1 = niveau actuel (celui défini par w:ilvl)
+      // - %2 = niveau parent (w:ilvl - 1)
+      // - %3 = niveau grand-parent (w:ilvl - 2), etc.
+      // 
+      // Mais en réalité, Word utilise %1 pour le niveau actuel, %2 pour le niveau parent, etc.
+      // Donc pour le niveau 0, %1 = niveau 0
+      // Pour le niveau 1, %1 = niveau 1, %2 = niveau 0 (parent)
+      
+      // Le placeholderLevelNum (1, 2, 3, etc.) correspond au niveau Word
+      // Mais levelNumbers est indexé à partir de 0 : [niveau0, niveau1, niveau2, ...]
+      // Donc levelNumbers[0] = niveau 1, levelNumbers[1] = niveau 2, etc.
+      
+      // Calculer l'index réel dans levelNumbers
+      // Si on est au niveau N et qu'on a un placeholder %M, alors :
+      // - Si M = 1, on utilise le niveau actuel (levelNumbers[N])
+      // - Si M = 2, on utilise le niveau parent (levelNumbers[N-1])
+      // - etc.
+      
+      // Mais en fait, levelNumbers contient déjà tous les niveaux jusqu'au niveau actuel
+      // levelNumbers[0] = niveau 0, levelNumbers[1] = niveau 1, etc.
+      // Donc levelIndex = placeholderLevelNum - 1 est correct
+      
+      // Vérifier que le niveau existe dans levelNumbers
+      if (levelIndex < 0 || levelIndex >= levelNumbers.length) {
+        console.warn(`⚠️ Placeholder ${placeholderStr} référence un niveau ${levelIndex} qui n'existe pas (levelNumbers.length=${levelNumbers.length})`);
+        continue;
+      }
+      
+      const levelNum = levelNumbers[levelIndex];
+      
+      // Trouver le format pour ce niveau (utiliser levelIndex car c'est l'index dans numberingFormats)
+      const levelFormat = numberingFormats.formats?.[levelIndex];
+      const numFmt = levelFormat?.numFmt || 'decimal';
+      
+      // Formater le numéro
+      const formattedNum = formatNumber(levelNum, numFmt);
+      
+      // Remplacer dans le format (échapper le placeholder pour éviter les problèmes avec les regex)
+      const escapedPlaceholder = placeholderStr.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      result = result.replace(new RegExp(escapedPlaceholder, 'g'), formattedNum);
+    }
+    
+    return result;
+  }
+
+  /**
+   * Recalcule la numérotation de toutes les sections en utilisant les formats Word
+   */
+  function recalculateNumbering() {
+    const numberingFormats = documentJson?.numberingFormats || { formats: {} };
+    const levelCounters = {}; // Compteurs par niveau
+    
+    function processSection(section, parentLevelNumbers = []) {
+      // Introduction : ignorer complètement
+      if (section.type === 'introduction') {
+        section.numbering = null;
+        if (section.children) {
+          section.children.forEach(child => processSection(child, []));
+        }
         return;
       }
       
-      // Numérotation normale
-      if (child.level === 2) {
-        child.numbering = `${parentNumbering}.${counter}`;
-      } else if (child.level === 3) {
-        child.numbering = `${parentNumbering}.${counter}`;
-      } else {
-        child.numbering = `${parentNumbering}.${counter}`;
+      // Sommaire : compter dans la numérotation mais ne pas afficher
+      const isSommaire = section.type === 'sommaire' || section.isSommaire;
+      if (isSommaire) {
+        section.numbering = null; // Ne pas afficher la numérotation
+        // Mais compter le sommaire dans la numérotation pour les sections suivantes
+        // Le sommaire a level: 0, donc il est au niveau 0 de la numérotation
+        const levelIndex = 0; // Le sommaire est toujours au niveau 0
+        
+        // Initialiser le compteur pour ce niveau si nécessaire
+        if (!levelCounters[levelIndex]) {
+          levelCounters[levelIndex] = 0;
+        }
+        
+        // Incrémenter le compteur pour ce niveau (le sommaire compte comme section 0)
+        levelCounters[levelIndex]++;
+        
+        // Réinitialiser les compteurs des niveaux inférieurs
+        for (let i = levelIndex + 1; i < 10; i++) {
+          levelCounters[i] = 0;
+        }
+        
+        // Traiter les enfants
+        if (section.children && section.children.length > 0) {
+          section.children.forEach(child => {
+            processSection(child, []);
+          });
+        }
+        return;
       }
       
-      recalculateChildNumbering(child, child.numbering);
+      const level = section.level || 1;
+      const levelIndex = level - 1; // Convertir en index 0-based
+      
+      // Initialiser le compteur pour ce niveau si nécessaire
+      if (!levelCounters[levelIndex]) {
+        levelCounters[levelIndex] = 0;
+      }
+      
+      // Incrémenter le compteur pour ce niveau
+      levelCounters[levelIndex]++;
+      
+      // Réinitialiser les compteurs des niveaux inférieurs
+      for (let i = levelIndex + 1; i < 10; i++) {
+        levelCounters[i] = 0;
+      }
+      
+      // Construire les numéros de chaque niveau jusqu'à ce niveau
+      const levelNumbers = [];
+      for (let i = 0; i <= levelIndex; i++) {
+        levelNumbers.push(levelCounters[i] || 1);
+      }
+      
+      // Trouver le format pour ce niveau
+      const levelFormat = numberingFormats.formats?.[levelIndex];
+      const format = levelFormat?.format || levelFormat?.text || '%1.';
+      
+      // Debug : log pour voir ce qui est utilisé
+      if (level === 1) {
+        console.log(`🔢 Section "${section.title}": level=${level}, levelIndex=${levelIndex}, format="${format}", levelFormat:`, levelFormat);
+        console.log(`   levelNumbers:`, levelNumbers);
+      }
+      
+      // Générer la numérotation
+      section.numbering = generateNumbering(format, levelNumbers, numberingFormats);
+      
+      if (level === 1) {
+        console.log(`   → numbering: "${section.numbering}"`);
+      }
+      
+      // Traiter les enfants
+      if (section.children && section.children.length > 0) {
+        section.children.forEach(child => {
+          processSection(child, levelNumbers);
+        });
+      }
+    }
+    
+    // Réinitialiser tous les compteurs
+    for (let i = 0; i < 10; i++) {
+      levelCounters[i] = 0;
+    }
+    
+    // Traiter toutes les sections
+    sectionsTree.forEach(section => {
+      processSection(section, []);
     });
   }
 
@@ -684,21 +961,17 @@
    * Convertit un nombre en chiffres romains
    */
   function toRoman(num) {
-    const romanNumerals = [
-      { value: 10, numeral: 'X' },
-      { value: 9, numeral: 'IX' },
-      { value: 5, numeral: 'V' },
-      { value: 4, numeral: 'IV' },
-      { value: 1, numeral: 'I' }
-    ];
-    
+    const values = [1000, 900, 500, 400, 100, 90, 50, 40, 10, 9, 5, 4, 1];
+    const numerals = ['M', 'CM', 'D', 'CD', 'C', 'XC', 'L', 'XL', 'X', 'IX', 'V', 'IV', 'I'];
     let result = '';
-    for (const { value, numeral } of romanNumerals) {
-      while (num >= value) {
-        result += numeral;
-        num -= value;
+    
+    for (let i = 0; i < values.length; i++) {
+      while (num >= values[i]) {
+        result += numerals[i];
+        num -= values[i];
       }
     }
+    
     return result;
   }
 
@@ -715,6 +988,81 @@
     });
 
     contentArea.innerHTML = html || '<p class="text-muted">Aucun contenu</p>';
+    
+    // Traiter les images qui ont besoin de transparence
+    processImageTransparency();
+  }
+  
+  /**
+   * Traite les images pour appliquer la transparence sur une couleur spécifique
+   */
+  function processImageTransparency() {
+    const images = document.querySelectorAll('img.needs-transparency-processing[data-transparent-color]');
+    
+    images.forEach(img => {
+      const colorToTransparent = img.getAttribute('data-transparent-color');
+      if (!colorToTransparent) return;
+      
+      // Attendre que l'image soit chargée
+      if (img.complete) {
+        applyTransparency(img, colorToTransparent);
+      } else {
+        img.onload = () => applyTransparency(img, colorToTransparent);
+      }
+    });
+  }
+  
+  /**
+   * Applique la transparence à une couleur spécifique d'une image avec Canvas
+   */
+  function applyTransparency(img, colorHex) {
+    try {
+      // Convertir la couleur hex en RGB
+      const r = parseInt(colorHex.substr(1, 2), 16);
+      const g = parseInt(colorHex.substr(3, 2), 16);
+      const b = parseInt(colorHex.substr(5, 2), 16);
+      
+      // Créer un canvas avec les mêmes dimensions que l'image
+      const canvas = document.createElement('canvas');
+      canvas.width = img.naturalWidth;
+      canvas.height = img.naturalHeight;
+      const ctx = canvas.getContext('2d');
+      
+      // Dessiner l'image sur le canvas
+      ctx.drawImage(img, 0, 0);
+      
+      // Récupérer les données de pixels
+      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      const data = imageData.data;
+      
+      // Parcourir chaque pixel et rendre la couleur spécifique transparente
+      // Tolérance de 5 pour tenir compte des variations de compression
+      const tolerance = 5;
+      for (let i = 0; i < data.length; i += 4) {
+        const pixelR = data[i];
+        const pixelG = data[i + 1];
+        const pixelB = data[i + 2];
+        
+        // Si le pixel correspond à la couleur (avec tolérance), le rendre transparent
+        if (Math.abs(pixelR - r) <= tolerance &&
+            Math.abs(pixelG - g) <= tolerance &&
+            Math.abs(pixelB - b) <= tolerance) {
+          data[i + 3] = 0; // Alpha = 0 (transparent)
+        }
+      }
+      
+      // Remettre les données modifiées
+      ctx.putImageData(imageData, 0, 0);
+      
+      // Remplacer l'image par la version avec transparence
+      img.src = canvas.toDataURL('image/png');
+      img.removeAttribute('data-transparent-color');
+      img.classList.remove('needs-transparency-processing');
+      
+      console.log(`✅ Transparence appliquée pour la couleur ${colorHex}`);
+    } catch (error) {
+      console.error('Erreur lors de l\'application de la transparence:', error);
+    }
   }
 
   /**

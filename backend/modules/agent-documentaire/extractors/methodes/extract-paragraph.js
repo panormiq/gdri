@@ -26,7 +26,6 @@ class ExtractParagraph {
     if (images && relationshipsObj) {
       const drawings = WordParser.findElementsByTag(paragraphXml, 'w:drawing');
       if (drawings && drawings.length > 0) {
-        console.log(`🔍 [DEBUG] Trouvé ${drawings.length} drawing(s) dans un paragraphe`);
         // Il y a une image dans ce paragraphe
         // Extraire d'abord les propriétés du paragraphe pour obtenir la couleur de fond
         const pPr = paragraphXml['w:pPr'];
@@ -37,7 +36,6 @@ class ExtractParagraph {
         // Extraire l'image
         const ExtractImage = require('./extract-image');
         const imageResult = ExtractImage.extract(drawings[0], images, relationshipsObj);
-        console.log('🔍 [DEBUG] imageResult:', imageResult ? `type=${imageResult.type}, src=${imageResult.src}, name=${imageResult.name}` : 'null');
         
         // Si l'image a au moins un name, on la retourne avec les propriétés du paragraphe
         if (imageResult && (imageResult.src || imageResult.name)) {
@@ -50,29 +48,13 @@ class ExtractParagraph {
           // Ajouter la couleur de fond du paragraphe à l'image
           if (paragraphProps.backgroundColor) {
             imageResult.paragraphBackgroundColor = paragraphProps.backgroundColor;
-            console.log('🎨 [DEBUG] Couleur de fond du paragraphe ajoutée à l\'image:', paragraphProps.backgroundColor);
           }
           // Ajouter l'alignement du paragraphe à l'image
           if (paragraphProps.alignment) {
             imageResult.textAlign = paragraphProps.alignment;
-            console.log('📐 [DEBUG] Alignement du paragraphe ajouté à l\'image:', paragraphProps.alignment);
           }
-          console.log('🖼️  Image extraite depuis paragraphe (forcée inline):', imageResult.src || imageResult.name);
           return imageResult;
         }
-      } else {
-        // Log pour compter combien de paragraphes sont analysés
-        const runs = WordParser.findElementsByTag(paragraphXml, 'w:r');
-        if (runs && runs.length > 0) {
-          // Ne log que les 10 premiers pour ne pas spammer
-          if (Math.random() < 0.01) { // 1% des paragraphes
-            console.log(`🔍 [DEBUG SAMPLE] Paragraphe avec ${runs.length} runs, pas de drawing trouvé`);
-          }
-        }
-      }
-    } else {
-      if (Math.random() < 0.001) { // 0.1% des paragraphes
-        console.log(`🔍 [DEBUG] images=${images ? 'OK' : 'NULL'}, relationshipsObj=${relationshipsObj ? 'OK' : 'NULL'}`);
       }
     }
 
@@ -183,10 +165,22 @@ class ExtractParagraph {
       }
       if (spacing['w:line']) {
         const lineValue = spacing['w:line'];
+        const lineRule = spacing['w:lineRule']; // "auto", "exact", "atLeast"
+        
         if (lineValue === 'auto') {
           props.spacing.line = 1.15;
+          props.spacing.lineType = 'multiple';
+        } else if (lineRule === 'exact' || lineRule === 'atLeast') {
+          // Valeur fixe en twips (1/20 de point)
+          // Ex: 600 twips = 30pt
+          const lineInTwips = parseInt(lineValue) || 0;
+          props.spacing.line = StyleExtractor.twipsToPoints(lineInTwips);
+          props.spacing.lineType = 'fixed';
         } else {
+          // Multiple en 240èmes de ligne (par défaut si lineRule absent ou "auto")
+          // Ex: 240 = 1.0, 360 = 1.5, 480 = 2.0
           props.spacing.line = parseInt(lineValue) / 240;
+          props.spacing.lineType = 'multiple';
         }
       }
     }
@@ -195,9 +189,11 @@ class ExtractParagraph {
     const ind = pPr['w:ind']?.[0]?.['$'];
     if (ind) {
       if (ind['w:left']) {
+        // Garder TOUTES les marges (même négatives) pour fidélité à Word
         props.indentation.left = StyleExtractor.twipsToPoints(parseInt(ind['w:left']) || 0);
       }
       if (ind['w:right']) {
+        // Garder TOUTES les marges (même négatives) pour fidélité à Word
         props.indentation.right = StyleExtractor.twipsToPoints(parseInt(ind['w:right']) || 0);
       }
       if (ind['w:firstLine']) {
@@ -209,22 +205,12 @@ class ExtractParagraph {
     }
 
     // Couleur de fond du paragraphe (w:shd)
-    console.log('🔍 [DEBUG extractParagraphProperties] pPr[w:shd]:', pPr['w:shd'] ? 'EXISTE' : 'NULL');
-    if (pPr['w:shd']) {
-      console.log('🔍 [DEBUG extractParagraphProperties] type de w:shd:', Array.isArray(pPr['w:shd']) ? 'ARRAY' : typeof pPr['w:shd']);
-      console.log('🔍 [DEBUG extractParagraphProperties] w:shd value:', JSON.stringify(pPr['w:shd']).substring(0, 200));
-    }
-    
     const shd = pPr['w:shd']?.[0]?.['$'];
-    console.log('🔍 [DEBUG extractParagraphProperties] shd ($):', shd ? 'OUI' : 'NON');
     if (shd) {
-      console.log('🔍 [DEBUG extractParagraphProperties] shd keys:', Object.keys(shd));
       const fill = shd['w:fill'];
-      console.log('🔍 [DEBUG extractParagraphProperties] w:fill:', fill);
       // Convertir la couleur (format: RRGGBB ou auto)
       if (fill && fill !== 'auto') {
         props.backgroundColor = `#${fill}`;
-        console.log('🎨 [DEBUG extractParagraphProperties] backgroundColor défini:', props.backgroundColor);
       }
     }
 
@@ -325,7 +311,7 @@ class ExtractParagraph {
         if (shd && shd['w:fill']) {
           const fill = shd['w:fill'];
           // Convertir la couleur (format: RRGGBB ou auto)
-          if (fill && fill !== 'auto' && fill !== '000000') {
+          if (fill && fill !== 'auto') {
             props.runBackgroundColor = `#${fill}`;
           }
         }

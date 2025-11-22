@@ -27,6 +27,7 @@ async function reextract() {
     console.log('📊 Sections:', jsonContent.sections ? jsonContent.sections.length : 0);
     console.log('📑 TOC:', jsonContent.toc ? jsonContent.toc.length : 0);
     console.log('🖼️  Images:', jsonContent.images ? jsonContent.images.length : 0);
+    console.log('📏 Marges de page:', jsonContent.pageMargins ? `${jsonContent.pageMargins.left}pt` : 'N/A');
     
     // Copier les images vers le dossier default-test
     if (jsonContent.images && jsonContent.images.length > 0) {

@@ -103,13 +103,18 @@ class ExtractToc {
   static extractNumbering(title) {
     if (!title) return null;
     
+    // Nettoyer le texte : remplacer tabs et espaces multiples par un seul espace
+    // mais garder la structure pour détecter la numérotation
+    const cleanedTitle = title.replace(/[\t\n\r]+/g, ' ').replace(/\s+/g, ' ').trim();
+    
     // Pattern pour chiffres romains : I., II., III., etc.
-    const romanPattern = /^([IVX]+)\./i;
-    const romanMatch = title.match(romanPattern);
+    // Accepter avec ou sans espace après le point
+    const romanPattern = /^([IVXLCM]+)\.\s*/i;
+    const romanMatch = cleanedTitle.match(romanPattern);
     
     if (romanMatch) {
       const level1 = romanMatch[1];
-      const rest = title.substring(romanMatch[0].length);
+      const rest = cleanedTitle.substring(romanMatch[0].length).trim();
       
       // Pattern pour chiffres arabes : 1., 1.1., etc.
       const arabicPattern = /^(\d+(?:\.\d+)*)\.?\s*/;
@@ -120,10 +125,10 @@ class ExtractToc {
           level1: level1,
           level2: arabicMatch[1],
           full: `${level1}.${arabicMatch[1]}.`,
-          text: rest.substring(arabicMatch[0].length)
+          text: rest.substring(arabicMatch[0].length).trim()
         };
       } else {
-        // Juste niveau 1 (ex: "II. INTRODUCTION")
+        // Juste niveau 1 (ex: "II. INTRODUCTION" ou "I. GENERALITES")
         return {
           level1: level1,
           level2: null,
@@ -135,14 +140,14 @@ class ExtractToc {
     
     // Pattern pour chiffres arabes uniquement : 1., 1.1., etc.
     const arabicOnlyPattern = /^(\d+(?:\.\d+)*)\.?\s*/;
-    const arabicOnlyMatch = title.match(arabicOnlyPattern);
+    const arabicOnlyMatch = cleanedTitle.match(arabicOnlyPattern);
     
     if (arabicOnlyMatch) {
       return {
         level1: null,
         level2: arabicOnlyMatch[1],
         full: `${arabicOnlyMatch[1]}.`,
-        text: title.substring(arabicOnlyMatch[0].length)
+        text: cleanedTitle.substring(arabicOnlyMatch[0].length).trim()
       };
     }
     
