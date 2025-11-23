@@ -414,7 +414,7 @@ main {
 .footer {
     background-color: var(--color-dark);
     color: var(--color-light);
-    padding: var(--spacing-xl) 0 var(--spacing-md);
+    padding: var(--spacing-md) 0 var(--spacing-sm);
 }
 
 .footer-content {

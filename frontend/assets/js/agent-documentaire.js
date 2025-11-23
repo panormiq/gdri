@@ -303,7 +303,8 @@
       const titleStyleAttr = stylesToCSS(titleStyles, true, titleLevel, ignoreWordIndentation); // isTitle=true, level requis
       const titleStyleString = titleStyleAttr ? ` style="${titleStyleAttr}"` : '';
       
-      html += `<${headingTag} class="section-title"${titleStyleString}>${displayTitle}</${headingTag}>`;
+      // Rendre le titre éditable
+      html += `<${headingTag} class="section-title editable-text" contenteditable="true" data-section-id="${sectionId}" data-edit-type="title"${titleStyleString}>${displayTitle}</${headingTag}>`;
     }
 
     // Si c'est une section sommaire, remplacer le contenu par un sommaire dynamique
@@ -332,8 +333,9 @@
           delete paragraphStyles.runBackgroundColor; // Retirer du paragraphe
           const paragraphStyleAttr = stylesToCSS(paragraphStyles);
           const paragraphStyleString = paragraphStyleAttr ? ` style="${paragraphStyleAttr}"` : '';
-          
-          html += `<p${paragraphStyleString}><span style="background-color: ${styles.runBackgroundColor}">${displayText}</span></p>`;
+          // Rendre le paragraphe éditable
+          const paragraphId = item.id || `para_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+          html += `<p class="editable-text" contenteditable="true" data-paragraph-id="${paragraphId}" data-edit-type="paragraph"${paragraphStyleString}><span style="background-color: ${styles.runBackgroundColor}">${displayText}</span></p>`;
         } else {
           // Background de paragraphe (ou pas de background)
           // Pour les paragraphes vides, s'assurer que le background est visible
@@ -347,7 +349,9 @@
             styleProps.push('min-height: 1em');
           }
           const styleString = styleProps.length > 0 ? ` style="${styleProps.join('; ')}"` : '';
-          html += `<p${styleString}>${displayText}</p>`;
+          // Rendre le paragraphe éditable
+          const paragraphId = item.id || `para_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+          html += `<p class="editable-text" contenteditable="true" data-paragraph-id="${paragraphId}" data-edit-type="paragraph"${styleString}>${displayText}</p>`;
         }
       } else if (item.type === 'image') {
         const imageSrc = item.src || item.name || '';
@@ -1144,6 +1148,10 @@
       attachDynamicTocClickEvents();
       // Attacher les événements de clic pour afficher les propriétés
       attachContentClickEvents();
+      // Attacher les événements de scroll pour empêcher le scroll global
+      attachScrollPrevention();
+      // Attacher les événements d'édition de texte
+      attachTextEditEvents();
     }, 100);
   }
 
@@ -1478,6 +1486,11 @@
         if (targetContainer) {
           targetContainer.classList.add('is-active');
         }
+        
+        // Réattacher la prévention du scroll après le changement de vue
+        setTimeout(() => {
+          attachScrollPrevention();
+        }, 100);
       });
     });
   }
@@ -2746,6 +2759,13 @@
     }
 
     if (targetElement) {
+      // Ne jamais ajouter la sélection aux éléments éditables
+      if (targetElement.classList.contains('editable-text')) {
+        // Juste afficher les propriétés sans ajouter la classe de sélection
+        displayElementProperties(targetElement);
+        return;
+      }
+
       // Retirer la sélection précédente
       const previousSelected = contentArea.querySelector('.element-selected');
       if (previousSelected) {
@@ -2759,6 +2779,231 @@
       // Ajouter la classe de sélection après l'extraction des propriétés
       targetElement.classList.add('element-selected');
     }
+  }
+
+  /**
+   * Attache les événements d'édition de texte
+   */
+  function attachTextEditEvents() {
+    const contentArea = document.querySelector('[data-content-area]');
+    if (!contentArea) return;
+
+    // Retirer les événements existants pour éviter les doublons
+    contentArea.removeEventListener('blur', handleTextEdit, true);
+    contentArea.removeEventListener('keydown', handleTextEditKeydown, true);
+
+    // Ajouter les événements (capture pour intercepter avant les autres)
+    contentArea.addEventListener('blur', handleTextEdit, true);
+    contentArea.addEventListener('keydown', handleTextEditKeydown, true);
+  }
+
+  /**
+   * Gère l'édition de texte (blur = perte de focus)
+   * @param {Event} e - Événement blur
+   */
+  function handleTextEdit(e) {
+    const editableElement = e.target.closest('.editable-text');
+    if (!editableElement) return;
+
+    // Retirer la classe de sélection si elle était présente
+    editableElement.classList.remove('element-selected');
+
+    const editType = editableElement.dataset.editType;
+    const newText = editableElement.textContent.trim();
+
+    if (editType === 'title') {
+      // Éditer le titre d'une section
+      const sectionId = editableElement.dataset.sectionId;
+      if (sectionId) {
+        const section = findSectionById(sectionId, sectionsTree);
+        if (section) {
+          // Retirer la numérotation si présente
+          const numbering = section.numbering || '';
+          let cleanTitle = newText;
+          if (numbering && cleanTitle.startsWith(numbering)) {
+            cleanTitle = cleanTitle.substring(numbering.length).trim();
+          }
+          section.title = cleanTitle;
+          // Recalculer la numérotation
+          recalculateNumbering();
+          // Re-render le sommaire pour mettre à jour les numéros
+          renderSommaire();
+        }
+      }
+    } else if (editType === 'paragraph') {
+      // Éditer un paragraphe
+      const paragraphId = editableElement.dataset.paragraphId;
+      if (paragraphId) {
+        // Trouver le paragraphe dans sectionsTree et mettre à jour son texte
+        updateParagraphText(paragraphId, newText);
+      }
+    }
+  }
+
+  /**
+   * Gère les touches spéciales lors de l'édition (Enter, Escape, ArrowDown)
+   * @param {Event} e - Événement keydown
+   */
+  function handleTextEditKeydown(e) {
+    const editableElement = e.target.closest('.editable-text');
+    if (!editableElement) return;
+
+    // Escape : annuler l'édition (recharger le texte original)
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      editableElement.blur();
+      // Recharger le contenu pour restaurer le texte original
+      renderContent();
+      return;
+    }
+
+    // Enter dans un titre : empêcher le saut de ligne, juste blur
+    if (editableElement.dataset.editType === 'title' && e.key === 'Enter') {
+      e.preventDefault();
+      editableElement.blur();
+      return;
+    }
+
+    // Flèche du bas : passer au paragraphe suivant si on est en bas
+    if (e.key === 'ArrowDown' && editableElement.dataset.editType === 'paragraph') {
+      const selection = window.getSelection();
+      const range = selection.getRangeAt(0);
+      
+      // Vérifier si on est à la fin du paragraphe
+      const isAtEnd = range.endOffset === editableElement.textContent.length;
+      
+      if (isAtEnd) {
+        // Trouver le paragraphe suivant
+        const nextParagraph = findNextEditableElement(editableElement);
+        if (nextParagraph) {
+          e.preventDefault();
+          // Focus sur le paragraphe suivant et placer le curseur au début
+          nextParagraph.focus();
+          const newRange = document.createRange();
+          const selection = window.getSelection();
+          newRange.setStart(nextParagraph, 0);
+          newRange.setEnd(nextParagraph, 0);
+          selection.removeAllRanges();
+          selection.addRange(newRange);
+        }
+      }
+    }
+
+    // Flèche du haut : passer au paragraphe précédent si on est en haut
+    if (e.key === 'ArrowUp' && editableElement.dataset.editType === 'paragraph') {
+      const selection = window.getSelection();
+      const range = selection.getRangeAt(0);
+      
+      // Vérifier si on est au début du paragraphe
+      const isAtStart = range.startOffset === 0;
+      
+      if (isAtStart) {
+        // Trouver le paragraphe précédent
+        const prevParagraph = findPreviousEditableElement(editableElement);
+        if (prevParagraph) {
+          e.preventDefault();
+          // Focus sur le paragraphe précédent et placer le curseur à la fin
+          prevParagraph.focus();
+          const newRange = document.createRange();
+          const selection = window.getSelection();
+          const textLength = prevParagraph.textContent.length;
+          newRange.setStart(prevParagraph, textLength);
+          newRange.setEnd(prevParagraph, textLength);
+          selection.removeAllRanges();
+          selection.addRange(newRange);
+        }
+      }
+    }
+  }
+
+  /**
+   * Trouve l'élément éditable suivant
+   * @param {HTMLElement} currentElement - Élément actuel
+   * @returns {HTMLElement|null} Élément suivant ou null
+   */
+  function findNextEditableElement(currentElement) {
+    const contentArea = document.querySelector('[data-content-area]');
+    if (!contentArea) return null;
+
+    const allEditables = Array.from(contentArea.querySelectorAll('.editable-text[data-edit-type="paragraph"]'));
+    const currentIndex = allEditables.indexOf(currentElement);
+    
+    if (currentIndex >= 0 && currentIndex < allEditables.length - 1) {
+      return allEditables[currentIndex + 1];
+    }
+    
+    return null;
+  }
+
+  /**
+   * Trouve l'élément éditable précédent
+   * @param {HTMLElement} currentElement - Élément actuel
+   * @returns {HTMLElement|null} Élément précédent ou null
+   */
+  function findPreviousEditableElement(currentElement) {
+    const contentArea = document.querySelector('[data-content-area]');
+    if (!contentArea) return null;
+
+    const allEditables = Array.from(contentArea.querySelectorAll('.editable-text[data-edit-type="paragraph"]'));
+    const currentIndex = allEditables.indexOf(currentElement);
+    
+    if (currentIndex > 0) {
+      return allEditables[currentIndex - 1];
+    }
+    
+    return null;
+  }
+
+  /**
+   * Met à jour le texte d'un paragraphe dans sectionsTree
+   * @param {string} paragraphId - ID du paragraphe
+   * @param {string} newText - Nouveau texte
+   */
+  function updateParagraphText(paragraphId, newText) {
+    function findAndUpdateParagraph(sections) {
+      for (const section of sections) {
+        if (section.content && Array.isArray(section.content)) {
+          for (const item of section.content) {
+            if (item.id === paragraphId && item.type === 'paragraph') {
+              item.text = newText;
+              return true;
+            }
+          }
+        }
+        if (section.children && section.children.length > 0) {
+          if (findAndUpdateParagraph(section.children)) {
+            return true;
+          }
+        }
+      }
+      return false;
+    }
+
+    findAndUpdateParagraph(sectionsTree);
+  }
+
+  /**
+   * Empêche le scroll global quand on arrive en haut d'une colonne
+   */
+  function attachScrollPrevention() {
+    const scrollablePanels = document.querySelectorAll('.view-text.is-active .doc-panel__body');
+    
+    scrollablePanels.forEach(panel => {
+      panel.addEventListener('wheel', (e) => {
+        // Vérifier si on est en haut de la colonne et qu'on scroll vers le haut
+        if (panel.scrollTop === 0 && e.deltaY < 0) {
+          // Empêcher le scroll global
+          e.preventDefault();
+          e.stopPropagation();
+        }
+        // Vérifier si on est en bas de la colonne et qu'on scroll vers le bas
+        else if (panel.scrollTop + panel.clientHeight >= panel.scrollHeight - 1 && e.deltaY > 0) {
+          // Empêcher le scroll global
+          e.preventDefault();
+          e.stopPropagation();
+        }
+      }, { passive: false });
+    });
   }
 
   /**

@@ -544,12 +544,37 @@ button.btn.btn-outline.view-tab.is-active,
   pointer-events: none;
 }
 
-/* Élément sélectionné dans le contenu */
-.content-area .element-selected {
+/* Élément sélectionné dans le contenu (sauf les éléments éditables) */
+.content-area .element-selected:not(.editable-text) {
   outline: 2px solid var(--doc-accent-strong, #4b9ed8);
   outline-offset: 2px;
   background-color: rgba(75, 158, 216, 0.1);
   transition: all 0.2s ease;
+}
+
+/* Texte éditable */
+.editable-text {
+  cursor: text;
+  transition: background-color 0.2s ease;
+}
+
+.editable-text:hover:not(:focus) {
+  background-color: rgba(75, 158, 216, 0.05);
+}
+
+.editable-text:focus {
+  outline: none;
+  background-color: transparent !important;
+}
+
+.editable-text.element-selected {
+  background-color: transparent !important;
+  outline: none !important;
+}
+
+.editable-text:empty::before {
+  content: '\00a0'; /* Espace insécable pour éviter la disparition */
+  color: transparent;
 }
 
 /* ===================================
