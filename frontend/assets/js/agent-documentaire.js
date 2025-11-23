@@ -362,6 +362,11 @@
         const paragraphBgColor = item.paragraphBackgroundColor || '';
         const textAlign = item.textAlign || '';
         
+        // Initialiser le verrouillage si absent (par défaut : hauteur verrouillée)
+        if (!item.locked) {
+          item.locked = { width: false, height: true };
+        }
+        
         // Extraire juste le nom du fichier (si c'est un chemin complet)
         const imageName = imageSrc.includes('/') ? imageSrc.split('/').pop() : imageSrc;
         
@@ -451,12 +456,23 @@
           const colorToTransparent = item.colorToTransparent || '';
           const transparencyAttr = colorToTransparent ? ` data-transparent-color="${colorToTransparent}"` : '';
           
+          // Ajouter un ID unique pour identifier l'image dans sectionsTree
+          const imageId = item.id || `img_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+          if (!item.id) {
+            item.id = imageId; // Sauvegarder l'ID dans l'item si absent
+          }
+          const imageIdAttr = ` data-image-id="${imageId}"`;
+          
           if (containerStyles.length > 0) {
             html += `<div style="${containerStyles.join('; ')}">`;
-            html += `<img src="${imageUrl}" alt="${alt}"${imgStyleAttr}${transparencyAttr} class="needs-transparency-processing" />`;
+            html += `<div class="image-wrapper" style="position: relative; display: inline-block;">`;
+            html += `<img src="${imageUrl}" alt="${alt}"${imgStyleAttr}${transparencyAttr}${imageIdAttr} class="needs-transparency-processing" />`;
+            html += `</div>`;
             html += `</div>`;
         } else {
-          html += `<img src="${imageUrl}" alt="${alt}"${imgStyleAttr}${transparencyAttr} class="needs-transparency-processing" />`;
+          html += `<div class="image-wrapper" style="position: relative; display: inline-block;">`;
+          html += `<img src="${imageUrl}" alt="${alt}"${imgStyleAttr}${transparencyAttr}${imageIdAttr} class="needs-transparency-processing" />`;
+          html += `</div>`;
         }
       }
         }
@@ -2341,10 +2357,13 @@
       }
     }
     
-    // Pour les images, extraire les dimensions et la rotation
+    // Pour les images, extraire les dimensions, rotation, ombre et bordures arrondies
     let width = '';
     let height = '';
     let rotation = '';
+    let borderRadius = '';
+    let boxShadow = '';
+    let bevel = '';
     if (element.tagName === 'IMG') {
       // Utiliser les dimensions naturelles ou les dimensions CSS
       const imgWidth = element.naturalWidth || element.width || computedStyle.width;
@@ -2365,6 +2384,30 @@
           rotation = match[1].trim();
         }
       }
+      
+      // Extraire border-radius
+      borderRadius = computedStyle.borderRadius || '';
+      
+      // Extraire box-shadow
+      boxShadow = computedStyle.boxShadow || '';
+      if (boxShadow === 'none') {
+        boxShadow = '';
+      }
+      
+      // Détecter l'effet biseau (bevel) - généralement des box-shadow multiples avec ombres claires et foncées
+      // On considère qu'il y a un biseau si box-shadow contient plusieurs ombres avec des couleurs claires et foncées
+      if (boxShadow && boxShadow !== 'none') {
+        // Vérifier si c'est un effet biseau typique (ombres multiples avec rgba clair et foncé)
+        const bevelPatterns = [
+          /rgba\(255,\s*255,\s*255/i, // Ombre claire (blanc)
+          /rgba\(\d+,\s*\d+,\s*\d+,\s*0\.\d+\)\s+.*inset/i, // Ombre inset
+          /rgba\(0,\s*0,\s*0,\s*0\.\d+\)\s+.*rgba\(255/i // Ombre foncée suivie de claire
+        ];
+        const hasBevelPattern = bevelPatterns.some(pattern => pattern.test(boxShadow));
+        if (hasBevelPattern || boxShadow.includes('inset')) {
+          bevel = boxShadow; // Conserver la valeur actuelle
+        }
+      }
     }
     
     return {
@@ -2375,7 +2418,10 @@
       alignment: alignment,
       width: width,
       height: height,
-      rotation: rotation
+      rotation: rotation,
+      borderRadius: borderRadius,
+      boxShadow: boxShadow,
+      bevel: bevel
     };
   }
 
@@ -2423,18 +2469,181 @@
       const alignMap = { 'Gauche': 'left', 'Centre': 'center', 'Droite': 'right', 'Justifié': 'justify' };
       const currentAlignValue = alignMap[currentAlign] || 'left';
       
+      // Récupérer l'état de verrouillage depuis l'image (ou par défaut : hauteur verrouillée)
+      let imageData = findImageDataFromElement(selectedElement);
+      
+      // Si l'image n'a pas encore de données, créer une structure par défaut
+      if (!imageData) {
+        // Essayer de trouver l'image par son src dans sectionsTree
+        const imageUrl = selectedElement.src || '';
+        const imageName = imageUrl.includes('/image/') 
+          ? imageUrl.split('/image/')[1]?.split('?')[0] 
+          : imageUrl.split('/').pop();
+        
+        if (imageName) {
+          function findAndInitImage(sections) {
+            for (const section of sections) {
+              if (section.content && Array.isArray(section.content)) {
+                for (const item of section.content) {
+                  if (item.type === 'image') {
+                    const itemImageName = (item.src || item.name || '').includes('/') 
+                      ? (item.src || item.name || '').split('/').pop() 
+                      : (item.src || item.name || '');
+                    if (itemImageName === imageName) {
+                      // Initialiser locked si absent
+                      if (!item.locked) {
+                        item.locked = { width: false, height: true };
+                      }
+                      // Initialiser id si absent
+                      if (!item.id) {
+                        item.id = `img_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+                        // Mettre à jour l'attribut data-image-id sur l'élément
+                        selectedElement.dataset.imageId = item.id;
+                      }
+                      return item;
+                    }
+                  }
+                }
+              }
+              if (section.children && section.children.length > 0) {
+                const found = findAndInitImage(section.children);
+                if (found) return found;
+              }
+            }
+            return null;
+          }
+          imageData = findAndInitImage(sectionsTree);
+        }
+      }
+      
+      const widthLocked = imageData?.locked?.width ?? false;
+      const heightLocked = imageData?.locked?.height ?? true; // Par défaut : hauteur verrouillée
+      
       html += `
         <div class="property-item">
           <span class="property-label">Largeur</span>
-          <input type="text" class="property-input" data-property="width" value="${properties.width || ''}" placeholder="auto">
+          <div class="property-lock-group">
+            <input type="text" class="property-input ${widthLocked ? 'is-locked' : ''}" data-property="width" value="${properties.width || ''}" placeholder="auto" ${widthLocked ? 'readonly' : ''}>
+            <button class="property-lock-btn ${widthLocked ? 'is-locked' : ''}" data-lock="width" title="${widthLocked ? 'Déverrouiller la largeur' : 'Verrouiller la largeur'}">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                ${widthLocked ? `
+                  <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+                  <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+                ` : `
+                  <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+                  <line x1="12" y1="16" x2="12" y2="19"></line>
+                `}
+              </svg>
+            </button>
+          </div>
         </div>
         <div class="property-item">
           <span class="property-label">Hauteur</span>
-          <input type="text" class="property-input" data-property="height" value="${properties.height || ''}" placeholder="auto">
+          <div class="property-lock-group">
+            <input type="text" class="property-input ${heightLocked ? 'is-locked' : ''}" data-property="height" value="${properties.height || ''}" placeholder="auto" ${heightLocked ? 'readonly' : ''}>
+            <button class="property-lock-btn ${heightLocked ? 'is-locked' : ''}" data-lock="height" title="${heightLocked ? 'Déverrouiller la hauteur' : 'Verrouiller la hauteur'}">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                ${heightLocked ? `
+                  <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+                  <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+                ` : `
+                  <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+                  <line x1="12" y1="16" x2="12" y2="19"></line>
+                `}
+              </svg>
+            </button>
+          </div>
         </div>
         <div class="property-item">
           <span class="property-label">Rotation</span>
           <input type="text" class="property-input" data-property="rotation" value="${properties.rotation || '0deg'}" placeholder="0deg">
+        </div>
+        <div class="property-item">
+          <span class="property-label">Bordures arrondies</span>
+          <div class="property-effect-group">
+            <div class="property-buttons property-buttons--radius">
+              <button class="property-btn ${(properties.borderRadius || '') === '' || (properties.borderRadius || '') === '0px' ? 'is-active' : ''}" data-effect="borderRadius" data-value="0px" title="Aucune" style="border-radius: 0px;">
+                <span>0</span>
+              </button>
+              <button class="property-btn ${(properties.borderRadius || '') === '4px' ? 'is-active' : ''}" data-effect="borderRadius" data-value="4px" title="Petit (4px)" style="border-radius: 4px;">
+                <span>4</span>
+              </button>
+              <button class="property-btn ${(properties.borderRadius || '') === '8px' ? 'is-active' : ''}" data-effect="borderRadius" data-value="8px" title="Moyen (8px)" style="border-radius: 8px;">
+                <span>8</span>
+              </button>
+              <button class="property-btn ${(properties.borderRadius || '') === '16px' ? 'is-active' : ''}" data-effect="borderRadius" data-value="16px" title="Grand (16px)" style="border-radius: 16px;">
+                <span>16</span>
+              </button>
+              <button class="property-btn property-btn--custom ${(properties.borderRadius || '') !== '' && (properties.borderRadius || '') !== '0px' && (properties.borderRadius || '') !== '4px' && (properties.borderRadius || '') !== '8px' && (properties.borderRadius || '') !== '16px' ? 'is-active' : ''}" data-effect="borderRadius" data-value="custom" title="Personnalisé" style="border-radius: ${properties.borderRadius || '0px'};">
+                <span>${properties.borderRadius || '0px'}</span>
+              </button>
+            </div>
+            <input type="text" class="property-input property-input--effect" data-property="borderRadius" value="${properties.borderRadius || ''}" placeholder="0px">
+          </div>
+        </div>
+        <div class="property-item">
+          <span class="property-label">Ombre</span>
+          <div class="property-effect-group">
+            <div class="property-buttons property-buttons--shadows">
+              <button class="property-btn ${(properties.boxShadow || '') === '' || (properties.boxShadow || '') === 'none' ? 'is-active' : ''}" data-effect="boxShadow" data-value="none" title="Aucune" style="box-shadow: none;">
+                <span>Aucune</span>
+              </button>
+              <button class="property-btn ${(properties.boxShadow || '').includes('rgba(0, 0, 0, 0.35) 0px 5px 15px') ? 'is-active' : ''}" data-effect="boxShadow" data-value="rgba(0, 0, 0, 0.35) 0px 5px 15px" title="Classique" style="box-shadow: rgba(0, 0, 0, 0.35) 0px 5px 15px;">
+                <span>Classique</span>
+              </button>
+              <button class="property-btn ${(properties.boxShadow || '').includes('rgba(50, 50, 93, 0.25) 0px 13px 27px -5px') ? 'is-active' : ''}" data-effect="boxShadow" data-value="rgba(50, 50, 93, 0.25) 0px 13px 27px -5px, rgba(0, 0, 0, 0.3) 0px 8px 16px -8px" title="Douce" style="box-shadow: rgba(50, 50, 93, 0.25) 0px 13px 27px -5px, rgba(0, 0, 0, 0.3) 0px 8px 16px -8px;">
+                <span>Douce</span>
+              </button>
+              <button class="property-btn ${(properties.boxShadow || '').includes('rgba(0, 0, 0, 0.3) 0px 19px 38px') ? 'is-active' : ''}" data-effect="boxShadow" data-value="rgba(0, 0, 0, 0.3) 0px 19px 38px, rgba(0, 0, 0, 0.22) 0px 15px 12px" title="Profonde" style="box-shadow: rgba(0, 0, 0, 0.3) 0px 19px 38px, rgba(0, 0, 0, 0.22) 0px 15px 12px;">
+                <span>Profonde</span>
+              </button>
+              <button class="property-btn ${(properties.boxShadow || '').includes('rgba(0, 0, 0, 0.4) 0px 2px 4px') ? 'is-active' : ''}" data-effect="boxShadow" data-value="rgba(0, 0, 0, 0.4) 0px 2px 4px, rgba(0, 0, 0, 0.3) 0px 7px 13px -3px, rgba(0, 0, 0, 0.2) 0px -3px 0px inset" title="Inset" style="box-shadow: rgba(0, 0, 0, 0.4) 0px 2px 4px, rgba(0, 0, 0, 0.3) 0px 7px 13px -3px, rgba(0, 0, 0, 0.2) 0px -3px 0px inset;">
+                <span>Inset</span>
+              </button>
+              <button class="property-btn ${(properties.boxShadow || '').includes('rgba(0, 0, 0, 0.56) 0px 22px 70px 4px') ? 'is-active' : ''}" data-effect="boxShadow" data-value="rgba(0, 0, 0, 0.56) 0px 22px 70px 4px" title="Intense" style="box-shadow: rgba(0, 0, 0, 0.56) 0px 22px 70px 4px;">
+                <span>Intense</span>
+              </button>
+              <button class="property-btn ${(properties.boxShadow || '').includes('rgba(0, 0, 0, 0.2) 0px 60px 40px -7px') ? 'is-active' : ''}" data-effect="boxShadow" data-value="rgba(0, 0, 0, 0.2) 0px 60px 40px -7px" title="Étendue" style="box-shadow: rgba(0, 0, 0, 0.2) 0px 60px 40px -7px;">
+                <span>Étendue</span>
+              </button>
+              <button class="property-btn ${(properties.boxShadow || '').includes('rgba(0, 0, 0, 0.25) 0px 54px 55px') ? 'is-active' : ''}" data-effect="boxShadow" data-value="rgba(0, 0, 0, 0.25) 0px 54px 55px, rgba(0, 0, 0, 0.12) 0px -12px 30px, rgba(0, 0, 0, 0.12) 0px 4px 6px, rgba(0, 0, 0, 0.17) 0px 12px 13px, rgba(0, 0, 0, 0.09) 0px -3px 5px" title="Multi-couches" style="box-shadow: rgba(0, 0, 0, 0.25) 0px 54px 55px, rgba(0, 0, 0, 0.12) 0px -12px 30px, rgba(0, 0, 0, 0.12) 0px 4px 6px, rgba(0, 0, 0, 0.17) 0px 12px 13px, rgba(0, 0, 0, 0.09) 0px -3px 5px;">
+                <span>Multi-couches</span>
+              </button>
+              <button class="property-btn property-btn--custom ${(properties.boxShadow || '') !== '' && (properties.boxShadow || '') !== 'none' && !(properties.boxShadow || '').includes('rgba(0, 0, 0, 0.35) 0px 5px 15px') && !(properties.boxShadow || '').includes('rgba(50, 50, 93, 0.25) 0px 13px 27px -5px') && !(properties.boxShadow || '').includes('rgba(0, 0, 0, 0.3) 0px 19px 38px') && !(properties.boxShadow || '').includes('rgba(0, 0, 0, 0.4) 0px 2px 4px') && !(properties.boxShadow || '').includes('rgba(0, 0, 0, 0.56) 0px 22px 70px 4px') && !(properties.boxShadow || '').includes('rgba(0, 0, 0, 0.2) 0px 60px 40px -7px') && !(properties.boxShadow || '').includes('rgba(0, 0, 0, 0.25) 0px 54px 55px') ? 'is-active' : ''}" data-effect="boxShadow" data-value="custom" title="Personnalisé" style="box-shadow: ${properties.boxShadow || 'none'};">
+                <span>Personnalisé</span>
+              </button>
+            </div>
+            <input type="text" class="property-input property-input--effect" data-property="boxShadow" value="${properties.boxShadow || ''}" placeholder="none">
+          </div>
+        </div>
+        <div class="property-item">
+          <span class="property-label">Biseau</span>
+          <div class="property-effect-group">
+            <div class="property-buttons property-buttons--bevel">
+              <button class="property-btn ${(properties.bevel || '') === '' || (properties.bevel || '') === 'none' ? 'is-active' : ''}" data-effect="bevel" data-value="none" title="Aucun" style="box-shadow: none;">
+                <span>Aucun</span>
+              </button>
+              <button class="property-btn ${(properties.bevel || '').includes('rgba(255, 255, 255, 0.5) 0px 1px 0px inset') ? 'is-active' : ''}" data-effect="bevel" data-value="rgba(255, 255, 255, 0.5) 0px 1px 0px inset, rgba(0, 0, 0, 0.3) 0px -1px 0px inset" title="Relief" style="box-shadow: rgba(255, 255, 255, 0.5) 0px 1px 0px inset, rgba(0, 0, 0, 0.3) 0px -1px 0px inset;">
+                <span>Relief</span>
+              </button>
+              <button class="property-btn ${(properties.bevel || '').includes('rgba(0, 0, 0, 0.3) 0px 1px 0px inset') ? 'is-active' : ''}" data-effect="bevel" data-value="rgba(0, 0, 0, 0.3) 0px 1px 0px inset, rgba(255, 255, 255, 0.5) 0px -1px 0px inset" title="Creux" style="box-shadow: rgba(0, 0, 0, 0.3) 0px 1px 0px inset, rgba(255, 255, 255, 0.5) 0px -1px 0px inset;">
+                <span>Creux</span>
+              </button>
+              <button class="property-btn ${(properties.bevel || '').includes('rgba(255, 255, 255, 0.6) 1px 1px 0px inset') ? 'is-active' : ''}" data-effect="bevel" data-value="rgba(255, 255, 255, 0.6) 1px 1px 0px inset, rgba(0, 0, 0, 0.4) -1px -1px 0px inset" title="Élevé" style="box-shadow: rgba(255, 255, 255, 0.6) 1px 1px 0px inset, rgba(0, 0, 0, 0.4) -1px -1px 0px inset;">
+                <span>Élevé</span>
+              </button>
+              <button class="property-btn ${(properties.bevel || '').includes('rgba(0, 0, 0, 0.4) 1px 1px 0px inset') ? 'is-active' : ''}" data-effect="bevel" data-value="rgba(0, 0, 0, 0.4) 1px 1px 0px inset, rgba(255, 255, 255, 0.6) -1px -1px 0px inset" title="Enfoncé" style="box-shadow: rgba(0, 0, 0, 0.4) 1px 1px 0px inset, rgba(255, 255, 255, 0.6) -1px -1px 0px inset;">
+                <span>Enfoncé</span>
+              </button>
+              <button class="property-btn ${(properties.bevel || '').includes('rgba(255, 255, 255, 0.7) 0px 2px 2px inset') ? 'is-active' : ''}" data-effect="bevel" data-value="rgba(255, 255, 255, 0.7) 0px 2px 2px inset, rgba(0, 0, 0, 0.5) 0px -2px 2px inset" title="Douce" style="box-shadow: rgba(255, 255, 255, 0.7) 0px 2px 2px inset, rgba(0, 0, 0, 0.5) 0px -2px 2px inset;">
+                <span>Douce</span>
+              </button>
+              <button class="property-btn property-btn--custom ${(properties.bevel || '') !== '' && (properties.bevel || '') !== 'none' && !(properties.bevel || '').includes('rgba(255, 255, 255, 0.5) 0px 1px 0px inset') && !(properties.bevel || '').includes('rgba(0, 0, 0, 0.3) 0px 1px 0px inset') && !(properties.bevel || '').includes('rgba(255, 255, 255, 0.6) 1px 1px 0px inset') && !(properties.bevel || '').includes('rgba(0, 0, 0, 0.4) 1px 1px 0px inset') && !(properties.bevel || '').includes('rgba(255, 255, 255, 0.7) 0px 2px 2px inset') ? 'is-active' : ''}" data-effect="bevel" data-value="custom" title="Personnalisé" style="box-shadow: ${properties.bevel || 'none'};">
+                <span>Personnalisé</span>
+              </button>
+            </div>
+            <input type="text" class="property-input property-input--effect" data-property="bevel" value="${properties.bevel || ''}" placeholder="none">
+          </div>
         </div>
         <div class="property-item">
           <span class="property-label">Alignement</span>
@@ -2559,6 +2768,164 @@
   }
 
   /**
+   * Trouve les données de l'image depuis l'élément HTML
+   * @param {HTMLElement} imgElement - Élément img
+   * @returns {Object|null} Données de l'image ou null
+   */
+  function findImageDataFromElement(imgElement) {
+    if (!imgElement || imgElement.tagName !== 'IMG') return null;
+    
+    // Essayer d'abord avec l'ID de l'image (data-image-id)
+    const imageId = imgElement.dataset.imageId;
+    if (imageId) {
+      // Chercher l'image par ID dans sectionsTree
+      function findImageById(sections) {
+        for (const section of sections) {
+          if (section.content && Array.isArray(section.content)) {
+            for (const item of section.content) {
+              if (item.type === 'image' && item.id === imageId) {
+                return item;
+              }
+            }
+          }
+          if (section.children && section.children.length > 0) {
+            const found = findImageById(section.children);
+            if (found) return found;
+          }
+        }
+        return null;
+      }
+      
+      const found = findImageById(sectionsTree);
+      if (found) return found;
+    }
+    
+    // Fallback : chercher par nom d'image
+    const imageUrl = imgElement.src || '';
+    const imageName = imageUrl.includes('/image/') 
+      ? imageUrl.split('/image/')[1]?.split('?')[0] 
+      : imageUrl.split('/').pop();
+    
+    if (!imageName) return null;
+    
+    // Chercher l'image dans sectionsTree
+    function findImageInSections(sections) {
+      for (const section of sections) {
+        if (section.content && Array.isArray(section.content)) {
+          for (const item of section.content) {
+            if (item.type === 'image') {
+              const itemImageName = (item.src || item.name || '').includes('/') 
+                ? (item.src || item.name || '').split('/').pop() 
+                : (item.src || item.name || '');
+              if (itemImageName === imageName) {
+                return item;
+              }
+            }
+          }
+        }
+        if (section.children && section.children.length > 0) {
+          const found = findImageInSections(section.children);
+          if (found) return found;
+        }
+      }
+      return null;
+    }
+    
+    return findImageInSections(sectionsTree);
+  }
+
+  /**
+   * Récupère la valeur réelle d'un effet depuis l'élément sélectionné
+   * @param {string} property - Type d'effet ('borderRadius', 'boxShadow', 'bevel')
+   * @returns {string} Valeur réelle
+   */
+  function getRealEffectValue(property) {
+    if (!selectedElement || selectedElement.tagName !== 'IMG') {
+      return '';
+    }
+    
+    if (property === 'borderRadius') {
+      return selectedElement.style.borderRadius || '';
+    } else if (property === 'boxShadow' || property === 'bevel') {
+      return selectedElement.style.boxShadow || '';
+    }
+    return '';
+  }
+
+  /**
+   * Met à jour l'input avec la valeur réelle depuis l'élément
+   * @param {string} property - Type d'effet ('borderRadius', 'boxShadow', 'bevel')
+   */
+  function syncInputWithRealValue(property) {
+    const propertiesArea = document.querySelector('[data-properties-area]');
+    if (!propertiesArea) return;
+    
+    const input = propertiesArea.querySelector(`.property-input--effect[data-property="${property}"]`);
+    if (input) {
+      const realValue = getRealEffectValue(property);
+      input.value = realValue;
+    }
+  }
+
+  /**
+   * Met à jour l'état des boutons d'effets selon la valeur
+   * @param {string} property - Type d'effet ('borderRadius', 'boxShadow', 'bevel')
+   * @param {string} inputValue - Valeur de l'input
+   */
+  function updateEffectButtonsState(property, inputValue) {
+    const propertiesArea = document.querySelector('[data-properties-area]');
+    if (!propertiesArea) return;
+    
+    const effectButtons = propertiesArea.querySelectorAll(`.property-btn[data-effect="${property}"]`);
+    let hasPreset = false;
+    
+    effectButtons.forEach(btn => {
+      const btnValue = btn.dataset.value;
+      
+      // Ignorer le bouton personnalisé
+      if (btnValue === 'custom') {
+        return;
+      }
+      
+      // Vérifier si la valeur correspond à un bouton prédéfini
+      let isPreset = false;
+      if (property === 'borderRadius') {
+        isPreset = inputValue === btnValue || (inputValue === '' && btnValue === '0px');
+      } else if (property === 'boxShadow' || property === 'bevel') {
+        // Pour boxShadow et bevel, vérifier si la valeur correspond exactement à un preset
+        isPreset = (inputValue === btnValue) || 
+                  (inputValue === '' && btnValue === 'none') ||
+                  (btnValue !== 'none' && inputValue === btnValue);
+      }
+      
+      btn.classList.toggle('is-active', isPreset);
+      if (isPreset) {
+        hasPreset = true;
+      }
+    });
+    
+    // Mettre à jour le bouton personnalisé
+    const customBtn = propertiesArea.querySelector(`.property-btn--custom[data-effect="${property}"]`);
+    if (customBtn) {
+      if (hasPreset) {
+        customBtn.classList.remove('is-active');
+      } else {
+        customBtn.classList.add('is-active');
+        // Mettre à jour le style et le texte du bouton personnalisé
+        if (property === 'borderRadius') {
+          customBtn.style.borderRadius = inputValue || '0px';
+          const span = customBtn.querySelector('span');
+          if (span) span.textContent = inputValue || '0px';
+        } else if (property === 'boxShadow' || property === 'bevel') {
+          customBtn.style.boxShadow = inputValue || 'none';
+          const span = customBtn.querySelector('span');
+          if (span) span.textContent = 'Personnalisé';
+        }
+      }
+    }
+  }
+
+  /**
    * Attache les événements aux contrôles de propriétés
    */
   function attachPropertyEvents() {
@@ -2568,11 +2935,60 @@
     // Inputs texte
     const inputs = propertiesArea.querySelectorAll('.property-input');
     inputs.forEach(input => {
-      input.addEventListener('change', () => {
-        applyProperty(input.dataset.property, input.value);
-      });
-      input.addEventListener('blur', () => {
-        applyProperty(input.dataset.property, input.value);
+      const property = input.dataset.property;
+      const isEffectInput = property === 'borderRadius' || property === 'boxShadow' || property === 'bevel';
+      
+      // Pour les effets, utiliser 'input' pour application en temps réel
+      if (isEffectInput) {
+        input.addEventListener('input', function(e) {
+          const inputValue = this.value;
+          const prop = this.dataset.property;
+          if (selectedElement) {
+            // Appliquer l'effet
+            applyProperty(prop, inputValue);
+            // Mettre à jour l'état des boutons
+            updateEffectButtonsState(prop, inputValue.trim());
+            // S'assurer que la valeur dans l'input correspond à la valeur réelle
+            // (au cas où applyProperty aurait modifié quelque chose)
+            if (selectedElement.tagName === 'IMG') {
+              let realValue = '';
+              if (prop === 'borderRadius') {
+                realValue = selectedElement.style.borderRadius || '';
+              } else if (prop === 'boxShadow' || prop === 'bevel') {
+                realValue = selectedElement.style.boxShadow || '';
+              }
+              // Si la valeur réelle est différente, la mettre à jour dans l'input
+              if (realValue !== inputValue) {
+                this.value = realValue;
+              }
+            }
+          }
+        });
+      }
+      
+      input.addEventListener('change', function() {
+        const prop = this.dataset.property;
+        // Vérifier si la propriété est verrouillée
+        if (prop === 'width' || prop === 'height') {
+          const imageData = findImageDataFromElement(selectedElement);
+          const isLocked = prop === 'width' 
+            ? (imageData?.locked?.width ?? false)
+            : (imageData?.locked?.height ?? true);
+          if (isLocked) {
+            // Restaurer la valeur originale
+            const originalValue = prop === 'width' 
+              ? (imageData?.width ? `${imageData.width}px` : '')
+              : (imageData?.height ? `${imageData.height}px` : '');
+            this.value = originalValue;
+            return;
+          }
+        }
+        
+        // Pour les effets, ne pas réappliquer (déjà fait dans 'input')
+        const isEffect = prop === 'borderRadius' || prop === 'boxShadow' || prop === 'bevel';
+        if (!isEffect) {
+          applyProperty(prop, this.value);
+        }
       });
     });
 
@@ -2603,12 +3019,104 @@
       });
     });
 
+    // Boutons d'effets (bordures arrondies et ombres)
+    const effectButtons = propertiesArea.querySelectorAll('.property-btn[data-effect]');
+    effectButtons.forEach(btn => {
+      btn.addEventListener('click', () => {
+        const effectType = btn.dataset.effect; // 'borderRadius' ou 'boxShadow'
+        const effectValue = btn.dataset.value;
+        
+        // Si c'est le bouton personnalisé, activer le bouton et focus sur l'input
+        if (effectValue === 'custom') {
+          // Retirer l'état actif de tous les boutons du même type d'effet
+          const sameTypeButtons = propertiesArea.querySelectorAll(`.property-btn[data-effect="${effectType}"]`);
+          sameTypeButtons.forEach(b => b.classList.remove('is-active'));
+          // Ajouter l'état actif au bouton personnalisé
+          btn.classList.add('is-active');
+          
+          const input = propertiesArea.querySelector(`.property-input--effect[data-property="${effectType}"]`);
+          if (input) {
+            // Synchroniser l'input avec la valeur réelle depuis l'élément
+            syncInputWithRealValue(effectType);
+            
+            // Focus et sélection après synchronisation
+            input.focus();
+            input.select();
+          }
+          return;
+        }
+        
+        // Retirer l'état actif de tous les boutons du même type d'effet
+        const sameTypeButtons = propertiesArea.querySelectorAll(`.property-btn[data-effect="${effectType}"]`);
+        sameTypeButtons.forEach(b => b.classList.remove('is-active'));
+        // Ajouter l'état actif au bouton cliqué
+        btn.classList.add('is-active');
+        
+        // Appliquer l'effet
+        if (effectValue === 'none') {
+          applyProperty(effectType, '');
+        } else {
+          applyProperty(effectType, effectValue);
+        }
+        
+        // Mettre à jour l'input correspondant avec la valeur réelle depuis l'élément
+        syncInputWithRealValue(effectType);
+        
+        // Si on applique un bevel, vider l'input boxShadow (et vice versa)
+        // car ils utilisent la même propriété CSS
+        if (effectType === 'bevel') {
+          const boxShadowInput = propertiesArea.querySelector(`.property-input--effect[data-property="boxShadow"]`);
+          if (boxShadowInput && effectValue !== 'none') {
+            boxShadowInput.value = '';
+            // Désactiver tous les boutons boxShadow
+            const boxShadowButtons = propertiesArea.querySelectorAll('.property-btn[data-effect="boxShadow"]');
+            boxShadowButtons.forEach(b => b.classList.remove('is-active'));
+          }
+        } else if (effectType === 'boxShadow') {
+          const bevelInput = propertiesArea.querySelector(`.property-input--effect[data-property="bevel"]`);
+          if (bevelInput && effectValue !== 'none') {
+            bevelInput.value = '';
+            // Désactiver tous les boutons bevel
+            const bevelButtons = propertiesArea.querySelectorAll('.property-btn[data-effect="bevel"]');
+            bevelButtons.forEach(b => b.classList.remove('is-active'));
+            // Activer le bouton "Aucun" pour bevel
+            const bevelNoneBtn = propertiesArea.querySelector('.property-btn[data-effect="bevel"][data-value="none"]');
+            if (bevelNoneBtn) bevelNoneBtn.classList.add('is-active');
+          }
+        }
+      });
+    });
+
     // Boutons de style (gras, italique, souligné)
     const styleButtons = propertiesArea.querySelectorAll('.property-btn[data-style]');
     styleButtons.forEach(btn => {
       btn.addEventListener('click', () => {
         btn.classList.toggle('is-active');
         applyStyle(btn.dataset.style, btn.classList.contains('is-active'));
+      });
+    });
+
+    // Boutons de verrouillage (cadenas)
+    const lockButtons = propertiesArea.querySelectorAll('.property-lock-btn');
+    lockButtons.forEach(btn => {
+      btn.addEventListener('click', () => {
+        const lockType = btn.dataset.lock; // 'width' ou 'height'
+        const isLocked = btn.classList.contains('is-locked');
+        
+        // Toggle le verrouillage (utilise la fonction complète qui met à jour tout)
+        toggleImageLock(lockType, !isLocked);
+        
+        // Mettre à jour l'UI du panneau de propriétés
+        btn.classList.toggle('is-locked');
+        const input = propertiesArea.querySelector(`.property-input[data-property="${lockType}"]`);
+        if (input) {
+          input.classList.toggle('is-locked');
+          input.readOnly = !isLocked;
+          // Mettre à jour le titre du bouton
+          btn.title = !isLocked 
+            ? `Déverrouiller la ${lockType === 'width' ? 'largeur' : 'hauteur'}` 
+            : `Verrouiller la ${lockType === 'width' ? 'largeur' : 'hauteur'}`;
+        }
       });
     });
   }
@@ -2637,7 +3145,13 @@
       case 'textAlign':
         // Pour les images, appliquer l'alignement sur le conteneur parent (div)
         if (selectedElement.tagName === 'IMG') {
-          const container = selectedElement.parentElement;
+          // Trouver le conteneur parent (en sautant le wrapper)
+          let container = selectedElement.parentElement;
+          // Si le parent est le wrapper, prendre son parent
+          if (container && container.classList.contains('image-wrapper')) {
+            container = container.parentElement;
+          }
+          
           if (container && container.tagName === 'DIV') {
             container.style.textAlign = value || '';
             // Ajuster le display de l'image selon l'alignement
@@ -2665,12 +3179,32 @@
         break;
       case 'width':
         if (selectedElement.tagName === 'IMG') {
+          // Vérifier si la largeur est verrouillée
+          const imageData = findImageDataFromElement(selectedElement);
+          if (imageData?.locked?.width) {
+            return; // Ne pas modifier si verrouillée
+          }
           selectedElement.style.width = value || '';
+          // Mettre à jour les données de l'image
+          if (imageData) {
+            const numericValue = value ? parseFloat(value) : null;
+            imageData.width = numericValue || imageData.width;
+          }
         }
         break;
       case 'height':
         if (selectedElement.tagName === 'IMG') {
+          // Vérifier si la hauteur est verrouillée
+          const imageData = findImageDataFromElement(selectedElement);
+          if (imageData?.locked?.height) {
+            return; // Ne pas modifier si verrouillée
+          }
           selectedElement.style.height = value || '';
+          // Mettre à jour les données de l'image
+          if (imageData) {
+            const numericValue = value ? parseFloat(value) : null;
+            imageData.height = numericValue || imageData.height;
+          }
         }
         break;
       case 'rotation':
@@ -2685,6 +3219,37 @@
             const currentTransform = selectedElement.style.transform || '';
             const newTransform = currentTransform.replace(/rotate\([^)]+\)/g, '').trim();
             selectedElement.style.transform = newTransform || '';
+          }
+        }
+        break;
+      case 'borderRadius':
+        if (selectedElement.tagName === 'IMG') {
+          selectedElement.style.borderRadius = value || '';
+        }
+        break;
+      case 'boxShadow':
+        if (selectedElement && selectedElement.tagName === 'IMG') {
+          // Si un bevel est actif, ne pas appliquer boxShadow (ils utilisent la même propriété CSS)
+          const propertiesArea = document.querySelector('[data-properties-area]');
+          if (propertiesArea) {
+            const bevelInput = propertiesArea.querySelector('.property-input--effect[data-property="bevel"]');
+            const bevelValue = bevelInput ? bevelInput.value.trim() : '';
+            // Si bevel a une valeur, ne pas appliquer boxShadow
+            if (bevelValue && bevelValue !== '' && bevelValue !== 'none') {
+              return; // Le bevel a la priorité
+            }
+          }
+          selectedElement.style.boxShadow = value || '';
+        }
+        break;
+      case 'bevel':
+        if (selectedElement && selectedElement.tagName === 'IMG') {
+          // Pour le bevel, on applique directement la valeur sur boxShadow
+          // Le bevel écrase l'ombre normale (boxShadow) car ils utilisent la même propriété CSS
+          if (value && value !== 'none' && value !== '') {
+            selectedElement.style.boxShadow = value;
+          } else {
+            selectedElement.style.boxShadow = '';
           }
         }
         break;
@@ -2747,15 +3312,39 @@
     // Trouver l'élément cliqué (paragraphe, titre, image)
     let targetElement = null;
     
+    // Si on clique sur un wrapper d'image ou un conteneur d'image, sélectionner l'image
+    if (e.target.classList.contains('image-wrapper') || 
+        e.target.classList.contains('resize-handle') ||
+        e.target.classList.contains('resize-handle-container') ||
+        e.target.classList.contains('image-lock-container') ||
+        e.target.classList.contains('image-lock-button')) {
+      // Chercher l'image dans le wrapper
+      const imageWrapper = e.target.closest('.image-wrapper');
+      if (imageWrapper) {
+        const img = imageWrapper.querySelector('img');
+        if (img) {
+          targetElement = img;
+        }
+      }
+    }
+    
     // Si c'est un titre, paragraphe ou image directement
-    if (e.target.tagName === 'H1' || e.target.tagName === 'H2' || 
+    if (!targetElement && (e.target.tagName === 'H1' || e.target.tagName === 'H2' || 
         e.target.tagName === 'H3' || e.target.tagName === 'H4' || 
         e.target.tagName === 'H5' || e.target.tagName === 'H6' ||
-        e.target.tagName === 'P' || e.target.tagName === 'IMG') {
+        e.target.tagName === 'P' || e.target.tagName === 'IMG')) {
       targetElement = e.target;
-    } else {
+    } else if (!targetElement) {
       // Chercher le parent le plus proche qui est un titre, paragraphe ou image
       targetElement = e.target.closest('h1, h2, h3, h4, h5, h6, p, img');
+      
+      // Si on trouve un conteneur div qui contient une image, prendre l'image
+      if (targetElement && targetElement.tagName === 'DIV') {
+        const img = targetElement.querySelector('img');
+        if (img) {
+          targetElement = img;
+        }
+      }
     }
 
     if (targetElement) {
@@ -2770,6 +3359,10 @@
       const previousSelected = contentArea.querySelector('.element-selected');
       if (previousSelected) {
         previousSelected.classList.remove('element-selected');
+        // Retirer les handles de redimensionnement
+        removeResizeHandles(previousSelected);
+        // Retirer les boutons de verrouillage
+        removeLockButtons(previousSelected);
       }
 
       // Extraire les propriétés AVANT d'ajouter la classe de sélection
@@ -2778,6 +3371,12 @@
 
       // Ajouter la classe de sélection après l'extraction des propriétés
       targetElement.classList.add('element-selected');
+      
+      // Pour les images, ajouter les handles de redimensionnement et les boutons de verrouillage
+      if (targetElement.tagName === 'IMG') {
+        addResizeHandles(targetElement);
+        addLockButtons(targetElement);
+      }
     }
   }
 
@@ -2980,6 +3579,333 @@
     }
 
     findAndUpdateParagraph(sectionsTree);
+  }
+
+  /**
+   * Ajoute les handles de redimensionnement à une image
+   * @param {HTMLElement} imgElement - Élément img
+   */
+  function addResizeHandles(imgElement) {
+    if (!imgElement || imgElement.tagName !== 'IMG') return;
+    
+    // Trouver le wrapper de l'image
+    const imageWrapper = imgElement.parentElement;
+    if (!imageWrapper || !imageWrapper.classList.contains('image-wrapper')) {
+      return;
+    }
+    
+    // Vérifier si les handles existent déjà
+    if (imageWrapper.querySelector('.resize-handle')) {
+      return;
+    }
+    
+    // Créer un conteneur pour les handles
+    const handleContainer = document.createElement('div');
+    handleContainer.className = 'resize-handle-container';
+    imageWrapper.appendChild(handleContainer);
+    
+    // Créer les handles (coins et bords)
+    const handles = [
+      { class: 'resize-handle resize-handle-nw', cursor: 'nw-resize' }, // Coin haut-gauche
+      { class: 'resize-handle resize-handle-n', cursor: 'n-resize' },   // Bord haut
+      { class: 'resize-handle resize-handle-ne', cursor: 'ne-resize' }, // Coin haut-droite
+      { class: 'resize-handle resize-handle-e', cursor: 'e-resize' },   // Bord droit
+      { class: 'resize-handle resize-handle-se', cursor: 'se-resize' }, // Coin bas-droite
+      { class: 'resize-handle resize-handle-s', cursor: 's-resize' },    // Bord bas
+      { class: 'resize-handle resize-handle-sw', cursor: 'sw-resize' }, // Coin bas-gauche
+      { class: 'resize-handle resize-handle-w', cursor: 'w-resize' }     // Bord gauche
+    ];
+    
+    handles.forEach(handle => {
+      const handleEl = document.createElement('div');
+      handleEl.className = handle.class;
+      handleEl.style.cursor = handle.cursor;
+      handleContainer.appendChild(handleEl);
+      
+      // Attacher les événements de drag
+      handleEl.addEventListener('mousedown', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        startResize(e, imgElement, handle.class);
+      });
+    });
+  }
+
+  /**
+   * Retire les handles de redimensionnement
+   * @param {HTMLElement} element - Élément
+   */
+  function removeResizeHandles(element) {
+    if (!element) return;
+    // Chercher dans le wrapper de l'image
+    const imageWrapper = element.tagName === 'IMG' 
+      ? element.parentElement 
+      : element.querySelector('.image-wrapper') || element;
+    const container = imageWrapper?.querySelector('.resize-handle-container');
+    if (container) {
+      container.remove();
+    }
+  }
+
+  /**
+   * Démarre le redimensionnement d'une image
+   * @param {Event} e - Événement mousedown
+   * @param {HTMLElement} imgElement - Élément img
+   * @param {string} handleClass - Classe du handle utilisé
+   */
+  function startResize(e, imgElement, handleClass) {
+    const imageData = findImageDataFromElement(imgElement);
+    if (!imageData) return;
+    
+    // Vérifier les verrouillages
+    const widthLocked = imageData?.locked?.width ?? false;
+    const heightLocked = imageData?.locked?.height ?? true;
+    
+    // Déterminer quelles dimensions peuvent être modifiées selon le handle
+    const canResizeWidth = !widthLocked && (
+      handleClass.includes('-e') || handleClass.includes('-w') || 
+      handleClass.includes('-ne') || handleClass.includes('-se') || 
+      handleClass.includes('-nw') || handleClass.includes('-sw')
+    );
+    const canResizeHeight = !heightLocked && (
+      handleClass.includes('-n') || handleClass.includes('-s') || 
+      handleClass.includes('-ne') || handleClass.includes('-se') || 
+      handleClass.includes('-nw') || handleClass.includes('-sw')
+    );
+    
+    if (!canResizeWidth && !canResizeHeight) {
+      return; // Rien à redimensionner
+    }
+    
+    const startX = e.clientX;
+    const startY = e.clientY;
+    const startWidth = imgElement.offsetWidth;
+    const startHeight = imgElement.offsetHeight;
+    const startLeft = imgElement.offsetLeft;
+    const startTop = imgElement.offsetTop;
+    
+    // Déterminer la direction du redimensionnement
+    const isLeft = handleClass.includes('-w') || handleClass.includes('-nw') || handleClass.includes('-sw');
+    const isTop = handleClass.includes('-n') || handleClass.includes('-nw') || handleClass.includes('-ne');
+    
+    function handleMouseMove(e) {
+      const deltaX = e.clientX - startX;
+      const deltaY = e.clientY - startY;
+      
+      let newWidth = startWidth;
+      let newHeight = startHeight;
+      let newLeft = startLeft;
+      let newTop = startTop;
+      
+      if (canResizeWidth) {
+        if (isLeft) {
+          newWidth = startWidth - deltaX;
+          newLeft = startLeft + deltaX;
+        } else {
+          newWidth = startWidth + deltaX;
+        }
+        // Limiter la largeur minimale
+        if (newWidth < 20) newWidth = 20;
+      }
+      
+      if (canResizeHeight) {
+        if (isTop) {
+          newHeight = startHeight - deltaY;
+          newTop = startTop + deltaY;
+        } else {
+          newHeight = startHeight + deltaY;
+        }
+        // Limiter la hauteur minimale
+        if (newHeight < 20) newHeight = 20;
+      }
+      
+      // Appliquer les nouvelles dimensions
+      if (canResizeWidth) {
+        imgElement.style.width = `${newWidth}px`;
+        if (isLeft) {
+          imgElement.style.marginLeft = `${newLeft - startLeft}px`;
+        }
+      }
+      if (canResizeHeight) {
+        imgElement.style.height = `${newHeight}px`;
+        if (isTop) {
+          imgElement.style.marginTop = `${newTop - startTop}px`;
+        }
+      }
+    }
+    
+    function handleMouseUp(e) {
+      // Sauvegarder les dimensions finales
+      const finalWidth = imgElement.offsetWidth;
+      const finalHeight = imgElement.offsetHeight;
+      
+      if (imageData) {
+        if (canResizeWidth) {
+          imageData.width = finalWidth;
+        }
+        if (canResizeHeight) {
+          imageData.height = finalHeight;
+        }
+      }
+      
+      // Mettre à jour les propriétés affichées
+      if (selectedElement === imgElement) {
+        displayElementProperties(imgElement);
+      }
+      
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+    }
+    
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+  }
+
+  /**
+   * Ajoute les boutons de verrouillage sur une image
+   * @param {HTMLElement} imgElement - Élément img
+   */
+  function addLockButtons(imgElement) {
+    if (!imgElement || imgElement.tagName !== 'IMG') return;
+    
+    // Trouver le wrapper de l'image
+    const imageWrapper = imgElement.parentElement;
+    if (!imageWrapper || !imageWrapper.classList.contains('image-wrapper')) {
+      return;
+    }
+    
+    // Vérifier si les boutons existent déjà
+    if (imageWrapper.querySelector('.image-lock-button')) {
+      return;
+    }
+    
+    const imageData = findImageDataFromElement(imgElement);
+    const widthLocked = imageData?.locked?.width ?? false;
+    const heightLocked = imageData?.locked?.height ?? true;
+    
+    // Créer un conteneur pour les boutons de verrouillage
+    const lockContainer = document.createElement('div');
+    lockContainer.className = 'image-lock-container';
+    imageWrapper.appendChild(lockContainer);
+    
+    // Bouton pour la largeur (en haut au milieu)
+    const widthLockBtn = document.createElement('button');
+    widthLockBtn.className = `image-lock-button image-lock-width ${widthLocked ? 'is-locked' : ''}`;
+    widthLockBtn.title = widthLocked ? 'Déverrouiller la largeur' : 'Verrouiller la largeur';
+    widthLockBtn.innerHTML = `
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        ${widthLocked ? `
+          <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+          <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+        ` : `
+          <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+          <path d="M7 11V7a5 5 0 0 1 5.5-4.945M12.5 2.055A5 5 0 0 1 17 7v4"></path>
+          <line x1="12" y1="16" x2="12" y2="19"></line>
+        `}
+      </svg>
+    `;
+    widthLockBtn.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      // Lire l'état actuel avant de basculer
+      const currentImageData = findImageDataFromElement(imgElement);
+      const currentlyLocked = currentImageData?.locked?.width ?? false;
+      toggleImageLock('width', !currentlyLocked, imgElement);
+    });
+    lockContainer.appendChild(widthLockBtn);
+    
+    // Bouton pour la hauteur (à droite au milieu)
+    const heightLockBtn = document.createElement('button');
+    heightLockBtn.className = `image-lock-button image-lock-height ${heightLocked ? 'is-locked' : ''}`;
+    heightLockBtn.title = heightLocked ? 'Déverrouiller la hauteur' : 'Verrouiller la hauteur';
+    heightLockBtn.innerHTML = `
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        ${heightLocked ? `
+          <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+          <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+        ` : `
+          <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+          <path d="M7 11V7a5 5 0 0 1 5.5-4.945M12.5 2.055A5 5 0 0 1 17 7v4"></path>
+          <line x1="12" y1="16" x2="12" y2="19"></line>
+        `}
+      </svg>
+    `;
+    heightLockBtn.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      // Lire l'état actuel avant de basculer
+      const currentImageData = findImageDataFromElement(imgElement);
+      const currentlyLocked = currentImageData?.locked?.height ?? true;
+      toggleImageLock('height', !currentlyLocked, imgElement);
+    });
+    lockContainer.appendChild(heightLockBtn);
+  }
+
+  /**
+   * Retire les boutons de verrouillage
+   * @param {HTMLElement} element - Élément
+   */
+  function removeLockButtons(element) {
+    if (!element) return;
+    // Chercher dans le wrapper de l'image
+    const imageWrapper = element.tagName === 'IMG' 
+      ? element.parentElement 
+      : element.querySelector('.image-wrapper') || element;
+    const container = imageWrapper?.querySelector('.image-lock-container');
+    if (container) {
+      container.remove();
+    }
+  }
+
+  /**
+   * Active/désactive le verrouillage d'une propriété d'image
+   * @param {string} lockType - Type de verrouillage ('width' ou 'height')
+   * @param {boolean} locked - Si true, verrouiller, sinon déverrouiller
+   * @param {HTMLElement} imgElement - Élément img (optionnel, utilise selectedElement si absent)
+   */
+  function toggleImageLock(lockType, locked, imgElement = null) {
+    const targetImg = imgElement || selectedElement;
+    if (!targetImg || targetImg.tagName !== 'IMG') return;
+    
+    const imageData = findImageDataFromElement(targetImg);
+    if (!imageData) return;
+    
+    // Initialiser locked si absent
+    if (!imageData.locked) {
+      imageData.locked = { width: false, height: true }; // Par défaut : hauteur verrouillée
+    }
+    
+    // Mettre à jour l'état de verrouillage
+    imageData.locked[lockType] = locked;
+    
+    // Mettre à jour les boutons de verrouillage sur l'image
+    const imageWrapper = targetImg.parentElement;
+    if (imageWrapper && imageWrapper.classList.contains('image-wrapper')) {
+      const lockButton = imageWrapper.querySelector(`.image-lock-${lockType}`);
+      if (lockButton) {
+        lockButton.classList.toggle('is-locked', locked);
+        lockButton.title = locked 
+          ? `Déverrouiller la ${lockType === 'width' ? 'largeur' : 'hauteur'}` 
+          : `Verrouiller la ${lockType === 'width' ? 'largeur' : 'hauteur'}`;
+        // Mettre à jour l'icône SVG
+        const svg = lockButton.querySelector('svg');
+        if (svg) {
+          svg.innerHTML = locked ? `
+            <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+            <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+          ` : `
+            <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+            <path d="M7 11V7a5 5 0 0 1 5.5-4.945M12.5 2.055A5 5 0 0 1 17 7v4"></path>
+            <line x1="12" y1="16" x2="12" y2="19"></line>
+          `;
+        }
+      }
+    }
+    
+    // Mettre à jour les propriétés affichées
+    if (selectedElement === targetImg) {
+      displayElementProperties(targetImg);
+    }
   }
 
   /**
