@@ -30,6 +30,7 @@ require_once '../../../includes/header.php';
                 <a class="btn btn-outline" href="<?= url('pages/modules/document-agent/index.php'); ?>">⬅️ Retour</a>
                 <button class="btn btn-outline view-tab is-active" data-view="text">📄 Vue texte</button>
                 <button class="btn btn-outline view-tab" data-view="card">🃏 Vue card</button>
+                <button class="btn btn-outline" id="editCanvasBtn" title="Éditer le canevas">⚙️ Éditer le canevas</button>
                 <button class="btn btn-primary" id="exportPdfBtn" title="Exporter en PDF">📄 Exporter PDF</button>
             </div>
         </div>
@@ -183,6 +184,309 @@ require_once '../../../includes/header.php';
             <span>Supprimer</span>
         </li>
     </ul>
+</div>
+
+<!-- Modal Configuration Canevas -->
+<div class="modal-overlay" id="canvasModal" style="display: none;">
+    <div class="modal-content modal-content--large">
+        <div class="modal-header">
+            <h3>⚙️ Configuration du canevas</h3>
+            <button class="modal-close" id="canvasModalClose">&times;</button>
+        </div>
+        <div class="modal-body">
+            <!-- Onglets -->
+            <div class="canvas-tabs">
+                <button class="canvas-tab is-active" data-tab="titles">📝 Titres</button>
+                <button class="canvas-tab" data-tab="paragraphs">📄 Paragraphes</button>
+                <button class="canvas-tab" data-tab="images">🖼️ Images</button>
+                <button class="canvas-tab" data-tab="annexes">📎 Annexes</button>
+                <button class="canvas-tab" data-tab="margins">📏 Marges</button>
+            </div>
+
+            <!-- Contenu des onglets -->
+            <div class="canvas-tab-content">
+                <!-- Onglet Titres -->
+                <div class="canvas-tab-panel is-active" data-panel="titles">
+                    <div class="canvas-presets">
+                        <label>Preset rapide :</label>
+                        <select id="canvasPresetSelect">
+                            <option value="">Personnalisé</option>
+                            <option value="standard">Standard</option>
+                            <option value="compact">Compact</option>
+                            <option value="large">Large</option>
+                        </select>
+                        <button class="btn btn-sm btn-outline" id="applyPresetBtn">Appliquer preset</button>
+                    </div>
+                    <div class="canvas-levels">
+                        <div class="canvas-level" data-level="1">
+                            <h4>Niveau 1</h4>
+                            <div class="form-group">
+                                <label>Police</label>
+                                <input type="text" class="form-control" data-field="fontFamily" placeholder="Arial">
+                            </div>
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label>Taille (pt)</label>
+                                    <input type="number" class="form-control" data-field="fontSize" min="8" max="72" step="0.5">
+                                </div>
+                                <div class="form-group">
+                                    <label>Gras</label>
+                                    <select class="form-control" data-field="fontWeight">
+                                        <option value="normal">Normal</option>
+                                        <option value="bold">Gras</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="form-group">
+                                <label>Couleur</label>
+                                <input type="color" class="form-control" data-field="color">
+                            </div>
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label>Marge haut (pt)</label>
+                                    <input type="number" class="form-control" data-field="marginTop" min="0" step="0.5">
+                                </div>
+                                <div class="form-group">
+                                    <label>Marge bas (pt)</label>
+                                    <input type="number" class="form-control" data-field="marginBottom" min="0" step="0.5">
+                                </div>
+                            </div>
+                            <div class="form-group">
+                                <label>Alignement</label>
+                                <select class="form-control" data-field="alignment">
+                                    <option value="left">Gauche</option>
+                                    <option value="center">Centre</option>
+                                    <option value="right">Droite</option>
+                                    <option value="justify">Justifié</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="canvas-level" data-level="2">
+                            <h4>Niveau 2</h4>
+                            <div class="form-group">
+                                <label>Police</label>
+                                <input type="text" class="form-control" data-field="fontFamily" placeholder="Arial">
+                            </div>
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label>Taille (pt)</label>
+                                    <input type="number" class="form-control" data-field="fontSize" min="8" max="72" step="0.5">
+                                </div>
+                                <div class="form-group">
+                                    <label>Gras</label>
+                                    <select class="form-control" data-field="fontWeight">
+                                        <option value="normal">Normal</option>
+                                        <option value="bold">Gras</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="form-group">
+                                <label>Couleur</label>
+                                <input type="color" class="form-control" data-field="color">
+                            </div>
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label>Marge haut (pt)</label>
+                                    <input type="number" class="form-control" data-field="marginTop" min="0" step="0.5">
+                                </div>
+                                <div class="form-group">
+                                    <label>Marge bas (pt)</label>
+                                    <input type="number" class="form-control" data-field="marginBottom" min="0" step="0.5">
+                                </div>
+                            </div>
+                            <div class="form-group">
+                                <label>Alignement</label>
+                                <select class="form-control" data-field="alignment">
+                                    <option value="left">Gauche</option>
+                                    <option value="center">Centre</option>
+                                    <option value="right">Droite</option>
+                                    <option value="justify">Justifié</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="canvas-level" data-level="3">
+                            <h4>Niveau 3</h4>
+                            <div class="form-group">
+                                <label>Police</label>
+                                <input type="text" class="form-control" data-field="fontFamily" placeholder="Arial">
+                            </div>
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label>Taille (pt)</label>
+                                    <input type="number" class="form-control" data-field="fontSize" min="8" max="72" step="0.5">
+                                </div>
+                                <div class="form-group">
+                                    <label>Gras</label>
+                                    <select class="form-control" data-field="fontWeight">
+                                        <option value="normal">Normal</option>
+                                        <option value="bold">Gras</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="form-group">
+                                <label>Couleur</label>
+                                <input type="color" class="form-control" data-field="color">
+                            </div>
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label>Marge haut (pt)</label>
+                                    <input type="number" class="form-control" data-field="marginTop" min="0" step="0.5">
+                                </div>
+                                <div class="form-group">
+                                    <label>Marge bas (pt)</label>
+                                    <input type="number" class="form-control" data-field="marginBottom" min="0" step="0.5">
+                                </div>
+                            </div>
+                            <div class="form-group">
+                                <label>Alignement</label>
+                                <select class="form-control" data-field="alignment">
+                                    <option value="left">Gauche</option>
+                                    <option value="center">Centre</option>
+                                    <option value="right">Droite</option>
+                                    <option value="justify">Justifié</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Onglet Paragraphes -->
+                <div class="canvas-tab-panel" data-panel="paragraphs">
+                    <div class="form-group">
+                        <label>Police</label>
+                        <input type="text" class="form-control" data-field="fontFamily" placeholder="Arial">
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>Taille (pt)</label>
+                            <input type="number" class="form-control" data-field="fontSize" min="8" max="72" step="0.5">
+                        </div>
+                        <div class="form-group">
+                            <label>Interligne</label>
+                            <input type="number" class="form-control" data-field="lineHeight" min="0.5" max="3" step="0.05">
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>Marge haut (pt)</label>
+                            <input type="number" class="form-control" data-field="marginTop" min="0" step="0.5">
+                        </div>
+                        <div class="form-group">
+                            <label>Marge bas (pt)</label>
+                            <input type="number" class="form-control" data-field="marginBottom" min="0" step="0.5">
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label>Alignement</label>
+                        <select class="form-control" data-field="textAlign">
+                            <option value="left">Gauche</option>
+                            <option value="center">Centre</option>
+                            <option value="right">Droite</option>
+                            <option value="justify">Justifié</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Retrait première ligne (pt)</label>
+                        <input type="number" class="form-control" data-field="textIndent" min="0" step="0.5">
+                    </div>
+                </div>
+
+                <!-- Onglet Images -->
+                <div class="canvas-tab-panel" data-panel="images">
+                    <div class="form-group">
+                        <label>Largeur max</label>
+                        <input type="text" class="form-control" data-field="maxWidth" placeholder="100%">
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>Marge haut (pt)</label>
+                            <input type="number" class="form-control" data-field="marginTop" min="0" step="0.5">
+                        </div>
+                        <div class="form-group">
+                            <label>Marge bas (pt)</label>
+                            <input type="number" class="form-control" data-field="marginBottom" min="0" step="0.5">
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label>Rayon des coins (pt)</label>
+                        <input type="number" class="form-control" data-field="borderRadius" min="0" step="0.5">
+                    </div>
+                </div>
+
+                <!-- Onglet Annexes -->
+                <div class="canvas-tab-panel" data-panel="annexes">
+                    <div class="form-group">
+                        <label>Police</label>
+                        <input type="text" class="form-control" data-field="fontFamily" placeholder="Arial">
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>Taille (pt)</label>
+                            <input type="number" class="form-control" data-field="fontSize" min="8" max="72" step="0.5">
+                        </div>
+                        <div class="form-group">
+                            <label>Gras</label>
+                            <select class="form-control" data-field="fontWeight">
+                                <option value="normal">Normal</option>
+                                <option value="bold">Gras</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label>Couleur</label>
+                        <input type="color" class="form-control" data-field="color">
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>Marge haut (pt)</label>
+                            <input type="number" class="form-control" data-field="marginTop" min="0" step="0.5">
+                        </div>
+                        <div class="form-group">
+                            <label>Marge bas (pt)</label>
+                            <input type="number" class="form-control" data-field="marginBottom" min="0" step="0.5">
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label>Alignement</label>
+                        <select class="form-control" data-field="alignment">
+                            <option value="left">Gauche</option>
+                            <option value="center">Centre</option>
+                            <option value="right">Droite</option>
+                            <option value="justify">Justifié</option>
+                        </select>
+                    </div>
+                </div>
+
+                <!-- Onglet Marges -->
+                <div class="canvas-tab-panel" data-panel="margins">
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>Haut (pt)</label>
+                            <input type="number" class="form-control" data-field="top" min="0" step="0.5">
+                        </div>
+                        <div class="form-group">
+                            <label>Droite (pt)</label>
+                            <input type="number" class="form-control" data-field="right" min="0" step="0.5">
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>Bas (pt)</label>
+                            <input type="number" class="form-control" data-field="bottom" min="0" step="0.5">
+                        </div>
+                        <div class="form-group">
+                            <label>Gauche (pt)</label>
+                            <input type="number" class="form-control" data-field="left" min="0" step="0.5">
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button type="button" class="btn btn-outline" id="canvasModalCancel">Annuler</button>
+            <button type="button" class="btn btn-primary" id="canvasModalSave">Enregistrer</button>
+        </div>
+    </div>
 </div>
 
 <?php require_once '../../../includes/footer.php'; ?>

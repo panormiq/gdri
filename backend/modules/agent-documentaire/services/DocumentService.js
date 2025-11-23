@@ -707,6 +707,97 @@ class DocumentService {
   }
 
   /**
+   * Initialise le canevas pour un document (si absent)
+   * @param {string} documentId - ID du document
+   * @param {string} presetName - Nom du preset optionnel ("standard", "compact", "large")
+   * @returns {Promise<Object>} Document avec canevas initialisé
+   */
+  async initializeCanvas(documentId, presetName = null) {
+    const document = await this.getDocument(documentId);
+    const jsonContent = document.json_content;
+
+    // Si le canevas existe déjà, ne rien faire
+    if (jsonContent.canvas) {
+      return document;
+    }
+
+    const CanvasService = require('./CanvasService');
+
+    // Créer le canevas (preset ou analyse des styles Word)
+    let canvas;
+    if (presetName) {
+      canvas = CanvasService.getPreset(presetName);
+    } else {
+      canvas = CanvasService.createDefaultCanvas(jsonContent);
+    }
+
+    // Ajouter le canevas au JSON (sans modifier les autres données)
+    jsonContent.canvas = canvas;
+
+    // Sauvegarder
+    return await this.updateDocument(documentId, jsonContent);
+  }
+
+  /**
+   * Met à jour le canevas d'un document
+   * @param {string} documentId - ID du document
+   * @param {Object} canvas - Nouveau canevas
+   * @returns {Promise<Object>} Document mis à jour
+   */
+  async updateCanvas(documentId, canvas) {
+    const document = await this.getDocument(documentId);
+    const jsonContent = document.json_content;
+
+    // Mettre à jour les métadonnées du canevas
+    canvas.metadata = {
+      ...canvas.metadata,
+      updatedAt: new Date().toISOString(),
+      version: (canvas.metadata?.version || 0) + 1
+    };
+
+    // Mettre à jour le canevas dans le JSON
+    jsonContent.canvas = canvas;
+
+    // Sauvegarder
+    return await this.updateDocument(documentId, jsonContent);
+  }
+
+  /**
+   * Récupère le canevas d'un document
+   * @param {string} documentId - ID du document
+   * @returns {Promise<Object|null>} Canevas ou null
+   */
+  async getCanvas(documentId) {
+    const document = await this.getDocument(documentId);
+    const canvas = document.json_content.canvas;
+    
+    if (!canvas) {
+      return null;
+    }
+
+    // Nettoyer les valeurs obsolètes de marginBottom (migration)
+    // Si marginBottom est exactement 6 dans les paragraphes, c'est probablement une valeur par défaut obsolète
+    let needsUpdate = false;
+    
+    if (canvas.paragraphs?.default?.marginBottom === 6) {
+      canvas.paragraphs.default.marginBottom = null;
+      needsUpdate = true;
+    }
+    
+    if (canvas.annexes?.default?.marginBottom === 6) {
+      canvas.annexes.default.marginBottom = null;
+      needsUpdate = true;
+    }
+    
+    // Si on a nettoyé, sauvegarder
+    if (needsUpdate) {
+      await this.updateCanvas(documentId, canvas);
+    }
+    
+    return canvas;
+  }
+
+  /**
    * Crée (ou remplace) un document de test par défaut
    * @returns {Promise<Object>} Document créé
    */

@@ -20,6 +20,11 @@ Fichier de suivi des fonctionnalités à implémenter et des points de réflexio
   - [x] Viewport optimisé pour rendu A4
   - [x] Styles CSS pour éviter les coupures de page
   - [x] Options de qualité (scale, format, etc.)
+  - [x] Utilisation du HTML généré par le frontend (pixel perfect)
+- [ ] **À faire plus tard** : Gestion des sauts de page dans l'export PDF
+  - [ ] Détecter les sauts de page dans le document Word (`hasPageBreak`)
+  - [ ] Appliquer les sauts de page dans le PDF généré
+  - [ ] Gérer les sauts de page forcés vs automatiques
 
 ---
 

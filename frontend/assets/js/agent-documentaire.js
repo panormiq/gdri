@@ -15,6 +15,7 @@
   let documentJson = null;
   let sectionsTree = [];
   let currentCardParent = null; // Pour la navigation dans les cards
+  let selectedElement = null; // Élément actuellement sélectionné pour édition
 
   /**
    * Stocke les marges de page Word pour les appliquer aux paragraphes
@@ -50,8 +51,20 @@
       
       sectionsTree = Array.isArray(documentJson.sections) ? documentJson.sections : [];
 
-      // Appliquer les marges de page au conteneur de contenu
-      applyPageMargins(documentJson.pageMargins);
+      // Charger le canevas (ou l'initialiser si absent)
+      if (!documentJson.canvas) {
+        await initializeCanvasIfNeeded();
+        // Recharger le document pour avoir le canevas
+        const reloadResponse = await fetch(url);
+        const reloadPayload = await reloadResponse.json();
+        if (reloadPayload.success) {
+          documentJson = reloadPayload.data.json_content;
+        }
+      }
+
+      // Appliquer les marges de page (canevas en priorité, sinon Word)
+      const margins = documentJson.canvas?.pageMargins || documentJson.pageMargins;
+      applyPageMargins(margins);
 
       // Recalculer la numérotation avec les formats Word
       recalculateNumbering();
@@ -73,134 +86,179 @@
   }
 
   /**
-   * Convertit les styles Word en CSS inline
-   * @param {Object} styles - Styles extraits
-   * @param {boolean} isTitle - Si true, c'est un titre de section (gestion spéciale des marges avec backgroundColor)
+   * Convertit les styles en CSS inline (utilise le canevas si disponible, sinon styles Word)
+   * @param {Object} styles - Styles extraits depuis Word (fallback)
+   * @param {boolean} isTitle - Si true, c'est un titre de section
+   * @param {number} level - Niveau du titre (1, 2, 3) - requis si isTitle = true
+   * @param {boolean} ignoreWordIndentation - Si true, ignore l'indentation Word et utilise uniquement les marges du canevas
+   * @returns {string} CSS inline
    */
-  function stylesToCSS(styles, isTitle = false) {
-    if (!styles || typeof styles !== 'object') return '';
-    
+  function stylesToCSS(styles, isTitle = false, level = 1, ignoreWordIndentation = false) {
     const cssProps = [];
     
-    // Propriétés de run (texte)
-    if (styles.fontFamily) {
-      cssProps.push(`font-family: '${styles.fontFamily}'`);
+    // Vérifier si un canevas existe
+    const canvas = documentJson?.canvas;
+    let canvasStyles = null;
+    
+    if (canvas) {
+      if (isTitle) {
+        // Utiliser le canevas pour les titres selon le niveau
+        const levelKey = `level${Math.min(level, 3)}`;
+        canvasStyles = canvas.titles?.[levelKey];
+      } else {
+        // Utiliser le canevas pour les paragraphes
+        canvasStyles = canvas.paragraphs?.default;
+      }
     }
-    if (styles.fontSize) {
-      cssProps.push(`font-size: ${styles.fontSize}pt`);
+    
+    // Fusionner : canevas en priorité, styles Word en fallback
+    const mergedStyles = { ...styles };
+    if (canvasStyles) {
+      // Fusionner les propriétés du canevas
+      Object.keys(canvasStyles).forEach(key => {
+        if (canvasStyles[key] !== null && canvasStyles[key] !== undefined) {
+          mergedStyles[key] = canvasStyles[key];
+        }
+      });
     }
-    if (styles.color) {
-      cssProps.push(`color: ${styles.color}`);
+    
+    // Propriétés de police (canevas ou Word)
+    if (mergedStyles.fontFamily) {
+      cssProps.push(`font-family: '${mergedStyles.fontFamily}'`);
     }
-    if (styles.bold) {
+    if (mergedStyles.fontSize) {
+      cssProps.push(`font-size: ${mergedStyles.fontSize}pt`);
+    }
+    if (mergedStyles.color) {
+      cssProps.push(`color: ${mergedStyles.color}`);
+    }
+    
+    // Font-weight : canevas ou Word (bold)
+    if (mergedStyles.fontWeight) {
+      cssProps.push(`font-weight: ${mergedStyles.fontWeight}`);
+    } else if (mergedStyles.bold && !canvasStyles) {
       cssProps.push('font-weight: bold');
     }
-    if (styles.italic) {
+    
+    if (mergedStyles.italic) {
       cssProps.push('font-style: italic');
     }
-    if (styles.underline) {
+    if (mergedStyles.underline) {
       cssProps.push('text-decoration: underline');
     }
-    if (styles.caps) {
+    
+    // Text-transform : canevas ou Word (caps)
+    if (mergedStyles.textTransform) {
+      cssProps.push(`text-transform: ${mergedStyles.textTransform}`);
+    } else if (mergedStyles.caps && !canvasStyles) {
       cssProps.push('text-transform: uppercase');
     }
     
-    // Propriétés de paragraphe
-    if (styles.alignment) {
-      cssProps.push(`text-align: ${styles.alignment}`);
+    // Alignement : canevas (alignment) ou Word (alignment)
+    const alignment = mergedStyles.alignment || mergedStyles.textAlign;
+    if (alignment) {
+      cssProps.push(`text-align: ${alignment}`);
     }
     
-    // Couleur de fond du paragraphe (toute la largeur)
+    // Couleur de fond : toujours depuis Word (pas dans le canevas pour l'instant)
     if (styles.backgroundColor) {
       cssProps.push(`background-color: ${styles.backgroundColor}`);
     }
-    
-    // Couleur de fond du run (texte uniquement)
     if (styles.runBackgroundColor && !styles.backgroundColor) {
       cssProps.push(`background-color: ${styles.runBackgroundColor}`);
     }
     
-    // Espacement
-    if (styles.spacing) {
-      if (styles.spacing.before) {
+    // Marges : canevas en priorité, sinon Word
+    if (canvasStyles) {
+      // Utiliser les marges du canevas
+      if (mergedStyles.marginTop !== undefined && mergedStyles.marginTop !== null && mergedStyles.marginTop > 0) {
+        cssProps.push(`margin-top: ${mergedStyles.marginTop}pt`);
+      }
+      // marginBottom : uniquement si défini et > 0 (évite les traits blancs dans les surlignages)
+      if (mergedStyles.marginBottom !== undefined && mergedStyles.marginBottom !== null && mergedStyles.marginBottom > 0) {
+        cssProps.push(`margin-bottom: ${mergedStyles.marginBottom}pt`);
+      }
+    } else if (styles.spacing) {
+      // Fallback : utiliser les marges Word (uniquement si > 0)
+      if (styles.spacing.before && styles.spacing.before > 0) {
         cssProps.push(`margin-top: ${styles.spacing.before}pt`);
       }
-      if (styles.spacing.after) {
+      if (styles.spacing.after && styles.spacing.after > 0) {
         cssProps.push(`margin-bottom: ${styles.spacing.after}pt`);
       }
-      // Line-height : ne pas appliquer aux titres (ils utilisent leur propre line-height CSS)
-      // Appliquer uniquement aux paragraphes
-      if (!isTitle && styles.spacing && styles.spacing.line) {
-        // Appliquer selon le type : fixe (en pt) ou multiple (sans unité)
+    }
+    
+    // Line-height : canevas pour paragraphes, sinon Word
+    if (!isTitle) {
+      if (canvasStyles && mergedStyles.lineHeight) {
+        cssProps.push(`line-height: ${mergedStyles.lineHeight}`);
+      } else if (styles.spacing && styles.spacing.line) {
         if (styles.spacing.lineType === 'fixed') {
-          // Valeur fixe en points : ex. 30pt
           cssProps.push(`line-height: ${styles.spacing.line}pt`);
         } else {
-          // Multiple relatif : ex. 1.5 (sans unité)
           cssProps.push(`line-height: ${styles.spacing.line}`);
         }
       }
     }
     
-    // Indentation + Marges de page Word
-    if (styles.indentation) {
-      if (styles.backgroundColor) {
-        // Éléments avec fond de couleur (titre ou paragraphe)
-        const leftIndent = styles.indentation.left || 0;
-        const rightIndent = styles.indentation.right || 0;
-        
-        // TITRES : Word ignore la marge négative à gauche (réserve 2.5cm pour numérotation)
-        // PARAGRAPHES : Word applique les marges négatives des deux côtés (fond pleine largeur)
-        if (isTitle) {
-          // Titre avec fond : marge gauche normale (2.5cm) + marge droite négative
-          cssProps.push(`margin-left: ${pageMargins.left}pt`);
-          if (rightIndent < 0) {
-            cssProps.push(`margin-right: ${rightIndent}pt`);
-          }
-          // Pas de padding codé en dur - extrait du Word si présent
-        } else {
-          // Paragraphe avec fond : appliquer les marges négatives des deux côtés
-          if (leftIndent < 0) {
-            cssProps.push(`margin-left: ${leftIndent}pt`);
-          }
-          if (rightIndent < 0) {
-            cssProps.push(`margin-right: ${rightIndent}pt`);
-          }
-          // Pas de padding codé en dur - extrait du Word si présent
-        }
-        
-        if (styles.indentation.firstLine) {
-          cssProps.push(`text-indent: ${styles.indentation.firstLine}pt`);
-        }
-      } else {
-        // Comportement normal : ajouter les marges de page aux marges de paragraphe
-        if (styles.indentation.left !== undefined) {
-          const totalLeft = styles.indentation.left + pageMargins.left;
-          cssProps.push(`margin-left: ${totalLeft}pt`);
-        } else {
-          // Pas de marge de paragraphe, appliquer seulement la marge de page
-          cssProps.push(`margin-left: ${pageMargins.left}pt`);
-        }
-        
-        if (styles.indentation.right !== undefined) {
-          const totalRight = styles.indentation.right + pageMargins.right;
-          cssProps.push(`margin-right: ${totalRight}pt`);
-        } else {
-          // Pas de marge de paragraphe, appliquer seulement la marge de page
-          cssProps.push(`margin-right: ${pageMargins.right}pt`);
-        }
-        
-        if (styles.indentation.firstLine) {
-          cssProps.push(`text-indent: ${styles.indentation.firstLine}pt`);
-        }
+    // Text-indent : canevas ou Word
+    if (canvasStyles && mergedStyles.textIndent) {
+      cssProps.push(`text-indent: ${mergedStyles.textIndent}pt`);
+    } else if (styles.indentation && styles.indentation.firstLine) {
+      cssProps.push(`text-indent: ${styles.indentation.firstLine}pt`);
+    }
+    
+    // Indentation + Marges de page (logique simplifiée)
+    // Par défaut : appliquer les marges de page
+    // Si Word a une marge négative : transformer en padding pour protéger le texte
+    
+    // Si ignoreWordIndentation est true (ex: titre "Sommaire")
+    if (ignoreWordIndentation) {
+      // Pour le margin-left : utiliser uniquement la marge de page du canevas (ignorer l'indentation Word)
+      if (pageMargins && pageMargins.left) {
+        cssProps.push(`margin-left: ${pageMargins.left}pt`);
       }
-    } else if (!styles.backgroundColor) {
-      // Aucune indentation définie, appliquer les marges de page par défaut
-      cssProps.push(`margin-left: ${pageMargins.left}pt`);
-      cssProps.push(`margin-right: ${pageMargins.right}pt`);
+      
+      // Pour le margin-right : appliquer le margin-right négatif de Word avec padding si défini, sinon utiliser la marge du canevas
+      const rightIndent = styles.indentation?.right ?? 0;
+      if (rightIndent < 0) {
+        // Marge négative : sortir du bord + padding pour protéger le texte
+        cssProps.push(`margin-right: ${rightIndent}pt`);
+        cssProps.push(`padding-right: ${pageMargins.right}pt`);
+      } else if (pageMargins && pageMargins.right) {
+        // Pas d'indentation négative : utiliser la marge de page du canevas
+        cssProps.push(`margin-right: ${pageMargins.right}pt`);
+      }
     } else {
-      // backgroundColor sans indentation : pas de padding codé en dur
-      // Le fond s'étend jusqu'aux marges comme dans Word
+      // Logique normale : prendre en compte l'indentation Word
+      const leftIndent = styles.indentation?.left ?? 0;
+      const rightIndent = styles.indentation?.right ?? 0;
+      
+      // Gestion de la marge gauche
+      if (leftIndent < 0) {
+        // Marge négative : sortir du bord + padding pour protéger le texte
+        cssProps.push(`margin-left: ${leftIndent}pt`);
+        cssProps.push(`padding-left: ${pageMargins.left}pt`);
+      } else if (leftIndent > 0) {
+        // Indentation positive : ajouter à la marge de page
+        cssProps.push(`margin-left: ${leftIndent + pageMargins.left}pt`);
+      } else {
+        // Pas d'indentation : appliquer uniquement la marge de page
+        cssProps.push(`margin-left: ${pageMargins.left}pt`);
+      }
+      
+      // Gestion de la marge droite
+      if (rightIndent < 0) {
+        // Marge négative : sortir du bord + padding pour protéger le texte
+        cssProps.push(`margin-right: ${rightIndent}pt`);
+        cssProps.push(`padding-right: ${pageMargins.right}pt`);
+      } else if (rightIndent > 0) {
+        // Indentation positive : ajouter à la marge de page
+        cssProps.push(`margin-right: ${rightIndent + pageMargins.right}pt`);
+      } else {
+        // Pas d'indentation : appliquer uniquement la marge de page
+        cssProps.push(`margin-right: ${pageMargins.right}pt`);
+      }
     }
     
     return cssProps.length > 0 ? cssProps.join('; ') : '';
@@ -235,7 +293,14 @@
       
       // Appliquer les styles du titre (couleur, fond, police, etc.)
       const titleStyles = section.titleStyles || {};
-      const titleStyleAttr = stylesToCSS(titleStyles, true); // isTitle=true pour gestion spéciale des marges
+      // Pour le sommaire, utiliser le niveau 1 par défaut si le niveau est 0 ou non défini
+      let titleLevel = section.level || level;
+      if (isSommaire && (titleLevel === 0 || !titleLevel)) {
+        titleLevel = 1; // Utiliser le niveau 1 du canevas pour le titre "Sommaire"
+      }
+      // Pour le titre "Sommaire", ignorer l'indentation Word et utiliser uniquement les marges du canevas
+      const ignoreWordIndentation = isSommaire;
+      const titleStyleAttr = stylesToCSS(titleStyles, true, titleLevel, ignoreWordIndentation); // isTitle=true, level requis
       const titleStyleString = titleStyleAttr ? ` style="${titleStyleAttr}"` : '';
       
       html += `<${headingTag} class="section-title"${titleStyleString}>${displayTitle}</${headingTag}>`;
@@ -307,6 +372,11 @@
         // Border radius extrait du Word
         if (item.borderRadius !== null && item.borderRadius !== undefined) {
           imgStyleProps.push(`border-radius: ${item.borderRadius}pt`);
+        }
+        
+        // Rotation extraite du Word
+        if (item.rotation !== null && item.rotation !== undefined && item.rotation !== 0) {
+          imgStyleProps.push(`transform: rotate(${item.rotation}deg)`);
         }
         
         // Ombre extraite du Word
@@ -440,14 +510,31 @@
         const title = section.title || '(Sans titre)';
         const numbering = section.numbering || '';
         
-        // Indentation selon le niveau en pixels (s'ajoute aux marges de page)
+        // Indentation selon le niveau en pixels
         const indent = (sectionLevel - 1) * 20; // Indentation en pixels
         
-        // Les marges de page sont appliquées sur chaque entrée, l'indentation s'ajoute en padding-left
+        // Appliquer les marges de page (left et right) par défaut aux entrées du sommaire
+        const tocStyleProps = [];
+        
+        // Marge gauche : indentation + marge de page
+        if (indent > 0) {
+          tocStyleProps.push(`padding-left: ${indent}px`);
+        }
+        if (pageMargins && pageMargins.left) {
+          tocStyleProps.push(`margin-left: ${pageMargins.left}pt`);
+        }
+        
+        // Marge droite : marge de page
+        if (pageMargins && pageMargins.right) {
+          tocStyleProps.push(`margin-right: ${pageMargins.right}pt`);
+        }
+        
+        const tocStyle = tocStyleProps.length > 0 ? tocStyleProps.join('; ') : '';
+        
         html += `<div class="toc-entry" 
                      data-section-id="${sectionId}" 
                      data-level="${sectionLevel}"
-                     style="margin-left: ${pageMargins.left}pt; margin-right: ${pageMargins.right}pt; padding-left: ${indent}px;">`;
+                     ${tocStyle ? `style="${tocStyle}"` : ''}>`;
         html += `<span class="toc-numbering">${numbering || ''}</span>`;
         html += `<span class="toc-title">${title}</span>`;
         html += `<span class="toc-dots">.......</span>`;
@@ -1055,6 +1142,8 @@
     setTimeout(() => {
       calculatePageNumbers();
       attachDynamicTocClickEvents();
+      // Attacher les événements de clic pour afficher les propriétés
+      attachContentClickEvents();
     }, 100);
   }
 
@@ -1795,6 +1884,884 @@
   }
 
   /**
+   * ===================================
+   * GESTION DU CANEVAS
+   * ===================================
+   */
+
+  let canvasData = null;
+
+  /**
+   * Initialise automatiquement le canevas si absent
+   */
+  async function initializeCanvasIfNeeded() {
+    if (!documentId || !apiBase) return;
+
+    try {
+      // Vérifier si le canevas existe
+      const url = `${apiBase}/agent-documentaire/document/${documentId}/canvas`;
+      const response = await fetch(url);
+      const payload = await response.json();
+
+      if (payload.success && payload.data) {
+        // Canevas existe déjà
+        canvasData = payload.data;
+        return;
+      }
+
+      // Canevas absent : initialiser automatiquement
+      console.log('📐 Initialisation automatique du canevas...');
+      const initUrl = `${apiBase}/agent-documentaire/document/${documentId}/canvas/initialize`;
+      const initResponse = await fetch(initUrl, { method: 'POST' });
+      const initPayload = await initResponse.json();
+
+      if (initPayload.success) {
+        canvasData = initPayload.data;
+        console.log('✅ Canevas initialisé automatiquement');
+      }
+    } catch (error) {
+      console.warn('⚠️ Erreur initialisation canevas:', error);
+    }
+  }
+
+  /**
+   * Charge le canevas depuis l'API
+   */
+  async function loadCanvas() {
+    if (!documentId || !apiBase) return;
+
+    try {
+      const url = `${apiBase}/agent-documentaire/document/${documentId}/canvas`;
+      const response = await fetch(url);
+      const payload = await response.json();
+
+      if (payload.success) {
+        canvasData = payload.data;
+        return canvasData;
+      }
+    } catch (error) {
+      console.error('❌ Erreur chargement canevas:', error);
+    }
+    return null;
+  }
+
+  /**
+   * Sauvegarde le canevas
+   */
+  async function saveCanvas(canvas) {
+    if (!documentId || !apiBase) return false;
+
+    try {
+      const url = `${apiBase}/agent-documentaire/document/${documentId}/canvas`;
+      const response = await fetch(url, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ canvas: canvas })
+      });
+
+      const payload = await response.json();
+      if (payload.success) {
+        canvasData = payload.data;
+        return true;
+      }
+    } catch (error) {
+      console.error('❌ Erreur sauvegarde canevas:', error);
+    }
+    return false;
+  }
+
+  /**
+   * Remplit le formulaire du modal avec les données du canevas
+   */
+  function populateCanvasForm() {
+    if (!canvasData) return;
+
+    // Titres
+    for (let level = 1; level <= 3; level++) {
+      const levelData = canvasData.titles?.[`level${level}`];
+      if (levelData) {
+        const levelPanel = document.querySelector(`.canvas-level[data-level="${level}"]`);
+        if (levelPanel) {
+          Object.keys(levelData).forEach(key => {
+            const input = levelPanel.querySelector(`[data-field="${key}"]`);
+            if (input) {
+              if (input.type === 'color') {
+                input.value = levelData[key] || '#000000';
+              } else {
+                input.value = levelData[key] || '';
+              }
+            }
+          });
+        }
+      }
+    }
+
+    // Paragraphes
+    const paragraphData = canvasData.paragraphs?.default;
+    if (paragraphData) {
+      const paragraphPanel = document.querySelector('.canvas-tab-panel[data-panel="paragraphs"]');
+      if (paragraphPanel) {
+        Object.keys(paragraphData).forEach(key => {
+          const input = paragraphPanel.querySelector(`[data-field="${key}"]`);
+          if (input) {
+            input.value = paragraphData[key] || '';
+          }
+        });
+      }
+    }
+
+    // Images
+    const imageData = canvasData.images?.default;
+    if (imageData) {
+      const imagePanel = document.querySelector('.canvas-tab-panel[data-panel="images"]');
+      if (imagePanel) {
+        Object.keys(imageData).forEach(key => {
+          const input = imagePanel.querySelector(`[data-field="${key}"]`);
+          if (input) {
+            input.value = imageData[key] || '';
+          }
+        });
+      }
+    }
+
+    // Annexes
+    const annexData = canvasData.annexes?.default;
+    if (annexData) {
+      const annexPanel = document.querySelector('.canvas-tab-panel[data-panel="annexes"]');
+      if (annexPanel) {
+        Object.keys(annexData).forEach(key => {
+          const input = annexPanel.querySelector(`[data-field="${key}"]`);
+          if (input) {
+            if (input.type === 'color') {
+              input.value = annexData[key] || '#000000';
+            } else {
+              input.value = annexData[key] || '';
+            }
+          }
+        });
+      }
+    }
+
+    // Marges
+    const margins = canvasData.pageMargins;
+    if (margins) {
+      const marginPanel = document.querySelector('.canvas-tab-panel[data-panel="margins"]');
+      if (marginPanel) {
+        ['top', 'right', 'bottom', 'left'].forEach(side => {
+          const input = marginPanel.querySelector(`[data-field="${side}"]`);
+          if (input) {
+            input.value = margins[side] || '';
+          }
+        });
+      }
+    }
+  }
+
+  /**
+   * Récupère les données du formulaire
+   */
+  function getCanvasFormData() {
+    const canvas = {
+      titles: {},
+      paragraphs: {},
+      images: {},
+      annexes: {},
+      pageMargins: {},
+      locked: canvasData?.locked || {
+        pageMargins: false,
+        titles: { level1: {}, level2: {}, level3: {} },
+        paragraphs: { default: {} }
+      },
+      metadata: {
+        ...canvasData?.metadata,
+        updatedAt: new Date().toISOString(),
+        version: (canvasData?.metadata?.version || 0) + 1
+      }
+    };
+
+    // Titres
+    for (let level = 1; level <= 3; level++) {
+      const levelPanel = document.querySelector(`.canvas-level[data-level="${level}"]`);
+      if (levelPanel) {
+        canvas.titles[`level${level}`] = {};
+        levelPanel.querySelectorAll('[data-field]').forEach(input => {
+          const field = input.dataset.field;
+          let value = input.value;
+          if (input.type === 'number') {
+            value = parseFloat(value) || 0;
+          }
+          canvas.titles[`level${level}`][field] = value;
+        });
+      }
+    }
+
+    // Paragraphes
+    const paragraphPanel = document.querySelector('.canvas-tab-panel[data-panel="paragraphs"]');
+    if (paragraphPanel) {
+      canvas.paragraphs.default = {};
+      paragraphPanel.querySelectorAll('[data-field]').forEach(input => {
+        const field = input.dataset.field;
+        let value = input.value;
+        if (input.type === 'number') {
+          value = parseFloat(value) || 0;
+        }
+        canvas.paragraphs.default[field] = value;
+      });
+    }
+
+    // Images
+    const imagePanel = document.querySelector('.canvas-tab-panel[data-panel="images"]');
+    if (imagePanel) {
+      canvas.images.default = {};
+      imagePanel.querySelectorAll('[data-field]').forEach(input => {
+        const field = input.dataset.field;
+        let value = input.value;
+        if (input.type === 'number') {
+          value = parseFloat(value) || 0;
+        }
+        canvas.images.default[field] = value;
+      });
+    }
+
+    // Annexes
+    const annexPanel = document.querySelector('.canvas-tab-panel[data-panel="annexes"]');
+    if (annexPanel) {
+      canvas.annexes.default = {};
+      annexPanel.querySelectorAll('[data-field]').forEach(input => {
+        const field = input.dataset.field;
+        let value = input.value;
+        if (input.type === 'number') {
+          value = parseFloat(value) || 0;
+        } else if (input.type === 'color') {
+          value = value || '#000000';
+        }
+        canvas.annexes.default[field] = value;
+      });
+    }
+
+    // Marges
+    const marginPanel = document.querySelector('.canvas-tab-panel[data-panel="margins"]');
+    if (marginPanel) {
+      ['top', 'right', 'bottom', 'left'].forEach(side => {
+        const input = marginPanel.querySelector(`[data-field="${side}"]`);
+        if (input) {
+          canvas.pageMargins[side] = parseFloat(input.value) || 0;
+        }
+      });
+    }
+
+    return canvas;
+  }
+
+  /**
+   * Initialise le modal de canevas
+   */
+  function initCanvasModal() {
+    const modal = document.getElementById('canvasModal');
+    const editBtn = document.getElementById('editCanvasBtn');
+    const closeBtn = document.getElementById('canvasModalClose');
+    const cancelBtn = document.getElementById('canvasModalCancel');
+    const saveBtn = document.getElementById('canvasModalSave');
+    const tabs = document.querySelectorAll('.canvas-tab');
+    const presetSelect = document.getElementById('canvasPresetSelect');
+    const applyPresetBtn = document.getElementById('applyPresetBtn');
+
+    // Ouvrir le modal
+    if (editBtn) {
+      editBtn.addEventListener('click', async () => {
+        await loadCanvas();
+        if (canvasData) {
+          populateCanvasForm();
+          modal.style.display = 'flex';
+        } else {
+          alert('Erreur : Impossible de charger le canevas');
+        }
+      });
+    }
+
+    // Fermer le modal
+    const closeModal = () => {
+      modal.style.display = 'none';
+    };
+
+    if (closeBtn) closeBtn.addEventListener('click', closeModal);
+    if (cancelBtn) cancelBtn.addEventListener('click', closeModal);
+    if (modal) {
+      modal.addEventListener('click', (e) => {
+        if (e.target === modal) closeModal();
+      });
+    }
+
+    // Gestion des onglets
+    tabs.forEach(tab => {
+      tab.addEventListener('click', () => {
+        const targetTab = tab.dataset.tab;
+        
+        // Désactiver tous les onglets
+        tabs.forEach(t => t.classList.remove('is-active'));
+        document.querySelectorAll('.canvas-tab-panel').forEach(p => p.classList.remove('is-active'));
+
+        // Activer l'onglet cliqué
+        tab.classList.add('is-active');
+        const panel = document.querySelector(`.canvas-tab-panel[data-panel="${targetTab}"]`);
+        if (panel) panel.classList.add('is-active');
+      });
+    });
+
+    // Appliquer un preset
+    if (applyPresetBtn && presetSelect) {
+      applyPresetBtn.addEventListener('click', async () => {
+        const presetName = presetSelect.value;
+        if (!presetName) {
+          alert('Veuillez sélectionner un preset');
+          return;
+        }
+
+        try {
+          const url = `${apiBase}/agent-documentaire/document/${documentId}/canvas/initialize?preset=${presetName}`;
+          const response = await fetch(url, { method: 'POST' });
+          const payload = await response.json();
+
+          if (payload.success) {
+            canvasData = payload.data;
+            populateCanvasForm();
+            alert('Preset appliqué avec succès !');
+          }
+        } catch (error) {
+          console.error('Erreur application preset:', error);
+          alert('Erreur lors de l\'application du preset');
+        }
+      });
+    }
+
+    // Sauvegarder
+    if (saveBtn) {
+      saveBtn.addEventListener('click', async () => {
+        const canvas = getCanvasFormData();
+        const success = await saveCanvas(canvas);
+        
+        if (success) {
+          alert('Canevas enregistré avec succès !');
+          closeModal();
+          // Recharger le document pour appliquer le nouveau canevas
+          await loadDocument();
+        } else {
+          alert('Erreur lors de l\'enregistrement du canevas');
+        }
+      });
+    }
+  }
+
+  /**
+   * Extrait les propriétés CSS d'un élément
+   * @param {HTMLElement} element - Élément HTML
+   * @returns {Object} Propriétés extraites
+   */
+  function extractElementProperties(element) {
+    const computedStyle = window.getComputedStyle(element);
+    
+    // Extraire la police (retirer les guillemets si présents)
+    let fontFamily = computedStyle.fontFamily || '';
+    fontFamily = fontFamily.replace(/^["']|["']$/g, '').split(',')[0].trim();
+    
+    // Extraire la taille (convertir en pt si nécessaire)
+    let fontSize = computedStyle.fontSize || '';
+    if (fontSize && fontSize.includes('px')) {
+      // Convertir px en pt (1px ≈ 0.75pt, mais on utilise 0.75 pour être précis)
+      const pxValue = parseFloat(fontSize);
+      fontSize = `${(pxValue * 0.75).toFixed(1)}pt`;
+    }
+    
+    // Couleur du texte
+    const color = computedStyle.color || '';
+    
+    // Couleur de fond (ignorer si c'est la couleur de sélection)
+    let backgroundColor = computedStyle.backgroundColor || '';
+    
+    // Couleur de sélection : rgba(75, 158, 216, 0.1)
+    const selectionColor = 'rgba(75, 158, 216, 0.1)';
+    const selectionColorAlt = 'rgba(75, 158, 216, 0.10)'; // Variante possible
+    
+    // Ignorer la couleur de fond si c'est celle de la sélection
+    if (backgroundColor === selectionColor || backgroundColor === selectionColorAlt) {
+      backgroundColor = '';
+    }
+    
+    // Ignorer aussi les couleurs transparentes
+    if (backgroundColor === 'rgba(0, 0, 0, 0)' || backgroundColor === 'transparent') {
+      backgroundColor = '';
+    }
+    
+    // Alignement
+    // Pour les images, vérifier le conteneur parent
+    let textAlign = '';
+    if (element.tagName === 'IMG') {
+      const container = element.parentElement;
+      if (container && container.tagName === 'DIV') {
+        const containerStyle = window.getComputedStyle(container);
+        textAlign = containerStyle.textAlign || '';
+      } else {
+        textAlign = computedStyle.textAlign || '';
+      }
+    } else {
+      textAlign = computedStyle.textAlign || '';
+    }
+    
+    let alignment = '';
+    if (textAlign) {
+      // Traduire les valeurs CSS en français
+      switch (textAlign) {
+        case 'left':
+          alignment = 'Gauche';
+          break;
+        case 'center':
+          alignment = 'Centre';
+          break;
+        case 'right':
+          alignment = 'Droite';
+          break;
+        case 'justify':
+          alignment = 'Justifié';
+          break;
+        default:
+          alignment = textAlign;
+      }
+    }
+    
+    // Pour les images, extraire les dimensions et la rotation
+    let width = '';
+    let height = '';
+    let rotation = '';
+    if (element.tagName === 'IMG') {
+      // Utiliser les dimensions naturelles ou les dimensions CSS
+      const imgWidth = element.naturalWidth || element.width || computedStyle.width;
+      const imgHeight = element.naturalHeight || element.height || computedStyle.height;
+      
+      if (imgWidth) {
+        width = typeof imgWidth === 'number' ? `${imgWidth}px` : imgWidth;
+      }
+      if (imgHeight) {
+        height = typeof imgHeight === 'number' ? `${imgHeight}px` : imgHeight;
+      }
+      
+      // Extraire la rotation depuis transform
+      const transform = computedStyle.transform || '';
+      if (transform && transform.includes('rotate')) {
+        const match = transform.match(/rotate\(([^)]+)\)/);
+        if (match) {
+          rotation = match[1].trim();
+        }
+      }
+    }
+    
+    return {
+      fontFamily: fontFamily,
+      fontSize: fontSize,
+      color: color,
+      backgroundColor: backgroundColor,
+      alignment: alignment,
+      width: width,
+      height: height,
+      rotation: rotation
+    };
+  }
+
+  /**
+   * Affiche les propriétés d'un élément dans la colonne de droite
+   * @param {HTMLElement} element - Élément HTML cliqué
+   */
+  function displayElementProperties(element) {
+    const propertiesArea = document.querySelector('[data-properties-area]');
+    if (!propertiesArea) return;
+
+    // Stocker l'élément sélectionné
+    selectedElement = element;
+
+    const properties = extractElementProperties(element);
+    const computedStyle = window.getComputedStyle(element);
+    
+    // Déterminer le type d'élément
+    let elementType = 'Élément';
+    if (element.tagName === 'H1' || element.tagName === 'H2' || element.tagName === 'H3' || 
+        element.tagName === 'H4' || element.tagName === 'H5' || element.tagName === 'H6') {
+      elementType = 'Titre';
+    } else if (element.tagName === 'P') {
+      elementType = 'Paragraphe';
+    } else if (element.tagName === 'IMG') {
+      elementType = 'Image';
+    }
+
+    // Extraire les styles de texte
+    const isBold = computedStyle.fontWeight === 'bold' || parseInt(computedStyle.fontWeight) >= 700;
+    const isItalic = computedStyle.fontStyle === 'italic';
+    const isUnderline = computedStyle.textDecoration.includes('underline');
+
+    // Créer le HTML des propriétés selon le type d'élément
+    let html = `
+      <div class="property-item">
+        <span class="property-label">Type</span>
+        <span class="property-value">${elementType}</span>
+      </div>
+    `;
+
+    if (elementType === 'Image') {
+      // Pour les images : afficher dimensions, rotation et alignement
+      const currentAlign = properties.alignment || 'Gauche';
+      const alignMap = { 'Gauche': 'left', 'Centre': 'center', 'Droite': 'right', 'Justifié': 'justify' };
+      const currentAlignValue = alignMap[currentAlign] || 'left';
+      
+      html += `
+        <div class="property-item">
+          <span class="property-label">Largeur</span>
+          <input type="text" class="property-input" data-property="width" value="${properties.width || ''}" placeholder="auto">
+        </div>
+        <div class="property-item">
+          <span class="property-label">Hauteur</span>
+          <input type="text" class="property-input" data-property="height" value="${properties.height || ''}" placeholder="auto">
+        </div>
+        <div class="property-item">
+          <span class="property-label">Rotation</span>
+          <input type="text" class="property-input" data-property="rotation" value="${properties.rotation || '0deg'}" placeholder="0deg">
+        </div>
+        <div class="property-item">
+          <span class="property-label">Alignement</span>
+          <div class="property-buttons">
+            <button class="property-btn ${currentAlignValue === 'left' ? 'is-active' : ''}" data-align="left" title="Gauche">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <line x1="3" y1="6" x2="21" y2="6"></line>
+                <line x1="3" y1="12" x2="15" y2="12"></line>
+                <line x1="3" y1="18" x2="21" y2="18"></line>
+              </svg>
+            </button>
+            <button class="property-btn ${currentAlignValue === 'center' ? 'is-active' : ''}" data-align="center" title="Centre">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <line x1="3" y1="6" x2="21" y2="6"></line>
+                <line x1="6" y1="12" x2="18" y2="12"></line>
+                <line x1="3" y1="18" x2="21" y2="18"></line>
+              </svg>
+            </button>
+            <button class="property-btn ${currentAlignValue === 'right' ? 'is-active' : ''}" data-align="right" title="Droite">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <line x1="3" y1="6" x2="21" y2="6"></line>
+                <line x1="9" y1="12" x2="21" y2="12"></line>
+                <line x1="3" y1="18" x2="21" y2="18"></line>
+              </svg>
+            </button>
+          </div>
+        </div>
+      `;
+    } else {
+      // Pour les textes : afficher police, taille, couleurs, styles et alignement
+      const currentAlign = properties.alignment || 'Gauche';
+      const alignMap = { 'Gauche': 'left', 'Centre': 'center', 'Droite': 'right', 'Justifié': 'justify' };
+      const currentAlignValue = alignMap[currentAlign] || 'left';
+      
+      html += `
+        <div class="property-item">
+          <span class="property-label">Police</span>
+          <input type="text" class="property-input" data-property="fontFamily" value="${properties.fontFamily || ''}" placeholder="Arial">
+        </div>
+        <div class="property-item">
+          <span class="property-label">Taille</span>
+          <input type="text" class="property-input" data-property="fontSize" value="${properties.fontSize || ''}" placeholder="12pt">
+        </div>
+        <div class="property-item">
+          <span class="property-label">Couleur du texte</span>
+          <div class="property-color-group">
+            <input type="color" class="property-color" data-property="color" value="${properties.color || '#000000'}">
+            <input type="text" class="property-input property-input--color" data-property="color" value="${properties.color || ''}" placeholder="#000000">
+          </div>
+        </div>
+        <div class="property-item">
+          <span class="property-label">Couleur de fond</span>
+          <div class="property-color-group">
+            <input type="color" class="property-color" data-property="backgroundColor" value="${properties.backgroundColor || '#ffffff'}">
+            <input type="text" class="property-input property-input--color" data-property="backgroundColor" value="${properties.backgroundColor || ''}" placeholder="transparent">
+          </div>
+        </div>
+        <div class="property-item">
+          <span class="property-label">Styles</span>
+          <div class="property-buttons">
+            <button class="property-btn ${isBold ? 'is-active' : ''}" data-style="bold" title="Gras">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M6 4h8a4 4 0 0 1 4 4 4 4 0 0 1-4 4H6z"></path>
+                <path d="M6 12h9a4 4 0 0 1 4 4 4 4 0 0 1-4 4H6z"></path>
+              </svg>
+            </button>
+            <button class="property-btn ${isItalic ? 'is-active' : ''}" data-style="italic" title="Italique">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <line x1="19" y1="4" x2="10" y2="4"></line>
+                <line x1="14" y1="20" x2="5" y2="20"></line>
+                <line x1="15" y1="4" x2="9" y2="20"></line>
+              </svg>
+            </button>
+            <button class="property-btn ${isUnderline ? 'is-active' : ''}" data-style="underline" title="Souligné">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M6 3v7a6 6 0 0 0 6 6 6 6 0 0 0 6-6V3"></path>
+                <line x1="4" y1="21" x2="20" y2="21"></line>
+              </svg>
+            </button>
+          </div>
+        </div>
+        <div class="property-item">
+          <span class="property-label">Alignement</span>
+          <div class="property-buttons">
+            <button class="property-btn ${currentAlignValue === 'left' ? 'is-active' : ''}" data-align="left" title="Gauche">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <line x1="3" y1="6" x2="21" y2="6"></line>
+                <line x1="3" y1="12" x2="15" y2="12"></line>
+                <line x1="3" y1="18" x2="21" y2="18"></line>
+              </svg>
+            </button>
+            <button class="property-btn ${currentAlignValue === 'center' ? 'is-active' : ''}" data-align="center" title="Centre">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <line x1="3" y1="6" x2="21" y2="6"></line>
+                <line x1="6" y1="12" x2="18" y2="12"></line>
+                <line x1="3" y1="18" x2="21" y2="18"></line>
+              </svg>
+            </button>
+            <button class="property-btn ${currentAlignValue === 'right' ? 'is-active' : ''}" data-align="right" title="Droite">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <line x1="3" y1="6" x2="21" y2="6"></line>
+                <line x1="9" y1="12" x2="21" y2="12"></line>
+                <line x1="3" y1="18" x2="21" y2="18"></line>
+              </svg>
+            </button>
+            <button class="property-btn ${currentAlignValue === 'justify' ? 'is-active' : ''}" data-align="justify" title="Justifié">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <line x1="3" y1="6" x2="21" y2="6"></line>
+                <line x1="3" y1="12" x2="21" y2="12"></line>
+                <line x1="3" y1="18" x2="21" y2="18"></line>
+              </svg>
+            </button>
+          </div>
+        </div>
+      `;
+    }
+
+    propertiesArea.innerHTML = html;
+    
+    // Attacher les événements
+    attachPropertyEvents();
+  }
+
+  /**
+   * Attache les événements aux contrôles de propriétés
+   */
+  function attachPropertyEvents() {
+    const propertiesArea = document.querySelector('[data-properties-area]');
+    if (!propertiesArea || !selectedElement) return;
+
+    // Inputs texte
+    const inputs = propertiesArea.querySelectorAll('.property-input');
+    inputs.forEach(input => {
+      input.addEventListener('change', () => {
+        applyProperty(input.dataset.property, input.value);
+      });
+      input.addEventListener('blur', () => {
+        applyProperty(input.dataset.property, input.value);
+      });
+    });
+
+    // Inputs couleur
+    const colorInputs = propertiesArea.querySelectorAll('.property-color');
+    colorInputs.forEach(colorInput => {
+      colorInput.addEventListener('change', () => {
+        const property = colorInput.dataset.property;
+        applyProperty(property, colorInput.value);
+        // Mettre à jour l'input texte correspondant
+        const textInput = propertiesArea.querySelector(`.property-input--color[data-property="${property}"]`);
+        if (textInput) {
+          textInput.value = colorInput.value;
+        }
+      });
+    });
+
+    // Boutons d'alignement
+    const alignButtons = propertiesArea.querySelectorAll('.property-btn[data-align]');
+    alignButtons.forEach(btn => {
+      btn.addEventListener('click', () => {
+        // Retirer l'état actif de tous les boutons
+        alignButtons.forEach(b => b.classList.remove('is-active'));
+        // Activer le bouton cliqué
+        btn.classList.add('is-active');
+        // Appliquer l'alignement
+        applyProperty('textAlign', btn.dataset.align);
+      });
+    });
+
+    // Boutons de style (gras, italique, souligné)
+    const styleButtons = propertiesArea.querySelectorAll('.property-btn[data-style]');
+    styleButtons.forEach(btn => {
+      btn.addEventListener('click', () => {
+        btn.classList.toggle('is-active');
+        applyStyle(btn.dataset.style, btn.classList.contains('is-active'));
+      });
+    });
+  }
+
+  /**
+   * Applique une propriété à l'élément sélectionné
+   * @param {string} property - Nom de la propriété
+   * @param {string} value - Valeur à appliquer
+   */
+  function applyProperty(property, value) {
+    if (!selectedElement) return;
+
+    switch (property) {
+      case 'fontFamily':
+        selectedElement.style.fontFamily = value || '';
+        break;
+      case 'fontSize':
+        selectedElement.style.fontSize = value || '';
+        break;
+      case 'color':
+        selectedElement.style.color = value || '';
+        break;
+      case 'backgroundColor':
+        selectedElement.style.backgroundColor = value || '';
+        break;
+      case 'textAlign':
+        // Pour les images, appliquer l'alignement sur le conteneur parent (div)
+        if (selectedElement.tagName === 'IMG') {
+          const container = selectedElement.parentElement;
+          if (container && container.tagName === 'DIV') {
+            container.style.textAlign = value || '';
+            // Ajuster le display de l'image selon l'alignement
+            if (value === 'center') {
+              selectedElement.style.display = 'block';
+              selectedElement.style.marginLeft = 'auto';
+              selectedElement.style.marginRight = 'auto';
+            } else if (value === 'left' || value === 'right') {
+              selectedElement.style.display = 'block';
+              selectedElement.style.marginLeft = value === 'left' ? '0' : 'auto';
+              selectedElement.style.marginRight = value === 'right' ? '0' : 'auto';
+            } else {
+              selectedElement.style.display = 'block';
+              selectedElement.style.marginLeft = '';
+              selectedElement.style.marginRight = '';
+            }
+          } else {
+            // Pas de conteneur, appliquer directement
+            selectedElement.style.textAlign = value || '';
+          }
+        } else {
+          // Pour les textes (titres, paragraphes), appliquer directement
+          selectedElement.style.textAlign = value || '';
+        }
+        break;
+      case 'width':
+        if (selectedElement.tagName === 'IMG') {
+          selectedElement.style.width = value || '';
+        }
+        break;
+      case 'height':
+        if (selectedElement.tagName === 'IMG') {
+          selectedElement.style.height = value || '';
+        }
+        break;
+      case 'rotation':
+        if (selectedElement.tagName === 'IMG') {
+          if (value && value !== '0deg') {
+            // Préserver les autres transformations si présentes
+            const currentTransform = selectedElement.style.transform || '';
+            const otherTransforms = currentTransform.replace(/rotate\([^)]+\)/g, '').trim();
+            selectedElement.style.transform = `rotate(${value})${otherTransforms ? ' ' + otherTransforms : ''}`.trim();
+          } else {
+            // Retirer uniquement la rotation
+            const currentTransform = selectedElement.style.transform || '';
+            const newTransform = currentTransform.replace(/rotate\([^)]+\)/g, '').trim();
+            selectedElement.style.transform = newTransform || '';
+          }
+        }
+        break;
+    }
+  }
+
+  /**
+   * Applique un style de texte (gras, italique, souligné)
+   * @param {string} style - Style à appliquer (bold, italic, underline)
+   * @param {boolean} active - Si true, activer le style, sinon le désactiver
+   */
+  function applyStyle(style, active) {
+    if (!selectedElement) return;
+
+    switch (style) {
+      case 'bold':
+        selectedElement.style.fontWeight = active ? 'bold' : 'normal';
+        break;
+      case 'italic':
+        selectedElement.style.fontStyle = active ? 'italic' : 'normal';
+        break;
+      case 'underline':
+        if (active) {
+          selectedElement.style.textDecoration = 'underline';
+        } else {
+          selectedElement.style.textDecoration = '';
+        }
+        break;
+    }
+  }
+
+  /**
+   * Attache les événements de clic sur les éléments du contenu
+   */
+  function attachContentClickEvents() {
+    const contentArea = document.querySelector('[data-content-area]');
+    if (!contentArea) return;
+
+    // Retirer les événements existants pour éviter les doublons
+    contentArea.removeEventListener('click', handleContentClick);
+
+    // Ajouter l'événement de clic (délégation)
+    contentArea.addEventListener('click', handleContentClick);
+  }
+
+  /**
+   * Gère le clic sur un élément du contenu
+   * @param {Event} e - Événement de clic
+   */
+  function handleContentClick(e) {
+    // Ignorer les clics sur les éléments interactifs (liens, boutons, etc.)
+    if (e.target.closest('a, button, .toc-entry')) {
+      return;
+    }
+
+    // Récupérer la zone de contenu
+    const contentArea = document.querySelector('[data-content-area]');
+    if (!contentArea) return;
+
+    // Trouver l'élément cliqué (paragraphe, titre, image)
+    let targetElement = null;
+    
+    // Si c'est un titre, paragraphe ou image directement
+    if (e.target.tagName === 'H1' || e.target.tagName === 'H2' || 
+        e.target.tagName === 'H3' || e.target.tagName === 'H4' || 
+        e.target.tagName === 'H5' || e.target.tagName === 'H6' ||
+        e.target.tagName === 'P' || e.target.tagName === 'IMG') {
+      targetElement = e.target;
+    } else {
+      // Chercher le parent le plus proche qui est un titre, paragraphe ou image
+      targetElement = e.target.closest('h1, h2, h3, h4, h5, h6, p, img');
+    }
+
+    if (targetElement) {
+      // Retirer la sélection précédente
+      const previousSelected = contentArea.querySelector('.element-selected');
+      if (previousSelected) {
+        previousSelected.classList.remove('element-selected');
+      }
+
+      // Extraire les propriétés AVANT d'ajouter la classe de sélection
+      // pour éviter d'inclure la couleur de fond de sélection
+      displayElementProperties(targetElement);
+
+      // Ajouter la classe de sélection après l'extraction des propriétés
+      targetElement.classList.add('element-selected');
+    }
+  }
+
+  /**
    * Initialisation
    */
   function init() {
@@ -1802,7 +2769,11 @@
     initCardBackButton();
     initContextMenu();
     initSectionModal();
-    loadDocument();
+    initCanvasModal();
+    loadDocument().then(() => {
+      // Initialiser le canevas après le chargement du document
+      initializeCanvasIfNeeded();
+    });
   }
 
   init();

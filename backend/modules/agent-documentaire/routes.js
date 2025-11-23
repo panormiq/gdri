@@ -132,6 +132,57 @@ router.get('/document/:documentId/image/:imageId', async (req, res) => {
 });
 
 /**
+ * GET /document/:documentId/canvas
+ * Récupérer le canevas d'un document
+ */
+router.get('/document/:documentId/canvas', async (req, res) => {
+  try {
+    const { documentId } = req.params;
+    const documentService = getDocumentService();
+    const canvas = await documentService.getCanvas(documentId);
+    res.json({ success: true, data: canvas });
+  } catch (error) {
+    console.error('Erreur récupération canevas:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+/**
+ * POST /document/:documentId/canvas/initialize
+ * Initialiser le canevas (automatique ou avec preset)
+ * Query param: ?preset=standard|compact|large (optionnel)
+ */
+router.post('/document/:documentId/canvas/initialize', async (req, res) => {
+  try {
+    const { documentId } = req.params;
+    const { preset } = req.query;
+    const documentService = getDocumentService();
+    const document = await documentService.initializeCanvas(documentId, preset);
+    res.json({ success: true, data: document.json_content.canvas });
+  } catch (error) {
+    console.error('Erreur initialisation canevas:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+/**
+ * PUT /document/:documentId/canvas
+ * Mettre à jour le canevas
+ */
+router.put('/document/:documentId/canvas', async (req, res) => {
+  try {
+    const { documentId } = req.params;
+    const { canvas } = req.body;
+    const documentService = getDocumentService();
+    const document = await documentService.updateCanvas(documentId, canvas);
+    res.json({ success: true, data: document.json_content.canvas });
+  } catch (error) {
+    console.error('Erreur mise à jour canevas:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+/**
  * POST /document/:documentId/pdf-from-html
  * Générer un PDF depuis le HTML fourni par le frontend (pixel perfect)
  * Le HTML contient déjà tous les styles inline et les images en base64
