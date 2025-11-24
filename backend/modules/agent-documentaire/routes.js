@@ -9,12 +9,21 @@
  * - PUT /document/:documentId - Mettre à jour le JSON
  * - PUT /document/:documentId/sections - Réorganiser sections (drag & drop)
  * - GET /document/:documentId/html - Générer HTML depuis JSON
+ * - POST /document/:documentId/image - Upload d'une image
  * - GET /document/:documentId/image/:imageId - Récupérer une image
  */
 
 const express = require('express');
+const multer = require('multer');
 const router = express.Router();
 const { getDocumentService } = require('./service-container');
+
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: 10 * 1024 * 1024 // 10MB
+  }
+});
 
 /**
  * POST /upload
@@ -127,6 +136,69 @@ router.get('/document/:documentId/image/:imageId', async (req, res) => {
     res.sendFile(imagePath);
   } catch (error) {
     console.error('Erreur récupération image:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+/**
+ * POST /document/:documentId/image/temp
+ * Upload d'une image temporaire (drag & drop frontend)
+ */
+router.post('/document/:documentId/image/temp', upload.single('image'), async (req, res) => {
+  try {
+    const { documentId } = req.params;
+    const { sessionId } = req.body || {};
+    if (!req.file) {
+      return res.status(400).json({ success: false, error: 'Aucune image reçue.' });
+    }
+    if (!sessionId) {
+      return res.status(400).json({ success: false, error: 'Session d\'upload manquante.' });
+    }
+
+    const documentService = getDocumentService();
+    const data = await documentService.saveTempImage(documentId, sessionId, req.file);
+
+    res.json({ success: true, data });
+  } catch (error) {
+    console.error('Erreur upload image:', error);
+    const status = /format|Aucun fichier/i.test(error.message || '') ? 400 : 500;
+    res.status(status).json({ success: false, error: error.message });
+  }
+});
+
+/**
+ * GET /document/:documentId/temp-image/:sessionId/:imageId
+ * Récupère une image temporaire pour prévisualisation
+ */
+router.get('/document/:documentId/temp-image/:sessionId/:imageId', async (req, res) => {
+  try {
+    const { sessionId, imageId } = req.params;
+    const documentService = getDocumentService();
+    const imagePath = await documentService.getTempImagePath(sessionId, imageId);
+    res.sendFile(imagePath);
+  } catch (error) {
+    console.error('Erreur récupération image temporaire:', error);
+    res.status(404).json({ success: false, error: error.message });
+  }
+});
+
+/**
+ * POST /document/:documentId/images/promote
+ * Promeut les images temporaires après sauvegarde
+ */
+router.post('/document/:documentId/images/promote', async (req, res) => {
+  try {
+    const { documentId } = req.params;
+    const { sessionId, images } = req.body || {};
+    if (!sessionId) {
+      return res.status(400).json({ success: false, error: 'Session d\'upload manquante.' });
+    }
+
+    const documentService = getDocumentService();
+    const result = await documentService.promoteTempImages(documentId, sessionId, images);
+    res.json({ success: true, data: result });
+  } catch (error) {
+    console.error('Erreur promotion images:', error);
     res.status(500).json({ success: false, error: error.message });
   }
 });

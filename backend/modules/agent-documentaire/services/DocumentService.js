@@ -16,6 +16,14 @@ const HtmlGenerationService = require('../generators/jsontohtml');
 const config = require('../config.json');
 const lockableProperties = require('../config/lockable-properties.json');
 
+const ALLOWED_IMAGE_MIME_TYPES = [
+  'image/png',
+  'image/jpeg',
+  'image/jpg',
+  'image/webp',
+  'image/gif'
+];
+
 class DocumentService {
   constructor(database) {
     this.database = database;
@@ -24,6 +32,7 @@ class DocumentService {
     this.documentsPath = path.resolve(__dirname, '../', config.documentsPath);
     this.imagesPath = path.resolve(__dirname, '../', config.imagesPath);
     this.defaultTestFile = path.resolve(__dirname, '../', config.defaultTestFile);
+    this.tempImagesPath = path.resolve(this.storagePath, 'temp-images');
   }
 
   /**
@@ -36,6 +45,7 @@ class DocumentService {
     await this.ensureDirectoryExists(this.storagePath);
     await this.ensureDirectoryExists(this.documentsPath);
     await this.ensureDirectoryExists(this.imagesPath);
+    await this.ensureDirectoryExists(this.tempImagesPath);
   }
 
   /**
@@ -695,6 +705,179 @@ class DocumentService {
   }
 
   /**
+   * Sauvegarde une image envoyée depuis le frontend (drag & drop)
+   * @param {string} documentId - ID du document
+   * @param {Object} file - Fichier multer (buffer, mimetype, originalname)
+   * @param {Object} options - Options complémentaires
+   * @returns {Promise<Object>} Informations sur l'image sauvegardée
+   */
+  async saveUploadedImage(documentId, file, options = {}) {
+    if (!file) {
+      throw new Error('Aucun fichier n\'a été fourni.');
+    }
+
+    // Vérifier que le document existe
+    await this.getDocument(documentId);
+
+    if (!ALLOWED_IMAGE_MIME_TYPES.includes(file.mimetype)) {
+      throw new Error('Format d\'image non supporté.');
+    }
+
+    const documentImagesPath = path.join(this.imagesPath, documentId);
+    await this.ensureDirectoryExists(documentImagesPath);
+
+    let finalName;
+    if (options.replaceImageName) {
+      finalName = path.basename(options.replaceImageName);
+    } else {
+      const extension = this.getExtensionFromMimeType(file.mimetype, file.originalname);
+      const safeBaseName = this.sanitizeFilename(file.originalname || 'image');
+      const uniqueSuffix = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+      finalName = `${safeBaseName}-${uniqueSuffix}${extension}`;
+    }
+    const destinationPath = path.join(documentImagesPath, finalName);
+
+    await fs.writeFile(destinationPath, file.buffer);
+
+    return {
+      imageName: finalName,
+      mimeType: file.mimetype,
+      size: file.size
+    };
+  }
+
+  /**
+   * Sauvegarde une image temporaire en attente de validation
+   * @param {string} documentId
+   * @param {string} sessionId
+   * @param {Object} file
+   * @returns {Promise<Object>}
+   */
+  async saveTempImage(documentId, sessionId, file) {
+    if (!file) {
+      throw new Error('Aucun fichier n\'a été fourni.');
+    }
+    if (!sessionId) {
+      throw new Error('Session d\'upload manquante.');
+    }
+    await this.getDocument(documentId);
+
+    if (!ALLOWED_IMAGE_MIME_TYPES.includes(file.mimetype)) {
+      throw new Error('Format d\'image non supporté.');
+    }
+
+    const sessionPath = await this.ensureTempSessionDirectory(sessionId);
+    const extension = this.getExtensionFromMimeType(file.mimetype, file.originalname);
+    const safeBaseName = this.sanitizeFilename(file.originalname || 'image');
+    const tempImageId = `${safeBaseName}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}${extension}`;
+    const destinationPath = path.join(sessionPath, tempImageId);
+
+    await fs.writeFile(destinationPath, file.buffer);
+
+    return {
+      tempImageId,
+      originalName: file.originalname || 'image',
+      mimeType: file.mimetype,
+      size: file.size
+    };
+  }
+
+  /**
+   * Retourne le chemin d'une image temporaire
+   */
+  async getTempImagePath(sessionId, tempImageId) {
+    if (!sessionId || !tempImageId) {
+      throw new Error('Session ou image temporaire manquante.');
+    }
+    const sessionPath = this.getTempSessionPath(sessionId);
+    const imagePath = path.join(sessionPath, tempImageId);
+    await fs.access(imagePath);
+    return imagePath;
+  }
+
+  /**
+   * Promeut une liste d'images temporaires vers le stockage définitif
+   * @param {string} documentId
+   * @param {string} sessionId
+   * @param {Array} images
+   * @returns {Promise<Array>}
+   */
+  async promoteTempImages(documentId, sessionId, images = []) {
+    if (!Array.isArray(images) || images.length === 0) {
+      return [];
+    }
+    const sessionPath = this.getTempSessionPath(sessionId);
+    const targetDir = path.join(this.imagesPath, documentId);
+    await this.ensureDirectoryExists(targetDir);
+
+    const results = [];
+
+    for (const image of images) {
+      const { tempImageId, targetImageId, originalName, replaceImageName } = image;
+      if (!tempImageId || !targetImageId) {
+        continue;
+      }
+
+      const sourcePath = path.join(sessionPath, tempImageId);
+      try {
+        await fs.access(sourcePath);
+      } catch (error) {
+        console.warn(`⚠️ Image temporaire introuvable: ${tempImageId}`);
+        continue;
+      }
+
+      const sanitizedReplaceName = replaceImageName ? path.basename(replaceImageName) : null;
+      let finalName = sanitizedReplaceName || this.generateFinalImageName(originalName);
+      const destinationPath = path.join(targetDir, finalName);
+
+      await fs.copyFile(sourcePath, destinationPath);
+      await fs.unlink(sourcePath);
+
+      results.push({
+        targetImageId,
+        finalName
+      });
+    }
+
+    // Nettoyer le dossier session si vide
+    await this.cleanupTempSessionIfEmpty(sessionPath);
+
+    return results;
+  }
+
+  generateFinalImageName(originalName = 'image') {
+    const extensionFromName = path.extname(originalName) || '.png';
+    const base = this.sanitizeFilename(originalName);
+    return `${base}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}${extensionFromName}`;
+  }
+
+  async ensureTempSessionDirectory(sessionId) {
+    const sessionPath = this.getTempSessionPath(sessionId);
+    await this.ensureDirectoryExists(sessionPath);
+    return sessionPath;
+  }
+
+  getTempSessionPath(sessionId) {
+    const safeSession = this.sanitizeSessionId(sessionId);
+    return path.join(this.tempImagesPath, safeSession);
+  }
+
+  sanitizeSessionId(sessionId = '') {
+    return sessionId.toString().replace(/[^a-zA-Z0-9-_]/g, '');
+  }
+
+  async cleanupTempSessionIfEmpty(sessionPath) {
+    try {
+      const files = await fs.readdir(sessionPath);
+      if (files.length === 0) {
+        await fs.rmdir(sessionPath);
+      }
+    } catch (error) {
+      // pas grave
+    }
+  }
+
+  /**
    * Récupère le chemin d'une image
    * @param {string} documentId - ID du document
    * @param {string} imageId - ID de l'image
@@ -824,6 +1007,36 @@ class DocumentService {
 
     await this.collection.replaceOne({ _id: 'default-test' }, document, { upsert: true });
     return document;
+  }
+
+  sanitizeFilename(filename = '') {
+    return filename
+      .toLowerCase()
+      .replace(/\.[^/.]+$/, '')
+      .replace(/[^a-z0-9-_]/g, '-')
+      .replace(/-+/g, '-')
+      .trim()
+      || 'image';
+  }
+
+  getExtensionFromMimeType(mimeType, originalName = '') {
+    const fromName = path.extname(originalName);
+    if (fromName) {
+      return fromName.toLowerCase();
+    }
+    switch (mimeType) {
+      case 'image/png':
+        return '.png';
+      case 'image/jpeg':
+      case 'image/jpg':
+        return '.jpg';
+      case 'image/webp':
+        return '.webp';
+      case 'image/gif':
+        return '.gif';
+      default:
+        return '.png';
+    }
   }
 }
 
