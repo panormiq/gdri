@@ -175,6 +175,10 @@ backend/modules/agent-documentaire/
 - `PUT /api/agent-documentaire/document/:documentId` - Mettre à jour JSON
 - `PUT /api/agent-documentaire/document/:documentId/sections` - Réorganiser sections
 - `GET /api/agent-documentaire/document/:documentId/html` - Générer HTML
+- `POST /api/agent-documentaire/document/:documentId/image/temp` - Upload d'une image temporaire (drag & drop)
+- `GET /api/agent-documentaire/document/:documentId/temp-image/:sessionId/:imageId` - Prévisualiser une image temporaire
+- `POST /api/agent-documentaire/document/:documentId/images/promote` - Promouvoir les images temporaires lors de la sauvegarde
+- `POST /api/agent-documentaire/document/:documentId/image` - Upload direct (legacy)
 - `GET /api/agent-documentaire/document/:documentId/image/:imageId` - Récupérer image
 
 **Fonctions principales :**
@@ -187,8 +191,17 @@ backend/modules/agent-documentaire/
 - `DocumentService.renumberSections(sections)` - Recalcule niveaux + numérotation à partir de l'arbre
 - `DocumentService.generateTocFromSections(sections)` - Génère le TOC plat cohérent avec les sections
 - `DocumentService.generateHtmlFromJson(documentId)` - Génère HTML depuis JSON
+- `DocumentService.saveUploadedImage(documentId, file, options)` - Sauvegarde immédiate (mode legacy)
+- `DocumentService.saveTempImage(documentId, sessionId, file)` - Stocke une image drag & drop dans un dossier temporaire
+- `DocumentService.promoteTempImages(documentId, sessionId, images)` - Déplace les images temporaires vers le stockage définitif
 - `WordToJson.extract(wordFilePath)` - Extraction Word → JSON (extractors/wordtojson.js)
 - `JsonToHtml.generate(jsonContent)` - Génération JSON → HTML (generators/jsontohtml.js)
+
+**Frontend (agent-documentaire.js) :**
+- `initContentDragAndDrop()` - Initialisation du drag & drop d'images dans la zone de contenu (binding des events + fallback mobile)
+- `handleImageFileDrop(file, context)` - Gère l'import d'une image (lecture dimensions, upload temp, insertion/remplacement dans `sectionsTree`)
+- `collectTempImageMappings()` / `promoteTempImages()` - Gestion de la promotion des images temporaires avant sauvegarde
+- `saveDocumentChanges()` - Bouton "Sauvegarder" : sérialise le JSON, promeut les images, déclenche le `PUT /document/:id`
 
 ### 4. Agent Facebook
 Récupère et analyse les notifications Facebook, envoie des alertes mail si réponse nécessaire.

@@ -11,11 +11,15 @@
 
   const documentId = editorRoot.dataset.documentId || '';
   const apiBase = window.API_BASE_URL || '';
+  const uploadSessionId = window.__UPLOAD_SESSION_ID || (window.__UPLOAD_SESSION_ID = generateUploadSessionId());
 
   let documentJson = null;
   let sectionsTree = [];
   let currentCardParent = null; // Pour la navigation dans les cards
   let selectedElement = null; // Élément actuellement sélectionné pour édition
+  let dropMessageElement = null; // Message affiché pendant un drag & drop d'image
+  let currentDropImageWrapper = null; // Image actuellement ciblée pour remplacement
+  let globalDragCleanupRegistered = false; // Évite de dupliquer les listeners globaux
 
   /**
    * Stocke les marges de page Word pour les appliquer aux paragraphes
@@ -26,6 +30,23 @@
     if (margins) {
       pageMargins = margins;
     }
+  }
+
+  function generateUploadSessionId() {
+    if (window.crypto?.randomUUID) {
+      return window.crypto.randomUUID();
+    }
+    return `sess_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+  }
+
+  function buildDocumentImageUrl(imageName) {
+    if (!imageName) return '';
+    return `${apiBase}/agent-documentaire/document/${documentId}/image/${imageName}`;
+  }
+
+  function buildTempImageUrl(tempImageId) {
+    if (!tempImageId) return '';
+    return `${apiBase}/agent-documentaire/document/${documentId}/temp-image/${uploadSessionId}/${tempImageId}`;
   }
 
   /**
@@ -169,23 +190,14 @@
     }
     
     // Marges : canevas en priorité, sinon Word
-    if (canvasStyles) {
-      // Utiliser les marges du canevas
-      if (mergedStyles.marginTop !== undefined && mergedStyles.marginTop !== null && mergedStyles.marginTop > 0) {
-        cssProps.push(`margin-top: ${mergedStyles.marginTop}pt`);
-      }
-      // marginBottom : uniquement si défini et > 0 (évite les traits blancs dans les surlignages)
-      if (mergedStyles.marginBottom !== undefined && mergedStyles.marginBottom !== null && mergedStyles.marginBottom > 0) {
-        cssProps.push(`margin-bottom: ${mergedStyles.marginBottom}pt`);
-      }
-    } else if (styles.spacing) {
-      // Fallback : utiliser les marges Word (uniquement si > 0)
-      if (styles.spacing.before && styles.spacing.before > 0) {
-        cssProps.push(`margin-top: ${styles.spacing.before}pt`);
-      }
-      if (styles.spacing.after && styles.spacing.after > 0) {
-        cssProps.push(`margin-bottom: ${styles.spacing.after}pt`);
-      }
+    const paddingTopSource = canvasStyles?.marginTop ?? styles.marginTop ?? styles.spacing?.before;
+    const paddingBottomSource = canvasStyles?.marginBottom ?? styles.marginBottom ?? styles.spacing?.after;
+
+    if (paddingTopSource && paddingTopSource > 0) {
+      cssProps.push(`padding-top: ${paddingTopSource}pt`);
+    }
+    if (paddingBottomSource && paddingBottomSource > 0) {
+      cssProps.push(`padding-bottom: ${paddingBottomSource}pt`);
     }
     
     // Line-height : canevas pour paragraphes, sinon Word
@@ -367,11 +379,16 @@
           item.locked = { width: false, height: true };
         }
         
-        // Extraire juste le nom du fichier (si c'est un chemin complet)
-        const imageName = imageSrc.includes('/') ? imageSrc.split('/').pop() : imageSrc;
+        const imageName = item.name || (imageSrc && !item.tempImageId ? (imageSrc.includes('/') ? imageSrc.split('/').pop() : imageSrc) : '');
         
-        // Construire l'URL de l'image via l'API
-        const imageUrl = imageName ? `${apiBase}/agent-documentaire/document/${documentId}/image/${imageName}` : '';
+        let imageUrl = '';
+        if (item.tempImageId) {
+          imageUrl = buildTempImageUrl(item.tempImageId);
+        } else if (imageName) {
+          imageUrl = buildDocumentImageUrl(imageName);
+        } else if (imageSrc) {
+          imageUrl = imageSrc;
+        }
         
         // Construire les styles de l'image
         const imgStyleProps = [];
@@ -432,6 +449,18 @@
             // Appliquer les marges de page directement sur l'image si pas de conteneur
             imgStyleProps.push(`margin-left: ${pageMargins.left}pt`);
             imgStyleProps.push(`margin-right: ${pageMargins.right}pt`);
+          }
+        }
+
+        if (item.inlineMargins) {
+          if (item.inlineMargins.marginLeft !== undefined && item.inlineMargins.marginLeft !== '') {
+            imgStyleProps.push(`margin-left: ${item.inlineMargins.marginLeft}`);
+          }
+          if (item.inlineMargins.marginRight !== undefined && item.inlineMargins.marginRight !== '') {
+            imgStyleProps.push(`margin-right: ${item.inlineMargins.marginRight}`);
+          }
+          if (item.inlineMargins.display) {
+            imgStyleProps.push(`display: ${item.inlineMargins.display}`);
           }
         }
         
@@ -1169,6 +1198,951 @@
       // Attacher les événements d'édition de texte
       attachTextEditEvents();
     }, 100);
+
+    // Initialiser le drag & drop d'images
+    initContentDragAndDrop();
+  }
+
+  /**
+   * Initialise le drag & drop d'images dans la zone de contenu
+   */
+  function initContentDragAndDrop() {
+    const contentArea = document.querySelector('[data-content-area]');
+    if (!contentArea) return;
+
+    // Éviter d'attacher plusieurs fois les mêmes événements
+    if (contentArea.dataset.dndInitialized === 'true') {
+      return;
+    }
+    contentArea.dataset.dndInitialized = 'true';
+
+    contentArea.addEventListener('dragenter', handleContentDragEnter);
+    contentArea.addEventListener('dragover', handleContentDragOver);
+    contentArea.addEventListener('dragleave', handleContentDragLeave);
+    contentArea.addEventListener('drop', handleContentDrop);
+
+    createMobileUploadTrigger(contentArea);
+
+    if (!globalDragCleanupRegistered) {
+      document.addEventListener('dragend', resetDropVisualState, true);
+      document.addEventListener('drop', resetDropVisualState, true);
+      globalDragCleanupRegistered = true;
+    }
+  }
+
+  function handleContentDragEnter(e) {
+    e.preventDefault();
+
+    if (!hasExternalImage(e)) {
+      // Autoriser le drop sur les images même si le navigateur ne fournit pas de fichiers (ex: drag interne)
+      const targetImage = e.target.closest('.image-wrapper');
+      if (!targetImage) {
+        return;
+      }
+    }
+    const contentArea = e.currentTarget;
+    contentArea.classList.add('is-dropping');
+
+    const targetImage = e.target.closest('.image-wrapper');
+    if (targetImage) {
+      highlightDropTarget(targetImage, 'replace');
+      showDropMessage('replace');
+    } else {
+      highlightDropTarget(null);
+      showDropMessage('add');
+    }
+  }
+
+  function handleContentDragOver(e) {
+    e.preventDefault();
+
+    if (!hasExternalImage(e)) {
+      const targetImage = e.target.closest('.image-wrapper');
+      if (!targetImage) {
+        return;
+      }
+    }
+
+    if (e.dataTransfer) {
+      e.dataTransfer.dropEffect = 'copy';
+    }
+
+    const targetImage = e.target.closest('.image-wrapper');
+    if (targetImage) {
+      highlightDropTarget(targetImage, 'replace');
+      showDropMessage('replace');
+    } else {
+      highlightDropTarget(null);
+      showDropMessage('add');
+    }
+  }
+
+  function handleContentDragLeave(e) {
+    if (!hasExternalImage(e) && !e.target.closest('.image-wrapper')) return;
+    const contentArea = e.currentTarget;
+
+    // Vérifier si on quitte réellement la zone
+    if (!contentArea.contains(e.relatedTarget)) {
+      resetDropVisualState();
+    }
+  }
+
+  async function handleContentDrop(e) {
+    e.preventDefault();
+    const targetImageWrapper = e.target.closest('.image-wrapper');
+    if (!hasExternalImage(e) && !targetImageWrapper) {
+      return;
+    }
+
+    const contentArea = e.currentTarget;
+    const sectionElement = e.target.closest('.section') || contentArea.querySelector('.section');
+    const imageElement = targetImageWrapper?.querySelector('img') || null;
+    const replaceImageData = imageElement ? findImageDataFromElement(imageElement) : null;
+    const preservedDisplayState = captureImageDisplayState(imageElement, replaceImageData);
+
+    resetDropVisualState();
+
+    const files = e.dataTransfer?.files;
+    if (files && files.length > 0) {
+      await handleImageFileDrop(files[0], { imageElement, sectionElement, preservedDisplayState });
+      return;
+    }
+
+    const uriData = e.dataTransfer?.getData('text/uri-list') || e.dataTransfer?.getData('text/plain');
+    if (uriData) {
+      await handleImageUrlDrop(uriData, { imageElement, sectionElement, preservedDisplayState });
+    }
+  }
+
+  function hasExternalImage(event) {
+    const dt = event.dataTransfer;
+    if (!dt) return false;
+    if (dt.files && dt.files.length > 0) {
+      return Array.from(dt.files).some(file => file.type && file.type.startsWith('image/'));
+    }
+    if (dt.types && (dt.types.includes('text/uri-list') || dt.types.includes('text/plain'))) {
+      return true;
+    }
+    return false;
+  }
+
+  async function handleImageFileDrop(file, context = {}) {
+    if (!file || !file.type.startsWith('image/')) {
+      console.warn('❌ Le fichier déposé n\'est pas une image.');
+      return;
+    }
+
+    try {
+      showDropMessage('upload');
+      const dimensions = await getImageDimensionsFromFile(file);
+      console.log('🔍 DEBUG handleImageFileDrop - dimensions récupérées:');
+      console.log('  dimensions.width:', dimensions.width);
+      console.log('  dimensions.height:', dimensions.height);
+      console.log('  ratio calculé:', dimensions.width / dimensions.height);
+      const replaceImageData = context.imageElement ? findImageDataFromElement(context.imageElement) : null;
+      const replaceImageName = replaceImageData ? (replaceImageData.name || replaceImageData.src || null) : null;
+
+      // Logs image cible (avant drop)
+      if (replaceImageData && context.imageElement) {
+        const targetImg = context.imageElement;
+        const targetComputed = window.getComputedStyle(targetImg);
+        const targetWrapper = targetImg.closest('.image-wrapper');
+        const targetWrapperComputed = targetWrapper ? window.getComputedStyle(targetWrapper) : null;
+        const targetName = replaceImageData.name || replaceImageData.src || 'sans nom';
+        const targetHeight = targetComputed.height || targetImg.style.height || 'auto';
+        const targetWidth = targetComputed.width || targetImg.style.width || 'auto';
+        let targetJustification = targetWrapperComputed?.textAlign || targetWrapper?.style?.textAlign || '';
+        if (!targetJustification) {
+          const ml = targetComputed.marginLeft;
+          const mr = targetComputed.marginRight;
+          if (ml === 'auto' && mr === 'auto') {
+            targetJustification = 'center';
+          } else if (ml === 'auto') {
+            targetJustification = 'right';
+          } else if (mr === 'auto') {
+            targetJustification = 'left';
+          } else {
+            targetJustification = 'left (par défaut)';
+          }
+        }
+        console.log('📋 DRAG & DROP - Image cible:');
+        console.log('  Nom:', targetName);
+        console.log('  Hauteur:', targetHeight);
+        console.log('  Largeur:', targetWidth);
+        console.log('  Justification:', targetJustification);
+      }
+
+      const uploadResult = await uploadImage(file, replaceImageName);
+      const result = applyImageUploadResult(uploadResult, dimensions, context, replaceImageData);
+      if (context.imageElement && result) {
+        updateImageElementPreview(context.imageElement, result.previewUrl, result.dimensions, result.imageData || replaceImageData);
+      }
+      hideDropMessage();
+      renderContent();
+    } catch (error) {
+      console.error('❌ Erreur import image:', error);
+      hideDropMessage();
+      alert(error.message || 'Erreur lors de l\'import de l\'image.');
+    }
+  }
+
+  async function handleImageUrlDrop(url, context = {}) {
+    if (!url) return;
+    try {
+      showDropMessage('upload');
+      const response = await fetch(url);
+      if (!response.ok) {
+        throw new Error('Impossible de récupérer l\'image.');
+      }
+      const blob = await response.blob();
+      if (!blob.type.startsWith('image/')) {
+        throw new Error('Le contenu déposé n\'est pas une image.');
+      }
+      const filename = url.split('/').pop()?.split('?')[0] || 'image-externe.png';
+      let file;
+      if (typeof File === 'function') {
+        file = new File([blob], filename, { type: blob.type });
+      } else {
+        blob.name = filename;
+        file = blob;
+      }
+      await handleImageFileDrop(file, context);
+    } catch (error) {
+      console.error('❌ Erreur import URL:', error);
+      hideDropMessage();
+      alert(error.message || 'Impossible d\'importer cette image.');
+    }
+  }
+
+  function captureImageDisplayState(imgElement, imageData = null) {
+    if (!imgElement) return null;
+    let imgComputed = null;
+    let wrapperComputed = null;
+    if (typeof window !== 'undefined' && window.getComputedStyle) {
+      try {
+        imgComputed = window.getComputedStyle(imgElement);
+      } catch (error) {
+        console.warn('⚠️ Impossible de récupérer le style calculé de l’image :', error);
+      }
+    }
+    const wrapper = imgElement.closest('.image-wrapper');
+    if (wrapper && typeof window !== 'undefined' && window.getComputedStyle) {
+      try {
+        wrapperComputed = window.getComputedStyle(wrapper);
+      } catch (error) {
+        console.warn('⚠️ Impossible de récupérer le style du wrapper :', error);
+      }
+    }
+
+    const marginLeft = imgComputed?.marginLeft ?? imgElement.style.marginLeft ?? '';
+    const marginRight = imgComputed?.marginRight ?? imgElement.style.marginRight ?? '';
+    let alignment = wrapperComputed?.textAlign || wrapper?.style?.textAlign || '';
+    if (!alignment) {
+      if (marginLeft === 'auto' && marginRight === 'auto') {
+        alignment = 'center';
+      } else if ((marginLeft === 'auto' && marginRight === '0px') || (marginLeft === 'auto' && marginRight === '0')) {
+        alignment = 'right';
+      } else if ((marginRight === 'auto' && marginLeft === '0px') || (marginRight === 'auto' && marginLeft === '0')) {
+        alignment = 'left';
+      }
+    }
+
+    const measuredHeight = (() => {
+      const rect = imgElement.getBoundingClientRect ? imgElement.getBoundingClientRect() : null;
+      if (rect && rect.height) return `${rect.height}px`;
+      if (imgElement.offsetHeight) return `${imgElement.offsetHeight}px`;
+      return '';
+    })();
+
+    const capturedHeight = (imgComputed?.height && imgComputed.height !== 'auto') ? imgComputed.height : (imgElement.style.height || measuredHeight || '');
+    const capturedWidth = imgComputed?.width ?? imgElement.style.width ?? '';
+    
+    // Extraire la rotation depuis transform
+    let capturedRotation = '';
+    const transform = imgComputed?.transform || imgElement.style.transform || '';
+    if (transform && transform.includes('rotate')) {
+      const match = transform.match(/rotate\(([^)]+)\)/);
+      if (match) {
+        capturedRotation = match[1].trim();
+      }
+    }
+    // Si pas dans transform, vérifier dans imageData.rotation
+    if (!capturedRotation && imageData && imageData.rotation) {
+      capturedRotation = imageData.rotation;
+    }
+    
+    console.log('🔍 DEBUG captureImageDisplayState:');
+    console.log('  imgComputed.height:', imgComputed?.height);
+    console.log('  imgElement.style.height:', imgElement.style.height);
+    console.log('  measuredHeight:', measuredHeight);
+    console.log('  capturedHeight:', capturedHeight);
+    console.log('  capturedWidth:', capturedWidth);
+    console.log('  alignment:', alignment || '(vide)');
+    console.log('  capturedRotation:', capturedRotation || '(vide)');
+
+    return {
+      width: capturedWidth,
+      height: capturedHeight,
+      marginLeft,
+      marginRight,
+      display: imgComputed?.display ?? imgElement.style.display ?? '',
+      textAlign: alignment || '',
+      rotation: capturedRotation || ''
+    };
+  }
+
+  function parseLengthToPx(value) {
+    if (value === null || value === undefined || value === '') return null;
+    if (typeof value === 'string' && value.trim().toLowerCase() === 'auto') {
+      return null;
+    }
+    if (typeof value === 'number') return value;
+    const trimmed = value.toString().trim();
+    if (!trimmed) return null;
+    const numeric = parseFloat(trimmed);
+    if (isNaN(numeric)) return null;
+    if (trimmed.endsWith('pt')) {
+      const result = numeric * (96 / 72);
+      console.log('🔍 parseLengthToPx:', value, '→', result, '(pt→px)');
+      return result;
+    }
+    console.log('🔍 parseLengthToPx:', value, '→', numeric);
+    return numeric;
+  }
+
+  async function uploadImage(file, replaceImageName = null) {
+    if (!documentId || !apiBase) {
+      throw new Error('Document non initialisé.');
+    }
+    if (!documentJson) {
+      throw new Error('Document non chargé.');
+    }
+    const url = `${apiBase}/agent-documentaire/document/${documentId}/image/temp`;
+    const formData = new FormData();
+    formData.append('image', file, file.name || 'image.png');
+    formData.append('sessionId', uploadSessionId);
+    if (replaceImageName) {
+      formData.append('replaceImageName', replaceImageName);
+    }
+
+    const response = await fetch(url, {
+      method: 'POST',
+      body: formData
+    });
+    const payload = await response.json();
+    if (!payload.success) {
+      throw new Error(payload.error || 'Import impossible.');
+    }
+    const tempImageId = payload.data.tempImageId;
+    return {
+      tempImageId,
+      previewUrl: buildTempImageUrl(tempImageId),
+      originalName: file.name || 'image',
+      mimeType: file.type || payload.data.mimeType || 'image/png'
+    };
+  }
+
+  function applyImageUploadResult(uploadResult, dimensions, context, replaceImageData) {
+    if (replaceImageData) {
+      return applyUploadedImageToExisting(replaceImageData, uploadResult, dimensions, context);
+    }
+    return insertNewImageIntoSection(uploadResult, dimensions, context.sectionElement);
+  }
+
+  function applyUploadedImageToExisting(imageData, uploadResult, dimensions, context = {}) {
+    if (!imageData) return null;
+    
+    // Ne pas initialiser locked si l'utilisateur n'a jamais touché aux verrous
+    // On considère qu'il n'y a pas de verrous actifs si locked n'existe pas ou si userOverride n'est pas défini
+    const hasUserSetLocks = imageData.locked && imageData.locked.userOverride === true;
+    const widthLocked = hasUserSetLocks && imageData.locked.width === true;
+    const heightLocked = hasUserSetLocks && imageData.locked.height === true;
+    const noLocksActive = !widthLocked && !heightLocked;
+    
+    // Si locked n'existe pas, on le crée mais sans forcer height: true
+    if (!imageData.locked) {
+      imageData.locked = { width: false, height: false };
+    }
+    
+    const defaultLockState = imageData.locked.width === false && imageData.locked.height === true && !imageData.locked.userOverride;
+    const previousHeight = imageData.height;
+    const normalizedPrevHeight = typeof previousHeight === 'string'
+      ? parseFloat(previousHeight)
+      : typeof previousHeight === 'number'
+        ? previousHeight
+        : null;
+    const preservedDisplayState = context?.preservedDisplayState || null;
+    const preservedHeightPx = preservedDisplayState ? parseLengthToPx(preservedDisplayState.height) : null;
+    const domMeasuredHeight = context?.imageElement
+      ? (context.imageElement.getBoundingClientRect?.().height || context.imageElement.offsetHeight || null)
+      : null;
+    
+    // Logs de debug pour comprendre ce qui se passe
+    console.log('🔍 DEBUG applyUploadedImageToExisting:');
+    console.log('  hasUserSetLocks:', hasUserSetLocks);
+    console.log('  widthLocked:', widthLocked);
+    console.log('  heightLocked:', heightLocked);
+    console.log('  noLocksActive:', noLocksActive);
+    console.log('  normalizedPrevHeight:', normalizedPrevHeight);
+    console.log('  preservedHeightPx:', preservedHeightPx);
+    console.log('  domMeasuredHeight:', domMeasuredHeight);
+
+    // Récupérer la justification depuis preservedDisplayState en priorité (c'est le plus fiable)
+    let preservedAlignment = preservedDisplayState?.textAlign || '';
+    if (!preservedAlignment && imageData.textAlign) {
+      preservedAlignment = imageData.textAlign;
+    }
+    if (!preservedAlignment && context?.imageElement) {
+      // Chercher dans le wrapper parent
+      const wrapper = context.imageElement.closest('.image-wrapper');
+      if (wrapper) {
+        const wrapperComputed = window.getComputedStyle(wrapper);
+        preservedAlignment = wrapperComputed.textAlign || wrapper.style.textAlign || '';
+      }
+      // Si toujours rien, chercher dans le parent du wrapper
+      if (!preservedAlignment && wrapper && wrapper.parentElement) {
+        const parentComputed = window.getComputedStyle(wrapper.parentElement);
+        preservedAlignment = parentComputed.textAlign || wrapper.parentElement.style.textAlign || '';
+      }
+    }
+    // Si on a détecté "center" via les marges auto, le sauvegarder
+    if (!preservedAlignment && preservedDisplayState) {
+      const ml = preservedDisplayState.marginLeft;
+      const mr = preservedDisplayState.marginRight;
+      if (ml === 'auto' && mr === 'auto') {
+        preservedAlignment = 'center';
+      } else if (ml === 'auto') {
+        preservedAlignment = 'right';
+      } else if (mr === 'auto') {
+        preservedAlignment = 'left';
+      }
+    }
+    // Ne pas écraser avec une valeur vide
+    if (preservedAlignment && preservedAlignment !== 'justify') {
+      imageData.textAlign = preservedAlignment;
+    }
+    if (preservedDisplayState) {
+      imageData.inlineMargins = {
+        marginLeft: preservedDisplayState.marginLeft ?? '',
+        marginRight: preservedDisplayState.marginRight ?? '',
+        display: preservedDisplayState.display ?? ''
+      };
+      // Conserver la rotation de l'image cible
+      // Priorité : preservedDisplayState.rotation > imageData.rotation
+      if (preservedDisplayState.rotation) {
+        imageData.rotation = preservedDisplayState.rotation;
+      } else if (imageData.rotation) {
+        // Si pas dans preservedDisplayState mais présent dans imageData, on le garde
+        // (déjà présent dans imageData, rien à faire)
+      }
+    } else if (imageData.rotation) {
+      // Si preservedDisplayState n'existe pas mais qu'on a une rotation dans imageData, on la garde
+      // (déjà présent dans imageData, rien à faire)
+    }
+
+    imageData.tempImageId = uploadResult.tempImageId;
+    imageData.pendingOriginalName = uploadResult.originalName || imageData.pendingOriginalName || imageData.name;
+    imageData.pendingReplaceName = imageData.name || null;
+    imageData.previewUrl = uploadResult.previewUrl;
+    imageData.src = uploadResult.previewUrl;
+
+    // Logs des dimensions de la nouvelle image
+    console.log('🔍 DEBUG dimensions nouvelle image:');
+    console.log('  dimensions.width:', dimensions?.width);
+    console.log('  dimensions.height:', dimensions?.height);
+    console.log('  dimensions object:', dimensions);
+
+    const computed = computeDimensionsWithLocks(imageData, dimensions);
+    
+    // Calculer le ratio de la NOUVELLE IMAGE (pour éviter la déformation)
+    // Utiliser les dimensions NATURELLES de la nouvelle image (pas celles modifiées par computeDimensionsWithLocks)
+    const newImageAspectRatio = (dimensions?.width && dimensions?.height && dimensions.height > 0)
+      ? dimensions.width / dimensions.height
+      : null;
+    
+    console.log('🔍 DEBUG ratio calculé:');
+    console.log('  newImageAspectRatio:', newImageAspectRatio);
+    console.log('  computed.width:', computed.width);
+    console.log('  computed.height:', computed.height);
+
+    let resolvedWidth = computed.width;
+    let resolvedHeight = defaultLockState ? (normalizedPrevHeight ?? computed.height) : computed.height;
+
+    if (noLocksActive && newImageAspectRatio && isFinite(newImageAspectRatio) && newImageAspectRatio > 0) {
+      const fallbackDomHeight = domMeasuredHeight && !isNaN(domMeasuredHeight) ? domMeasuredHeight : null;
+      const targetHeight = normalizedPrevHeight ?? preservedHeightPx ?? fallbackDomHeight;
+      console.log('🔍 DEBUG conservation hauteur (noLocksActive):');
+      console.log('  targetHeight calculé:', targetHeight);
+      console.log('  newImageAspectRatio (ratio nouvelle image):', newImageAspectRatio);
+      console.log('  dimensions.width:', dimensions.width);
+      console.log('  dimensions.height:', dimensions.height);
+      if (targetHeight !== null && !isNaN(targetHeight)) {
+        // CONSERVER la hauteur cible (ne JAMAIS la recalculer)
+        resolvedHeight = Math.max(1, Math.round(targetHeight));
+        // Calculer la largeur avec le RATIO DE LA NOUVELLE IMAGE (pour éviter la déformation)
+        // On IGNORE la limite de largeur pour respecter le ratio et garder la hauteur
+        resolvedWidth = Math.max(1, Math.round(resolvedHeight * newImageAspectRatio));
+        console.log('  candidateWidth (hauteur * ratio nouvelle image):', resolvedWidth);
+        console.log('  ✅ Hauteur CONSERVÉE:', resolvedHeight, 'Largeur (ratio respecté, limite ignorée):', resolvedWidth);
+      } else {
+        console.log('  ❌ Impossible de conserver la hauteur - targetHeight invalide');
+      }
+    } else {
+      console.log('🔍 DEBUG conservation hauteur (verrous actifs ou pas de ratio):');
+      console.log('  noLocksActive:', noLocksActive);
+      console.log('  newImageAspectRatio:', newImageAspectRatio);
+      console.log('  Utilisation computed.height:', computed.height);
+    }
+
+    console.log('🔍 DEBUG avant assignation finale:');
+    console.log('  resolvedWidth:', resolvedWidth);
+    console.log('  resolvedHeight:', resolvedHeight);
+    console.log('  computed.width:', computed.width);
+    console.log('  computed.height:', computed.height);
+    
+    imageData.width = resolvedWidth;
+    imageData.height = resolvedHeight;
+    
+    console.log('🔍 DEBUG après assignation:');
+    console.log('  imageData.width:', imageData.width);
+    console.log('  imageData.height:', imageData.height);
+
+    // Logs image finale (après drop)
+    const finalName = uploadResult.originalName || imageData.name || imageData.src || 'sans nom';
+    const finalHeight = `${resolvedHeight}px`;
+    const finalWidth = `${resolvedWidth}px`;
+    let finalJustification = imageData.textAlign || '';
+    if (!finalJustification && imageData.inlineMargins) {
+      const ml = imageData.inlineMargins.marginLeft;
+      const mr = imageData.inlineMargins.marginRight;
+      if (ml === 'auto' && mr === 'auto') {
+        finalJustification = 'center';
+      } else if (ml === 'auto') {
+        finalJustification = 'right';
+      } else if (mr === 'auto') {
+        finalJustification = 'left';
+      } else {
+        finalJustification = 'left (par défaut)';
+      }
+    }
+    if (!finalJustification) {
+      finalJustification = 'left (par défaut)';
+    }
+    console.log('📋 DRAG & DROP - Image lâchée (finale):');
+    console.log('  Nom:', finalName);
+    console.log('  Hauteur:', finalHeight);
+    console.log('  Largeur:', finalWidth);
+    console.log('  Justification:', finalJustification);
+
+    return {
+      dimensions: {
+        width: resolvedWidth,
+        height: resolvedHeight
+      },
+      previewUrl: uploadResult.previewUrl,
+      imageData
+    };
+  }
+
+  function insertNewImageIntoSection(uploadResult, dimensions, sectionElement) {
+    const sectionId = sectionElement?.dataset.sectionId;
+    const targetSection = sectionId ? findSectionById(sectionId, sectionsTree) : sectionsTree[0];
+
+    if (!targetSection) {
+      console.warn('⚠️ Impossible d\'insérer l\'image : aucune section cible.');
+      return;
+    }
+
+    if (!Array.isArray(targetSection.content)) {
+      targetSection.content = [];
+    }
+
+    const newImage = {
+      type: 'image',
+      id: `img_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+      src: uploadResult.previewUrl,
+      name: uploadResult.originalName || '',
+      tempImageId: uploadResult.tempImageId,
+      pendingOriginalName: uploadResult.originalName || '',
+      alt: 'Image',
+      width: dimensions.width,
+      height: dimensions.height,
+      locked: { width: false, height: true },
+      textAlign: '',
+      paragraphBackgroundColor: '',
+    };
+
+    const computed = computeDimensionsWithLocks(newImage, dimensions);
+    newImage.width = computed.width;
+    newImage.height = computed.height;
+
+    // Logs image finale (nouvelle image, pas de remplacement)
+    const finalName = uploadResult.originalName || newImage.name || 'sans nom';
+    const finalHeight = `${computed.height}px`;
+    const finalWidth = `${computed.width}px`;
+    const finalJustification = newImage.textAlign || 'left (par défaut)';
+    console.log('📋 DRAG & DROP - Image lâchée (nouvelle image):');
+    console.log('  Nom:', finalName);
+    console.log('  Hauteur:', finalHeight);
+    console.log('  Largeur:', finalWidth);
+    console.log('  Justification:', finalJustification);
+
+    targetSection.content.push(newImage);
+
+    return { dimensions: computed, previewUrl: uploadResult.previewUrl, imageId: newImage.id, imageData: newImage };
+  }
+
+  function computeDimensionsWithLocks(imageData, naturalDimensions = {}) {
+    const locked = {
+      width: false,
+      height: true,
+      ...(imageData.locked || {})
+    };
+
+    const naturalWidth = naturalDimensions.width || imageData.width || 0;
+    const naturalHeight = naturalDimensions.height || imageData.height || 0;
+
+    if (!naturalWidth || !naturalHeight) {
+      return {
+        width: imageData.width || 0,
+        height: imageData.height || 0
+      };
+    }
+
+    const aspectRatio = naturalWidth / naturalHeight;
+    let width = imageData.width || naturalWidth;
+    let height = imageData.height || naturalHeight;
+
+    if (locked.width && !locked.height) {
+      width = imageData.width || naturalWidth;
+      height = Math.round(width / aspectRatio);
+    } else if (locked.height && !locked.width) {
+      height = imageData.height || naturalHeight;
+      width = Math.round(height * aspectRatio);
+    } else if (!locked.width && !locked.height) {
+      width = clampImageWidth(naturalWidth);
+      height = Math.round(width / aspectRatio);
+    } else {
+      // Les deux verrouillés : respecter la largeur et ajuster la hauteur pour garder le ratio
+      width = imageData.width || naturalWidth;
+      height = Math.round(width / aspectRatio);
+    }
+
+    return {
+      width: Math.max(1, Math.round(width)),
+      height: Math.max(1, Math.round(height))
+    };
+  }
+
+  function clampImageWidth(value) {
+    const defaultMax = documentJson?.canvas?.images?.default?.maxWidth;
+    const numericMax = typeof defaultMax === 'string'
+      ? parseFloat(defaultMax)
+      : (typeof defaultMax === 'number' ? defaultMax : null);
+
+    const limit = !isNaN(numericMax) && numericMax > 0 ? numericMax : 720;
+    const result = Math.min(value, limit);
+    console.log('🔍 clampImageWidth:', value, '→', result, '(limit:', limit, ')');
+    return result;
+  }
+
+  function updateImageElementPreview(imgElement, previewUrl, dimensions, imageData = null) {
+    if (!imgElement) return;
+    if (previewUrl) {
+      imgElement.src = previewUrl;
+    }
+    if (dimensions) {
+      if (dimensions.width) {
+        imgElement.style.width = `${dimensions.width}px`;
+      }
+      if (dimensions.height) {
+        imgElement.style.height = `${dimensions.height}px`;
+      }
+    }
+
+    const wrapper = imgElement.closest('.image-wrapper');
+    const alignment = imageData?.textAlign || '';
+    if (wrapper && alignment) {
+      if (alignment === 'center') {
+        wrapper.style.display = 'block';
+        wrapper.style.textAlign = 'center';
+        imgElement.style.display = 'inline-block';
+        imgElement.style.marginLeft = 'auto';
+        imgElement.style.marginRight = 'auto';
+      } else if (alignment === 'right') {
+        wrapper.style.display = 'block';
+        wrapper.style.textAlign = 'right';
+        imgElement.style.display = 'inline-block';
+        imgElement.style.marginLeft = 'auto';
+        imgElement.style.marginRight = '0';
+      } else if (alignment === 'left') {
+        wrapper.style.display = 'block';
+        wrapper.style.textAlign = 'left';
+        imgElement.style.display = 'inline-block';
+        imgElement.style.marginLeft = '0';
+        imgElement.style.marginRight = 'auto';
+      } else {
+        wrapper.style.textAlign = alignment;
+      }
+    }
+    if (imageData?.inlineMargins) {
+      if (imageData.inlineMargins.marginLeft !== undefined) {
+        imgElement.style.marginLeft = imageData.inlineMargins.marginLeft || '';
+      }
+      if (imageData.inlineMargins.marginRight !== undefined) {
+        imgElement.style.marginRight = imageData.inlineMargins.marginRight || '';
+      }
+      if (imageData.inlineMargins.display) {
+        imgElement.style.display = imageData.inlineMargins.display;
+      }
+    }
+  }
+
+  function collectTempImageMappings() {
+    const mappings = [];
+
+    function traverseSections(sections) {
+      if (!Array.isArray(sections)) return;
+      sections.forEach(section => {
+        if (section.content && Array.isArray(section.content)) {
+          section.content.forEach(item => {
+            if (item.type === 'image' && item.tempImageId) {
+              mappings.push({
+                tempImageId: item.tempImageId,
+                targetImageId: item.id,
+                originalName: item.pendingOriginalName || item.name || 'image',
+                replaceImageName: item.pendingReplaceName || null
+              });
+            }
+          });
+        }
+        if (section.children && section.children.length > 0) {
+          traverseSections(section.children);
+        }
+      });
+    }
+
+    traverseSections(sectionsTree);
+    return mappings;
+  }
+
+  async function promoteTempImages(tempImageMappings) {
+    if (!tempImageMappings || tempImageMappings.length === 0) {
+      return [];
+    }
+
+    const url = `${apiBase}/agent-documentaire/document/${documentId}/images/promote`;
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        sessionId: uploadSessionId,
+        images: tempImageMappings
+      })
+    });
+    const payload = await response.json();
+    if (!payload.success) {
+      throw new Error(payload.error || 'Promotion des images impossible.');
+    }
+    return payload.data || [];
+  }
+
+  function applyPromotionResults(results = []) {
+    if (!Array.isArray(results) || results.length === 0) {
+      return;
+    }
+
+    results.forEach(result => {
+      const imageData = findImageById(result.targetImageId);
+      if (!imageData) {
+        return;
+      }
+      imageData.name = result.finalName;
+      imageData.src = result.finalName;
+      delete imageData.tempImageId;
+      delete imageData.pendingOriginalName;
+      delete imageData.pendingReplaceName;
+      delete imageData.previewUrl;
+    });
+  }
+
+  async function saveDocumentChanges() {
+    if (!documentId || !apiBase) {
+      throw new Error('Document non initialisé.');
+    }
+
+    const tempMappings = collectTempImageMappings();
+    if (tempMappings.length > 0) {
+      const promotionResults = await promoteTempImages(tempMappings);
+      applyPromotionResults(promotionResults);
+    }
+
+    documentJson.sections = sectionsTree;
+
+    const response = await fetch(`${apiBase}/agent-documentaire/document/${documentId}`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ json_content: documentJson })
+    });
+
+    const payload = await response.json();
+    if (!payload.success) {
+      throw new Error(payload.error || 'Sauvegarde impossible.');
+    }
+
+    if (payload.data?.json_content) {
+      documentJson = payload.data.json_content;
+      sectionsTree = Array.isArray(documentJson.sections) ? documentJson.sections : sectionsTree;
+    }
+
+    renderContent();
+  }
+
+  function initSaveButton() {
+    const saveBtn = document.getElementById('saveDocumentBtn');
+    if (!saveBtn) return;
+
+    saveBtn.addEventListener('click', async () => {
+      const initialLabel = saveBtn.textContent;
+      saveBtn.disabled = true;
+      saveBtn.textContent = 'Sauvegarde...';
+
+      try {
+        await saveDocumentChanges();
+        saveBtn.textContent = 'Enregistré ✅';
+        setTimeout(() => {
+          saveBtn.textContent = initialLabel;
+        }, 1500);
+      } catch (error) {
+        console.error('Erreur sauvegarde document:', error);
+        alert(error.message || 'Erreur lors de la sauvegarde.');
+        saveBtn.textContent = initialLabel;
+      } finally {
+        saveBtn.disabled = false;
+      }
+    });
+  }
+
+  function showDropMessage(type) {
+    const contentArea = document.querySelector('[data-content-area]');
+    if (!contentArea) return;
+
+    if (dropMessageElement && !dropMessageElement.isConnected) {
+      dropMessageElement = null;
+    }
+
+    if (!dropMessageElement) {
+      dropMessageElement = document.createElement('div');
+      dropMessageElement.className = 'content-drop-message';
+      contentArea.appendChild(dropMessageElement);
+    }
+
+    if (type === 'replace') {
+      dropMessageElement.textContent = 'Relâchez pour remplacer l’image';
+    } else if (type === 'upload') {
+      dropMessageElement.textContent = 'Import de l’image en cours...';
+    } else {
+      dropMessageElement.textContent = 'Relâchez pour ajouter une image';
+    }
+
+    dropMessageElement.classList.add('is-visible');
+  }
+
+  function hideDropMessage() {
+    if (dropMessageElement) {
+      dropMessageElement.classList.remove('is-visible');
+    }
+  }
+
+  function highlightDropTarget(wrapper, mode = 'add') {
+    if (currentDropImageWrapper && currentDropImageWrapper !== wrapper) {
+      currentDropImageWrapper.classList.remove('is-drop-target', 'is-drop-replace');
+    }
+
+    currentDropImageWrapper = wrapper || null;
+    if (!currentDropImageWrapper) {
+      return;
+    }
+
+    currentDropImageWrapper.classList.remove('is-drop-target', 'is-drop-replace');
+    currentDropImageWrapper.classList.add(mode === 'replace' ? 'is-drop-replace' : 'is-drop-target');
+  }
+
+  function resetDropVisualState() {
+    const contentArea = document.querySelector('[data-content-area]');
+    if (contentArea) {
+      contentArea.classList.remove('is-dropping');
+    }
+    if (currentDropImageWrapper) {
+      currentDropImageWrapper.classList.remove('is-drop-target', 'is-drop-replace');
+      currentDropImageWrapper = null;
+    }
+    hideDropMessage();
+  }
+
+  function createMobileUploadTrigger(contentArea) {
+    if (!window.matchMedia) {
+      return;
+    }
+    const prefersCoarsePointer = window.matchMedia('(pointer: coarse)').matches;
+    if (!prefersCoarsePointer) {
+      return;
+    }
+
+    if (contentArea.querySelector('.content-upload-trigger')) {
+      return;
+    }
+
+    const wrapper = document.createElement('div');
+    wrapper.className = 'content-upload-trigger';
+
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'content-upload-trigger__btn';
+    button.textContent = 'Importer une image';
+
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'image/*';
+    input.style.display = 'none';
+
+    button.addEventListener('click', () => input.click());
+    input.addEventListener('change', () => {
+      if (input.files && input.files[0]) {
+        handleImageFileDrop(input.files[0], {
+          sectionElement: contentArea.querySelector('.section')
+        });
+        input.value = '';
+      }
+    });
+
+    wrapper.appendChild(button);
+    wrapper.appendChild(input);
+    contentArea.appendChild(wrapper);
+  }
+
+  function getImageDimensionsFromFile(file) {
+    return new Promise((resolve, reject) => {
+      const imageUrl = URL.createObjectURL(file);
+      const image = new Image();
+      image.onload = () => {
+        const dimensions = {
+          width: image.naturalWidth,
+          height: image.naturalHeight
+        };
+        URL.revokeObjectURL(imageUrl);
+        resolve(dimensions);
+      };
+      image.onerror = () => {
+        URL.revokeObjectURL(imageUrl);
+        reject(new Error('Impossible de lire l’image.'));
+      };
+      image.src = imageUrl;
+    });
   }
 
   /**
@@ -1427,8 +2401,49 @@
         if (found) return found;
       }
     }
-        return null;
+    return null;
+  }
+
+  function findImageById(imageId, sections = sectionsTree) {
+    if (!imageId || !Array.isArray(sections)) return null;
+    for (const section of sections) {
+      if (section.content && Array.isArray(section.content)) {
+        for (const item of section.content) {
+          if (item.type === 'image' && item.id === imageId) {
+            return item;
+          }
+        }
       }
+      if (section.children && section.children.length > 0) {
+        const found = findImageById(imageId, section.children);
+        if (found) return found;
+      }
+    }
+    return null;
+  }
+
+  function findImageByName(imageName, sections = sectionsTree) {
+    if (!imageName || !Array.isArray(sections)) return null;
+    for (const section of sections) {
+      if (section.content && Array.isArray(section.content)) {
+        for (const item of section.content) {
+          if (item.type === 'image') {
+            const candidate = (item.src || item.name || '').includes('/')
+              ? (item.src || item.name || '').split('/').pop()
+              : (item.src || item.name || '');
+            if (candidate === imageName) {
+              return item;
+            }
+          }
+        }
+      }
+      if (section.children && section.children.length > 0) {
+        const found = findImageByName(imageName, section.children);
+        if (found) return found;
+      }
+    }
+    return null;
+  }
 
   /**
    * Affiche les propriétés d'une card
@@ -2556,7 +3571,20 @@
         </div>
         <div class="property-item">
           <span class="property-label">Rotation</span>
-          <input type="text" class="property-input" data-property="rotation" value="${properties.rotation || '0deg'}" placeholder="0deg">
+          <div class="property-buttons property-buttons--rotation">
+            <button class="property-btn property-btn--rotate-left" data-rotate="left" title="Tourner à gauche (-90°)">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M1 4v6h6"></path>
+                <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path>
+              </svg>
+            </button>
+            <button class="property-btn property-btn--rotate-right" data-rotate="right" title="Tourner à droite (+90°)">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M23 4v6h-6"></path>
+                <path d="M20.49 15a9 9 0 1 1 2.13-9.36L23 10"></path>
+              </svg>
+            </button>
+          </div>
         </div>
         <div class="property-item">
           <span class="property-label">Bordures arrondies</span>
@@ -2574,9 +3602,12 @@
               <button class="property-btn ${(properties.borderRadius || '') === '16px' ? 'is-active' : ''}" data-effect="borderRadius" data-value="16px" title="Grand (16px)" style="border-radius: 16px;">
                 <span>16</span>
               </button>
-              <button class="property-btn property-btn--custom ${(properties.borderRadius || '') !== '' && (properties.borderRadius || '') !== '0px' && (properties.borderRadius || '') !== '4px' && (properties.borderRadius || '') !== '8px' && (properties.borderRadius || '') !== '16px' ? 'is-active' : ''}" data-effect="borderRadius" data-value="custom" title="Personnalisé" style="border-radius: ${properties.borderRadius || '0px'};">
-                <span>${properties.borderRadius || '0px'}</span>
-              </button>
+              <div class="property-custom-group">
+                <button class="property-btn property-btn--custom ${(properties.borderRadius || '') !== '' && (properties.borderRadius || '') !== '0px' && (properties.borderRadius || '') !== '4px' && (properties.borderRadius || '') !== '8px' && (properties.borderRadius || '') !== '16px' ? 'is-active' : ''}" data-effect="borderRadius" data-value="custom" title="Personnalisé" style="border-radius: ${properties.borderRadius || '0px'};">
+                  <span>Personnalisé</span>
+                </button>
+                <input type="text" class="property-input property-input--custom" data-property="borderRadius" data-custom-input="true" value="${properties.borderRadius || ''}" placeholder="0px">
+              </div>
             </div>
             <input type="text" class="property-input property-input--effect" data-property="borderRadius" value="${properties.borderRadius || ''}" placeholder="0px">
           </div>
@@ -2609,9 +3640,12 @@
               <button class="property-btn ${(properties.boxShadow || '').includes('rgba(0, 0, 0, 0.25) 0px 54px 55px') ? 'is-active' : ''}" data-effect="boxShadow" data-value="rgba(0, 0, 0, 0.25) 0px 54px 55px, rgba(0, 0, 0, 0.12) 0px -12px 30px, rgba(0, 0, 0, 0.12) 0px 4px 6px, rgba(0, 0, 0, 0.17) 0px 12px 13px, rgba(0, 0, 0, 0.09) 0px -3px 5px" title="Multi-couches" style="box-shadow: rgba(0, 0, 0, 0.25) 0px 54px 55px, rgba(0, 0, 0, 0.12) 0px -12px 30px, rgba(0, 0, 0, 0.12) 0px 4px 6px, rgba(0, 0, 0, 0.17) 0px 12px 13px, rgba(0, 0, 0, 0.09) 0px -3px 5px;">
                 <span>Multi-couches</span>
               </button>
-              <button class="property-btn property-btn--custom ${(properties.boxShadow || '') !== '' && (properties.boxShadow || '') !== 'none' && !(properties.boxShadow || '').includes('rgba(0, 0, 0, 0.35) 0px 5px 15px') && !(properties.boxShadow || '').includes('rgba(50, 50, 93, 0.25) 0px 13px 27px -5px') && !(properties.boxShadow || '').includes('rgba(0, 0, 0, 0.3) 0px 19px 38px') && !(properties.boxShadow || '').includes('rgba(0, 0, 0, 0.4) 0px 2px 4px') && !(properties.boxShadow || '').includes('rgba(0, 0, 0, 0.56) 0px 22px 70px 4px') && !(properties.boxShadow || '').includes('rgba(0, 0, 0, 0.2) 0px 60px 40px -7px') && !(properties.boxShadow || '').includes('rgba(0, 0, 0, 0.25) 0px 54px 55px') ? 'is-active' : ''}" data-effect="boxShadow" data-value="custom" title="Personnalisé" style="box-shadow: ${properties.boxShadow || 'none'};">
-                <span>Personnalisé</span>
-              </button>
+              <div class="property-custom-group">
+                <button class="property-btn property-btn--custom ${(properties.boxShadow || '') !== '' && (properties.boxShadow || '') !== 'none' && !(properties.boxShadow || '').includes('rgba(0, 0, 0, 0.35) 0px 5px 15px') && !(properties.boxShadow || '').includes('rgba(50, 50, 93, 0.25) 0px 13px 27px -5px') && !(properties.boxShadow || '').includes('rgba(0, 0, 0, 0.3) 0px 19px 38px') && !(properties.boxShadow || '').includes('rgba(0, 0, 0, 0.4) 0px 2px 4px') && !(properties.boxShadow || '').includes('rgba(0, 0, 0, 0.56) 0px 22px 70px 4px') && !(properties.boxShadow || '').includes('rgba(0, 0, 0, 0.2) 0px 60px 40px -7px') && !(properties.boxShadow || '').includes('rgba(0, 0, 0, 0.25) 0px 54px 55px') ? 'is-active' : ''}" data-effect="boxShadow" data-value="custom" title="Personnalisé" style="box-shadow: ${properties.boxShadow || 'none'};">
+                  <span>Personnalisé</span>
+                </button>
+                <input type="text" class="property-input property-input--custom" data-property="boxShadow" data-custom-input="true" value="${properties.boxShadow || ''}" placeholder="none">
+              </div>
             </div>
             <input type="text" class="property-input property-input--effect" data-property="boxShadow" value="${properties.boxShadow || ''}" placeholder="none">
           </div>
@@ -2638,9 +3672,12 @@
               <button class="property-btn ${(properties.bevel || '').includes('rgba(255, 255, 255, 0.7) 0px 2px 2px inset') ? 'is-active' : ''}" data-effect="bevel" data-value="rgba(255, 255, 255, 0.7) 0px 2px 2px inset, rgba(0, 0, 0, 0.5) 0px -2px 2px inset" title="Douce" style="box-shadow: rgba(255, 255, 255, 0.7) 0px 2px 2px inset, rgba(0, 0, 0, 0.5) 0px -2px 2px inset;">
                 <span>Douce</span>
               </button>
-              <button class="property-btn property-btn--custom ${(properties.bevel || '') !== '' && (properties.bevel || '') !== 'none' && !(properties.bevel || '').includes('rgba(255, 255, 255, 0.5) 0px 1px 0px inset') && !(properties.bevel || '').includes('rgba(0, 0, 0, 0.3) 0px 1px 0px inset') && !(properties.bevel || '').includes('rgba(255, 255, 255, 0.6) 1px 1px 0px inset') && !(properties.bevel || '').includes('rgba(0, 0, 0, 0.4) 1px 1px 0px inset') && !(properties.bevel || '').includes('rgba(255, 255, 255, 0.7) 0px 2px 2px inset') ? 'is-active' : ''}" data-effect="bevel" data-value="custom" title="Personnalisé" style="box-shadow: ${properties.bevel || 'none'};">
-                <span>Personnalisé</span>
-              </button>
+              <div class="property-custom-group">
+                <button class="property-btn property-btn--custom ${(properties.bevel || '') !== '' && (properties.bevel || '') !== 'none' && !(properties.bevel || '').includes('rgba(255, 255, 255, 0.5) 0px 1px 0px inset') && !(properties.bevel || '').includes('rgba(0, 0, 0, 0.3) 0px 1px 0px inset') && !(properties.bevel || '').includes('rgba(255, 255, 255, 0.6) 1px 1px 0px inset') && !(properties.bevel || '').includes('rgba(0, 0, 0, 0.4) 1px 1px 0px inset') && !(properties.bevel || '').includes('rgba(255, 255, 255, 0.7) 0px 2px 2px inset') ? 'is-active' : ''}" data-effect="bevel" data-value="custom" title="Personnalisé" style="box-shadow: ${properties.bevel || 'none'};">
+                  <span>Personnalisé</span>
+                </button>
+                <input type="text" class="property-input property-input--custom" data-property="bevel" data-custom-input="true" value="${properties.bevel || ''}" placeholder="none">
+              </div>
             </div>
             <input type="text" class="property-input property-input--effect" data-property="bevel" value="${properties.bevel || ''}" placeholder="none">
           </div>
@@ -2778,25 +3815,7 @@
     // Essayer d'abord avec l'ID de l'image (data-image-id)
     const imageId = imgElement.dataset.imageId;
     if (imageId) {
-      // Chercher l'image par ID dans sectionsTree
-      function findImageById(sections) {
-        for (const section of sections) {
-          if (section.content && Array.isArray(section.content)) {
-            for (const item of section.content) {
-              if (item.type === 'image' && item.id === imageId) {
-                return item;
-              }
-            }
-          }
-          if (section.children && section.children.length > 0) {
-            const found = findImageById(section.children);
-            if (found) return found;
-          }
-        }
-        return null;
-      }
-      
-      const found = findImageById(sectionsTree);
+      const found = findImageById(imageId);
       if (found) return found;
     }
     
@@ -2808,30 +3827,7 @@
     
     if (!imageName) return null;
     
-    // Chercher l'image dans sectionsTree
-    function findImageInSections(sections) {
-      for (const section of sections) {
-        if (section.content && Array.isArray(section.content)) {
-          for (const item of section.content) {
-            if (item.type === 'image') {
-              const itemImageName = (item.src || item.name || '').includes('/') 
-                ? (item.src || item.name || '').split('/').pop() 
-                : (item.src || item.name || '');
-              if (itemImageName === imageName) {
-                return item;
-              }
-            }
-          }
-        }
-        if (section.children && section.children.length > 0) {
-          const found = findImageInSections(section.children);
-          if (found) return found;
-        }
-      }
-      return null;
-    }
-    
-    return findImageInSections(sectionsTree);
+    return findImageByName(imageName, sectionsTree);
   }
 
   /**
@@ -2847,7 +3843,23 @@
     if (property === 'borderRadius') {
       return selectedElement.style.borderRadius || '';
     } else if (property === 'boxShadow' || property === 'bevel') {
-      return selectedElement.style.boxShadow || '';
+      const boxShadowValue = selectedElement.style.boxShadow || '';
+      
+      // Vérifier si la valeur CSS correspond à un pattern de bevel
+      const isBevel = boxShadowValue && boxShadowValue !== 'none' && (
+        boxShadowValue.includes('inset') ||
+        /rgba\(255,\s*255,\s*255/i.test(boxShadowValue) ||
+        /rgba\(\d+,\s*\d+,\s*\d+,\s*0\.\d+\)\s+.*inset/i.test(boxShadowValue) ||
+        /rgba\(0,\s*0,\s*0,\s*0\.\d+\)\s+.*rgba\(255/i.test(boxShadowValue)
+      );
+      
+      if (property === 'bevel') {
+        // Pour bevel, retourner la valeur seulement si c'est un bevel
+        return isBevel ? boxShadowValue : '';
+      } else {
+        // Pour boxShadow, retourner la valeur seulement si ce n'est PAS un bevel
+        return isBevel ? '' : boxShadowValue;
+      }
     }
     return '';
   }
@@ -2855,15 +3867,19 @@
   /**
    * Met à jour l'input avec la valeur réelle depuis l'élément
    * @param {string} property - Type d'effet ('borderRadius', 'boxShadow', 'bevel')
+   * @param {boolean} force - Si true, forcer la synchronisation même si l'input a déjà une valeur
    */
-  function syncInputWithRealValue(property) {
+  function syncInputWithRealValue(property, force = false) {
     const propertiesArea = document.querySelector('[data-properties-area]');
     if (!propertiesArea) return;
     
     const input = propertiesArea.querySelector(`.property-input--effect[data-property="${property}"]`);
     if (input) {
-      const realValue = getRealEffectValue(property);
-      input.value = realValue;
+      // Si force est true ou si l'input est vide, synchroniser avec la valeur réelle
+      if (force || !input.value || input.value.trim() === '') {
+        const realValue = getRealEffectValue(property);
+        input.value = realValue;
+      }
     }
   }
 
@@ -2904,24 +3920,31 @@
       }
     });
     
-    // Mettre à jour le bouton personnalisé
+    // Mettre à jour le bouton personnalisé et l'input custom
     const customBtn = propertiesArea.querySelector(`.property-btn--custom[data-effect="${property}"]`);
+    const customInput = propertiesArea.querySelector(`.property-input--custom[data-property="${property}"]`);
+    
     if (customBtn) {
       if (hasPreset) {
         customBtn.classList.remove('is-active');
       } else {
         customBtn.classList.add('is-active');
-        // Mettre à jour le style et le texte du bouton personnalisé
+        // Mettre à jour le style du bouton personnalisé
         if (property === 'borderRadius') {
           customBtn.style.borderRadius = inputValue || '0px';
           const span = customBtn.querySelector('span');
-          if (span) span.textContent = inputValue || '0px';
+          if (span) span.textContent = 'Personnalisé';
         } else if (property === 'boxShadow' || property === 'bevel') {
           customBtn.style.boxShadow = inputValue || 'none';
           const span = customBtn.querySelector('span');
           if (span) span.textContent = 'Personnalisé';
         }
       }
+    }
+    
+    // Mettre à jour l'input custom avec la valeur actuelle
+    if (customInput) {
+      customInput.value = inputValue || '';
     }
   }
 
@@ -2992,6 +4015,61 @@
       });
     });
 
+    // Inputs custom (à côté des boutons personnalisés)
+    const customInputs = propertiesArea.querySelectorAll('.property-input--custom');
+    customInputs.forEach(customInput => {
+      const property = customInput.dataset.property;
+      const isEffectInput = property === 'borderRadius' || property === 'boxShadow' || property === 'bevel';
+      
+      if (isEffectInput) {
+        // Quand on tape dans l'input custom, mettre à jour l'input principal
+        customInput.addEventListener('input', function() {
+          const mainInput = propertiesArea.querySelector(`.property-input--effect[data-property="${property}"]`);
+          if (mainInput) {
+            mainInput.value = this.value;
+            // Appliquer l'effet
+            applyProperty(property, this.value);
+            // Si bevel ou boxShadow, vider l'input opposé
+            if (property === 'bevel' && this.value.trim() !== '') {
+              const boxShadowInput = propertiesArea.querySelector(`.property-input--effect[data-property="boxShadow"]`);
+              const boxShadowCustomInput = propertiesArea.querySelector(`.property-input--custom[data-property="boxShadow"]`);
+              if (boxShadowInput) boxShadowInput.value = '';
+              if (boxShadowCustomInput) boxShadowCustomInput.value = '';
+              // Désactiver tous les boutons boxShadow
+              const boxShadowButtons = propertiesArea.querySelectorAll('.property-btn[data-effect="boxShadow"]');
+              boxShadowButtons.forEach(b => b.classList.remove('is-active'));
+            } else if (property === 'boxShadow' && this.value.trim() !== '') {
+              const bevelInput = propertiesArea.querySelector(`.property-input--effect[data-property="bevel"]`);
+              const bevelCustomInput = propertiesArea.querySelector(`.property-input--custom[data-property="bevel"]`);
+              if (bevelInput) bevelInput.value = '';
+              if (bevelCustomInput) bevelCustomInput.value = '';
+              // Désactiver tous les boutons bevel
+              const bevelButtons = propertiesArea.querySelectorAll('.property-btn[data-effect="bevel"]');
+              bevelButtons.forEach(b => b.classList.remove('is-active'));
+              // Activer le bouton "Aucun" pour bevel
+              const bevelNoneBtn = propertiesArea.querySelector('.property-btn[data-effect="bevel"][data-value="none"]');
+              if (bevelNoneBtn) bevelNoneBtn.classList.add('is-active');
+            }
+            // Mettre à jour l'état des boutons
+            updateEffectButtonsState(property, this.value.trim());
+          }
+        });
+        
+        // Quand on valide l'input custom (Enter ou blur), appliquer la valeur
+        customInput.addEventListener('change', function() {
+          const value = this.value.trim();
+          applyProperty(property, value);
+          // Mettre à jour l'input principal
+          const mainInput = propertiesArea.querySelector(`.property-input--effect[data-property="${property}"]`);
+          if (mainInput) {
+            mainInput.value = value;
+          }
+          // Mettre à jour l'état des boutons
+          updateEffectButtonsState(property, value);
+        });
+      }
+    });
+
     // Inputs couleur
     const colorInputs = propertiesArea.querySelectorAll('.property-color');
     colorInputs.forEach(colorInput => {
@@ -3019,6 +4097,39 @@
       });
     });
 
+    // Boutons de rotation
+    const rotateButtons = propertiesArea.querySelectorAll('.property-btn[data-rotate]');
+    rotateButtons.forEach(btn => {
+      btn.addEventListener('click', () => {
+        if (!selectedElement || selectedElement.tagName !== 'IMG') return;
+        
+        const direction = btn.dataset.rotate; // 'left' ou 'right'
+        const increment = direction === 'left' ? -90 : 90;
+        
+        // Récupérer la rotation actuelle
+        const currentTransform = selectedElement.style.transform || '';
+        let currentRotation = 0;
+        const rotationMatch = currentTransform.match(/rotate\(([^)]+)\)/);
+        if (rotationMatch) {
+          const rotationValue = rotationMatch[1].trim();
+          const numericValue = parseFloat(rotationValue);
+          if (!isNaN(numericValue)) {
+            currentRotation = numericValue;
+          }
+        }
+        
+        // Calculer la nouvelle rotation
+        const newRotation = (currentRotation + increment) % 360;
+        const newRotationValue = newRotation === 0 ? '0deg' : `${newRotation}deg`;
+        
+        // Appliquer la rotation
+        applyProperty('rotation', newRotationValue);
+        
+        // Mettre à jour le container pour qu'il s'adapte à l'image après rotation
+        adjustImageContainerAfterRotation(selectedElement);
+      });
+    });
+
     // Boutons d'effets (bordures arrondies et ombres)
     const effectButtons = propertiesArea.querySelectorAll('.property-btn[data-effect]');
     effectButtons.forEach(btn => {
@@ -3026,7 +4137,7 @@
         const effectType = btn.dataset.effect; // 'borderRadius' ou 'boxShadow'
         const effectValue = btn.dataset.value;
         
-        // Si c'est le bouton personnalisé, activer le bouton et focus sur l'input
+        // Si c'est le bouton personnalisé, appliquer la valeur de l'input custom
         if (effectValue === 'custom') {
           // Retirer l'état actif de tous les boutons du même type d'effet
           const sameTypeButtons = propertiesArea.querySelectorAll(`.property-btn[data-effect="${effectType}"]`);
@@ -3034,14 +4145,33 @@
           // Ajouter l'état actif au bouton personnalisé
           btn.classList.add('is-active');
           
-          const input = propertiesArea.querySelector(`.property-input--effect[data-property="${effectType}"]`);
-          if (input) {
-            // Synchroniser l'input avec la valeur réelle depuis l'élément
-            syncInputWithRealValue(effectType);
+          // Récupérer l'input custom à côté du bouton
+          const customInput = propertiesArea.querySelector(`.property-input--custom[data-property="${effectType}"]`);
+          if (customInput) {
+            // Si l'input custom est vide, le remplir avec la valeur actuelle de l'élément
+            if (!customInput.value || customInput.value.trim() === '') {
+              const realValue = getRealEffectValue(effectType);
+              customInput.value = realValue || '';
+            }
             
-            // Focus et sélection après synchronisation
-            input.focus();
-            input.select();
+            const customValue = customInput.value.trim();
+            // Appliquer la valeur de l'input custom
+            if (customValue && customValue !== '') {
+              applyProperty(effectType, customValue);
+            } else {
+              // Si l'input est vide, appliquer une valeur vide
+              applyProperty(effectType, '');
+            }
+            // Mettre à jour l'input principal avec la valeur appliquée
+            const mainInput = propertiesArea.querySelector(`.property-input--effect[data-property="${effectType}"]`);
+            if (mainInput) {
+              mainInput.value = customValue;
+            }
+            // Mettre à jour l'état des boutons
+            updateEffectButtonsState(effectType, customValue);
+            // Focus sur l'input custom
+            customInput.focus();
+            customInput.select();
           }
           return;
         }
@@ -3065,17 +4195,33 @@
         // Si on applique un bevel, vider l'input boxShadow (et vice versa)
         // car ils utilisent la même propriété CSS
         if (effectType === 'bevel') {
-          const boxShadowInput = propertiesArea.querySelector(`.property-input--effect[data-property="boxShadow"]`);
-          if (boxShadowInput && effectValue !== 'none') {
-            boxShadowInput.value = '';
+          if (effectValue !== 'none' && effectValue !== 'custom') {
+            // Vider l'input boxShadow principal
+            const boxShadowInput = propertiesArea.querySelector(`.property-input--effect[data-property="boxShadow"]`);
+            if (boxShadowInput) {
+              boxShadowInput.value = '';
+            }
+            // Vider l'input boxShadow custom
+            const boxShadowCustomInput = propertiesArea.querySelector(`.property-input--custom[data-property="boxShadow"]`);
+            if (boxShadowCustomInput) {
+              boxShadowCustomInput.value = '';
+            }
             // Désactiver tous les boutons boxShadow
             const boxShadowButtons = propertiesArea.querySelectorAll('.property-btn[data-effect="boxShadow"]');
             boxShadowButtons.forEach(b => b.classList.remove('is-active'));
           }
         } else if (effectType === 'boxShadow') {
-          const bevelInput = propertiesArea.querySelector(`.property-input--effect[data-property="bevel"]`);
-          if (bevelInput && effectValue !== 'none') {
-            bevelInput.value = '';
+          if (effectValue !== 'none' && effectValue !== 'custom') {
+            // Vider l'input bevel principal
+            const bevelInput = propertiesArea.querySelector(`.property-input--effect[data-property="bevel"]`);
+            if (bevelInput) {
+              bevelInput.value = '';
+            }
+            // Vider l'input bevel custom
+            const bevelCustomInput = propertiesArea.querySelector(`.property-input--custom[data-property="bevel"]`);
+            if (bevelCustomInput) {
+              bevelCustomInput.value = '';
+            }
             // Désactiver tous les boutons bevel
             const bevelButtons = propertiesArea.querySelectorAll('.property-btn[data-effect="bevel"]');
             bevelButtons.forEach(b => b.classList.remove('is-active'));
@@ -3119,6 +4265,117 @@
         }
       });
     });
+  }
+
+  /**
+   * Ajuste le container de l'image après une rotation pour qu'il s'adapte à l'image
+   * @param {HTMLElement} imgElement - Élément img
+   */
+  function adjustImageContainerAfterRotation(imgElement) {
+    if (!imgElement || imgElement.tagName !== 'IMG') return;
+    
+    // Récupérer la rotation actuelle
+    const currentTransform = imgElement.style.transform || '';
+    let currentRotation = 0;
+    const rotationMatch = currentTransform.match(/rotate\(([^)]+)\)/);
+    if (rotationMatch) {
+      const rotationValue = rotationMatch[1].trim();
+      const numericValue = parseFloat(rotationValue);
+      if (!isNaN(numericValue)) {
+        currentRotation = numericValue;
+      }
+    }
+    
+    // Normaliser la rotation entre 0 et 360
+    currentRotation = ((currentRotation % 360) + 360) % 360;
+    
+    // Récupérer les dimensions actuelles de l'image
+    const imgWidth = parseFloat(imgElement.style.width) || imgElement.offsetWidth || 0;
+    const imgHeight = parseFloat(imgElement.style.height) || imgElement.offsetHeight || 0;
+    
+    // Récupérer les données de l'image
+    const imageData = findImageDataFromElement(imgElement);
+    
+    // Sauvegarder les dimensions originales si elles n'existent pas encore
+    if (imageData && !imageData.originalWidth && !imageData.originalHeight) {
+      imageData.originalWidth = imgWidth;
+      imageData.originalHeight = imgHeight;
+    }
+    
+    // Calculer les dimensions visuelles après rotation pour le wrapper
+    // L'image garde ses dimensions CSS originales, mais le wrapper doit avoir les dimensions visuelles
+    let visualWidth = imgWidth;
+    let visualHeight = imgHeight;
+    
+    if (currentRotation === 90 || currentRotation === 270) {
+      // Les dimensions visuelles sont inversées : le wrapper doit avoir les dimensions inversées
+      visualWidth = imgHeight;  // La largeur visuelle = hauteur de l'image
+      visualHeight = imgWidth;  // La hauteur visuelle = largeur de l'image
+    } else if (currentRotation === 0 || currentRotation === 360) {
+      // À 0°, les dimensions visuelles = dimensions CSS
+      visualWidth = imgWidth;
+      visualHeight = imgHeight;
+    }
+    
+    // Ajuster le wrapper pour qu'il s'adapte aux dimensions visuelles (visualWidth et visualHeight)
+    const wrapper = imgElement.closest('.image-wrapper');
+    if (wrapper) {
+      // Si la rotation est à 0° (ou 360°), supprimer tous les styles forcés pour revenir à l'état initial
+      if (currentRotation === 0 || currentRotation === 360) {
+        wrapper.style.width = '';
+        wrapper.style.height = '';
+        wrapper.style.minWidth = '';
+        wrapper.style.minHeight = '';
+        wrapper.style.maxWidth = '';
+        wrapper.style.maxHeight = '';
+        wrapper.style.boxSizing = '';
+        wrapper.style.overflow = '';
+        // Garder position: relative car c'est nécessaire pour les handles de redimensionnement
+        wrapper.style.position = 'relative';
+      } else {
+        // Utiliser les dimensions visuelles (visualWidth et visualHeight) pour ajuster le wrapper
+        // Ces dimensions sont inversées si rotation = 90° ou 270°
+        wrapper.style.width = `${visualWidth}px`;
+        wrapper.style.height = `${visualHeight}px`;
+        wrapper.style.minWidth = `${visualWidth}px`;
+        wrapper.style.minHeight = `${visualHeight}px`;
+        wrapper.style.boxSizing = 'border-box';
+        wrapper.style.position = 'relative';
+        wrapper.style.overflow = 'visible';
+        
+        // Utiliser requestAnimationFrame pour recalculer après que le transform soit appliqué
+        requestAnimationFrame(() => {
+          // Utiliser getBoundingClientRect pour obtenir les dimensions réelles après rotation
+          const rect = imgElement.getBoundingClientRect();
+          const actualWidth = rect.width;
+          const actualHeight = rect.height;
+          
+          // Ajuster si les dimensions réelles sont différentes (avec une petite marge d'erreur)
+          if (Math.abs(actualWidth - visualWidth) > 1 || Math.abs(actualHeight - visualHeight) > 1) {
+            const finalWidth = Math.max(visualWidth, actualWidth);
+            const finalHeight = Math.max(visualHeight, actualHeight);
+            
+            wrapper.style.width = `${finalWidth}px`;
+            wrapper.style.height = `${finalHeight}px`;
+            wrapper.style.minWidth = `${finalWidth}px`;
+            wrapper.style.minHeight = `${finalHeight}px`;
+          }
+          
+          // Ajuster aussi le conteneur parent si nécessaire
+          const parentContainer = wrapper.parentElement;
+          if (parentContainer && parentContainer.tagName === 'DIV' && !parentContainer.classList.contains('image-wrapper')) {
+            // S'assurer que le conteneur parent permet l'overflow pour voir l'image tournée
+            parentContainer.style.overflow = 'visible';
+          }
+        });
+      }
+    }
+    
+    // Mettre à jour les données de l'image (imageData est déjà déclaré plus haut)
+    if (imageData) {
+      // Sauvegarder la rotation dans imageData
+      imageData.rotation = currentRotation === 0 ? '0deg' : `${currentRotation}deg`;
+    }
   }
 
   /**
@@ -3209,17 +4466,28 @@
         break;
       case 'rotation':
         if (selectedElement.tagName === 'IMG') {
+          const imageData = findImageDataFromElement(selectedElement);
           if (value && value !== '0deg') {
             // Préserver les autres transformations si présentes
             const currentTransform = selectedElement.style.transform || '';
             const otherTransforms = currentTransform.replace(/rotate\([^)]+\)/g, '').trim();
             selectedElement.style.transform = `rotate(${value})${otherTransforms ? ' ' + otherTransforms : ''}`.trim();
+            // Sauvegarder la rotation dans imageData
+            if (imageData) {
+              imageData.rotation = value;
+            }
           } else {
             // Retirer uniquement la rotation
             const currentTransform = selectedElement.style.transform || '';
             const newTransform = currentTransform.replace(/rotate\([^)]+\)/g, '').trim();
             selectedElement.style.transform = newTransform || '';
+            // Sauvegarder la rotation dans imageData
+            if (imageData) {
+              imageData.rotation = '0deg';
+            }
           }
+          // Ajuster le container après rotation
+          adjustImageContainerAfterRotation(selectedElement);
         }
         break;
       case 'borderRadius':
@@ -3877,6 +5145,7 @@
     
     // Mettre à jour l'état de verrouillage
     imageData.locked[lockType] = locked;
+    imageData.locked.userOverride = true;
     
     // Mettre à jour les boutons de verrouillage sur l'image
     const imageWrapper = targetImg.parentElement;
@@ -3941,6 +5210,7 @@
     initContextMenu();
     initSectionModal();
     initCanvasModal();
+    initSaveButton();
     loadDocument().then(() => {
       // Initialiser le canevas après le chargement du document
       initializeCanvasIfNeeded();

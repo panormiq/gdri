@@ -122,6 +122,12 @@ button.btn.btn-outline.view-tab.is-active,
   padding: 0;
   margin: 0;
   width: 100%;
+  position: relative;
+}
+
+.content-area.is-dropping {
+  outline: 2px dashed var(--doc-accent-strong, #4b9ed8);
+  outline-offset: 6px;
 }
 
 /* Pour les colonnes avec sommaire et annexes, ne pas étirer (sauf dans vue texte avec scroll) */
@@ -209,6 +215,56 @@ button.btn.btn-outline.view-tab.is-active,
 .content-area .section p {
   margin: 0;
   padding: 0;
+}
+
+.content-drop-message {
+  position: absolute;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(17, 24, 39, 0.9);
+  color: #fff;
+  padding: 8px 16px;
+  border-radius: 999px;
+  font-size: 13px;
+  letter-spacing: 0.2px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s ease;
+  z-index: 10;
+}
+
+.content-drop-message.is-visible {
+  opacity: 1;
+}
+
+.image-wrapper.is-drop-target,
+.image-wrapper.is-drop-replace {
+  outline: 2px solid var(--doc-accent-strong, #4b9ed8);
+  outline-offset: 4px;
+}
+
+.image-wrapper.is-drop-replace {
+  background-color: rgba(75, 158, 216, 0.08);
+}
+
+.content-upload-trigger {
+  position: sticky;
+  bottom: 12px;
+  display: flex;
+  justify-content: center;
+  margin-top: 24px;
+  padding: 8px;
+  z-index: 5;
+}
+
+.content-upload-trigger__btn {
+  border: 1px dashed var(--doc-accent-strong, #4b9ed8);
+  background: rgba(75, 158, 216, 0.08);
+  color: var(--doc-accent-strong, #4b9ed8);
+  font-weight: 600;
+  padding: 10px 16px;
+  border-radius: 999px;
 }
 
 .content-area .section img {
@@ -605,6 +661,23 @@ button.btn.btn-outline.view-tab.is-active,
   min-width: 0;
 }
 
+/* Groupe personnalisé (bouton + input à côté) */
+.property-custom-group {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 1 1 100%;
+  min-width: 0;
+}
+
+.property-input--custom {
+  flex: 1;
+  min-width: 0;
+  font-size: 11px;
+  padding: 4px 8px;
+  height: 32px;
+}
+
 .property-buttons--compact .property-btn {
   width: 32px;
   height: 32px;
@@ -651,8 +724,13 @@ button.btn.btn-outline.view-tab.is-active,
 }
 
 .property-buttons--shadows .property-btn--custom {
-  flex: 1 1 100%;
+  flex: 0 0 auto;
   font-size: 11px;
+}
+
+.property-buttons--shadows .property-custom-group {
+  flex: 1 1 100%;
+  margin-top: 0;
 }
 
 .property-buttons--radius {
@@ -694,9 +772,15 @@ button.btn.btn-outline.view-tab.is-active,
 }
 
 .property-buttons--radius .property-btn--custom {
-  flex: 1 1 100%;
+  flex: 0 0 auto;
   font-size: 12px;
   font-weight: 500;
+}
+
+.property-buttons--radius .property-custom-group {
+  flex: 1 1 100%;
+  width: 100%;
+  margin-top: 0;
 }
 
 .property-buttons--bevel {
@@ -739,11 +823,55 @@ button.btn.btn-outline.view-tab.is-active,
 }
 
 .property-buttons--bevel .property-btn--custom {
-  flex: 1 1 100%;
+  flex: 0 0 auto;
   font-size: 11px;
 }
 
+.property-buttons--bevel .property-custom-group {
+  flex: 1 1 100%;
+  margin-top: 0;
+}
+
 .property-lock-btn svg {
+  pointer-events: none;
+}
+
+/* Boutons de rotation */
+.property-buttons--rotation {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.property-buttons--rotation .property-btn {
+  flex: 0 0 auto;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--doc-border, #ddd);
+  background: var(--doc-bg, #fff);
+  color: var(--doc-text, #333);
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.property-buttons--rotation .property-btn:hover {
+  border-color: var(--doc-accent, #4b9ed8);
+  background: var(--doc-accent-light, rgba(75, 158, 216, 0.1));
+  color: var(--doc-accent-strong, #4b9ed8);
+}
+
+.property-buttons--rotation .property-btn:active {
+  transform: scale(0.95);
+}
+
+.property-buttons--rotation .property-btn svg {
+  width: 18px;
+  height: 18px;
   pointer-events: none;
 }
 

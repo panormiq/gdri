@@ -1,4 +1,4 @@
-<?php
+<h2 class="section-title" style="font-family: 'Michroma'; font-size: 22.5pt; color: #ED1C24; font-weight: bold; text-transform: none; text-align: center; background-color: #F2F3F3; margin-top: 12pt; margin-bottom: 6pt; margin-left: -70.85pt; padding-left: 70.85pt; margin-right: -70.85pt; padding-right: 70.85pt">Sommaire</h2><?php
 require_once '../../../config/config.php';
 require_once '../../../auth/session.php';
 require_once '../../../includes/functions.php';
@@ -31,6 +31,7 @@ require_once '../../../includes/header.php';
                 <button class="btn btn-outline view-tab is-active" data-view="text">📄 Vue texte</button>
                 <button class="btn btn-outline view-tab" data-view="card">🃏 Vue card</button>
                 <button class="btn btn-outline" id="editCanvasBtn" title="Éditer le canevas">⚙️ Éditer le canevas</button>
+                <button class="btn btn-primary" id="saveDocumentBtn" title="Sauvegarder les modifications">💾 Sauvegarder</button>
                 <button class="btn btn-primary" id="exportPdfBtn" title="Exporter en PDF">📄 Exporter PDF</button>
             </div>
         </div>
