@@ -1197,6 +1197,8 @@
       attachScrollPrevention();
       // Attacher les événements d'édition de texte
       attachTextEditEvents();
+      // Initialiser le rognage d'image
+      initImageCrop();
     }, 100);
 
     // Initialiser le drag & drop d'images
@@ -1645,6 +1647,10 @@
     imageData.pendingReplaceName = imageData.name || null;
     imageData.previewUrl = uploadResult.previewUrl;
     imageData.src = uploadResult.previewUrl;
+    // Stocker l'URL originale pour le rognage (ne sera jamais modifiée)
+    if (!imageData.originalSrc) {
+      imageData.originalSrc = uploadResult.previewUrl;
+    }
 
     // Logs des dimensions de la nouvelle image
     console.log('🔍 DEBUG dimensions nouvelle image:');
@@ -4536,6 +4542,1056 @@
 
     // Ajouter l'événement de clic (délégation)
     contentArea.addEventListener('click', handleContentClick);
+    
+    // Ajouter l'événement de double-clic pour le rognage d'image
+    contentArea.addEventListener('dblclick', handleImageDoubleClick);
+  }
+
+  /**
+   * Gère le double-clic sur une image pour ouvrir le modal de rognage
+   * @param {Event} e - Événement de double-clic
+   */
+  function handleImageDoubleClick(e) {
+    // Vérifier si on a cliqué sur une image
+    let imgElement = e.target;
+    if (imgElement.tagName !== 'IMG') {
+      imgElement = e.target.closest('img');
+    }
+    
+    if (!imgElement || imgElement.tagName !== 'IMG') return;
+    
+    // Empêcher la propagation
+    e.preventDefault();
+    e.stopPropagation();
+    
+    // Ouvrir le modal de rognage
+    openImageCropModal(imgElement);
+  }
+
+  /**
+   * Initialise le système de rognage d'image
+   */
+  function initImageCrop() {
+    const modal = document.getElementById('imageCropModal');
+    if (!modal) return;
+    
+    const closeBtn = document.getElementById('imageCropModalClose');
+    const cancelBtn = document.getElementById('imageCropCancel');
+    const saveBtn = document.getElementById('imageCropSave');
+    const resetBtn = document.getElementById('imageCropReset');
+    
+    // Fermer le modal
+    if (closeBtn) {
+      closeBtn.addEventListener('click', closeImageCropModal);
+    }
+    if (cancelBtn) {
+      cancelBtn.addEventListener('click', closeImageCropModal);
+    }
+    
+    // Fermer en cliquant sur l'overlay
+    modal.addEventListener('click', (e) => {
+      if (e.target === modal) {
+        closeImageCropModal();
+      }
+    });
+    
+    // Fermer avec Escape
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && modal.style.display !== 'none') {
+        closeImageCropModal();
+      }
+    });
+    
+    // Sauvegarder le rognage
+    if (saveBtn) {
+      saveBtn.addEventListener('click', applyImageCrop);
+    }
+    
+    // Réinitialiser le rognage
+    if (resetBtn) {
+      resetBtn.addEventListener('click', resetImageCrop);
+    }
+    
+    // Supprimer complètement le rognage
+    const deleteBtn = document.getElementById('imageCropDelete');
+    if (deleteBtn) {
+      deleteBtn.addEventListener('click', deleteImageCrop);
+      // Masquer par défaut au chargement
+      deleteBtn.style.display = 'none';
+    } else {
+      console.error('❌ Bouton imageCropDelete introuvable dans initImageCrop');
+    }
+  }
+
+  /**
+   * Ouvre le modal de rognage avec l'image
+   * @param {HTMLImageElement} imgElement - Élément image à rogner
+   */
+  function openImageCropModal(imgElement) {
+    const modal = document.getElementById('imageCropModal');
+    const canvas = document.getElementById('imageCropCanvas');
+    if (!modal || !canvas) return;
+    
+    // Récupérer l'imageData
+    const imageData = findImageDataFromElement(imgElement);
+    if (!imageData) return;
+    
+    // Stocker la référence à l'image
+    modal.dataset.imageElement = imgElement.getAttribute('data-image-id') || '';
+    
+    // Utiliser l'URL originale stockée, ou l'URL de l'upload (imageData.src)
+    // Ne jamais utiliser imgElement.src car il peut être rogné (data URL)
+    let originalSrc = imageData.originalSrc || imageData.src;
+    
+    // Si aucune URL originale n'est disponible, essayer de récupérer depuis l'élément
+    // mais seulement si ce n'est pas un data URL (image rognée)
+    if (!originalSrc) {
+      const currentSrc = imgElement.src;
+      if (!currentSrc.startsWith('data:')) {
+        // Ce n'est pas un data URL, c'est peut-être l'originale
+        originalSrc = currentSrc;
+      }
+    }
+    
+    // Stocker comme originale pour les prochaines fois si ce n'est pas déjà fait
+    if (originalSrc && !imageData.originalSrc) {
+      imageData.originalSrc = originalSrc;
+    }
+    
+    if (!originalSrc) {
+      console.error('Impossible de trouver l\'URL originale de l\'image');
+      alert('Impossible de charger l\'image originale pour le rognage');
+      return;
+    }
+    
+    // Construire l'URL complète
+    let imageSrc = originalSrc;
+    
+    // Si c'est un data URL (image rognée), ne pas l'utiliser - utiliser l'URL originale à la place
+    if (imageSrc && imageSrc.startsWith('data:')) {
+      console.warn('⚠️ Image source est un data URL (rognée), utilisation de l\'URL originale à la place');
+      // Essayer de récupérer l'URL originale depuis imageData.src ou imageData.originalSrc
+      imageSrc = imageData.originalSrc || imageData.src;
+      if (!imageSrc || imageSrc.startsWith('data:')) {
+        console.error('❌ Impossible de trouver l\'URL originale (non rognée)');
+        alert('Impossible de charger l\'image originale pour le rognage');
+        return;
+      }
+    }
+    
+    // Si c'est déjà une URL complète (http/https), l'utiliser telle quelle
+    if (imageSrc.startsWith('http://') || imageSrc.startsWith('https://')) {
+      // URL complète, utiliser telle quelle
+    } else if (imageData.name || imageData.tempImageId) {
+      // C'est un nom d'image ou un tempImageId, construire l'URL via l'API
+      if (imageData.tempImageId) {
+        // Image temporaire
+        imageSrc = buildTempImageUrl(imageData.tempImageId);
+      } else if (imageData.name) {
+        // Image sauvegardée
+        imageSrc = buildDocumentImageUrl(imageData.name);
+      } else {
+        // Essayer avec originalSrc comme nom d'image
+        imageSrc = buildDocumentImageUrl(originalSrc);
+      }
+    } else {
+      // URL relative, la convertir en URL absolue
+      try {
+        // Si l'URL commence par /, utiliser origin comme base
+        // Sinon, utiliser window.location.href pour préserver le chemin actuel
+        if (imageSrc.startsWith('/')) {
+          imageSrc = new URL(imageSrc, window.location.origin).href;
+        } else {
+          // URL relative sans slash : utiliser le chemin actuel comme base
+          imageSrc = new URL(imageSrc, window.location.href).href;
+        }
+      } catch (e) {
+        console.error('Erreur lors de la conversion de l\'URL:', e, originalSrc);
+        // En cas d'erreur, essayer avec window.location.href
+        imageSrc = new URL(imageSrc, window.location.href).href;
+      }
+    }
+    
+    // Stocker l'URL convertie dans le modal
+    modal.dataset.imageSrc = imageSrc;
+    
+    console.log('🖼️ Chargement image pour rognage:', {
+      originalSrc: originalSrc,
+      convertedSrc: imageSrc,
+      windowLocation: window.location.href
+    });
+    
+    // Créer une nouvelle image pour charger l'originale
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = function() {
+      // Ajuster la taille du canvas à l'image
+      const maxWidth = 800;
+      const maxHeight = 600;
+      let canvasWidth = img.width;
+      let canvasHeight = img.height;
+      
+      // Redimensionner si nécessaire pour tenir dans le modal
+      if (canvasWidth > maxWidth || canvasHeight > maxHeight) {
+        const ratio = Math.min(maxWidth / canvasWidth, maxHeight / canvasHeight);
+        canvasWidth = canvasWidth * ratio;
+        canvasHeight = canvasHeight * ratio;
+      }
+      
+      canvas.width = canvasWidth;
+      canvas.height = canvasHeight;
+      
+      // Dessiner l'image sur le canvas
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0, canvasWidth, canvasHeight);
+      
+      // Stocker l'image originale pour la réutiliser
+      canvas.originalImage = img;
+      
+      // Stocker les dimensions originales pour le calcul du rognage
+      canvas.dataset.originalWidth = img.width;
+      canvas.dataset.originalHeight = img.height;
+      canvas.dataset.scaleX = img.width / canvasWidth;
+      canvas.dataset.scaleY = img.height / canvasHeight;
+      
+      // Initialiser le rectangle de rognage
+      initCropRectangle(canvas, imageData.crop);
+      
+      // Afficher/masquer le bouton "Supprimer" selon qu'un rognage existe
+      const deleteBtn = document.getElementById('imageCropDelete');
+      if (deleteBtn) {
+        const hasCrop = imageData.crop && 
+                        typeof imageData.crop.x === 'number' && 
+                        typeof imageData.crop.y === 'number' && 
+                        typeof imageData.crop.width === 'number' && 
+                        typeof imageData.crop.height === 'number' &&
+                        imageData.crop.width > 0 && 
+                        imageData.crop.height > 0;
+        deleteBtn.style.display = hasCrop ? 'block' : 'none';
+        console.log('🔘 Bouton Supprimer:', hasCrop ? 'affiché' : 'masqué', 'crop:', imageData.crop);
+      } else {
+        console.error('❌ Bouton imageCropDelete introuvable');
+      }
+    };
+    
+    img.onerror = function() {
+      console.error('Erreur lors du chargement de l\'image:', imageSrc);
+      alert('Impossible de charger l\'image pour le rognage');
+    };
+    
+    // Charger l'image (utiliser l'URL originale convertie)
+    img.src = imageSrc;
+    
+    // Afficher le modal
+    modal.style.display = 'flex';
+    document.body.style.overflow = 'hidden';
+  }
+
+  /**
+   * Ferme le modal de rognage
+   */
+  function closeImageCropModal() {
+    const modal = document.getElementById('imageCropModal');
+    if (!modal) return;
+    
+    modal.style.display = 'none';
+    document.body.style.overflow = '';
+    
+    // Nettoyer le canvas et retirer les event listeners
+    const canvas = document.getElementById('imageCropCanvas');
+    if (canvas) {
+      const ctx = canvas.getContext('2d');
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      
+      // Retirer les event listeners de rognage (drag and drop)
+      if (canvas.cropMouseDownHandler) {
+        canvas.removeEventListener('mousedown', canvas.cropMouseDownHandler);
+        canvas.removeEventListener('mousemove', canvas.cropMouseMoveHandler);
+        canvas.removeEventListener('mouseup', canvas.cropMouseUpHandler);
+        canvas.cropMouseDownHandler = null;
+        canvas.cropMouseMoveHandler = null;
+        canvas.cropMouseUpHandler = null;
+      }
+      
+      // Retirer les event listeners de redimensionnement
+      if (canvas.cropResizeMouseDownHandler) {
+        canvas.removeEventListener('mousedown', canvas.cropResizeMouseDownHandler);
+        canvas.removeEventListener('mousemove', canvas.cropResizeMouseMoveHandler);
+        canvas.removeEventListener('mouseup', canvas.cropResizeMouseUpHandler);
+        if (canvas.cropResizeMouseOverHandler) {
+          canvas.removeEventListener('mousemove', canvas.cropResizeMouseOverHandler);
+        }
+        canvas.cropResizeMouseDownHandler = null;
+        canvas.cropResizeMouseMoveHandler = null;
+        canvas.cropResizeMouseUpHandler = null;
+        canvas.cropResizeMouseOverHandler = null;
+      }
+      
+      // Réinitialiser le curseur
+      canvas.style.cursor = 'default';
+      
+      // Nettoyer les données
+      canvas.cropData = null;
+      canvas.originalImage = null;
+    }
+    
+    // Masquer le bouton "Supprimer"
+    const deleteBtn = document.getElementById('imageCropDelete');
+    if (deleteBtn) {
+      deleteBtn.style.display = 'none';
+    }
+  }
+
+  /**
+   * Initialise le rectangle de rognage sur le canvas
+   * @param {HTMLCanvasElement} canvas - Canvas
+   * @param {Object} existingCrop - Rognage existant (optionnel)
+   */
+  function initCropRectangle(canvas, existingCrop) {
+    // Initialiser les variables
+    canvas.isDragging = false;
+    canvas.isResizing = false;
+    
+    // Vérifier si un rognage valide existe (doit avoir x, y, width, height et des valeurs > 0)
+    const hasValidCrop = existingCrop && 
+                         typeof existingCrop.x === 'number' && 
+                         typeof existingCrop.y === 'number' && 
+                         typeof existingCrop.width === 'number' && 
+                         typeof existingCrop.height === 'number' &&
+                         existingCrop.width > 0 && 
+                         existingCrop.height > 0;
+    
+    if (hasValidCrop) {
+      console.log('✅ Rognage valide détecté:', existingCrop);
+      // Si un rognage valide existe, l'afficher avec les poignées et activer le redimensionnement
+      canvas.cropData = existingCrop;
+      drawCropRectangle(canvas, existingCrop);
+      // Activer les event listeners pour redimensionner et déplacer le rectangle existant
+      enableCropResizeAndMove(canvas);
+    } else {
+      console.log('❌ Pas de rognage valide, activation du drag-and-drop');
+      // Sinon, permettre le drag and drop pour créer un nouveau rectangle
+      canvas.cropData = null;
+      enableCropDragAndDrop(canvas);
+    }
+  }
+
+  /**
+   * Dessine le rectangle de rognage sur le canvas
+   * @param {HTMLCanvasElement} canvas - Canvas
+   * @param {Object} crop - Coordonnées du rognage
+   */
+  function drawCropRectangle(canvas, crop) {
+    const ctx = canvas.getContext('2d');
+    const scaleX = parseFloat(canvas.dataset.scaleX) || 1;
+    const scaleY = parseFloat(canvas.dataset.scaleY) || 1;
+    
+    // Convertir les coordonnées originales en coordonnées canvas
+    const x = (crop.x || 0) / scaleX;
+    const y = (crop.y || 0) / scaleY;
+    const width = (crop.width || canvas.width) / scaleX;
+    const height = (crop.height || canvas.height) / scaleY;
+    
+    console.log('🎨 drawCropRectangle:', {
+      cropOriginal: crop,
+      cropCanvas: { x, y, width, height },
+      scale: { scaleX, scaleY },
+      canvasSize: { width: canvas.width, height: canvas.height }
+    });
+    
+    // Utiliser l'image originale stockée
+    const img = canvas.originalImage;
+    if (!img) return;
+    
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+    
+    // Dessiner le rectangle de rognage
+    ctx.strokeStyle = '#4b9ed8';
+    ctx.lineWidth = 2;
+    ctx.setLineDash([]);
+    ctx.strokeRect(x, y, width, height);
+    
+    // Dessiner l'overlay (zone sombre autour du rectangle)
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.globalCompositeOperation = 'destination-out';
+    ctx.fillRect(x, y, width, height);
+    ctx.globalCompositeOperation = 'source-over';
+    
+    // Dessiner les poignées de redimensionnement
+    drawCropHandles(ctx, x, y, width, height);
+  }
+
+  /**
+   * Dessine les poignées de redimensionnement
+   * @param {CanvasRenderingContext2D} ctx - Contexte du canvas
+   * @param {number} x - Position X
+   * @param {number} y - Position Y
+   * @param {number} width - Largeur
+   * @param {number} height - Hauteur
+   */
+  function drawCropHandles(ctx, x, y, width, height) {
+    const handleSize = 8;
+    const handles = [
+      { name: 'nw', x: x, y: y }, // NW
+      { name: 'n', x: x + width / 2, y: y }, // N
+      { name: 'ne', x: x + width, y: y }, // NE
+      { name: 'e', x: x + width, y: y + height / 2 }, // E
+      { name: 'se', x: x + width, y: y + height }, // SE
+      { name: 's', x: x + width / 2, y: y + height }, // S
+      { name: 'sw', x: x, y: y + height }, // SW
+      { name: 'w', x: x, y: y + height / 2 } // W
+    ];
+    
+    console.log('🎨 Dessin des poignées:', handles.map(h => `${h.name}: (${h.x.toFixed(2)}, ${h.y.toFixed(2)})`));
+    
+    ctx.fillStyle = '#4b9ed8';
+    ctx.strokeStyle = '#fff';
+    ctx.lineWidth = 2;
+    
+    handles.forEach(handle => {
+      ctx.beginPath();
+      ctx.arc(handle.x, handle.y, handleSize / 2, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+    });
+  }
+
+  /**
+   * Active le drag and drop pour créer un rectangle de rognage
+   * @param {HTMLCanvasElement} canvas - Canvas
+   */
+  function enableCropDragAndDrop(canvas) {
+    // Retirer les anciens event listeners s'ils existent
+    if (canvas.cropMouseDownHandler) {
+      canvas.removeEventListener('mousedown', canvas.cropMouseDownHandler);
+      canvas.removeEventListener('mousemove', canvas.cropMouseMoveHandler);
+      canvas.removeEventListener('mouseup', canvas.cropMouseUpHandler);
+    }
+    
+    // S'assurer que le canvas est propre (seulement l'image, pas de rectangle)
+    const ctx = canvas.getContext('2d');
+    const img = canvas.originalImage;
+    if (img) {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+    }
+    
+    let isDrawing = false;
+    let startX = 0;
+    let startY = 0;
+    let currentX = 0;
+    let currentY = 0;
+    
+    // Créer les handlers
+    canvas.cropMouseDownHandler = (e) => {
+      const rect = canvas.getBoundingClientRect();
+      // Calculer le ratio entre la taille réelle du canvas et sa taille d'affichage
+      const scaleXDisplay = canvas.width / rect.width;
+      const scaleYDisplay = canvas.height / rect.height;
+      
+      // Coordonnées en pixels canvas (en tenant compte du ratio d'affichage)
+      startX = (e.clientX - rect.left) * scaleXDisplay;
+      startY = (e.clientY - rect.top) * scaleYDisplay;
+      isDrawing = true;
+    };
+    
+    canvas.cropMouseMoveHandler = (e) => {
+      if (!isDrawing) return;
+      
+      const rect = canvas.getBoundingClientRect();
+      // Calculer le ratio entre la taille réelle du canvas et sa taille d'affichage
+      const scaleXDisplay = canvas.width / rect.width;
+      const scaleYDisplay = canvas.height / rect.height;
+      
+      // Coordonnées en pixels canvas (en tenant compte du ratio d'affichage)
+      currentX = (e.clientX - rect.left) * scaleXDisplay;
+      currentY = (e.clientY - rect.top) * scaleYDisplay;
+      
+      // Redessiner avec le rectangle en cours
+      redrawCanvasWithCrop(canvas, {
+        x: Math.min(startX, currentX),
+        y: Math.min(startY, currentY),
+        width: Math.abs(currentX - startX),
+        height: Math.abs(currentY - startY)
+      });
+    };
+    
+    canvas.cropMouseUpHandler = (e) => {
+      if (!isDrawing) return;
+      isDrawing = false;
+      
+      const rect = canvas.getBoundingClientRect();
+      // Calculer le ratio entre la taille réelle du canvas et sa taille d'affichage
+      const scaleXDisplay = canvas.width / rect.width;
+      const scaleYDisplay = canvas.height / rect.height;
+      
+      // Coordonnées en pixels canvas (en tenant compte du ratio d'affichage)
+      currentX = (e.clientX - rect.left) * scaleXDisplay;
+      currentY = (e.clientY - rect.top) * scaleYDisplay;
+      
+      // Sauvegarder le rectangle de rognage
+      const crop = {
+        x: Math.min(startX, currentX),
+        y: Math.min(startY, currentY),
+        width: Math.abs(currentX - startX),
+        height: Math.abs(currentY - startY)
+      };
+      
+      // Convertir en coordonnées originales
+      const scaleX = parseFloat(canvas.dataset.scaleX) || 1;
+      const scaleY = parseFloat(canvas.dataset.scaleY) || 1;
+      
+      canvas.cropData = {
+        x: crop.x * scaleX,
+        y: crop.y * scaleY,
+        width: crop.width * scaleX,
+        height: crop.height * scaleY
+      };
+      
+      // Afficher avec les poignées
+      drawCropRectangle(canvas, canvas.cropData);
+      
+      // Retirer les handlers de drag-and-drop
+      canvas.removeEventListener('mousedown', canvas.cropMouseDownHandler);
+      canvas.removeEventListener('mousemove', canvas.cropMouseMoveHandler);
+      canvas.removeEventListener('mouseup', canvas.cropMouseUpHandler);
+      
+      // Activer les handlers de redimensionnement pour utiliser les poignées
+      enableCropResizeAndMove(canvas);
+      
+      // Afficher le bouton "Supprimer" maintenant qu'un rognage existe
+      const deleteBtn = document.getElementById('imageCropDelete');
+      if (deleteBtn) {
+        deleteBtn.style.display = 'block';
+        console.log('✅ Bouton Supprimer affiché après création du rectangle');
+      } else {
+        console.error('❌ Bouton imageCropDelete introuvable après création');
+      }
+    };
+    
+    // Ajouter les event listeners
+    canvas.addEventListener('mousedown', canvas.cropMouseDownHandler);
+    canvas.addEventListener('mousemove', canvas.cropMouseMoveHandler);
+    canvas.addEventListener('mouseup', canvas.cropMouseUpHandler);
+  }
+
+  /**
+   * Active le redimensionnement et le déplacement du rectangle de rognage existant
+   * @param {HTMLCanvasElement} canvas - Canvas
+   */
+  function enableCropResizeAndMove(canvas) {
+    // Retirer les anciens event listeners de redimensionnement s'ils existent
+    if (canvas.cropResizeMouseDownHandler) {
+      canvas.removeEventListener('mousedown', canvas.cropResizeMouseDownHandler);
+      canvas.removeEventListener('mousemove', canvas.cropResizeMouseMoveHandler);
+      canvas.removeEventListener('mouseup', canvas.cropResizeMouseUpHandler);
+    }
+    
+    // Retirer aussi les event listeners de drag-and-drop s'ils existent
+    if (canvas.cropMouseDownHandler) {
+      canvas.removeEventListener('mousedown', canvas.cropMouseDownHandler);
+      canvas.removeEventListener('mousemove', canvas.cropMouseMoveHandler);
+      canvas.removeEventListener('mouseup', canvas.cropMouseUpHandler);
+    }
+    
+    const scaleX = parseFloat(canvas.dataset.scaleX) || 1;
+    const scaleY = parseFloat(canvas.dataset.scaleY) || 1;
+    
+    let isDragging = false;
+    let isResizing = false;
+    let resizeHandle = null;
+    let startX = 0;
+    let startY = 0;
+    let startCrop = null;
+    
+    // Fonction pour obtenir la poignée la plus proche du point de clic
+    function getHandleAt(x, y, crop) {
+      const handleSize = 20; // Taille de détection augmentée pour faciliter le clic
+      
+      // S'assurer que x et y sont des nombres
+      x = Number(x);
+      y = Number(y);
+      
+      const handles = [
+        { name: 'nw', x: Number(crop.x), y: Number(crop.y) },
+        { name: 'n', x: Number(crop.x + crop.width / 2), y: Number(crop.y) },
+        { name: 'ne', x: Number(crop.x + crop.width), y: Number(crop.y) },
+        { name: 'e', x: Number(crop.x + crop.width), y: Number(crop.y + crop.height / 2) },
+        { name: 'se', x: Number(crop.x + crop.width), y: Number(crop.y + crop.height) },
+        { name: 's', x: Number(crop.x + crop.width / 2), y: Number(crop.y + crop.height) },
+        { name: 'sw', x: Number(crop.x), y: Number(crop.y + crop.height) },
+        { name: 'w', x: Number(crop.x), y: Number(crop.y + crop.height / 2) }
+      ];
+      
+      let closestHandle = null;
+      let closestDistance = Infinity;
+      
+      for (const handle of handles) {
+        const dx = x - handle.x;
+        const dy = y - handle.y;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+        if (distance <= handleSize && distance < closestDistance) {
+          closestDistance = distance;
+          closestHandle = handle.name;
+        }
+      }
+      
+      if (closestHandle) {
+        console.log('🎯 Poignée trouvée:', closestHandle, 'distance:', closestDistance.toFixed(2));
+      } else {
+        console.log('❌ Aucune poignée trouvée.');
+        console.log('Point de clic:', { x, y, typeX: typeof x, typeY: typeof y });
+        handles.forEach(h => {
+          const dx = x - h.x;
+          const dy = y - h.y;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+          console.log(`  ${h.name}: (${h.x.toFixed(2)}, ${h.y.toFixed(2)}) - distance: ${dist.toFixed(2)} - dans range: ${dist <= handleSize}`);
+        });
+        console.log('Taille de détection:', handleSize);
+      }
+      
+      return closestHandle;
+    }
+    
+    // Fonction pour vérifier si le clic est dans le rectangle
+    function isPointInCrop(x, y, crop) {
+      return x >= crop.x && x <= crop.x + crop.width &&
+             y >= crop.y && y <= crop.y + crop.height;
+    }
+    
+    canvas.cropResizeMouseDownHandler = (e) => {
+      const rect = canvas.getBoundingClientRect();
+      // Calculer le ratio entre la taille réelle du canvas et sa taille d'affichage
+      const scaleXDisplay = canvas.width / rect.width;
+      const scaleYDisplay = canvas.height / rect.height;
+      
+      // Coordonnées en pixels canvas (en tenant compte du ratio d'affichage)
+      const mouseX = (e.clientX - rect.left) * scaleXDisplay;
+      const mouseY = (e.clientY - rect.top) * scaleYDisplay;
+      
+      console.log('🖱️ MouseDown sur canvas:', { mouseX, mouseY, hasCropData: !!canvas.cropData });
+      
+      if (!canvas.cropData) {
+        console.log('❌ Pas de cropData');
+        return;
+      }
+      
+      // Convertir les coordonnées du crop en coordonnées canvas
+      // Utiliser exactement la même formule que dans drawCropRectangle
+      const cropCanvas = {
+        x: Number((canvas.cropData.x || 0) / scaleX),
+        y: Number((canvas.cropData.y || 0) / scaleY),
+        width: Number((canvas.cropData.width || canvas.width) / scaleX),
+        height: Number((canvas.cropData.height || canvas.height) / scaleY)
+      };
+      
+      console.log('📐 Crop canvas (détection):', cropCanvas);
+      console.log('📐 Crop data original:', canvas.cropData);
+      console.log('📐 Scale:', { scaleX, scaleY });
+      console.log('📐 Canvas size:', { width: canvas.width, height: canvas.height });
+      
+      // Vérifier si on clique sur une poignée
+      const handle = getHandleAt(mouseX, mouseY, cropCanvas);
+      console.log('🔧 Handle détecté:', handle);
+      
+      if (handle) {
+        console.log('✅ Démarrage redimensionnement avec poignée:', handle);
+        isResizing = true;
+        resizeHandle = handle;
+        startX = mouseX;
+        startY = mouseY;
+        startCrop = { ...cropCanvas };
+        e.preventDefault();
+        e.stopPropagation();
+      } else if (isPointInCrop(mouseX, mouseY, cropCanvas)) {
+        console.log('✅ Démarrage déplacement');
+        // Clic dans le rectangle : déplacer
+        isDragging = true;
+        startX = mouseX;
+        startY = mouseY;
+        startCrop = { ...cropCanvas };
+        e.preventDefault();
+        e.stopPropagation();
+      } else {
+        console.log('❌ Clic en dehors du rectangle');
+      }
+    };
+    
+    canvas.cropResizeMouseMoveHandler = (e) => {
+      if (!isDragging && !isResizing) return;
+      if (!canvas.cropData || !startCrop) return;
+      
+      const rect = canvas.getBoundingClientRect();
+      // Calculer le ratio entre la taille réelle du canvas et sa taille d'affichage
+      const scaleXDisplay = canvas.width / rect.width;
+      const scaleYDisplay = canvas.height / rect.height;
+      
+      // Coordonnées en pixels canvas (en tenant compte du ratio d'affichage)
+      const currentX = (e.clientX - rect.left) * scaleXDisplay;
+      const currentY = (e.clientY - rect.top) * scaleYDisplay;
+      const deltaX = currentX - startX;
+      const deltaY = currentY - startY;
+      
+      let newCrop = { ...startCrop };
+      
+      if (isResizing && resizeHandle) {
+        // Redimensionner selon la poignée
+        switch (resizeHandle) {
+          case 'nw':
+            newCrop.x += deltaX;
+            newCrop.y += deltaY;
+            newCrop.width -= deltaX;
+            newCrop.height -= deltaY;
+            break;
+          case 'n':
+            newCrop.y += deltaY;
+            newCrop.height -= deltaY;
+            break;
+          case 'ne':
+            newCrop.y += deltaY;
+            newCrop.width += deltaX;
+            newCrop.height -= deltaY;
+            break;
+          case 'e':
+            newCrop.width += deltaX;
+            break;
+          case 'se':
+            newCrop.width += deltaX;
+            newCrop.height += deltaY;
+            break;
+          case 's':
+            newCrop.height += deltaY;
+            break;
+          case 'sw':
+            newCrop.x += deltaX;
+            newCrop.width -= deltaX;
+            newCrop.height += deltaY;
+            break;
+          case 'w':
+            newCrop.x += deltaX;
+            newCrop.width -= deltaX;
+            break;
+        }
+        
+        // Limiter les dimensions minimales
+        if (newCrop.width < 10) {
+          newCrop.width = 10;
+          if (resizeHandle.includes('w')) newCrop.x = startCrop.x + startCrop.width - 10;
+        }
+        if (newCrop.height < 10) {
+          newCrop.height = 10;
+          if (resizeHandle.includes('n')) newCrop.y = startCrop.y + startCrop.height - 10;
+        }
+        
+        // Limiter aux bords du canvas
+        if (newCrop.x < 0) {
+          newCrop.width += newCrop.x;
+          newCrop.x = 0;
+        }
+        if (newCrop.y < 0) {
+          newCrop.height += newCrop.y;
+          newCrop.y = 0;
+        }
+        if (newCrop.x + newCrop.width > canvas.width) {
+          newCrop.width = canvas.width - newCrop.x;
+        }
+        if (newCrop.y + newCrop.height > canvas.height) {
+          newCrop.height = canvas.height - newCrop.y;
+        }
+      } else if (isDragging) {
+        // Déplacer le rectangle
+        newCrop.x = startCrop.x + deltaX;
+        newCrop.y = startCrop.y + deltaY;
+        
+        // Limiter aux bords du canvas
+        if (newCrop.x < 0) newCrop.x = 0;
+        if (newCrop.y < 0) newCrop.y = 0;
+        if (newCrop.x + newCrop.width > canvas.width) {
+          newCrop.x = canvas.width - newCrop.width;
+        }
+        if (newCrop.y + newCrop.height > canvas.height) {
+          newCrop.y = canvas.height - newCrop.height;
+        }
+      }
+      
+      // Convertir en coordonnées originales et mettre à jour
+      canvas.cropData = {
+        x: newCrop.x * scaleX,
+        y: newCrop.y * scaleY,
+        width: newCrop.width * scaleX,
+        height: newCrop.height * scaleY
+      };
+      
+      // Redessiner
+      drawCropRectangle(canvas, canvas.cropData);
+    };
+    
+    canvas.cropResizeMouseUpHandler = () => {
+      isDragging = false;
+      isResizing = false;
+      resizeHandle = null;
+      startCrop = null;
+    };
+    
+    // Gestionnaire pour changer le curseur au survol
+    canvas.cropResizeMouseOverHandler = (e) => {
+      // Ne pas changer le curseur si on est en train de redimensionner ou déplacer
+      if (isDragging || isResizing || startCrop) {
+        return;
+      }
+      
+      if (!canvas.cropData) {
+        canvas.style.cursor = 'default';
+        return;
+      }
+      
+      const rect = canvas.getBoundingClientRect();
+      // Calculer le ratio entre la taille réelle du canvas et sa taille d'affichage
+      const scaleXDisplay = canvas.width / rect.width;
+      const scaleYDisplay = canvas.height / rect.height;
+      
+      // Coordonnées en pixels canvas (en tenant compte du ratio d'affichage)
+      const mouseX = (e.clientX - rect.left) * scaleXDisplay;
+      const mouseY = (e.clientY - rect.top) * scaleYDisplay;
+      
+      const cropCanvas = {
+        x: Number(canvas.cropData.x / scaleX),
+        y: Number(canvas.cropData.y / scaleY),
+        width: Number(canvas.cropData.width / scaleX),
+        height: Number(canvas.cropData.height / scaleY)
+      };
+      
+      const handle = getHandleAt(mouseX, mouseY, cropCanvas);
+      if (handle) {
+        // Changer le curseur selon la poignée
+        const cursors = {
+          'nw': 'nw-resize', 'n': 'n-resize', 'ne': 'ne-resize',
+          'e': 'e-resize', 'se': 'se-resize', 's': 's-resize',
+          'sw': 'sw-resize', 'w': 'w-resize'
+        };
+        canvas.style.cursor = cursors[handle] || 'move';
+      } else if (isPointInCrop(mouseX, mouseY, cropCanvas)) {
+        canvas.style.cursor = 'move';
+      } else {
+        canvas.style.cursor = 'default';
+      }
+    };
+    
+    // Ajouter les event listeners
+    canvas.addEventListener('mousedown', canvas.cropResizeMouseDownHandler);
+    canvas.addEventListener('mousemove', canvas.cropResizeMouseMoveHandler);
+    canvas.addEventListener('mouseup', canvas.cropResizeMouseUpHandler);
+    canvas.addEventListener('mousemove', canvas.cropResizeMouseOverHandler);
+    
+    // S'assurer que le canvas peut recevoir les événements
+    canvas.style.pointerEvents = 'auto';
+    canvas.style.cursor = 'default';
+    
+    console.log('✅ Handlers de redimensionnement attachés au canvas');
+  }
+
+  /**
+   * Redessine le canvas avec un rectangle de rognage
+   * @param {HTMLCanvasElement} canvas - Canvas
+   * @param {Object} crop - Coordonnées du rectangle
+   */
+  function redrawCanvasWithCrop(canvas, crop) {
+    const ctx = canvas.getContext('2d');
+    const img = canvas.originalImage;
+    if (!img) return;
+    
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+    
+    // Dessiner l'overlay
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.globalCompositeOperation = 'destination-out';
+    ctx.fillRect(crop.x, crop.y, crop.width, crop.height);
+    ctx.globalCompositeOperation = 'source-over';
+    
+    // Dessiner le rectangle
+    ctx.strokeStyle = '#4b9ed8';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(crop.x, crop.y, crop.width, crop.height);
+  }
+
+  /**
+   * Applique le rognage à l'image
+   */
+  function applyImageCrop() {
+    const modal = document.getElementById('imageCropModal');
+    const canvas = document.getElementById('imageCropCanvas');
+    if (!modal || !canvas) return;
+    
+    const imageId = modal.dataset.imageElement;
+    const imgElement = document.querySelector(`[data-image-id="${imageId}"]`);
+    if (!imgElement) return;
+    
+    // Si aucun rognage n'est actif, juste fermer le modal
+    if (!canvas.cropData) {
+      closeImageCropModal();
+      return;
+    }
+    
+    // Créer un nouveau canvas pour le rognage
+    const cropCanvas = document.createElement('canvas');
+    const cropCtx = cropCanvas.getContext('2d');
+    const crop = canvas.cropData;
+    
+    // Définir la taille du canvas de rognage
+    cropCanvas.width = crop.width;
+    cropCanvas.height = crop.height;
+    
+    // Charger l'image originale
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = function() {
+      // Dessiner la partie rognée
+      cropCtx.drawImage(
+        img,
+        crop.x, crop.y, crop.width, crop.height, // Source
+        0, 0, crop.width, crop.height // Destination
+      );
+      
+      // Convertir en data URL et mettre à jour l'image
+      const dataURL = cropCanvas.toDataURL('image/png');
+      imgElement.src = dataURL;
+      
+      // Sauvegarder le rognage dans imageData
+      const imageData = findImageDataFromElement(imgElement);
+      if (imageData) {
+        imageData.crop = crop;
+        imageData.croppedSrc = dataURL;
+      }
+      
+      // Fermer le modal
+      closeImageCropModal();
+    };
+    
+    img.onerror = function() {
+      console.error('Erreur lors du chargement de l\'image:', modal.dataset.imageSrc);
+      alert('Erreur lors de l\'application du rognage. Vérifiez la console pour plus de détails.');
+    };
+    
+    // L'URL est déjà convertie en URL absolue dans openImageCropModal
+    img.src = modal.dataset.imageSrc;
+  }
+
+  /**
+   * Réinitialise le rognage
+   */
+  function resetImageCrop() {
+    const modal = document.getElementById('imageCropModal');
+    const canvas = document.getElementById('imageCropCanvas');
+    if (!modal || !canvas) return;
+    
+    const imageId = modal.dataset.imageElement;
+    const imgElement = document.querySelector(`[data-image-id="${imageId}"]`);
+    if (!imgElement) return;
+    
+    // Réinitialiser le rognage
+    canvas.cropData = null;
+    
+    // Utiliser l'image originale stockée
+    const img = canvas.originalImage;
+    if (img) {
+      const ctx = canvas.getContext('2d');
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      
+      // Réactiver le drag and drop
+      enableCropDragAndDrop(canvas);
+      
+      // Masquer le bouton "Supprimer" car le rognage est réinitialisé
+      const deleteBtn = document.getElementById('imageCropDelete');
+      if (deleteBtn) {
+        deleteBtn.style.display = 'none';
+      }
+    }
+  }
+
+  /**
+   * Supprime complètement le rognage (dans le modal et dans imageData)
+   */
+  function deleteImageCrop() {
+    const modal = document.getElementById('imageCropModal');
+    const canvas = document.getElementById('imageCropCanvas');
+    if (!modal || !canvas) return;
+    
+    const imageId = modal.dataset.imageElement;
+    const imgElement = document.querySelector(`[data-image-id="${imageId}"]`);
+    if (!imgElement) return;
+    
+    // Récupérer l'imageData
+    const imageData = findImageDataFromElement(imgElement);
+    if (!imageData) return;
+    
+    // Supprimer le rognage de imageData
+    delete imageData.crop;
+    delete imageData.croppedSrc;
+    
+    // Remettre l'image à l'originale - construire l'URL complète comme dans openImageCropModal
+    let originalSrc = imageData.originalSrc || imageData.src;
+    if (!originalSrc) {
+      console.error('Impossible de trouver l\'URL originale de l\'image');
+      return;
+    }
+    
+    // Construire l'URL complète (même logique que dans openImageCropModal)
+    let imageSrc = originalSrc;
+    
+    // Si c'est déjà une URL complète (http/https/data), l'utiliser telle quelle
+    if (imageSrc.startsWith('http://') || imageSrc.startsWith('https://') || imageSrc.startsWith('data:')) {
+      // URL complète, utiliser telle quelle
+    } else if (imageData.name || imageData.tempImageId) {
+      // C'est un nom d'image ou un tempImageId, construire l'URL via l'API
+      if (imageData.tempImageId) {
+        // Image temporaire
+        imageSrc = buildTempImageUrl(imageData.tempImageId);
+      } else if (imageData.name) {
+        // Image sauvegardée
+        imageSrc = buildDocumentImageUrl(imageData.name);
+      } else {
+        // Essayer avec originalSrc comme nom d'image
+        imageSrc = buildDocumentImageUrl(originalSrc);
+      }
+    } else {
+      // URL relative, la convertir en URL absolue
+      try {
+        if (imageSrc.startsWith('/')) {
+          imageSrc = new URL(imageSrc, window.location.origin).href;
+        } else {
+          imageSrc = new URL(imageSrc, window.location.href).href;
+        }
+      } catch (e) {
+        console.error('Erreur lors de la conversion de l\'URL:', e, originalSrc);
+        imageSrc = new URL(imageSrc, window.location.href).href;
+      }
+    }
+    
+    // Remettre l'image à l'originale avec l'URL complète
+    imgElement.src = imageSrc;
+    
+    // Réinitialiser le canvas dans le modal
+    canvas.cropData = null;
+    const img = canvas.originalImage;
+    if (img) {
+      const ctx = canvas.getContext('2d');
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      
+      // Réactiver le drag and drop
+      enableCropDragAndDrop(canvas);
+    }
+    
+    // Masquer le bouton "Supprimer"
+    const deleteBtn = document.getElementById('imageCropDelete');
+    if (deleteBtn) {
+      deleteBtn.style.display = 'none';
+    }
   }
 
   /**

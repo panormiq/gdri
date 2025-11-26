@@ -180,8 +180,10 @@ require_once '../../../includes/header.php';
             </div>
         </div>
         <div class="modal-footer">
+            <button type="button" class="btn btn-outline" id="imageCropDelete" style="display: none;">Supprimer le rognage</button>
+            <div style="flex: 1;"></div>
             <button type="button" class="btn btn-outline" id="imageCropCancel">Annuler</button>
-            <button type="button" class="btn btn-primary" id="imageCropSave">Appliquer le rognage</button>
+            <button type="button" class="btn btn-primary" id="imageCropSave">Valider</button>
         </div>
     </div>
 </div>
