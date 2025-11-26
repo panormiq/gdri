@@ -4106,27 +4106,137 @@
         const direction = btn.dataset.rotate; // 'left' ou 'right'
         const increment = direction === 'left' ? -90 : 90;
         
-        // Récupérer la rotation actuelle
-        const currentTransform = selectedElement.style.transform || '';
+        // Récupérer imageData
+        const imageData = findImageDataFromElement(selectedElement);
+        if (!imageData) return;
+        
+        // Lire la rotation actuelle depuis imageData.rotation ou depuis le style
         let currentRotation = 0;
-        const rotationMatch = currentTransform.match(/rotate\(([^)]+)\)/);
-        if (rotationMatch) {
-          const rotationValue = rotationMatch[1].trim();
+        if (imageData.rotation) {
+          const rotationValue = imageData.rotation.replace('deg', '').trim();
           const numericValue = parseFloat(rotationValue);
           if (!isNaN(numericValue)) {
             currentRotation = numericValue;
           }
+        } else {
+          // Fallback : lire depuis le style
+          const currentTransform = selectedElement.style.transform || '';
+          const rotationMatch = currentTransform.match(/rotate\(([^)]+)\)/);
+          if (rotationMatch) {
+            const rotationValue = rotationMatch[1].trim();
+            const numericValue = parseFloat(rotationValue);
+            if (!isNaN(numericValue)) {
+              currentRotation = numericValue;
+            }
+          }
         }
         
-        // Calculer la nouvelle rotation
-        const newRotation = (currentRotation + increment) % 360;
-        const newRotationValue = newRotation === 0 ? '0deg' : `${newRotation}deg`;
+        // Calculer la nouvelle rotation (rotation illimitée)
+        const newRotation = currentRotation + increment;
         
-        // Appliquer la rotation
-        applyProperty('rotation', newRotationValue);
+        // Sauvegarder la rotation dans imageData
+        imageData.rotation = `${newRotation}deg`;
         
-        // Mettre à jour le container pour qu'il s'adapte à l'image après rotation
-        adjustImageContainerAfterRotation(selectedElement);
+        // Appliquer le transform rotate à l'image (on ne change PAS les dimensions de l'image)
+        const currentTransform = selectedElement.style.transform || '';
+        const otherTransforms = currentTransform.replace(/rotate\([^)]+\)/g, '').trim();
+        selectedElement.style.transform = `rotate(${newRotation}deg)${otherTransforms ? ' ' + otherTransforms : ''}`.trim();
+        
+        // Lire les dimensions logiques de l'image (qui ne changent jamais)
+        let Linit = parseFloat(selectedElement.style.width);
+        let Hinit = parseFloat(selectedElement.style.height);
+        
+        // Si pas de dimensions dans le style, utiliser les dimensions naturelles et les définir
+        if (!Linit || isNaN(Linit)) {
+          Linit = selectedElement.naturalWidth || selectedElement.offsetWidth || 0;
+          if (Linit > 0) {
+            selectedElement.style.width = `${Linit}px`;
+          }
+        }
+        if (!Hinit || isNaN(Hinit)) {
+          Hinit = selectedElement.naturalHeight || selectedElement.offsetHeight || 0;
+          if (Hinit > 0) {
+            selectedElement.style.height = `${Hinit}px`;
+          }
+        }
+        
+        if (!Linit || !Hinit) return;
+        
+        // Lire les dimensions actuelles du wrapper (pour savoir quelle est la taille visuelle actuelle)
+        const wrapper = selectedElement.closest('.image-wrapper');
+        let LwrapperActuel = 0;
+        let HwrapperActuel = 0;
+        if (wrapper) {
+          LwrapperActuel = parseFloat(wrapper.style.width) || wrapper.offsetWidth || 0;
+          HwrapperActuel = parseFloat(wrapper.style.height) || wrapper.offsetHeight || 0;
+        }
+        
+        // Si le wrapper n'a pas de dimensions, utiliser les dimensions logiques de l'image
+        if (!LwrapperActuel || !HwrapperActuel) {
+          LwrapperActuel = Linit;
+          HwrapperActuel = Hinit;
+        }
+        
+        // Calculer les dimensions cibles du wrapper après rotation
+        // À chaque rotation de 90°, on inverse les dimensions du wrapper actuel
+        let Lcible = HwrapperActuel;
+        let Hcible = LwrapperActuel;
+        
+        // Calculer le ratio de l'image après rotation (basé sur les dimensions logiques)
+        // Après rotation, visuellement on a Hinit x Linit, donc ratio = Linit / Hinit
+        const Rcible = Linit / Hinit;
+        
+        // Vérifier les verrous
+        const widthLocked = imageData.locked?.width || false;
+        const heightLocked = imageData.locked?.height || false;
+        
+        if (widthLocked && !heightLocked) {
+          // Verrou sur L (largeur logique) : on garde la largeur logique, on calcule la hauteur pour garder le ratio
+          // Mais après rotation, la largeur logique devient la hauteur visuelle
+          // Donc Hcible = Linit, et Lcible = Hinit (mais on doit ajuster pour le ratio)
+          // En fait, si on verrouille la largeur logique, après rotation on verrouille la hauteur visuelle
+          // Donc Hcible = Linit, et Lcible = Linit / Rcible
+          Hcible = Linit;
+          Lcible = Linit / Rcible; // = Linit / (Linit / Hinit) = Hinit
+        } else if (heightLocked && !widthLocked) {
+          // Verrou sur H (hauteur logique) : on garde la hauteur logique, on calcule la largeur pour garder le ratio
+          // Après rotation, la hauteur logique devient la largeur visuelle
+          // Donc Lcible = Hinit, et Hcible = Hinit * Rcible
+          Lcible = Hinit;
+          Hcible = Hinit * Rcible; // = Hinit * (Linit / Hinit) = Linit
+        }
+        // Si aucun verrou ou les deux verrous : on garde le swap simple (Lcible = HwrapperActuel, Hcible = LwrapperActuel)
+        
+        // Appliquer UNIQUEMENT les dimensions au wrapper (pas à l'image, sans contraintes min/max pour permettre à l'image de dépasser)
+        // wrapper est déjà déclaré plus haut
+        if (wrapper) {
+          wrapper.style.setProperty('width', `${Lcible}px`, 'important');
+          wrapper.style.setProperty('height', `${Hcible}px`, 'important');
+          
+          // Centrer l'image dans le wrapper après rotation
+          // L'image tourne autour de son centre (transform-origin: center center)
+          // Le wrapper a les dimensions visuelles après rotation (Lcible x Hcible)
+          // L'image a les dimensions logiques (Linit x Hinit)
+          // Pour centrer : calculer le décalage entre les dimensions du wrapper et de l'image
+          const normalizedRotation = ((newRotation % 360) + 360) % 360;
+          
+          if (normalizedRotation === 90 || normalizedRotation === 270) {
+            // Après rotation 90/270°, visuellement l'image occupe Hinit x Linit
+            // Le wrapper doit avoir Lcible = Hinit, Hcible = Linit
+            // L'image logique a Linit x Hinit
+            // Pour centrer : décalage = (dimensions wrapper - dimensions image logique) / 2
+            const deltaWidth = (Lcible - Linit) / 2;
+            const deltaHeight = (Hcible - Hinit) / 2;
+            selectedElement.style.marginLeft = `${deltaWidth}px`;
+            selectedElement.style.marginTop = `${deltaHeight}px`;
+          } else {
+            // Pour 0° et 180°, dimensions visuelles = dimensions logiques
+            const deltaWidth = (Lcible - Linit) / 2;
+            const deltaHeight = (Hcible - Hinit) / 2;
+            selectedElement.style.marginLeft = `${deltaWidth}px`;
+            selectedElement.style.marginTop = `${deltaHeight}px`;
+          }
+        }
       });
     });
 
@@ -4250,7 +4360,8 @@
         const isLocked = btn.classList.contains('is-locked');
         
         // Toggle le verrouillage (utilise la fonction complète qui met à jour tout)
-        toggleImageLock(lockType, !isLocked);
+        const stateChanged = toggleImageLock(lockType, !isLocked);
+        if (!stateChanged) return;
         
         // Mettre à jour l'UI du panneau de propriétés
         btn.classList.toggle('is-locked');
@@ -4267,116 +4378,6 @@
     });
   }
 
-  /**
-   * Ajuste le container de l'image après une rotation pour qu'il s'adapte à l'image
-   * @param {HTMLElement} imgElement - Élément img
-   */
-  function adjustImageContainerAfterRotation(imgElement) {
-    if (!imgElement || imgElement.tagName !== 'IMG') return;
-    
-    // Récupérer la rotation actuelle
-    const currentTransform = imgElement.style.transform || '';
-    let currentRotation = 0;
-    const rotationMatch = currentTransform.match(/rotate\(([^)]+)\)/);
-    if (rotationMatch) {
-      const rotationValue = rotationMatch[1].trim();
-      const numericValue = parseFloat(rotationValue);
-      if (!isNaN(numericValue)) {
-        currentRotation = numericValue;
-      }
-    }
-    
-    // Normaliser la rotation entre 0 et 360
-    currentRotation = ((currentRotation % 360) + 360) % 360;
-    
-    // Récupérer les dimensions actuelles de l'image
-    const imgWidth = parseFloat(imgElement.style.width) || imgElement.offsetWidth || 0;
-    const imgHeight = parseFloat(imgElement.style.height) || imgElement.offsetHeight || 0;
-    
-    // Récupérer les données de l'image
-    const imageData = findImageDataFromElement(imgElement);
-    
-    // Sauvegarder les dimensions originales si elles n'existent pas encore
-    if (imageData && !imageData.originalWidth && !imageData.originalHeight) {
-      imageData.originalWidth = imgWidth;
-      imageData.originalHeight = imgHeight;
-    }
-    
-    // Calculer les dimensions visuelles après rotation pour le wrapper
-    // L'image garde ses dimensions CSS originales, mais le wrapper doit avoir les dimensions visuelles
-    let visualWidth = imgWidth;
-    let visualHeight = imgHeight;
-    
-    if (currentRotation === 90 || currentRotation === 270) {
-      // Les dimensions visuelles sont inversées : le wrapper doit avoir les dimensions inversées
-      visualWidth = imgHeight;  // La largeur visuelle = hauteur de l'image
-      visualHeight = imgWidth;  // La hauteur visuelle = largeur de l'image
-    } else if (currentRotation === 0 || currentRotation === 360) {
-      // À 0°, les dimensions visuelles = dimensions CSS
-      visualWidth = imgWidth;
-      visualHeight = imgHeight;
-    }
-    
-    // Ajuster le wrapper pour qu'il s'adapte aux dimensions visuelles (visualWidth et visualHeight)
-    const wrapper = imgElement.closest('.image-wrapper');
-    if (wrapper) {
-      // Si la rotation est à 0° (ou 360°), supprimer tous les styles forcés pour revenir à l'état initial
-      if (currentRotation === 0 || currentRotation === 360) {
-        wrapper.style.width = '';
-        wrapper.style.height = '';
-        wrapper.style.minWidth = '';
-        wrapper.style.minHeight = '';
-        wrapper.style.maxWidth = '';
-        wrapper.style.maxHeight = '';
-        wrapper.style.boxSizing = '';
-        wrapper.style.overflow = '';
-        // Garder position: relative car c'est nécessaire pour les handles de redimensionnement
-        wrapper.style.position = 'relative';
-      } else {
-        // Utiliser les dimensions visuelles (visualWidth et visualHeight) pour ajuster le wrapper
-        // Ces dimensions sont inversées si rotation = 90° ou 270°
-        wrapper.style.width = `${visualWidth}px`;
-        wrapper.style.height = `${visualHeight}px`;
-        wrapper.style.minWidth = `${visualWidth}px`;
-        wrapper.style.minHeight = `${visualHeight}px`;
-        wrapper.style.boxSizing = 'border-box';
-        wrapper.style.position = 'relative';
-        wrapper.style.overflow = 'visible';
-        
-        // Utiliser requestAnimationFrame pour recalculer après que le transform soit appliqué
-        requestAnimationFrame(() => {
-          // Utiliser getBoundingClientRect pour obtenir les dimensions réelles après rotation
-          const rect = imgElement.getBoundingClientRect();
-          const actualWidth = rect.width;
-          const actualHeight = rect.height;
-          
-          // Ajuster si les dimensions réelles sont différentes (avec une petite marge d'erreur)
-          if (Math.abs(actualWidth - visualWidth) > 1 || Math.abs(actualHeight - visualHeight) > 1) {
-            const finalWidth = Math.max(visualWidth, actualWidth);
-            const finalHeight = Math.max(visualHeight, actualHeight);
-            
-            wrapper.style.width = `${finalWidth}px`;
-            wrapper.style.height = `${finalHeight}px`;
-            wrapper.style.minWidth = `${finalWidth}px`;
-            wrapper.style.minHeight = `${finalHeight}px`;
-          }
-          
-          // Ajuster aussi le conteneur parent si nécessaire
-          const parentContainer = wrapper.parentElement;
-          if (parentContainer && parentContainer.tagName === 'DIV' && !parentContainer.classList.contains('image-wrapper')) {
-            // S'assurer que le conteneur parent permet l'overflow pour voir l'image tournée
-            parentContainer.style.overflow = 'visible';
-          }
-        });
-      }
-    }
-    
-    // Mettre à jour les données de l'image (imageData est déjà déclaré plus haut)
-    if (imageData) {
-      // Sauvegarder la rotation dans imageData
-      imageData.rotation = currentRotation === 0 ? '0deg' : `${currentRotation}deg`;
-    }
-  }
 
   /**
    * Applique une propriété à l'élément sélectionné
@@ -4462,32 +4463,6 @@
             const numericValue = value ? parseFloat(value) : null;
             imageData.height = numericValue || imageData.height;
           }
-        }
-        break;
-      case 'rotation':
-        if (selectedElement.tagName === 'IMG') {
-          const imageData = findImageDataFromElement(selectedElement);
-          if (value && value !== '0deg') {
-            // Préserver les autres transformations si présentes
-            const currentTransform = selectedElement.style.transform || '';
-            const otherTransforms = currentTransform.replace(/rotate\([^)]+\)/g, '').trim();
-            selectedElement.style.transform = `rotate(${value})${otherTransforms ? ' ' + otherTransforms : ''}`.trim();
-            // Sauvegarder la rotation dans imageData
-            if (imageData) {
-              imageData.rotation = value;
-            }
-          } else {
-            // Retirer uniquement la rotation
-            const currentTransform = selectedElement.style.transform || '';
-            const newTransform = currentTransform.replace(/rotate\([^)]+\)/g, '').trim();
-            selectedElement.style.transform = newTransform || '';
-            // Sauvegarder la rotation dans imageData
-            if (imageData) {
-              imageData.rotation = '0deg';
-            }
-          }
-          // Ajuster le container après rotation
-          adjustImageContainerAfterRotation(selectedElement);
         }
         break;
       case 'borderRadius':
@@ -4925,6 +4900,18 @@
     const imageData = findImageDataFromElement(imgElement);
     if (!imageData) return;
     
+    // Lire la rotation actuelle pour savoir si on doit inverser les dimensions
+    let currentRotation = 0;
+    if (imageData.rotation) {
+      const rotationValue = imageData.rotation.replace('deg', '').trim();
+      const numericValue = parseFloat(rotationValue);
+      if (!isNaN(numericValue)) {
+        currentRotation = numericValue;
+      }
+    }
+    const normalizedRotation = ((currentRotation % 360) + 360) % 360;
+    const isRotated90or270 = normalizedRotation === 90 || normalizedRotation === 270;
+    
     // Vérifier les verrouillages
     const widthLocked = imageData?.locked?.width ?? false;
     const heightLocked = imageData?.locked?.height ?? true;
@@ -4947,8 +4934,12 @@
     
     const startX = e.clientX;
     const startY = e.clientY;
-    const startWidth = imgElement.offsetWidth;
-    const startHeight = imgElement.offsetHeight;
+    
+    // Utiliser les dimensions logiques du style (pas offsetWidth/offsetHeight qui donnent les dimensions visuelles)
+    const startWidth = parseFloat(imgElement.style.width) || imgElement.naturalWidth || 0;
+    const startHeight = parseFloat(imgElement.style.height) || imgElement.naturalHeight || 0;
+    
+    // Pour le positionnement, utiliser offsetLeft/offsetTop
     const startLeft = imgElement.offsetLeft;
     const startTop = imgElement.offsetTop;
     
@@ -4965,47 +4956,74 @@
       let newLeft = startLeft;
       let newTop = startTop;
       
-      if (canResizeWidth) {
-        if (isLeft) {
-          newWidth = startWidth - deltaX;
-          newLeft = startLeft + deltaX;
-        } else {
-          newWidth = startWidth + deltaX;
+      // Si rotation 90/270°, inverser les dimensions à modifier
+      // Redimensionner visuellement la largeur (deltaX) = modifier la hauteur logique
+      // Redimensionner visuellement la hauteur (deltaY) = modifier la largeur logique
+      if (isRotated90or270) {
+        if (canResizeWidth) {
+          // On redimensionne visuellement la largeur, donc on modifie la hauteur logique
+          if (isLeft) {
+            newHeight = startHeight - deltaX;
+            newLeft = startLeft + deltaX;
+          } else {
+            newHeight = startHeight + deltaX;
+          }
+          if (newHeight < 20) newHeight = 20;
         }
-        // Limiter la largeur minimale
-        if (newWidth < 20) newWidth = 20;
+        if (canResizeHeight) {
+          // On redimensionne visuellement la hauteur, donc on modifie la largeur logique
+          if (isTop) {
+            newWidth = startWidth - deltaY;
+            newTop = startTop + deltaY;
+          } else {
+            newWidth = startWidth + deltaY;
+          }
+          if (newWidth < 20) newWidth = 20;
+        }
+      } else {
+        // Pas de rotation : comportement normal
+        if (canResizeWidth) {
+          if (isLeft) {
+            newWidth = startWidth - deltaX;
+            newLeft = startLeft + deltaX;
+          } else {
+            newWidth = startWidth + deltaX;
+          }
+          if (newWidth < 20) newWidth = 20;
+        }
+        if (canResizeHeight) {
+          if (isTop) {
+            newHeight = startHeight - deltaY;
+            newTop = startTop + deltaY;
+          } else {
+            newHeight = startHeight + deltaY;
+          }
+          if (newHeight < 20) newHeight = 20;
+        }
       }
       
-      if (canResizeHeight) {
-        if (isTop) {
-          newHeight = startHeight - deltaY;
-          newTop = startTop + deltaY;
-        } else {
-          newHeight = startHeight + deltaY;
-        }
-        // Limiter la hauteur minimale
-        if (newHeight < 20) newHeight = 20;
+      // Appliquer les nouvelles dimensions à l'image (dimensions logiques)
+      imgElement.style.width = `${newWidth}px`;
+      imgElement.style.height = `${newHeight}px`;
+      if (isLeft) {
+        imgElement.style.marginLeft = `${newLeft - startLeft}px`;
+      }
+      if (isTop) {
+        imgElement.style.marginTop = `${newTop - startTop}px`;
       }
       
-      // Appliquer les nouvelles dimensions
-      if (canResizeWidth) {
-        imgElement.style.width = `${newWidth}px`;
-        if (isLeft) {
-          imgElement.style.marginLeft = `${newLeft - startLeft}px`;
-        }
-      }
-      if (canResizeHeight) {
-        imgElement.style.height = `${newHeight}px`;
-        if (isTop) {
-          imgElement.style.marginTop = `${newTop - startTop}px`;
-        }
+      // Mettre à jour le wrapper avec les mêmes dimensions logiques (sans contraintes min/max pour permettre à l'image de dépasser)
+      const wrapper = imgElement.closest('.image-wrapper');
+      if (wrapper) {
+        wrapper.style.setProperty('width', `${newWidth}px`, 'important');
+        wrapper.style.setProperty('height', `${newHeight}px`, 'important');
       }
     }
     
     function handleMouseUp(e) {
-      // Sauvegarder les dimensions finales
-      const finalWidth = imgElement.offsetWidth;
-      const finalHeight = imgElement.offsetHeight;
+      // Sauvegarder les dimensions finales (dimensions logiques du style)
+      const finalWidth = parseFloat(imgElement.style.width) || 0;
+      const finalHeight = parseFloat(imgElement.style.height) || 0;
       
       if (imageData) {
         if (canResizeWidth) {
@@ -5078,7 +5096,11 @@
       // Lire l'état actuel avant de basculer
       const currentImageData = findImageDataFromElement(imgElement);
       const currentlyLocked = currentImageData?.locked?.width ?? false;
-      toggleImageLock('width', !currentlyLocked, imgElement);
+      const stateChanged = toggleImageLock('width', !currentlyLocked, imgElement);
+      if (stateChanged) {
+        widthLockBtn.classList.toggle('is-locked');
+        widthLockBtn.title = !currentlyLocked ? 'Déverrouiller la largeur' : 'Verrouiller la largeur';
+      }
     });
     lockContainer.appendChild(widthLockBtn);
     
@@ -5104,7 +5126,11 @@
       // Lire l'état actuel avant de basculer
       const currentImageData = findImageDataFromElement(imgElement);
       const currentlyLocked = currentImageData?.locked?.height ?? true;
-      toggleImageLock('height', !currentlyLocked, imgElement);
+      const stateChanged = toggleImageLock('height', !currentlyLocked, imgElement);
+      if (stateChanged) {
+        heightLockBtn.classList.toggle('is-locked');
+        heightLockBtn.title = !currentlyLocked ? 'Déverrouiller la hauteur' : 'Verrouiller la hauteur';
+      }
     });
     lockContainer.appendChild(heightLockBtn);
   }
@@ -5133,14 +5159,24 @@
    */
   function toggleImageLock(lockType, locked, imgElement = null) {
     const targetImg = imgElement || selectedElement;
-    if (!targetImg || targetImg.tagName !== 'IMG') return;
+    if (!targetImg || targetImg.tagName !== 'IMG') return false;
     
     const imageData = findImageDataFromElement(targetImg);
-    if (!imageData) return;
+    if (!imageData) return false;
     
     // Initialiser locked si absent
     if (!imageData.locked) {
       imageData.locked = { width: false, height: true }; // Par défaut : hauteur verrouillée
+    }
+    
+    const oppositeType = lockType === 'width' ? 'height' : 'width';
+    if (locked && imageData.locked[oppositeType]) {
+      alert('Impossible de verrouiller la largeur et la hauteur en même temps.');
+      return false;
+    }
+    
+    if (imageData.locked[lockType] === locked) {
+      return false;
     }
     
     // Mettre à jour l'état de verrouillage
@@ -5175,6 +5211,8 @@
     if (selectedElement === targetImg) {
       displayElementProperties(targetImg);
     }
+    
+    return true;
   }
 
   /**

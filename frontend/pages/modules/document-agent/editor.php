@@ -160,6 +160,32 @@ require_once '../../../includes/header.php';
     </div>
 </div>
 
+<!-- Modal Rogner Image -->
+<div class="modal-overlay" id="imageCropModal" style="display: none;">
+    <div class="modal-content modal-content--large">
+        <div class="modal-header">
+            <h3>Rogner l'image</h3>
+            <button class="modal-close" id="imageCropModalClose">&times;</button>
+        </div>
+        <div class="modal-body">
+            <div class="image-crop-container">
+                <canvas id="imageCropCanvas"></canvas>
+                <div class="image-crop-overlay" id="imageCropOverlay"></div>
+            </div>
+            <div class="image-crop-controls">
+                <button type="button" class="btn btn-outline" id="imageCropReset">Réinitialiser</button>
+                <div class="image-crop-info">
+                    <span id="imageCropInfo">Sélectionnez une zone à rogner</span>
+                </div>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button type="button" class="btn btn-outline" id="imageCropCancel">Annuler</button>
+            <button type="button" class="btn btn-primary" id="imageCropSave">Appliquer le rognage</button>
+        </div>
+    </div>
+</div>
+
 <!-- Menu contextuel (clic droit) -->
 <div class="context-menu" id="contextMenu" style="display: none;">
     <ul class="context-menu-list">
