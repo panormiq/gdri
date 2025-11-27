@@ -3303,6 +3303,549 @@
   }
 
   /**
+   * Initialise les onglets des panneaux de propriétés
+   */
+const variableManager = (() => {
+  const state = {
+    initialized: false,
+    variables: [],
+    panels: [],
+    contentRoot: null,
+    selectedVariableId: null
+  };
+
+  const TYPE_LABEL = {
+    text: 'Variable',
+    table: 'Tableau'
+  };
+
+  const OCC_CLASS = 'doc-variable-occurrence';
+  const HIGHLIGHT_CLASS = 'variable-highlight';
+
+  function init() {
+    if (state.initialized) return;
+    const panelEls = document.querySelectorAll('[data-variable-panel]');
+    if (!panelEls.length) return;
+
+    state.initialized = true;
+    state.contentRoot = document.querySelector('[data-content-area]');
+
+    panelEls.forEach(registerPanel);
+
+    if (state.contentRoot) {
+      state.contentRoot.addEventListener('dragover', handleContentDragOver);
+      state.contentRoot.addEventListener('drop', handleContentDrop);
+    }
+
+    renderPanels();
+  }
+
+  function registerPanel(panelEl) {
+    const panel = {
+      el: panelEl,
+      form: panelEl.querySelector('[data-variable-form]'),
+      typeSelect: panelEl.querySelector('[data-variable-type-select]'),
+      patternWrapper: panelEl.querySelector('[data-variable-pattern-wrapper]'),
+      hint: panelEl.querySelector('[data-variable-hint]'),
+      list: panelEl.querySelector('[data-variable-list]'),
+      tabsGroup: panelEl.querySelector('[data-variable-tabs]'),
+      sectionsWrapper: panelEl.querySelector('[data-variable-sections]')
+    };
+
+    if (panel.form) {
+      panel.form.addEventListener('submit', (event) => {
+        event.preventDefault();
+        handleFormSubmit(panel, new FormData(panel.form));
+      });
+    }
+
+    if (panel.typeSelect) {
+      panel.typeSelect.addEventListener('change', () => updatePatternVisibility(panel));
+    }
+
+    if (panel.list) {
+      panel.list.addEventListener('click', handleVariableListClick);
+      panel.list.addEventListener('dragstart', handleVariableDragStart);
+    }
+
+    setupVariableTabs(panel);
+    updatePatternVisibility(panel);
+    state.panels.push(panel);
+  }
+
+  function setupVariableTabs(panel) {
+    if (!panel.tabsGroup || !panel.sectionsWrapper) return;
+    const tabs = Array.from(panel.tabsGroup.querySelectorAll('[data-variable-tab]'));
+    const sections = Array.from(panel.sectionsWrapper.querySelectorAll('[data-variable-section]'));
+
+    tabs.forEach((tab) => {
+      tab.addEventListener('click', () => {
+        const target = tab.dataset.variableTab;
+        const targetSection = sections.find((section) => section.dataset.variableSection === target);
+        if (!targetSection) return;
+        tabs.forEach((btn) => btn.classList.toggle('is-active', btn === tab));
+        sections.forEach((section) => section.classList.toggle('is-active', section === targetSection));
+        if (target !== 'list') {
+          selectVariable(null, { force: true });
+        }
+      });
+    });
+  }
+
+  function updatePatternVisibility(panel) {
+    if (!panel.patternWrapper || !panel.typeSelect) return;
+    const currentType = panel.typeSelect.value;
+    if (currentType === 'text') {
+      panel.patternWrapper.style.display = '';
+      if (panel.hint) {
+        panel.hint.innerHTML = '<p class="text-muted">Indiquez le texte exact qui sera remplacé par cette variable.</p>';
+      }
+    } else {
+      panel.patternWrapper.style.display = 'none';
+      if (panel.hint) {
+        panel.hint.innerHTML = '<p class="text-muted">La configuration des tableaux sera disponible prochainement.</p>';
+      }
+    }
+  }
+
+  function handleFormSubmit(panel, formData) {
+    const name = (formData.get('variableName') || '').trim();
+    const type = formData.get('variableType') === 'table' ? 'table' : 'text';
+    const pattern = (formData.get('variablePattern') || '').trim();
+
+    if (!name) {
+      alert('Merci de renseigner un nom de variable.');
+      return;
+    }
+
+    if (type === 'text' && !pattern) {
+      alert('Veuillez fournir le texte à remplacer.');
+      return;
+    }
+
+    if (state.variables.some((variable) => variable.name.toLowerCase() === name.toLowerCase())) {
+      alert('Une variable avec ce nom existe déjà.');
+      return;
+    }
+
+    const variable = {
+      id: `var_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+      name,
+      type,
+      pattern,
+      occurrences: []
+    };
+
+    if (type === 'text' && pattern) {
+      variable.occurrences = wrapOccurrences(variable, pattern);
+      if (!variable.occurrences.length) {
+        alert('Aucune occurrence trouvée dans le document. La variable est créée sans remplacement.');
+      }
+    }
+
+    state.variables.push(variable);
+    renderPanels();
+    panel.form.reset();
+    updatePatternVisibility(panel);
+  }
+
+  function wrapOccurrences(variable, pattern) {
+    const root = state.contentRoot;
+    if (!root || !pattern) return [];
+
+    const nodes = collectTextNodes(root);
+    const occurrences = [];
+
+    nodes.forEach((node) => {
+      if (!node.parentElement || node.parentElement.closest(`.${OCC_CLASS}`)) {
+        return;
+      }
+
+      const text = node.nodeValue;
+      if (!text || !text.includes(pattern)) {
+        return;
+      }
+
+      occurrences.push(...splitNodeForPattern(node, variable, pattern));
+    });
+
+    return occurrences;
+  }
+
+  function collectTextNodes(root) {
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null);
+    const nodes = [];
+    let current = walker.nextNode();
+    while (current) {
+      nodes.push(current);
+      current = walker.nextNode();
+    }
+    return nodes;
+  }
+
+  function splitNodeForPattern(node, variable, pattern) {
+    const results = [];
+    let currentNode = node;
+    let remaining = node.nodeValue;
+
+    while (remaining) {
+      const index = remaining.indexOf(pattern);
+      if (index === -1) break;
+
+      const before = currentNode;
+      const matchNode = before.splitText(index);
+      const afterNode = matchNode.splitText(pattern.length);
+      const span = createOccurrenceSpan(variable, matchNode.nodeValue);
+      matchNode.parentNode.replaceChild(span, matchNode);
+      results.push(createOccurrenceRecord(variable, span, matchNode.nodeValue));
+      currentNode = afterNode;
+      remaining = afterNode.nodeValue;
+    }
+
+    return results;
+  }
+
+  function createOccurrenceSpan(variable, text) {
+    const span = document.createElement('span');
+    span.classList.add(OCC_CLASS);
+    span.dataset.variableId = variable.id;
+    span.dataset.originalText = text;
+    span.textContent = text;
+    return span;
+  }
+
+  function createOccurrenceRecord(variable, element, originalText) {
+    const id = `occ_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+    element.dataset.occurrenceId = id;
+    return {
+      id,
+      variableId: variable.id,
+      element,
+      originalText
+    };
+  }
+
+  function renderPanels() {
+    cleanupOccurrences();
+    state.panels.forEach((panel) => renderPanel(panel));
+    updateSelectionClasses();
+    applySelectionHighlight();
+  }
+
+  function cleanupOccurrences() {
+    state.variables.forEach((variable) => {
+      variable.occurrences = variable.occurrences.filter(
+        (occurrence) => occurrence.element && document.contains(occurrence.element)
+      );
+    });
+  }
+
+  function renderPanel(panel) {
+    if (!panel.list) return;
+    panel.list.innerHTML = '';
+
+    if (!state.variables.length) {
+      const empty = document.createElement('p');
+      empty.className = 'variable-empty';
+      empty.textContent = 'Aucune variable définie pour le moment.';
+      panel.list.appendChild(empty);
+      return;
+    }
+
+    state.variables.forEach((variable) => {
+      panel.list.appendChild(buildVariableItem(variable));
+    });
+  }
+
+  function buildVariableItem(variable) {
+    const item = document.createElement('div');
+    item.className = 'variable-item';
+    item.dataset.variableId = variable.id;
+    item.dataset.variableItem = 'true';
+    item.setAttribute('draggable', variable.type === 'text');
+
+    const header = document.createElement('div');
+    header.className = 'variable-item__header';
+
+    const info = document.createElement('div');
+    const nameEl = document.createElement('div');
+    nameEl.className = 'variable-name';
+    nameEl.textContent = variable.name;
+    const typeEl = document.createElement('span');
+    typeEl.className = 'variable-type';
+    typeEl.textContent = TYPE_LABEL[variable.type] || variable.type;
+    info.appendChild(nameEl);
+    info.appendChild(typeEl);
+    header.appendChild(info);
+
+    const actions = document.createElement('div');
+    actions.className = 'variable-actions';
+
+    if (variable.type === 'text') {
+      const count = document.createElement('span');
+      count.className = 'variable-occurrence-count';
+      count.textContent = `${variable.occurrences.length} occurrence${variable.occurrences.length > 1 ? 's' : ''}`;
+      actions.appendChild(count);
+    }
+
+    const deleteBtn = document.createElement('button');
+    deleteBtn.type = 'button';
+    deleteBtn.className = 'variable-action-btn';
+    deleteBtn.dataset.variableAction = 'delete';
+    deleteBtn.textContent = 'Supprimer';
+    actions.appendChild(deleteBtn);
+    header.appendChild(actions);
+
+    item.appendChild(header);
+
+    if (variable.type === 'text') {
+      const list = document.createElement('div');
+      list.className = 'variable-occurrence-list';
+      if (!variable.occurrences.length) {
+        const empty = document.createElement('span');
+        empty.className = 'variable-empty';
+        empty.textContent = 'Aucune occurrence trouvée.';
+        list.appendChild(empty);
+      } else {
+        variable.occurrences.forEach((occurrence, index) => {
+          const chip = document.createElement('button');
+          chip.type = 'button';
+          chip.className = 'variable-occurrence-chip';
+          chip.dataset.variableAction = 'focus';
+          chip.dataset.occurrenceId = occurrence.id;
+          chip.textContent = `Occurrence ${index + 1}`;
+          list.appendChild(chip);
+        });
+      }
+      item.appendChild(list);
+    } else {
+      const placeholder = document.createElement('p');
+      placeholder.className = 'variable-empty';
+      placeholder.textContent = 'Gestion des tableaux disponible prochainement.';
+      item.appendChild(placeholder);
+    }
+
+    return item;
+  }
+
+  function handleVariableListClick(event) {
+    const actionBtn = event.target.closest('[data-variable-action]');
+    if (actionBtn) {
+      handleVariableAction(actionBtn);
+      return;
+    }
+
+    const item = event.target.closest('[data-variable-item]');
+    if (!item) {
+      selectVariable(null, { force: true });
+      return;
+    }
+
+    const variableId = item.dataset.variableId;
+    selectVariable(variableId);
+  }
+
+  function handleVariableAction(actionBtn) {
+    const item = actionBtn.closest('[data-variable-item]');
+    if (!item) return;
+
+    const variableId = item.dataset.variableId;
+    const action = actionBtn.dataset.variableAction;
+
+    if (action === 'delete') {
+      removeVariable(variableId);
+      return;
+    }
+
+    if (action === 'focus') {
+      const occurrenceId = actionBtn.dataset.occurrenceId;
+      selectVariable(variableId, { force: true, focusOccurrenceId: occurrenceId });
+    }
+  }
+
+  function handleVariableDragStart(event) {
+    const item = event.target.closest('[data-variable-item]');
+    if (!item) return;
+    const variableId = item.dataset.variableId;
+    if (!variableId) return;
+    const variable = state.variables.find((v) => v.id === variableId);
+    if (!variable || variable.type !== 'text') return;
+    event.dataTransfer.setData('text/variable-id', variableId);
+    event.dataTransfer.effectAllowed = 'copy';
+  }
+
+  function handleContentDragOver(event) {
+    if (event.dataTransfer && event.dataTransfer.types.includes('text/variable-id')) {
+      event.preventDefault();
+      event.dataTransfer.dropEffect = 'copy';
+    }
+  }
+
+  function handleContentDrop(event) {
+    const variableId = event.dataTransfer ? event.dataTransfer.getData('text/variable-id') : null;
+    if (!variableId) return;
+    const variable = state.variables.find((v) => v.id === variableId);
+    if (!variable || variable.type !== 'text') return;
+    event.preventDefault();
+    const range = caretRangeFromPoint(event.clientX, event.clientY) || createRangeAtEnd();
+    if (!range) return;
+    insertOccurrenceAtRange(variable, range);
+    renderPanels();
+  }
+
+  function caretRangeFromPoint(x, y) {
+    if (document.caretRangeFromPoint) {
+      return document.caretRangeFromPoint(x, y);
+    }
+    if (document.caretPositionFromPoint) {
+      const position = document.caretPositionFromPoint(x, y);
+      if (position) {
+        const range = document.createRange();
+        range.setStart(position.offsetNode, position.offset);
+        range.collapse(true);
+        return range;
+      }
+    }
+    return null;
+  }
+
+  function createRangeAtEnd() {
+    if (!state.contentRoot) return null;
+    const range = document.createRange();
+    range.selectNodeContents(state.contentRoot);
+    range.collapse(false);
+    return range;
+  }
+
+  function insertOccurrenceAtRange(variable, range) {
+    if (!range) return;
+    const text = variable.pattern || variable.name;
+    let startNode = range.startContainer;
+    if (startNode.nodeType === Node.TEXT_NODE) {
+      const offset = range.startOffset;
+      if (offset < startNode.textContent.length) {
+        startNode = startNode.splitText(offset);
+      } else {
+        startNode = startNode.nextSibling;
+      }
+    }
+    const span = createOccurrenceSpan(variable, text);
+    const occurrence = createOccurrenceRecord(variable, span, text);
+    if (startNode && startNode.parentNode) {
+      startNode.parentNode.insertBefore(span, startNode);
+    } else if (state.contentRoot) {
+      state.contentRoot.appendChild(span);
+    }
+    variable.occurrences.push(occurrence);
+  }
+
+  function removeVariable(variableId) {
+    const index = state.variables.findIndex((v) => v.id === variableId);
+    if (index === -1) return;
+    const variable = state.variables[index];
+    variable.occurrences.forEach(unwrapOccurrence);
+    state.variables.splice(index, 1);
+    if (state.selectedVariableId === variableId) {
+      state.selectedVariableId = null;
+    }
+    renderPanels();
+  }
+
+  function unwrapOccurrence(occurrence) {
+    if (!occurrence.element || !occurrence.element.parentNode) return;
+    const textNode = document.createTextNode(occurrence.originalText || occurrence.element.textContent || '');
+    occurrence.element.replaceWith(textNode);
+  }
+
+  function selectVariable(variableId, options = {}) {
+    const { force = false, focusOccurrenceId } = options;
+    const targetId = variableId || null;
+    if (!targetId) {
+      state.selectedVariableId = null;
+      updateSelectionClasses();
+      applySelectionHighlight();
+      return;
+    }
+    const sameSelection = state.selectedVariableId === targetId;
+    state.selectedVariableId = sameSelection && !force ? null : targetId;
+    updateSelectionClasses();
+    applySelectionHighlight(focusOccurrenceId);
+  }
+
+  function updateSelectionClasses() {
+    state.panels.forEach((panel) => {
+      if (!panel.list) return;
+      panel.list.querySelectorAll('[data-variable-item]').forEach((item) => {
+        item.classList.toggle('is-selected', item.dataset.variableId === state.selectedVariableId);
+      });
+    });
+  }
+
+  function applySelectionHighlight(focusOccurrenceId) {
+    clearHighlight();
+    if (!state.selectedVariableId) return;
+    const variable = state.variables.find((v) => v.id === state.selectedVariableId);
+    if (!variable) return;
+    variable.occurrences.forEach((occurrence) => {
+      if (occurrence.element) {
+        occurrence.element.classList.add(HIGHLIGHT_CLASS);
+      }
+    });
+
+    if (focusOccurrenceId) {
+      const target = variable.occurrences.find((occ) => occ.id === focusOccurrenceId);
+      if (target?.element) {
+        target.element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    }
+  }
+
+  function clearHighlight() {
+    document.querySelectorAll(`.${OCC_CLASS}.${HIGHLIGHT_CLASS}`).forEach((el) => {
+      el.classList.remove(HIGHLIGHT_CLASS);
+    });
+  }
+
+  return {
+    init,
+    clearSelection: () => selectVariable(null, { force: true })
+  };
+})();
+
+function initPropertiesTabs() {
+    const tabsGroups = document.querySelectorAll('[data-properties-tabs]');
+    if (!tabsGroups.length) return;
+
+    tabsGroups.forEach(tabsGroup => {
+      const groupId = tabsGroup.dataset.propertiesTabs;
+      const panelsContainer = document.querySelector(`[data-properties-panels="${groupId}"]`);
+      if (!panelsContainer) return;
+
+      const tabs = Array.from(tabsGroup.querySelectorAll('[data-properties-tab]'));
+      const panels = Array.from(panelsContainer.querySelectorAll('[data-properties-panel]'));
+
+      tabs.forEach(tab => {
+        tab.addEventListener('click', () => {
+          const target = tab.dataset.propertiesTab;
+          const targetPanel = panels.find(panel => panel.dataset.propertiesPanel === target);
+          if (!targetPanel) return;
+
+          tabs.forEach(btn => btn.classList.remove('is-active'));
+          panels.forEach(panel => panel.classList.remove('is-active'));
+
+          tab.classList.add('is-active');
+          targetPanel.classList.add('is-active');
+          
+          // Désélectionner l'élément si on change d'onglet (sauf si on revient sur "properties")
+          if (target !== 'properties') {
+            clearSelectedElement();
+          }
+        });
+      });
+    });
+  }
+
+  /**
    * Extrait les propriétés CSS d'un élément
    * @param {HTMLElement} element - Élément HTML
    * @returns {Object} Propriétés extraites
@@ -5594,11 +6137,33 @@
     }
   }
 
+  function clearSelectedElement() {
+    if (!selectedElement) return;
+    if (selectedElement.classList.contains('element-selected')) {
+      selectedElement.classList.remove('element-selected');
+    }
+    removeResizeHandles(selectedElement);
+    removeLockButtons(selectedElement);
+    selectedElement = null;
+    const propertiesArea = document.querySelector('[data-properties-area]');
+    if (propertiesArea) {
+      propertiesArea.innerHTML = '<p class="text-muted">Sélectionnez une section</p>';
+    }
+    const cardPropertiesArea = document.querySelector('[data-card-properties]');
+    if (cardPropertiesArea) {
+      cardPropertiesArea.innerHTML = '<p class="text-muted">Sélectionnez une section</p>';
+    }
+  }
+
   /**
    * Gère le clic sur un élément du contenu
    * @param {Event} e - Événement de clic
    */
   function handleContentClick(e) {
+    if (typeof variableManager.clearSelection === 'function') {
+      variableManager.clearSelection();
+    }
+
     // Ignorer les clics sur les éléments interactifs (liens, boutons, etc.)
     if (e.target.closest('a, button, .toc-entry')) {
       return;
@@ -5617,7 +6182,6 @@
         e.target.classList.contains('resize-handle-container') ||
         e.target.classList.contains('image-lock-container') ||
         e.target.classList.contains('image-lock-button')) {
-      // Chercher l'image dans le wrapper
       const imageWrapper = e.target.closest('.image-wrapper');
       if (imageWrapper) {
         const img = imageWrapper.querySelector('img');
@@ -5627,17 +6191,13 @@
       }
     }
     
-    // Si c'est un titre, paragraphe ou image directement
     if (!targetElement && (e.target.tagName === 'H1' || e.target.tagName === 'H2' || 
         e.target.tagName === 'H3' || e.target.tagName === 'H4' || 
         e.target.tagName === 'H5' || e.target.tagName === 'H6' ||
         e.target.tagName === 'P' || e.target.tagName === 'IMG')) {
       targetElement = e.target;
     } else if (!targetElement) {
-      // Chercher le parent le plus proche qui est un titre, paragraphe ou image
       targetElement = e.target.closest('h1, h2, h3, h4, h5, h6, p, img');
-      
-      // Si on trouve un conteneur div qui contient une image, prendre l'image
       if (targetElement && targetElement.tagName === 'DIV') {
         const img = targetElement.querySelector('img');
         if (img) {
@@ -5646,36 +6206,88 @@
       }
     }
 
-    if (targetElement) {
-      // Ne jamais ajouter la sélection aux éléments éditables
-      if (targetElement.classList.contains('editable-text')) {
-        // Juste afficher les propriétés sans ajouter la classe de sélection
-        displayElementProperties(targetElement);
-        return;
-      }
+    if (!targetElement) {
+      clearSelectedElement();
+      return;
+    }
 
-      // Retirer la sélection précédente
-      const previousSelected = contentArea.querySelector('.element-selected');
-      if (previousSelected) {
-        previousSelected.classList.remove('element-selected');
-        // Retirer les handles de redimensionnement
-        removeResizeHandles(previousSelected);
-        // Retirer les boutons de verrouillage
-        removeLockButtons(previousSelected);
-      }
-
-      // Extraire les propriétés AVANT d'ajouter la classe de sélection
-      // pour éviter d'inclure la couleur de fond de sélection
+    // Ne jamais ajouter la sélection aux éléments éditables
+    if (targetElement.classList.contains('editable-text')) {
       displayElementProperties(targetElement);
+      return;
+    }
 
-      // Ajouter la classe de sélection après l'extraction des propriétés
-      targetElement.classList.add('element-selected');
-      
-      // Pour les images, ajouter les handles de redimensionnement et les boutons de verrouillage
-      if (targetElement.tagName === 'IMG') {
-        addResizeHandles(targetElement);
-        addLockButtons(targetElement);
+    // Retirer TOUTES les sélections et poignées existantes avant de sélectionner le nouvel élément
+    contentArea.querySelectorAll('.element-selected').forEach(el => {
+      el.classList.remove('element-selected');
+      if (el.tagName === 'IMG') {
+        removeResizeHandles(el);
+        removeLockButtons(el);
       }
+    });
+    
+    // Aussi retirer les poignées de l'élément stocké dans selectedElement si c'est une image
+    if (selectedElement && selectedElement.tagName === 'IMG') {
+      removeResizeHandles(selectedElement);
+      removeLockButtons(selectedElement);
+    }
+    
+    // Retirer toutes les poignées de toutes les images dans le contenu (sécurité)
+    contentArea.querySelectorAll('img').forEach(img => {
+      if (img !== targetElement) {
+        removeResizeHandles(img);
+        removeLockButtons(img);
+        img.classList.remove('element-selected');
+      }
+    });
+
+    displayElementProperties(targetElement);
+    targetElement.classList.add('element-selected');
+    
+    if (targetElement.tagName === 'IMG') {
+      addResizeHandles(targetElement);
+      addLockButtons(targetElement);
+    }
+  }
+
+  function initGlobalFocusReset() {
+    document.addEventListener('click', handleGlobalFocusReset, true);
+  }
+
+  function handleGlobalFocusReset(event) {
+    const target = event.target;
+
+    const insideVariableUI =
+      target.closest('[data-properties-panel="variables"]') ||
+      target.closest('[data-variable-tabs]');
+    if (!insideVariableUI && typeof variableManager.clearSelection === 'function') {
+      variableManager.clearSelection();
+    }
+
+    const insideContent = target.closest('[data-content-area]');
+    const insidePropertiesArea =
+      target.closest('[data-properties-area]') || target.closest('[data-card-properties]');
+    const insideImageControls =
+      target.closest('.resize-handle') ||
+      target.closest('.resize-handle-container') ||
+      target.closest('.image-lock-container') ||
+      target.closest('.image-lock-button');
+    const isPropertiesTab = target.closest('[data-properties-tab]');
+    const isPropertiesTabContainer = target.closest('[data-properties-tabs]') && !isPropertiesTab;
+
+    // Si on clique sur un onglet de propriétés (mais pas sur le conteneur), désélectionner
+    if (isPropertiesTab) {
+      const tabTarget = isPropertiesTab.dataset.propertiesTab;
+      if (tabTarget !== 'properties') {
+        clearSelectedElement();
+      }
+      return; // Laisser le gestionnaire d'événement de l'onglet gérer le reste
+    }
+
+    // Si on clique en dehors du contenu ET des propriétés ET des contrôles d'image ET des onglets, désélectionner
+    // On laisse handleContentClick gérer les clics dans le contenu
+    if (!insideContent && !insidePropertiesArea && !insideImageControls && !isPropertiesTabContainer) {
+      clearSelectedElement();
     }
   }
 
@@ -6304,6 +6916,9 @@
     initContextMenu();
     initSectionModal();
     initCanvasModal();
+    initPropertiesTabs();
+    variableManager.init();
+    initGlobalFocusReset();
     initSaveButton();
     loadDocument().then(() => {
       // Initialiser le canevas après le chargement du document

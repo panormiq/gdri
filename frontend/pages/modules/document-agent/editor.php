@@ -80,12 +80,67 @@ require_once '../../../includes/header.php';
 
                 <!-- COLONNE 3 : Propriétés -->
                 <aside class="doc-panel">
-                    <div class="doc-panel__header">
-                        <h3>Propriétés</h3>
+                    <div class="doc-panel__header doc-panel__header--properties">
+                        <div class="properties-tabs" data-properties-tabs="main-properties">
+                            <button class="properties-tab is-active" data-properties-tab="properties">Propriétés</button>
+                            <button class="properties-tab" data-properties-tab="variables">Variables</button>
+                            <button class="properties-tab" data-properties-tab="options">Options</button>
+                        </div>
                     </div>
                     <div class="doc-panel__body">
-                        <div class="properties-area" data-properties-area>
-                            <p class="text-muted">Sélectionnez une section</p>
+                            <div class="properties-panels" data-properties-panels="main-properties">
+                                <div class="properties-panel is-active" data-properties-panel="properties">
+                                    <div class="properties-area" data-properties-area>
+                                        <p class="text-muted">Sélectionnez une section</p>
+                                    </div>
+                                </div>
+                                <div class="properties-panel" data-properties-panel="variables">
+                                    <div class="variable-panel" data-variable-panel="main">
+                                        <div class="variable-tabs" data-variable-tabs="main-variables">
+                                            <button class="variable-tab is-active" data-variable-tab="list">Liste</button>
+                                            <button class="variable-tab" data-variable-tab="create">Nouvelle variable</button>
+                                        </div>
+                                        <div class="variable-sections" data-variable-sections="main-variables">
+                                            <div class="variable-section is-active" data-variable-section="list">
+                                                <div class="variable-list" data-variable-list>
+                                                    <p class="text-muted">Aucune variable n'a encore été créée.</p>
+                                                </div>
+                                            </div>
+                                            <div class="variable-section" data-variable-section="create">
+                                                <form class="variable-form" data-variable-form>
+                                                    <div class="form-group">
+                                                        <label>Nom de la variable</label>
+                                                        <input type="text" class="form-control" name="variableName" placeholder="Ex : Client_nom" required>
+                                                    </div>
+                                                    <div class="form-row">
+                                                        <div class="form-group">
+                                                            <label>Type</label>
+                                                            <select class="form-control" name="variableType" data-variable-type-select>
+                                                                <option value="text">Variable</option>
+                                                                <option value="table">Tableau</option>
+                                                            </select>
+                                                        </div>
+                                                        <div class="form-group variable-pattern-group" data-variable-pattern-wrapper>
+                                                            <label>Texte à remplacer</label>
+                                                            <input type="text" class="form-control" name="variablePattern" placeholder="Texte exact à rechercher">
+                                                        </div>
+                                                    </div>
+                                                    <div class="variable-form__hint" data-variable-hint>
+                                                        <p class="text-muted">Indiquez le texte exact qui sera remplacé par cette variable.</p>
+                                                    </div>
+                                                    <div class="variable-form__actions">
+                                                        <button type="submit" class="btn btn-primary btn-sm">Ajouter la variable</button>
+                                                    </div>
+                                                </form>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            <div class="properties-panel" data-properties-panel="options">
+                                <div class="properties-placeholder">
+                                    <p class="text-muted">Paramétrez les options avancées du canevas (à venir).</p>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </aside>
@@ -114,12 +169,67 @@ require_once '../../../includes/header.php';
 
                 <!-- COLONNE 2 : Propriétés -->
                 <aside class="doc-panel">
-                    <div class="doc-panel__header">
-                        <h3>Propriétés</h3>
+                    <div class="doc-panel__header doc-panel__header--properties">
+                        <div class="properties-tabs" data-properties-tabs="card-properties">
+                            <button class="properties-tab is-active" data-properties-tab="properties">Propriétés</button>
+                            <button class="properties-tab" data-properties-tab="variables">Variables</button>
+                            <button class="properties-tab" data-properties-tab="options">Options</button>
+                        </div>
                     </div>
                     <div class="doc-panel__body">
-                        <div class="properties-area" data-card-properties>
-                            <p class="text-muted">Sélectionnez une section</p>
+                        <div class="properties-panels" data-properties-panels="card-properties">
+                            <div class="properties-panel is-active" data-properties-panel="properties">
+                                <div class="properties-area" data-card-properties>
+                                    <p class="text-muted">Sélectionnez une section</p>
+                                </div>
+                            </div>
+                            <div class="properties-panel" data-properties-panel="variables">
+                                <div class="variable-panel" data-variable-panel="cards">
+                                    <div class="variable-tabs" data-variable-tabs="card-variables">
+                                        <button class="variable-tab is-active" data-variable-tab="list">Liste</button>
+                                        <button class="variable-tab" data-variable-tab="create">Nouvelle variable</button>
+                                    </div>
+                                    <div class="variable-sections" data-variable-sections="card-variables">
+                                        <div class="variable-section is-active" data-variable-section="list">
+                                            <div class="variable-list" data-variable-list>
+                                                <p class="text-muted">Aucune variable n'a encore été créée.</p>
+                                            </div>
+                                        </div>
+                                        <div class="variable-section" data-variable-section="create">
+                                            <form class="variable-form" data-variable-form>
+                                                <div class="form-group">
+                                                    <label>Nom de la variable</label>
+                                                    <input type="text" class="form-control" name="variableName" placeholder="Ex : Client_nom" required>
+                                                </div>
+                                                <div class="form-row">
+                                                    <div class="form-group">
+                                                        <label>Type</label>
+                                                        <select class="form-control" name="variableType" data-variable-type-select>
+                                                            <option value="text">Variable</option>
+                                                            <option value="table">Tableau</option>
+                                                        </select>
+                                                    </div>
+                                                    <div class="form-group variable-pattern-group" data-variable-pattern-wrapper>
+                                                        <label>Texte à remplacer</label>
+                                                        <input type="text" class="form-control" name="variablePattern" placeholder="Texte exact à rechercher">
+                                                    </div>
+                                                </div>
+                                                <div class="variable-form__hint" data-variable-hint>
+                                                    <p class="text-muted">Indiquez le texte exact qui sera remplacé par cette variable.</p>
+                                                </div>
+                                                <div class="variable-form__actions">
+                                                    <button type="submit" class="btn btn-primary btn-sm">Ajouter la variable</button>
+                                                </div>
+                                            </form>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="properties-panel" data-properties-panel="options">
+                                <div class="properties-placeholder">
+                                    <p class="text-muted">Options spécifiques aux cartes (à venir).</p>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </aside>
@@ -230,6 +340,8 @@ require_once '../../../includes/header.php';
                 <button class="canvas-tab" data-tab="images">🖼️ Images</button>
                 <button class="canvas-tab" data-tab="annexes">📎 Annexes</button>
                 <button class="canvas-tab" data-tab="margins">📏 Marges</button>
+                <button class="canvas-tab" data-tab="variables">🔁 Variables</button>
+                <button class="canvas-tab" data-tab="options">⚙️ Options</button>
             </div>
 
             <!-- Contenu des onglets -->
@@ -508,6 +620,16 @@ require_once '../../../includes/header.php';
                             <input type="number" class="form-control" data-field="left" min="0" step="0.5">
                         </div>
                     </div>
+                </div>
+
+                <!-- Onglet Variables -->
+                <div class="canvas-tab-panel" data-panel="variables">
+                    <p>Configurez ici les variables disponibles pour votre canevas (à venir).</p>
+                </div>
+
+                <!-- Onglet Options -->
+                <div class="canvas-tab-panel" data-panel="options">
+                    <p>Définissez ici les options avancées du canevas (à venir).</p>
                 </div>
             </div>
         </div>
