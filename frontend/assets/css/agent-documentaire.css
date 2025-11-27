@@ -738,22 +738,59 @@ button.btn.btn-outline.view-tab.is-active,
   gap: 6px;
 }
 
-.variable-occurrence-chip {
+.variable-occurrence-chip-container {
   display: inline-flex;
   align-items: center;
   gap: 6px;
   padding: 4px 10px;
   border-radius: 999px;
   background: rgba(75, 158, 216, 0.15);
+  transition: background 0.15s ease, opacity 0.15s ease;
+}
+
+.variable-occurrence-chip-container:hover {
+  background: rgba(75, 158, 216, 0.25);
+}
+
+.variable-occurrence-chip-container.is-disabled {
+  background: rgba(15, 23, 42, 0.08);
+  opacity: 0.6;
+}
+
+.variable-occurrence-checkbox {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+  margin: 0;
+  flex-shrink: 0;
+  accent-color: var(--doc-accent-strong);
+}
+
+.variable-occurrence-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0;
+  border: none;
+  background: transparent;
   color: #0f172a;
   font-size: 0.8rem;
   cursor: pointer;
-  transition: transform 0.15s ease, background 0.15s ease;
+  transition: transform 0.15s ease, opacity 0.15s ease;
+  flex: 1;
 }
 
 .variable-occurrence-chip:hover {
   transform: translateY(-1px);
-  background: rgba(75, 158, 216, 0.25);
+}
+
+.variable-occurrence-chip.is-disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.variable-occurrence-chip.is-disabled:hover {
+  transform: none;
 }
 
 .doc-variable-occurrence {

@@ -1187,6 +1187,9 @@
     // Traiter les images qui ont besoin de transparence
     processImageTransparency();
     
+    // Ajuster les dimensions des wrappers pour les images avec rotation initiale
+    adjustImageWrappersForRotation();
+    
     // Calculer les numéros de page après le rendu
     setTimeout(() => {
       calculatePageNumbers();
@@ -1199,6 +1202,14 @@
       attachTextEditEvents();
       // Initialiser le rognage d'image
       initImageCrop();
+      // Réajuster les wrappers après un délai pour les images qui se chargent lentement
+      setTimeout(() => {
+        adjustImageWrappersForRotation();
+        // Réessayer après un délai supplémentaire pour les images très lentes
+        setTimeout(() => {
+          adjustImageWrappersForRotation();
+        }, 500);
+      }, 200);
     }, 100);
 
     // Initialiser le drag & drop d'images
@@ -2300,6 +2311,126 @@
     } catch (error) {
       console.error('Erreur lors de l\'application de la transparence:', error);
     }
+  }
+
+  /**
+   * Ajuste les dimensions des wrappers pour les images avec rotation initiale
+   */
+  function adjustImageWrappersForRotation() {
+    const contentArea = document.querySelector('[data-content-area]');
+    if (!contentArea) return;
+
+    const images = contentArea.querySelectorAll('img[data-image-id]');
+    
+    images.forEach(imgElement => {
+      const imageId = imgElement.getAttribute('data-image-id');
+      if (!imageId) return;
+
+      // Trouver l'imageData dans sectionsTree
+      const imageData = findImageById(imageId);
+      if (!imageData) return;
+
+      // Fonction pour ajuster le wrapper
+      const adjustWrapper = () => {
+        // Lire la rotation initiale
+        let rotation = 0;
+        if (imageData.rotation !== undefined && imageData.rotation !== null) {
+          if (typeof imageData.rotation === 'string') {
+            const rotationValue = imageData.rotation.replace('deg', '').trim();
+            rotation = parseFloat(rotationValue) || 0;
+          } else {
+            rotation = parseFloat(imageData.rotation) || 0;
+          }
+        }
+
+        // Normaliser la rotation (0-360)
+        const normalizedRotation = ((rotation % 360) + 360) % 360;
+        
+        // Si l'image est à 90° ou 270°, inverser les dimensions du wrapper
+        if (normalizedRotation === 90 || normalizedRotation === 270) {
+          const wrapper = imgElement.closest('.image-wrapper');
+          if (!wrapper) return;
+
+          // Lire les dimensions de l'image (priorité : style inline > imageData > naturalWidth/Height)
+          let imgWidth = parseFloat(imgElement.style.width);
+          let imgHeight = parseFloat(imgElement.style.height);
+          
+          // Si pas de dimensions dans le style, essayer depuis imageData
+          if (!imgWidth && imageData.width) {
+            imgWidth = parseFloat(imageData.width) || 0;
+            // Convertir en px si nécessaire (peut être en pt)
+            if (imageData.width.toString().includes('pt')) {
+              imgWidth = imgWidth * 1.33; // 1pt ≈ 1.33px
+            }
+          }
+          if (!imgHeight && imageData.height) {
+            imgHeight = parseFloat(imageData.height) || 0;
+            // Convertir en px si nécessaire
+            if (imageData.height.toString().includes('pt')) {
+              imgHeight = imgHeight * 1.33;
+            }
+          }
+          
+          // Si toujours pas de dimensions, utiliser les dimensions naturelles
+          if (!imgWidth || imgWidth === 0) {
+            imgWidth = imgElement.naturalWidth || imgElement.offsetWidth || 0;
+          }
+          if (!imgHeight || imgHeight === 0) {
+            imgHeight = imgElement.naturalHeight || imgElement.offsetHeight || 0;
+          }
+
+          if (imgWidth && imgHeight && imgWidth > 0 && imgHeight > 0) {
+            // Inverser les dimensions pour le wrapper : largeur = hauteur image, hauteur = largeur image
+            wrapper.style.setProperty('width', `${imgHeight}px`, 'important');
+            wrapper.style.setProperty('height', `${imgWidth}px`, 'important');
+            
+            // Centrer l'image dans le wrapper (comme dans la fonction de rotation manuelle)
+            const deltaWidth = (imgHeight - imgWidth) / 2;
+            const deltaHeight = (imgWidth - imgHeight) / 2;
+            imgElement.style.marginLeft = `${deltaWidth}px`;
+            imgElement.style.marginTop = `${deltaHeight}px`;
+          }
+        } else {
+          // Pour 0° et 180°, s'assurer que le wrapper a les mêmes dimensions que l'image
+          const wrapper = imgElement.closest('.image-wrapper');
+          if (wrapper) {
+            let imgWidth = parseFloat(imgElement.style.width);
+            let imgHeight = parseFloat(imgElement.style.height);
+            
+            if (!imgWidth && imageData.width) {
+              imgWidth = parseFloat(imageData.width) || 0;
+              if (imageData.width.toString().includes('pt')) {
+                imgWidth = imgWidth * 1.33;
+              }
+            }
+            if (!imgHeight && imageData.height) {
+              imgHeight = parseFloat(imageData.height) || 0;
+              if (imageData.height.toString().includes('pt')) {
+                imgHeight = imgHeight * 1.33;
+              }
+            }
+            
+            if (!imgWidth) imgWidth = imgElement.naturalWidth || imgElement.offsetWidth || 0;
+            if (!imgHeight) imgHeight = imgElement.naturalHeight || imgElement.offsetHeight || 0;
+            
+            if (imgWidth && imgHeight && imgWidth > 0 && imgHeight > 0) {
+              wrapper.style.setProperty('width', `${imgWidth}px`, 'important');
+              wrapper.style.setProperty('height', `${imgHeight}px`, 'important');
+              imgElement.style.marginLeft = '0';
+              imgElement.style.marginTop = '0';
+            }
+          }
+        }
+      };
+
+      // Si l'image est déjà chargée, ajuster immédiatement
+      if (imgElement.complete && imgElement.naturalWidth > 0) {
+        adjustWrapper();
+      } else {
+        // Sinon, attendre le chargement
+        imgElement.addEventListener('load', adjustWrapper, { once: true });
+      }
+    });
   }
 
   /**
@@ -3521,7 +3652,8 @@ const variableManager = (() => {
       id,
       variableId: variable.id,
       element,
-      originalText
+      originalText,
+      active: true
     };
   }
 
@@ -3534,9 +3666,18 @@ const variableManager = (() => {
 
   function cleanupOccurrences() {
     state.variables.forEach((variable) => {
-      variable.occurrences = variable.occurrences.filter(
-        (occurrence) => occurrence.element && document.contains(occurrence.element)
-      );
+      variable.occurrences = variable.occurrences.filter((occurrence) => {
+        // Garder les occurrences actives si l'élément existe dans le DOM
+        if (occurrence.active && occurrence.element) {
+          return document.contains(occurrence.element);
+        }
+        // Garder les occurrences désactivées si le nœud texte existe dans le DOM
+        if (!occurrence.active && occurrence.textNode) {
+          return document.contains(occurrence.textNode);
+        }
+        // Sinon, retirer l'occurrence
+        return false;
+      });
     });
   }
 
@@ -3582,9 +3723,15 @@ const variableManager = (() => {
     actions.className = 'variable-actions';
 
     if (variable.type === 'text') {
+      const activeCount = variable.occurrences.filter(occ => occ.active).length;
+      const totalCount = variable.occurrences.length;
       const count = document.createElement('span');
       count.className = 'variable-occurrence-count';
-      count.textContent = `${variable.occurrences.length} occurrence${variable.occurrences.length > 1 ? 's' : ''}`;
+      if (activeCount === totalCount) {
+        count.textContent = `${activeCount} occurrence${activeCount > 1 ? 's' : ''}`;
+      } else {
+        count.textContent = `${activeCount}/${totalCount} occurrence${totalCount > 1 ? 's' : ''}`;
+      }
       actions.appendChild(count);
     }
 
@@ -3608,13 +3755,33 @@ const variableManager = (() => {
         list.appendChild(empty);
       } else {
         variable.occurrences.forEach((occurrence, index) => {
+          const chipContainer = document.createElement('div');
+          chipContainer.className = 'variable-occurrence-chip-container';
+          if (!occurrence.active) {
+            chipContainer.classList.add('is-disabled');
+          }
+          
+          const checkbox = document.createElement('input');
+          checkbox.type = 'checkbox';
+          checkbox.className = 'variable-occurrence-checkbox';
+          checkbox.dataset.variableAction = 'toggle-occurrence';
+          checkbox.dataset.occurrenceId = occurrence.id;
+          checkbox.checked = occurrence.active;
+          checkbox.title = occurrence.active ? 'Désactiver cette occurrence' : 'Activer cette occurrence';
+          chipContainer.appendChild(checkbox);
+          
           const chip = document.createElement('button');
           chip.type = 'button';
           chip.className = 'variable-occurrence-chip';
           chip.dataset.variableAction = 'focus';
           chip.dataset.occurrenceId = occurrence.id;
           chip.textContent = `Occurrence ${index + 1}`;
-          list.appendChild(chip);
+          if (!occurrence.active) {
+            chip.classList.add('is-disabled');
+          }
+          chipContainer.appendChild(chip);
+          
+          list.appendChild(chipContainer);
         });
       }
       item.appendChild(list);
@@ -3659,7 +3826,21 @@ const variableManager = (() => {
 
     if (action === 'focus') {
       const occurrenceId = actionBtn.dataset.occurrenceId;
-      selectVariable(variableId, { force: true, focusOccurrenceId: occurrenceId });
+      const variable = state.variables.find((v) => v.id === variableId);
+      if (variable) {
+        const occurrence = variable.occurrences.find((occ) => occ.id === occurrenceId);
+        // Ne focuser que si l'occurrence est active
+        if (occurrence && occurrence.active) {
+          selectVariable(variableId, { force: true, focusOccurrenceId: occurrenceId });
+        }
+      }
+      return;
+    }
+
+    if (action === 'toggle-occurrence') {
+      const occurrenceId = actionBtn.dataset.occurrenceId;
+      toggleOccurrence(variableId, occurrenceId);
+      return;
     }
   }
 
@@ -3748,6 +3929,39 @@ const variableManager = (() => {
     if (state.selectedVariableId === variableId) {
       state.selectedVariableId = null;
     }
+    renderPanels();
+  }
+
+  function toggleOccurrence(variableId, occurrenceId) {
+    const variable = state.variables.find((v) => v.id === variableId);
+    if (!variable) return;
+    
+    const occurrence = variable.occurrences.find((occ) => occ.id === occurrenceId);
+    if (!occurrence) return;
+    
+    if (occurrence.active) {
+      // Désactiver : remettre le texte original
+      if (occurrence.element && occurrence.element.parentNode) {
+        const textNode = document.createTextNode(occurrence.originalText || occurrence.element.textContent || '');
+        // Stocker une référence au nœud texte pour pouvoir le retrouver lors de la réactivation
+        occurrence.textNode = textNode;
+        occurrence.element.replaceWith(textNode);
+        occurrence.element = null; // Marquer comme désactivé
+      }
+      occurrence.active = false;
+    } else {
+      // Activer : réappliquer le span avec la variable
+      if (!occurrence.element && occurrence.textNode && occurrence.textNode.parentNode) {
+        // Remplacer le nœud texte par le span
+        const span = createOccurrenceSpan(variable, occurrence.originalText);
+        span.dataset.occurrenceId = occurrence.id;
+        occurrence.textNode.replaceWith(span);
+        occurrence.element = span;
+        occurrence.textNode = null;
+      }
+      occurrence.active = true;
+    }
+    
     renderPanels();
   }
 
@@ -4661,8 +4875,14 @@ function initPropertiesTabs() {
         
         // Lire la rotation actuelle depuis imageData.rotation ou depuis le style
         let currentRotation = 0;
-        if (imageData.rotation) {
-          const rotationValue = imageData.rotation.replace('deg', '').trim();
+        if (imageData.rotation !== undefined && imageData.rotation !== null) {
+          // Gérer le cas où rotation est une chaîne ("90deg") ou un nombre (90)
+          let rotationValue;
+          if (typeof imageData.rotation === 'string') {
+            rotationValue = imageData.rotation.replace('deg', '').trim();
+          } else {
+            rotationValue = imageData.rotation;
+          }
           const numericValue = parseFloat(rotationValue);
           if (!isNaN(numericValue)) {
             currentRotation = numericValue;
@@ -6570,8 +6790,14 @@ function initPropertiesTabs() {
     
     // Lire la rotation actuelle pour savoir si on doit inverser les dimensions
     let currentRotation = 0;
-    if (imageData.rotation) {
-      const rotationValue = imageData.rotation.replace('deg', '').trim();
+    if (imageData.rotation !== undefined && imageData.rotation !== null) {
+      // Gérer le cas où rotation est une chaîne ("90deg") ou un nombre (90)
+      let rotationValue;
+      if (typeof imageData.rotation === 'string') {
+        rotationValue = imageData.rotation.replace('deg', '').trim();
+      } else {
+        rotationValue = imageData.rotation;
+      }
       const numericValue = parseFloat(rotationValue);
       if (!isNaN(numericValue)) {
         currentRotation = numericValue;
