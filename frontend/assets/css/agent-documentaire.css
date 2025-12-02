@@ -1,5 +1,148 @@
 /* Agent Documentaire - Styles */
 
+/* Cards d'options */
+.option-card {
+  border-left: 4px solid #9edbeb;
+}
+
+.option-card.is-active {
+  border-left-color: #4b9ed8;
+  background: #f0f9ff;
+}
+
+.option-card.is-inactive {
+  border-left-color: #cbd5e1;
+  opacity: 0.7;
+}
+
+.option-card .section-card__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.option-card .badge-active {
+  background: #d1fae5;
+  color: #065f46;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+}
+
+.option-card .badge-inactive {
+  background: #fee2e2;
+  color: #991b1b;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+}
+
+.section-card.is-selected {
+  border: 2px solid #4b9ed8;
+  box-shadow: 0 4px 12px rgba(75, 158, 216, 0.3);
+}
+
+/* Drag and drop pour les cards */
+.section-card.dragging {
+  opacity: 0.5;
+  background: rgba(158, 219, 235, 0.2);
+  cursor: grabbing;
+}
+
+.section-card.drop-above {
+  border-top: 3px solid #4b9ed8;
+  margin-top: 2px;
+}
+
+.section-card.drop-below {
+  border-bottom: 3px solid #4b9ed8;
+  margin-bottom: 2px;
+}
+
+.section-card.drop-left {
+  border-left: 4px solid #4b9ed8;
+  margin-left: -2px;
+  box-shadow: -4px 0 8px rgba(75, 158, 216, 0.2);
+}
+
+.section-card.drop-right {
+  border-right: 4px solid #4b9ed8;
+  margin-right: -2px;
+  box-shadow: 4px 0 8px rgba(75, 158, 216, 0.2);
+}
+
+.section-card.drop-inside {
+  border: 3px solid #4b9ed8;
+  background: rgba(75, 158, 216, 0.1);
+  box-shadow: 0 0 0 4px rgba(75, 158, 216, 0.15), 0 8px 24px rgba(75, 158, 216, 0.25);
+  transform: scale(1.02);
+  position: relative;
+}
+
+.section-card.drop-inside::after {
+  content: '📁 Devenir sous-section';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  background: #4b9ed8;
+  color: white;
+  padding: 8px 16px;
+  border-radius: 8px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  white-space: nowrap;
+  z-index: 10;
+  pointer-events: none;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+}
+
+/* En-têtes de section dans les cards */
+.cards-sections-container,
+.cards-options-container {
+  margin-bottom: 30px;
+}
+
+.cards-section-header {
+  margin: 20px 0 15px 0;
+  padding-bottom: 10px;
+  border-bottom: 2px solid var(--doc-border);
+}
+
+.cards-section-header h4 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--doc-text-muted);
+}
+
+.cards-section-header h5 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--doc-text-muted);
+}
+
+.cards-section-header p {
+  margin: 8px 0 0 0;
+  font-size: 13px;
+}
+
+.cards-category-header {
+  margin: 15px 0 10px 0;
+  padding-left: 10px;
+}
+
+.cards-category-header h5 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--doc-text-muted);
+}
+
+/* Agent Documentaire - Styles */
+
 :root {
   --doc-editor-bg: #f5f7fb;
   --doc-border: #e0e6f0;
@@ -62,6 +205,12 @@ button.btn.btn-outline.view-tab.is-active,
 .view-card.is-active {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 300px;
+  gap: 24px;
+}
+
+.view-card.is-active > div:first-child {
+  display: flex;
+  flex-direction: column;
   gap: 24px;
 }
 
@@ -447,7 +596,8 @@ button.btn.btn-outline.view-tab.is-active,
   font-weight: 600;
 }
 
-.cards-grid {
+.cards-grid,
+.cards-options-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
   gap: 16px;
@@ -497,6 +647,19 @@ button.btn.btn-outline.view-tab.is-active,
   display: inline-flex;
   align-items: center;
   gap: 4px;
+}
+
+.section-card__badge--optional {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  background: rgba(75, 158, 216, 0.15);
+  color: #4b9ed8;
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-weight: 600;
+  font-size: 0.8rem;
+  z-index: 1;
 }
 
 /* Propriétés */
@@ -1794,4 +1957,129 @@ button.btn.btn-outline.view-tab.is-active,
   text-align: center;
   color: var(--doc-text-secondary);
   font-size: 14px;
+}
+
+/* Onglet Options */
+.options-header {
+  margin-bottom: 20px;
+  padding-bottom: 15px;
+  border-bottom: 1px solid var(--doc-border);
+}
+
+.options-header h4 {
+  margin: 0 0 15px 0;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.options-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.options-list {
+  max-height: 500px;
+  overflow-y: auto;
+}
+
+.options-category {
+  margin-bottom: 25px;
+}
+
+.options-category h5 {
+  margin: 0 0 12px 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--doc-text-primary);
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--doc-border-light);
+}
+
+.options-category-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.option-item {
+  padding: 15px;
+  border: 1px solid var(--doc-border);
+  border-radius: 6px;
+  background: var(--doc-bg);
+  transition: all 0.2s ease;
+}
+
+.option-item:hover {
+  border-color: var(--doc-primary);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+}
+
+.option-item.is-active {
+  border-color: var(--doc-success);
+  background: rgba(185, 232, 33, 0.05);
+}
+
+.option-item-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 15px;
+}
+
+.option-item-info {
+  flex: 1;
+}
+
+.option-item-info h6 {
+  margin: 0 0 8px 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--doc-text-primary);
+}
+
+.option-item-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+  color: var(--doc-text-secondary);
+}
+
+.option-meta-item {
+  display: flex;
+  gap: 8px;
+}
+
+.option-meta-item strong {
+  font-weight: 600;
+  color: var(--doc-text-primary);
+}
+
+.option-item-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  font-size: 14px;
+  user-select: none;
+}
+
+.checkbox-label input[type="checkbox"] {
+  cursor: pointer;
+  width: 18px;
+  height: 18px;
+}
+
+.section-selected {
+  outline: 2px solid var(--doc-primary);
+  outline-offset: 2px;
+  background: rgba(158, 219, 235, 0.1);
 }

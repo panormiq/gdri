@@ -153,6 +153,22 @@ class DocumentService {
     if (!document) {
       throw new Error('Document non trouvé');
     }
+
+    // Migration automatique des sections si nécessaire
+    // Vérifier si des sections ont besoin de migration (structure undefined, null, ou invalide)
+    if (document.json_content && Array.isArray(document.json_content.sections)) {
+      const needsMigration = document.json_content.sections.some(section => {
+        const structure = section.structure;
+        return structure === undefined || structure === null || structure === '' || 
+               (structure !== 'structural' && structure !== 'optional');
+      });
+      if (needsMigration) {
+        console.log('🔄 Migration automatique des sections...');
+        // Passer le document pour éviter la récursion
+        document = await this.migrateSectionsToStructure(documentId, document);
+      }
+    }
+
     return document;
   }
 
@@ -196,6 +212,487 @@ class DocumentService {
     document.json_content.sections = sections;
     this.renumberSections(document.json_content.sections);
     document.json_content.toc = this.generateTocFromSections(document.json_content.sections);
+    document.metadata.updatedAt = new Date();
+    document.metadata.version = (document.metadata.version || 0) + 1;
+    
+    await this.collection.updateOne(
+      { _id: objectId },
+      { $set: document }
+    );
+    
+    return document;
+  }
+
+  /**
+   * Migre les sections existantes pour ajouter les champs structure/actif/parent
+   * @param {string} documentId - ID du document
+   * @param {Object} document - Document à migrer (optionnel, pour éviter la récursion)
+   * @returns {Promise<Object>} Document mis à jour
+   */
+  async migrateSectionsToStructure(documentId, document = null) {
+    const objectId = ObjectId.isValid(documentId) ? new ObjectId(documentId) : documentId;
+    
+    // Si le document n'est pas fourni, le récupérer directement depuis MongoDB
+    // pour éviter la récursion avec getDocument()
+    if (!document) {
+      document = await this.collection.findOne({ _id: objectId });
+      if (!document) {
+        throw new Error('Document non trouvé');
+      }
+    }
+    
+    if (!document.json_content || !Array.isArray(document.json_content.sections)) {
+      return document;
+    }
+
+    let hasChanges = false;
+    const visited = new WeakSet(); // Pour éviter les références circulaires
+
+    // Fonction récursive pour migrer toutes les sections
+    const migrateSection = (section) => {
+      if (!section || typeof section !== 'object') return;
+      
+      // Vérifier si on a déjà visité cette section (éviter les références circulaires)
+      if (visited.has(section)) return;
+      visited.add(section);
+
+      // Ajouter les champs par défaut si absents ou invalides
+      // Par défaut, toutes les sections sont structurelles sauf si explicitement optionnelles
+      if (section.structure === undefined || section.structure === null || section.structure === '') {
+        section.structure = 'structural';
+        hasChanges = true;
+      } else if (section.structure !== 'structural' && section.structure !== 'optional') {
+        // Si la valeur est invalide (ni 'structural' ni 'optional'), forcer à 'structural'
+        console.warn(`⚠️ Section "${section.title}" a une structure invalide: "${section.structure}", forcée à 'structural'`);
+        section.structure = 'structural';
+        hasChanges = true;
+      }
+      if (section.actif === undefined) {
+        section.actif = section.structure === 'structural' ? true : false;
+        hasChanges = true;
+      }
+      if (section.parent === undefined) {
+        section.parent = null;
+        hasChanges = true;
+      }
+      if (section.category === undefined) {
+        section.category = null;
+        hasChanges = true;
+      }
+      // Migration : convertir les catégories string en tableau
+      if (section.category !== null && typeof section.category === 'string') {
+        section.category = [section.category];
+        hasChanges = true;
+      }
+      // S'assurer que category est soit null soit un tableau
+      if (section.category !== null && !Array.isArray(section.category)) {
+        section.category = [section.category];
+        hasChanges = true;
+      }
+      if (section.isDocument === undefined) {
+        section.isDocument = false;
+        hasChanges = true;
+      }
+      if (section.documentId === undefined) {
+        section.documentId = null;
+        hasChanges = true;
+      }
+      if (section.canvas === undefined) {
+        section.canvas = null;
+        hasChanges = true;
+      }
+      if (section.inheritedVariables === undefined) {
+        section.inheritedVariables = [];
+        hasChanges = true;
+      }
+      if (section.customVariables === undefined) {
+        section.customVariables = {};
+        hasChanges = true;
+      }
+
+      // Migrer les enfants récursivement
+      if (Array.isArray(section.children)) {
+        section.children.forEach(child => migrateSection(child));
+      }
+    };
+
+    document.json_content.sections.forEach(section => migrateSection(section));
+
+    if (hasChanges) {
+      document.metadata.updatedAt = new Date();
+      document.metadata.version = (document.metadata.version || 0) + 1;
+      
+      await this.collection.updateOne(
+        { _id: objectId },
+        { $set: document }
+      );
+    }
+
+    return document;
+  }
+
+  /**
+   * Trouve une section par son ID dans l'arbre
+   * @param {string} sectionId - ID de la section
+   * @param {Array} sections - Arbre de sections
+   * @returns {Object|null} Section trouvée avec son parent
+   */
+  findSectionById(sectionId, sections, parent = null) {
+    if (!Array.isArray(sections)) return null;
+
+    for (const section of sections) {
+      if (section.id === sectionId) {
+        return { section, parent };
+      }
+      if (Array.isArray(section.children)) {
+        const found = this.findSectionById(sectionId, section.children, section);
+        if (found) return found;
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Retire une section de son parent (children[])
+   * @param {string} sectionId - ID de la section à retirer
+   * @param {Array} sections - Arbre de sections
+   * @returns {boolean} true si retirée avec succès
+   */
+  removeSectionFromParent(sectionId, sections) {
+    if (!Array.isArray(sections)) return false;
+
+    for (let i = 0; i < sections.length; i++) {
+      if (sections[i].id === sectionId) {
+        sections.splice(i, 1);
+        return true;
+      }
+      if (Array.isArray(sections[i].children)) {
+        if (this.removeSectionFromParent(sectionId, sections[i].children)) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Ajoute une section comme enfant d'un parent
+   * @param {Object} section - Section à ajouter
+   * @param {string} parentId - ID du parent
+   * @param {Array} sections - Arbre de sections
+   * @param {number} position - Position dans children[] (optionnel)
+   * @returns {boolean} true si ajoutée avec succès
+   */
+  addSectionToParent(section, parentId, sections, position = null) {
+    if (!Array.isArray(sections)) return false;
+
+    // Si parentId est null, ajouter à la racine
+    if (!parentId) {
+      if (position !== null && position >= 0 && position <= sections.length) {
+        sections.splice(position, 0, section);
+      } else {
+        sections.push(section);
+      }
+      return true;
+    }
+
+    // Chercher le parent
+    for (const parentSection of sections) {
+      if (parentSection.id === parentId) {
+        if (!Array.isArray(parentSection.children)) {
+          parentSection.children = [];
+        }
+        if (position !== null && position >= 0 && position <= parentSection.children.length) {
+          parentSection.children.splice(position, 0, section);
+        } else {
+          parentSection.children.push(section);
+        }
+        return true;
+      }
+      if (Array.isArray(parentSection.children)) {
+        if (this.addSectionToParent(section, parentId, parentSection.children, position)) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Change le type structure/optionnel d'une section
+   * @param {string} documentId - ID du document
+   * @param {string} sectionId - ID de la section
+   * @param {string} newStructure - 'structural' ou 'optional'
+   * @param {string|null} parentId - ID du parent (requis si optional)
+   * @param {string|Array<string>|null} category - Catégorie(s) (requis si optional, peut être un tableau)
+   * @returns {Promise<Object>} Document mis à jour
+   */
+  async changeSectionStructure(documentId, sectionId, newStructure, parentId = null, category = null) {
+    const objectId = ObjectId.isValid(documentId) ? new ObjectId(documentId) : documentId;
+    const document = await this.getDocument(documentId);
+    
+    if (!document.json_content || !Array.isArray(document.json_content.sections)) {
+      throw new Error('Document sans sections');
+    }
+
+    // Valider newStructure
+    if (newStructure !== 'structural' && newStructure !== 'optional') {
+      throw new Error('newStructure doit être "structural" ou "optional"');
+    }
+
+    // Si optional, valider category et normaliser en tableau
+    let normalizedCategory = null;
+    if (newStructure === 'optional') {
+      if (!category) {
+        throw new Error('category est requis pour une section optionnelle');
+      }
+      // Normaliser : convertir string en tableau, ou garder le tableau
+      normalizedCategory = Array.isArray(category) ? category : [category];
+      // Filtrer les valeurs vides
+      normalizedCategory = normalizedCategory.filter(c => c && c.trim());
+      if (normalizedCategory.length === 0) {
+        throw new Error('category doit contenir au moins une catégorie valide');
+      }
+    }
+
+    // Trouver la section
+    const found = this.findSectionById(sectionId, document.json_content.sections);
+    if (!found) {
+      throw new Error('Section non trouvée');
+    }
+
+    const { section } = found;
+
+    // Si on passe de structural à optional
+    if (section.structure === 'structural' && newStructure === 'optional') {
+      // Retirer de son parent actuel
+      this.removeSectionFromParent(sectionId, document.json_content.sections);
+      
+      // Mettre à jour les champs
+      section.structure = 'optional';
+      section.actif = false; // Par défaut désactivé
+      section.parent = parentId;
+      section.category = normalizedCategory;
+      
+      // IMPORTANT : Garder la section optionnelle dans sections (à la racine) pour qu'elle reste accessible
+      // Vérifier qu'elle n'est pas déjà à la racine
+      const isAtRoot = document.json_content.sections.some(s => s.id === sectionId);
+      if (!isAtRoot) {
+        document.json_content.sections.push(section);
+      }
+    }
+    // Si on passe de optional à structural
+    else if (section.structure === 'optional' && newStructure === 'structural') {
+      // Réintégrer dans le parent (ou à la racine si parentId est null)
+      const oldParentId = section.parent;
+      this.removeSectionFromParent(sectionId, document.json_content.sections);
+      
+      // Réintégrer
+      if (parentId !== null) {
+        this.addSectionToParent(section, parentId, document.json_content.sections);
+      } else if (oldParentId) {
+        this.addSectionToParent(section, oldParentId, document.json_content.sections);
+      } else {
+        document.json_content.sections.push(section);
+      }
+      
+      // Mettre à jour les champs
+      section.structure = 'structural';
+      section.actif = true; // Forcé à true pour structural
+      section.parent = null;
+      section.category = null;
+    }
+    // Si on change juste le parent ou la catégorie d'une option
+    else if (section.structure === 'optional' && newStructure === 'optional') {
+      section.parent = parentId;
+      if (normalizedCategory !== null) {
+        section.category = normalizedCategory;
+      }
+    }
+
+    // Renuméroter et régénérer le TOC
+    this.renumberSections(document.json_content.sections);
+    document.json_content.toc = this.generateTocFromSections(document.json_content.sections);
+    
+    document.metadata.updatedAt = new Date();
+    document.metadata.version = (document.metadata.version || 0) + 1;
+    
+    await this.collection.updateOne(
+      { _id: objectId },
+      { $set: document }
+    );
+    
+    return document;
+  }
+
+  /**
+   * Récupère les sections optionnelles perdues et les réintègre dans la structure
+   * @param {string} documentId - ID du document
+   * @returns {Promise<Object>} Document mis à jour avec les sections récupérées
+   */
+  async recoverLostOptionalSections(documentId) {
+    const objectId = ObjectId.isValid(documentId) ? new ObjectId(documentId) : documentId;
+    const document = await this.getDocument(documentId);
+    
+    if (!document.json_content || !Array.isArray(document.json_content.sections)) {
+      throw new Error('Document sans sections');
+    }
+
+    // Collecter toutes les sections optionnelles dans l'arbre
+    const allOptionalSections = [];
+    const collectOptionalSections = (sections) => {
+      if (!Array.isArray(sections)) return;
+      sections.forEach(section => {
+        if (section.structure === 'optional') {
+          allOptionalSections.push(section);
+        }
+        if (Array.isArray(section.children)) {
+          collectOptionalSections(section.children);
+        }
+      });
+    };
+    collectOptionalSections(document.json_content.sections);
+
+    // Vérifier quelles sections optionnelles sont à la racine
+    const optionalAtRoot = document.json_content.sections.filter(s => 
+      s.structure === 'optional'
+    );
+
+    // Les sections optionnelles qui ne sont ni à la racine ni dans l'arbre sont perdues
+    // On va chercher dans toutes les sections (y compris celles qui pourraient être orphelines)
+    const allSections = [];
+    const collectAllSections = (sections) => {
+      if (!Array.isArray(sections)) return;
+      sections.forEach(section => {
+        allSections.push(section);
+        if (Array.isArray(section.children)) {
+          collectAllSections(section.children);
+        }
+      });
+    };
+    collectAllSections(document.json_content.sections);
+
+    // Trouver les sections optionnelles qui ne sont pas à la racine
+    const lostOptionalSections = allSections.filter(section => {
+      if (section.structure !== 'optional') return false;
+      // Vérifier si elle est à la racine
+      const isAtRoot = document.json_content.sections.some(rootSection => rootSection.id === section.id);
+      return !isAtRoot;
+    });
+
+    // Réintégrer les sections perdues à la racine
+    let recoveredCount = 0;
+    lostOptionalSections.forEach(section => {
+      // Vérifier qu'elle n'est pas déjà à la racine
+      const alreadyAtRoot = document.json_content.sections.some(s => s.id === section.id);
+      if (!alreadyAtRoot) {
+        document.json_content.sections.push(section);
+        recoveredCount++;
+      }
+    });
+
+    if (recoveredCount > 0) {
+      // Renuméroter et régénérer le TOC
+      this.renumberSections(document.json_content.sections);
+      document.json_content.toc = this.generateTocFromSections(document.json_content.sections);
+      
+      document.metadata.updatedAt = new Date();
+      document.metadata.version = (document.metadata.version || 0) + 1;
+      
+      await this.collection.updateOne(
+        { _id: objectId },
+        { $set: document }
+      );
+    }
+
+    return {
+      document,
+      recoveredCount,
+      totalOptional: allOptionalSections.length + lostOptionalSections.length
+    };
+  }
+
+  /**
+   * Met à jour la catégorie d'une section optionnelle
+   * @param {string} documentId - ID du document
+   * @param {string} sectionId - ID de la section
+   * @param {string|Array<string>} categories - Catégorie(s) (peut être un tableau)
+   * @returns {Promise<Object>} Document mis à jour
+   */
+  async updateSectionCategory(documentId, sectionId, categories) {
+    const objectId = ObjectId.isValid(documentId) ? new ObjectId(documentId) : documentId;
+    const document = await this.getDocument(documentId);
+    
+    if (!document.json_content || !Array.isArray(document.json_content.sections)) {
+      throw new Error('Document sans sections');
+    }
+
+    // Trouver la section
+    const found = this.findSectionById(sectionId, document.json_content.sections);
+    if (!found) {
+      throw new Error('Section non trouvée');
+    }
+
+    const { section } = found;
+
+    // Vérifier que c'est une section optionnelle
+    if (section.structure !== 'optional') {
+      throw new Error('Seules les sections optionnelles peuvent avoir une catégorie');
+    }
+
+    // Normaliser : convertir string en tableau, ou garder le tableau
+    let normalizedCategories = Array.isArray(categories) ? categories : [categories];
+    // Filtrer les valeurs vides
+    normalizedCategories = normalizedCategories.filter(c => c && c.trim());
+    if (normalizedCategories.length === 0) {
+      throw new Error('category doit contenir au moins une catégorie valide');
+    }
+
+    // Mettre à jour la catégorie
+    section.category = normalizedCategories;
+    
+    document.metadata.updatedAt = new Date();
+    document.metadata.version = (document.metadata.version || 0) + 1;
+    
+    await this.collection.updateOne(
+      { _id: objectId },
+      { $set: document }
+    );
+    
+    return document;
+  }
+
+  /**
+   * Active ou désactive une section optionnelle
+   * @param {string} documentId - ID du document
+   * @param {string} sectionId - ID de la section
+   * @param {boolean} active - true pour activer, false pour désactiver
+   * @returns {Promise<Object>} Document mis à jour
+   */
+  async toggleSectionActive(documentId, sectionId, active) {
+    const objectId = ObjectId.isValid(documentId) ? new ObjectId(documentId) : documentId;
+    const document = await this.getDocument(documentId);
+    
+    if (!document.json_content || !Array.isArray(document.json_content.sections)) {
+      throw new Error('Document sans sections');
+    }
+
+    // Trouver la section
+    const found = this.findSectionById(sectionId, document.json_content.sections);
+    if (!found) {
+      throw new Error('Section non trouvée');
+    }
+
+    const { section } = found;
+
+    // Vérifier que c'est une section optionnelle
+    if (section.structure !== 'optional') {
+      throw new Error('Seules les sections optionnelles peuvent être activées/désactivées');
+    }
+
+    // Mettre à jour actif
+    section.actif = active === true;
+    
     document.metadata.updatedAt = new Date();
     document.metadata.version = (document.metadata.version || 0) + 1;
     

@@ -71,6 +71,33 @@
       documentJson = payload.data.json_content;
       
       sectionsTree = Array.isArray(documentJson.sections) ? documentJson.sections : [];
+      
+      // Debug : analyser les sections chargées
+      console.log('🔍 loadDocument - documentJson.sections:', documentJson.sections);
+      console.log('🔍 loadDocument - sectionsTree.length:', sectionsTree.length);
+      console.log('🔍 loadDocument - sectionsTree est un array?', Array.isArray(sectionsTree));
+      
+      if (sectionsTree.length > 0) {
+        sectionsTree.forEach((section, idx) => {
+          console.log(`   Section ${idx + 1}: "${section.title}", structure=${section.structure || 'undefined'}, actif=${section.actif}`);
+        });
+      }
+      
+      // Debug : compter les sections optionnelles
+      const countOptional = (sections) => {
+        let count = 0;
+        sections.forEach(s => {
+          if ((s.structure || 'structural') === 'optional') {
+            count++;
+          }
+          if (Array.isArray(s.children)) {
+            count += countOptional(s.children);
+          }
+        });
+        return count;
+      };
+      const optionalCount = countOptional(sectionsTree);
+      console.log(`📊 loadDocument - Sections optionnelles dans sectionsTree: ${optionalCount}`);
 
       // Charger le canevas (ou l'initialiser si absent)
       if (!documentJson.canvas) {
@@ -91,6 +118,12 @@
       recalculateNumbering();
 
       renderAll();
+      
+      // Si l'onglet Options est actif dans le sidebar, recharger les options
+      const optionsPanel = document.querySelector('[data-properties-panel="options"]');
+      if (optionsPanel && optionsPanel.classList.contains('is-active')) {
+        loadOptionsListSidebar();
+      }
     } catch (error) {
       console.error('❌ Erreur chargement document:', error);
       console.error('Stack trace:', error.stack);
@@ -104,6 +137,87 @@
     renderSommaire();
     renderContent();
     renderCards();
+  }
+
+  /**
+   * Collecte toutes les sections à afficher (structurelles + optionnelles actives)
+   * et les organise selon leur parent
+   * @param {Array} sections - Arbre de sections
+   * @returns {Array} Sections à afficher, organisées
+   */
+  function collectSectionsToRender(sections) {
+    if (!Array.isArray(sections)) return [];
+
+    const result = [];
+    const optionalSectionsByParent = {}; // parentId -> [sections optionnelles]
+
+    // Première passe : collecter les sections structurelles et les optionnelles actives
+    const collectSections = (sections, parentId = null) => {
+      sections.forEach(section => {
+        const structure = section.structure || 'structural';
+        const actif = section.actif !== undefined ? section.actif : (structure === 'structural' ? true : false);
+
+        // Section structurelle : toujours inclure
+        if (structure === 'structural' || structure === undefined) {
+          const sectionCopy = { ...section };
+          // Récursivement traiter les enfants
+          if (Array.isArray(section.children)) {
+            sectionCopy.children = collectSections(section.children, section.id);
+          } else {
+            sectionCopy.children = [];
+          }
+          result.push(sectionCopy);
+        }
+        // Section optionnelle active : ajouter à la liste par parent
+        else if (structure === 'optional' && actif === true) {
+          const parent = section.parent || null;
+          const parentKey = parent || 'root';
+          if (!optionalSectionsByParent[parentKey]) {
+            optionalSectionsByParent[parentKey] = [];
+          }
+          optionalSectionsByParent[parentKey].push({ ...section });
+        }
+
+        // Traiter les enfants récursivement (même pour les optionnelles, au cas où)
+        if (Array.isArray(section.children)) {
+          collectSections(section.children, section.id);
+        }
+      });
+    };
+
+    collectSections(sections);
+
+    // Deuxième passe : insérer les sections optionnelles sous leur parent
+    const insertOptionalSections = (sections) => {
+      sections.forEach(section => {
+        // Si cette section a des sections optionnelles attachées
+        const parentKey = section.id || 'root';
+        if (optionalSectionsByParent[parentKey]) {
+          // Insérer les sections optionnelles après les enfants structurels
+          const optionalSections = optionalSectionsByParent[parentKey];
+          if (!Array.isArray(section.children)) {
+            section.children = [];
+          }
+          // Ajouter les sections optionnelles à la fin des enfants
+          section.children.push(...optionalSections);
+        }
+
+        // Traiter récursivement les enfants
+        if (Array.isArray(section.children)) {
+          insertOptionalSections(section.children);
+        }
+      });
+
+      // Gérer les sections optionnelles à la racine (parent = null ou '')
+      if (optionalSectionsByParent['root']) {
+        const rootOptionals = optionalSectionsByParent['root'];
+        result.push(...rootOptionals);
+      }
+    };
+
+    insertOptionalSections(result);
+
+    return result;
   }
 
   /**
@@ -290,8 +404,12 @@
     const children = section.children || [];
     const isIntroduction = section.type === 'introduction';
     const isSommaire = section.type === 'sommaire' || section.isSommaire;
+    
+    // Vérifier si c'est un document réintégré
+    const isDocument = section.isDocument || false;
+    const documentId = section.documentId || null;
 
-    let html = `<div id="${sectionId}" class="section level-${level}" data-section-id="${sectionId}">`;
+    let html = `<div id="${sectionId}" class="section level-${level} ${isDocument ? 'is-integrated-document' : ''}" data-section-id="${sectionId}" ${isDocument && documentId ? `data-integrated-document-id="${documentId}"` : ''}>`;
     
     // Si la section a un saut de page, ajouter un séparateur avant le titre
     if (section.hasPageBreak) {
@@ -323,6 +441,11 @@
     if (isSommaire) {
       // Générer le sommaire dynamique depuis toutes les sections (pas seulement les enfants)
       html += generateDynamicTocHTML(sectionsTree);
+    } else if (isDocument && documentId) {
+      // Document réintégré : charger et rendre le document
+      html += `<div class="integrated-document-placeholder" data-document-id="${documentId}" data-section-id="${sectionId}">
+        <p class="text-muted">Chargement du document réintégré...</p>
+      </div>`;
     } else {
       // Contenu normal (paragraphes, images, etc.)
       content.forEach(item => {
@@ -883,24 +1006,36 @@
     // 1. Retirer draggedSection de son parent actuel
     removeSectionFromTree(draggedSection);
 
-    // 2. Trouver le parent de targetSection
+    // 2. Si position = 'inside', ajouter comme enfant de targetSection
+    if (position === 'inside') {
+      if (!Array.isArray(targetSection.children)) {
+        targetSection.children = [];
+      }
+      targetSection.children.push(draggedSection);
+      // Mettre à jour le niveau (enfant = niveau parent + 1)
+      draggedSection.level = (targetSection.level || 0) + 1;
+      updateChildrenLevels(draggedSection);
+      return;
+    }
+
+    // 3. Sinon, insérer au même niveau (before ou after)
     const targetParent = findParentSection(targetSection.id, sectionsTree);
     const targetArray = targetParent ? targetParent.children : sectionsTree;
     
-    // 3. Trouver l'index de targetSection
+    // 4. Trouver l'index de targetSection
     const targetIndex = targetArray.findIndex(s => s.id === targetSection.id);
     
     if (targetIndex === -1) return;
 
-    // 4. Insérer draggedSection à la bonne position
+    // 5. Insérer draggedSection à la bonne position
     if (position === 'before') {
       targetArray.splice(targetIndex, 0, draggedSection);
     } else { // after
       targetArray.splice(targetIndex + 1, 0, draggedSection);
     }
 
-    // 5. Mettre à jour le niveau de draggedSection
-    draggedSection.level = targetSection.level;
+    // 6. Mettre à jour le niveau de draggedSection (même niveau que targetSection)
+    draggedSection.level = targetSection.level || 0;
     updateChildrenLevels(draggedSection);
   }
 
@@ -908,13 +1043,24 @@
    * Retire une section de l'arbre
    */
   function removeSectionFromTree(section) {
+    // Chercher dans la hiérarchie normale
     const parent = findParentSection(section.id, sectionsTree);
     const array = parent ? parent.children : sectionsTree;
     const index = array.findIndex(s => s.id === section.id);
     
     if (index !== -1) {
       array.splice(index, 1);
+      return true;
     }
+    
+    // Si pas trouvé, chercher à la racine (pour les options qui sont à la racine)
+    const rootIndex = sectionsTree.findIndex(s => s.id === section.id);
+    if (rootIndex !== -1) {
+      sectionsTree.splice(rootIndex, 1);
+      return true;
+    }
+    
+    return false;
   }
 
   /**
@@ -943,6 +1089,96 @@
       child.level = section.level + 1;
       updateChildrenLevels(child);
     });
+  }
+
+  /**
+   * Change la structure d'une section localement (sans sauvegarder)
+   * Simule la logique du backend mais en mémoire uniquement
+   */
+  function changeSectionStructureLocal(sectionId, newStructure, parentId = null, category = null) {
+    const section = findSectionById(sectionId, sectionsTree);
+    if (!section) {
+      console.warn(`⚠️ Section ${sectionId} non trouvée`);
+      return false;
+    }
+    const oldStructure = section.structure || 'structural';
+
+    // Normaliser category en tableau
+    let normalizedCategory = null;
+    if (newStructure === 'optional' && category) {
+      normalizedCategory = Array.isArray(category) ? category : [category];
+      normalizedCategory = normalizedCategory.filter(c => c && c.trim());
+      if (normalizedCategory.length === 0) {
+        console.warn('⚠️ Catégorie vide, utilisation de "dossier technique" par défaut');
+        normalizedCategory = ['dossier technique'];
+      }
+    }
+
+    // Si on passe de structural à optional
+    if (oldStructure === 'structural' && newStructure === 'optional') {
+      // Retirer de son parent actuel
+      removeSectionFromTree(section);
+      
+      // Mettre à jour les champs
+      section.structure = 'optional';
+      section.actif = false; // Par défaut désactivé
+      section.parent = parentId;
+      section.category = normalizedCategory;
+      
+      // Garder la section optionnelle à la racine pour qu'elle reste accessible
+      const isAtRoot = sectionsTree.some(s => s.id === sectionId);
+      if (!isAtRoot) {
+        sectionsTree.push(section);
+      }
+    }
+    // Si on passe de optional à structural
+    else if (oldStructure === 'optional' && newStructure === 'structural') {
+      const oldParentId = section.parent;
+      removeSectionFromTree(section);
+      
+      // Réintégrer
+      if (parentId !== null) {
+        const parent = findSectionById(parentId, sectionsTree);
+        if (parent) {
+          if (!Array.isArray(parent.children)) {
+            parent.children = [];
+          }
+          parent.children.push(section);
+        } else {
+          sectionsTree.push(section);
+        }
+      } else if (oldParentId) {
+        const oldParent = findSectionById(oldParentId, sectionsTree);
+        if (oldParent) {
+          if (!Array.isArray(oldParent.children)) {
+            oldParent.children = [];
+          }
+          oldParent.children.push(section);
+        } else {
+          sectionsTree.push(section);
+        }
+      } else {
+        sectionsTree.push(section);
+      }
+      
+      // Mettre à jour les champs
+      section.structure = 'structural';
+      section.actif = true; // Forcé à true pour structural
+      section.parent = null;
+      section.category = null;
+    }
+    // Si on change juste le parent ou la catégorie d'une option
+    else if (oldStructure === 'optional' && newStructure === 'optional') {
+      section.parent = parentId;
+      if (normalizedCategory !== null) {
+        section.category = normalizedCategory;
+      }
+    }
+
+    // Recalculer la numérotation
+    recalculateNumbering();
+
+    return true;
   }
 
   /**
@@ -1177,8 +1413,11 @@
     const contentArea = document.querySelector('[data-content-area]');
     if (!contentArea) return;
 
+    // Collecter toutes les sections à afficher (structurelles + optionnelles actives)
+    const sectionsToRender = collectSectionsToRender(sectionsTree);
+
     let html = '';
-    sectionsTree.forEach(section => {
+    sectionsToRender.forEach(section => {
       html += generateSectionHTML(section, section.level || 1);
     });
 
@@ -1202,6 +1441,8 @@
       attachTextEditEvents();
       // Initialiser le rognage d'image
       initImageCrop();
+      // Charger les documents réintégrés
+      loadIntegratedDocuments();
       // Réajuster les wrappers après un délai pour les images qui se chargent lentement
       setTimeout(() => {
         adjustImageWrappersForRotation();
@@ -1996,6 +2237,9 @@
       applyPromotionResults(promotionResults);
     }
 
+    // Recalculer la numérotation avant de sauvegarder
+    recalculateNumbering();
+
     documentJson.sections = sectionsTree;
 
     const response = await fetch(`${apiBase}/agent-documentaire/document/${documentId}`, {
@@ -2437,6 +2681,12 @@
    * Rend les cards (vue card, colonne 1)
    */
   function renderCards(parentSection = null) {
+    // Si on est au niveau racine, afficher aussi les options
+    if (!parentSection) {
+      renderCardsWithOptions();
+      return;
+    }
+
     const cardsGrid = document.querySelector('[data-cards-grid]');
     const breadcrumb = document.querySelector('[data-cards-breadcrumb]');
     const backButton = document.querySelector('[data-cards-back]');
@@ -2444,7 +2694,7 @@
     if (!cardsGrid) return;
 
     // Sections à afficher
-    const sectionsToDisplay = parentSection ? (parentSection.children || []) : sectionsTree;
+    const sectionsToDisplay = parentSection.children || [];
 
     // Filtrer les annexes
     const filteredSections = sectionsToDisplay.filter(section => {
@@ -2462,20 +2712,169 @@
 
     // Breadcrumb
     if (breadcrumb) {
-      if (parentSection) {
-        breadcrumb.textContent = parentSection.title || 'Sous-sections';
-      } else {
-        breadcrumb.textContent = 'Niveau 1';
-      }
+      breadcrumb.textContent = parentSection.title || 'Sous-sections';
     }
 
     // Bouton retour
     if (backButton) {
-      backButton.style.display = parentSection ? 'inline-block' : 'none';
+      backButton.style.display = 'inline-block';
     }
 
     // Attacher les événements
     attachCardEvents();
+  }
+
+  /**
+   * Rend les cards avec les options (niveau racine)
+   */
+  function renderCardsWithOptions() {
+    const cardsGrid = document.querySelector('[data-cards-grid]');
+    const breadcrumb = document.querySelector('[data-cards-breadcrumb]');
+    const backButton = document.querySelector('[data-cards-back]');
+    
+    if (!cardsGrid) {
+      console.warn('⚠️ cardsGrid non trouvé');
+      return;
+    }
+
+    // Debug : vérifier l'état de sectionsTree
+    console.log('🔍 renderCardsWithOptions - sectionsTree:', sectionsTree);
+    console.log('🔍 renderCardsWithOptions - sectionsTree.length:', sectionsTree?.length || 0);
+    console.log('🔍 renderCardsWithOptions - sectionsTree est un array?', Array.isArray(sectionsTree));
+
+    // Sections structurelles à afficher (filtrer les optionnelles)
+    const sectionsToDisplay = sectionsTree || [];
+    console.log('🔍 renderCardsWithOptions - sectionsToDisplay.length:', sectionsToDisplay.length);
+    
+    const filteredSections = sectionsToDisplay.filter(section => {
+      if (!section || typeof section !== 'object') {
+        console.log(`   ❌ Section invalide (pas un objet):`, section);
+        return false;
+      }
+      
+      const titleLower = (section.title || '').toLowerCase().trim();
+      
+      // Exclure les annexes et le sommaire
+      if (titleLower === 'annexes' || titleLower === 'annexe' || titleLower === 'sommaire') {
+        console.log(`   ❌ Section exclue (annexe/sommaire): "${section.title}"`);
+        return false;
+      }
+      
+      // Déterminer si la section est structurelle OU optionnelle active
+      // Par défaut, si structure n'est pas défini ou est invalide, on considère que c'est structurel
+      const structure = section.structure;
+      const isStructural = structure === 'structural' || structure === undefined || structure === null || structure === '';
+      const isOptionalActive = structure === 'optional' && section.actif === true;
+      
+      if (!isStructural && !isOptionalActive) {
+        console.log(`   ❌ Section exclue (optionnelle inactive): "${section.title}" (structure=${structure}, actif=${section.actif})`);
+        return false;
+      }
+      
+      // Section structurelle ou optionnelle active à inclure
+      if (isOptionalActive) {
+        console.log(`   ✅ Section optionnelle active incluse: "${section.title}"`);
+      }
+      return true;
+    });
+    
+    console.log('🔍 renderCardsWithOptions - filteredSections.length:', filteredSections.length);
+
+    // Collecter toutes les options
+    const optionalSections = [];
+    const collectOptionalSections = (sections) => {
+      sections.forEach(section => {
+        const structure = section.structure || 'structural';
+        console.log(`   Section "${section.title}": structure=${structure}`);
+        if (structure === 'optional') {
+          console.log(`   → Option trouvée: ${section.title}`);
+          optionalSections.push(section);
+        }
+        if (Array.isArray(section.children)) {
+          collectOptionalSections(section.children);
+        }
+      });
+    };
+    collectOptionalSections(sectionsTree);
+    console.log(`   📋 Total options collectées: ${optionalSections.length}`);
+    console.log(`   📋 Sections structurelles filtrées: ${filteredSections.length}`);
+
+    // Générer le HTML pour les sections structurelles
+    let sectionsHtml = '';
+    
+    if (filteredSections.length > 0) {
+      filteredSections.forEach(section => {
+        sectionsHtml += generateCardHTML(section);
+      });
+    } else {
+      sectionsHtml = `
+        <div class="text-muted" style="padding: 20px; text-align: center;">
+          <p>Aucune section structurelle</p>
+        </div>
+      `;
+    }
+    
+    cardsGrid.innerHTML = sectionsHtml;
+
+    // Panel Options séparé : cards des options (actives et inactives)
+    const optionsGrid = document.querySelector('[data-options-grid]');
+    if (optionsGrid) {
+      console.log('🔍 Panel Options - Recherche de data-options-grid:', optionsGrid ? 'trouvé' : 'NON TROUVÉ');
+      console.log('🔍 Panel Options - Options collectées:', optionalSections.length);
+      optionalSections.forEach((opt, idx) => {
+        console.log(`   Option ${idx + 1}: "${opt.title}", actif=${opt.actif}, structure=${opt.structure}`);
+      });
+      
+      // Afficher uniquement les options inactives dans le panel Options
+      const inactiveOptions = optionalSections.filter(s => s.actif !== true);
+      let optionsHtml = '';
+      
+      if (inactiveOptions.length > 0) {
+        inactiveOptions.forEach(section => {
+          optionsHtml += generateOptionCardHTML(section);
+        });
+        console.log('✅ Panel Options - HTML généré pour', inactiveOptions.length, 'options inactives');
+      } else {
+        optionsHtml = `
+          <div class="text-muted" style="padding: 20px; text-align: center;">
+            <p>Aucune option inactive</p>
+            <p style="font-size: 12px; margin-top: 8px;">Les options actives sont intégrées dans les sections structurelles.</p>
+          </div>
+        `;
+        console.log('⚠️ Panel Options - Aucune option inactive à afficher');
+      }
+      
+      optionsGrid.innerHTML = optionsHtml;
+      console.log('✅ Panel Options - HTML injecté, longueur:', optionsHtml.length);
+    } else {
+      console.error('❌ Panel Options - data-options-grid non trouvé dans le DOM');
+    }
+
+    // Formulaire de paramétrage des options dans l'onglet Options du panel de droite
+    const optionsListCards = document.getElementById('optionsListCards');
+    if (optionsListCards) {
+      // Le formulaire sera affiché quand une option est sélectionnée
+      optionsListCards.innerHTML = '<p class="text-muted">Sélectionnez une option pour voir et modifier ses paramètres.</p>';
+    }
+
+    // Breadcrumb
+    if (breadcrumb) {
+      breadcrumb.textContent = 'Niveau 1';
+    }
+
+    // Bouton retour
+    if (backButton) {
+      backButton.style.display = 'none';
+    }
+
+    // Attacher les événements (pour toutes les cards : structurelles + options)
+    attachCardEvents();
+    
+    // Attacher les événements de drag and drop
+    attachCardDragEvents();
+    
+    // Initialiser le bouton de récupération
+    initRecoverOptionalSectionsButton();
   }
 
   /**
@@ -2487,14 +2886,54 @@
     const numbering = section.numbering || '';
     const level = section.level || 1;
     const childrenCount = (section.children || []).length;
+    const structure = section.structure || 'structural';
+    const isOptional = structure === 'optional';
 
     return `
-      <div class="section-card" data-card-id="${sectionId}">
+      <div class="section-card" data-card-id="${sectionId}" draggable="true">
+        ${isOptional ? `<span class="section-card__badge section-card__badge--optional">🔘 Optionnel</span>` : ''}
         ${numbering ? `<div class="section-card__numbering">${numbering}</div>` : ''}
         <div class="section-card__title">${title}</div>
         <div class="section-card__meta">
           <span class="section-card__badge">📄 Niveau ${level}</span>
           ${childrenCount > 0 ? `<span class="section-card__badge">📂 ${childrenCount} sous-section${childrenCount > 1 ? 's' : ''}</span>` : ''}
+        </div>
+      </div>
+    `;
+  }
+
+  /**
+   * Génère le HTML d'une card d'option
+   */
+  function generateOptionCardHTML(section) {
+    const sectionId = section.id || '';
+    const title = section.title || '(Sans titre)';
+    const actif = section.actif !== undefined ? section.actif : false;
+    const isDocument = section.isDocument || false;
+    const documentId = section.documentId || null;
+    // Normaliser les catégories : convertir string en tableau si nécessaire
+    let categories = section.category || [];
+    if (typeof categories === 'string') {
+      categories = categories ? [categories] : [];
+    }
+    if (!Array.isArray(categories)) {
+      categories = [];
+    }
+    if (categories.length === 0) {
+      categories = ['Sans catégorie'];
+    }
+
+    return `
+      <div class="section-card option-card ${actif ? 'is-active' : 'is-inactive'}" data-card-id="${sectionId}" data-card-type="option" draggable="true">
+        <div class="section-card__header">
+          <div class="section-card__title">${title}</div>
+          <div class="section-card__badge ${actif ? 'badge-active' : 'badge-inactive'}">
+            ${actif ? '✅ Actif' : '❌ Inactif'}
+          </div>
+        </div>
+        <div class="section-card__meta">
+          ${categories.map(cat => `<span class="section-card__badge">📁 ${cat}</span>`).join('')}
+          ${isDocument && documentId ? `<span class="section-card__badge">📄 Document</span>` : ''}
         </div>
       </div>
     `;
@@ -2507,21 +2946,302 @@
     const cards = document.querySelectorAll('.section-card');
     
     cards.forEach(card => {
-      card.addEventListener('click', () => {
+      let clickTimeout = null;
+      
+      // Simple clic : sélectionner et afficher les propriétés
+      card.addEventListener('click', (e) => {
+        // Annuler le timeout si double clic
+        if (clickTimeout) {
+          clearTimeout(clickTimeout);
+          clickTimeout = null;
+          return;
+        }
+        
+        // Attendre un peu pour détecter le double clic
+        clickTimeout = setTimeout(() => {
+          clickTimeout = null;
+          
+          const cardId = card.dataset.cardId;
+          const cardType = card.dataset.cardType; // 'option' ou undefined
+          console.log('🖱️ Card cliquée, cardId:', cardId, 'cardType:', cardType);
+          
+          // Chercher la section dans toutes les sections (structurelles + options)
+          let section = findSectionById(cardId, sectionsTree);
+          
+          // Si pas trouvé dans les structurelles, chercher dans les options collectées
+          if (!section && cardType === 'option') {
+            // Les options sont dans optionalSections (collectées au début de renderCardsWithOptions)
+            const allOptionalSections = [];
+            const collectOptionalSections = (sections) => {
+              sections.forEach(s => {
+                const structure = s.structure || 'structural';
+                if (structure === 'optional') {
+                  allOptionalSections.push(s);
+                }
+                if (Array.isArray(s.children)) {
+                  collectOptionalSections(s.children);
+                }
+              });
+            };
+            collectOptionalSections(sectionsTree);
+            section = allOptionalSections.find(s => s.id === cardId);
+          }
+          
+          console.log('   Section trouvée:', section ? section.title : 'NON TROUVÉE');
+          
+          if (section) {
+            // Retirer la sélection précédente
+            document.querySelectorAll('.section-card').forEach(c => c.classList.remove('is-selected'));
+            // Sélectionner cette card
+            card.classList.add('is-selected');
+            
+            // Toutes les cards (structurelles et optionnelles) affichent le formulaire dans l'onglet Options
+            console.log('🔵 Card cliquée:', section?.title, 'Type:', cardType || 'structurelle');
+            
+            // Basculer vers l'onglet Options
+            const optionsTab = document.querySelector('[data-properties-tabs="card-properties"] [data-properties-tab="options"]');
+            console.log('📑 Onglet Options trouvé:', optionsTab ? 'oui' : 'non');
+            
+            if (optionsTab) {
+              optionsTab.click();
+              // Attendre un peu que l'onglet s'active puis afficher le formulaire
+              setTimeout(() => {
+                console.log('⏱️ Timeout terminé, affichage du formulaire...');
+                displayOptionsForm(section);
+              }, 200);
+            } else {
+              console.warn('⚠️ Onglet Options non trouvé, affichage direct');
+              displayOptionsForm(section);
+            }
+          } else {
+            console.error('❌ Section non trouvée pour cardId:', cardId);
+            console.error('   sectionsTree:', sectionsTree);
+            console.error('   optionalSections:', optionalSections);
+          }
+        }, 250); // Délai pour détecter le double clic
+      });
+      
+      // Double clic : naviguer vers les enfants (seulement pour les sections structurelles)
+      card.addEventListener('dblclick', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        
+        // Annuler le simple clic
+        if (clickTimeout) {
+          clearTimeout(clickTimeout);
+          clickTimeout = null;
+        }
+        
         const cardId = card.dataset.cardId;
+        const cardType = card.dataset.cardType;
         const section = findSectionById(cardId, sectionsTree);
         
-        if (section) {
-          // Afficher les propriétés
-          displayCardProperties(section);
+        // Seulement pour les sections structurelles avec enfants
+        if (section && !cardType && section.children && section.children.length > 0) {
+          currentCardParent = section;
+          renderCards(section);
+        }
+      });
+    });
+  }
+
+  /**
+   * Variables pour le drag and drop des cards
+   */
+  let draggedCard = null;
+  let draggedCardSection = null;
+
+  /**
+   * Attache les événements de drag and drop pour les cards
+   */
+  function attachCardDragEvents() {
+    const cards = document.querySelectorAll('.section-card[draggable="true"]');
+    
+    cards.forEach(card => {
+      // Drag start
+      card.addEventListener('dragstart', (e) => {
+        draggedCard = card;
+        const cardId = card.dataset.cardId;
+        draggedCardSection = findSectionById(cardId, sectionsTree);
+        
+        if (!draggedCardSection) {
+          // Chercher aussi dans les options
+          const allOptionalSections = [];
+          const collectOptionalSections = (sections) => {
+            sections.forEach(s => {
+              const structure = s.structure || 'structural';
+              if (structure === 'optional') {
+                allOptionalSections.push(s);
+              }
+              if (Array.isArray(s.children)) {
+                collectOptionalSections(s.children);
+              }
+            });
+          };
+          collectOptionalSections(sectionsTree);
+          draggedCardSection = allOptionalSections.find(s => s.id === cardId);
+        }
+        
+        if (draggedCardSection) {
+          card.classList.add('dragging');
+          e.dataTransfer.effectAllowed = 'move';
+          e.dataTransfer.setData('text/plain', cardId);
+        } else {
+          e.preventDefault();
+        }
+      });
+
+      // Drag over
+      card.addEventListener('dragover', (e) => {
+        if (!draggedCard || card === draggedCard) return;
+        
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        
+        const rect = card.getBoundingClientRect();
+        const verticalMidpoint = rect.top + rect.height / 2;
+        const horizontalMidpoint = rect.left + rect.width / 2;
+        
+        // Zone centrale (30% du centre) = sous-section
+        const centerZoneTop = rect.top + rect.height * 0.35;
+        const centerZoneBottom = rect.top + rect.height * 0.65;
+        const centerZoneLeft = rect.left + rect.width * 0.35;
+        const centerZoneRight = rect.left + rect.width * 0.65;
+        
+        const isInCenterZone = e.clientY >= centerZoneTop && e.clientY <= centerZoneBottom &&
+                               e.clientX >= centerZoneLeft && e.clientX <= centerZoneRight;
+        
+        // Si dans la zone centrale → sous-section
+        if (isInCenterZone) {
+          card.classList.remove('drop-above', 'drop-below', 'drop-left', 'drop-right');
+          card.classList.add('drop-inside');
+        } else {
+          // Sinon, déterminer la position relative
+          const isAbove = e.clientY < verticalMidpoint;
+          const isLeft = e.clientX < horizontalMidpoint;
           
-          // Si a des enfants, naviguer
-          if (section.children && section.children.length > 0) {
-            currentCardParent = section;
-            renderCards(section);
+          card.classList.remove('drop-above', 'drop-below', 'drop-left', 'drop-right', 'drop-inside');
+          
+          if (isAbove) {
+            card.classList.add('drop-above');
+          } else {
+            card.classList.add('drop-below');
+          }
+          
+          if (isLeft) {
+            card.classList.add('drop-left');
+          } else {
+            card.classList.add('drop-right');
           }
         }
       });
+
+      // Drag leave
+      card.addEventListener('dragleave', (e) => {
+        card.classList.remove('drop-above', 'drop-below', 'drop-left', 'drop-right', 'drop-inside');
+      });
+
+      // Drop
+      card.addEventListener('drop', async (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        
+        if (!draggedCard || !draggedCardSection || card === draggedCard) {
+          cleanupCardDragClasses();
+          return;
+        }
+
+        const targetCardId = card.dataset.cardId;
+        const targetSection = findSectionById(targetCardId, sectionsTree);
+        
+        if (!targetSection) {
+          cleanupCardDragClasses();
+          return;
+        }
+
+        // Déterminer la position du drop
+        const rect = card.getBoundingClientRect();
+        const horizontalMidpoint = rect.left + rect.width / 2;
+        const verticalMidpoint = rect.top + rect.height / 2;
+        
+        // Zone centrale (40% du centre verticalement et horizontalement) = sous-section
+        const centerZoneTop = rect.top + rect.height * 0.3;
+        const centerZoneBottom = rect.top + rect.height * 0.7;
+        const centerZoneLeft = rect.left + rect.width * 0.3;
+        const centerZoneRight = rect.left + rect.width * 0.7;
+        
+        // Vérifier si on est dans la zone centrale
+        const isInCenterZone = e.clientY >= centerZoneTop && e.clientY <= centerZoneBottom &&
+                               e.clientX >= centerZoneLeft && e.clientX <= centerZoneRight;
+        
+        let dropPosition;
+        if (isInCenterZone) {
+          // Drop au centre → sous-section
+          dropPosition = 'inside';
+          console.log('📍 Drop: inside (sous-section)');
+        } else {
+          // Drop à gauche ou à droite → avant ou après (priorité à la position horizontale)
+          const isLeft = e.clientX < horizontalMidpoint;
+          dropPosition = isLeft ? 'before' : 'after';
+          console.log(`📍 Drop: ${dropPosition} (${isLeft ? 'gauche' : 'droite'}) - X: ${e.clientX}, midpoint: ${horizontalMidpoint}`);
+        }
+
+        // Vérifier si on glisse une section optionnelle inactive vers une section structurelle
+        const draggedIsOptional = (draggedCardSection.structure || 'structural') === 'optional';
+        const draggedIsInactive = draggedIsOptional && draggedCardSection.actif === false;
+        const targetIsStructural = (targetSection.structure || 'structural') === 'structural';
+
+        // Si on glisse une option inactive vers une section structurelle, l'activer et la transformer en structurelle
+        if (draggedIsInactive && targetIsStructural) {
+          // Mettre à jour localement (sans sauvegarder)
+          draggedCardSection.structure = 'structural';
+          draggedCardSection.actif = true;
+          draggedCardSection.parent = null;
+          draggedCardSection.category = null;
+          console.log('✅ Section optionnelle transformée en structurelle (local):', draggedCardSection.title);
+        }
+
+        // Réorganiser dans sectionsTree
+        reorganizeSections(draggedCardSection, targetSection, dropPosition);
+
+        // Recalculer la numérotation localement
+        recalculateNumbering();
+
+        // Mettre à jour l'affichage localement (sans sauvegarder)
+        const cardsView = document.querySelector('.view-card.is-active');
+        if (cardsView) {
+          if (currentCardParent) {
+            renderCards(currentCardParent);
+          } else {
+            renderCardsWithOptions();
+          }
+        }
+        
+        // Mettre à jour aussi la vue texte
+        renderSommaire();
+        renderContent();
+        
+        console.log('✅ Réorganisation effectuée (modifications en mémoire, non sauvegardées)');
+
+        cleanupCardDragClasses();
+      });
+
+      // Drag end
+      card.addEventListener('dragend', (e) => {
+        cleanupCardDragClasses();
+        draggedCard = null;
+        draggedCardSection = null;
+      });
+    });
+  }
+
+  /**
+   * Nettoie les classes CSS du drag and drop des cards
+   */
+  function cleanupCardDragClasses() {
+    // Nettoyer toutes les classes de drop de toutes les cards
+    document.querySelectorAll('.section-card').forEach(card => {
+      card.classList.remove('drop-above', 'drop-below', 'drop-left', 'drop-right', 'drop-inside', 'dragging');
     });
   }
 
@@ -2617,6 +3337,50 @@
   }
 
   /**
+   * Affiche le formulaire de paramétrage des options
+   */
+  function displayOptionsForm(section) {
+    if (!section) {
+      console.warn('❌ Section non fournie à displayOptionsForm');
+      return;
+    }
+    
+    console.log('🎯 displayOptionsForm appelé pour:', section?.title);
+    console.log('   Section complète:', section);
+    
+    const optionsList = document.getElementById('optionsListCards');
+    if (!optionsList) {
+      console.error('❌ optionsListCards non trouvé dans le DOM');
+      return;
+    }
+    
+    console.log('✅ optionsListCards trouvé');
+    
+    // Utiliser la fonction existante pour générer le formulaire
+    const html = displaySectionOptionsProperties(section);
+    console.log('📝 HTML généré, longueur:', html?.length || 0);
+    
+    if (!html || html.length === 0) {
+      console.error('❌ HTML vide ou invalide');
+      optionsList.innerHTML = '<p class="text-danger">Erreur : Impossible de générer le formulaire</p>';
+      return;
+    }
+    
+    optionsList.innerHTML = html;
+    console.log('✅ HTML injecté dans optionsListCards');
+    
+    // Attacher les événements après un petit délai pour s'assurer que le DOM est prêt
+    setTimeout(() => {
+      attachSectionOptionsEvents();
+      console.log('✅ Événements attachés');
+      
+      // Vérifier que le bouton existe
+      const validateBtn = document.getElementById('section-validate-btn-options');
+      console.log('🔍 Vérification bouton Valider après injection:', validateBtn ? 'TROUVÉ' : 'NON TROUVÉ');
+    }, 50);
+  }
+
+  /**
    * Gère le bouton retour dans la vue card
    */
   function initCardBackButton() {
@@ -2625,7 +3389,61 @@
 
     backButton.addEventListener('click', () => {
       currentCardParent = null;
-      renderCards();
+      renderCards(); // renderCards() appelle renderCardsWithOptions() si parentSection est null
+    });
+  }
+
+  /**
+   * Initialise le bouton de récupération des sections optionnelles perdues
+   */
+  function initRecoverOptionalSectionsButton() {
+    const recoverBtn = document.getElementById('recoverOptionalSectionsBtn');
+    if (!recoverBtn) return;
+
+    recoverBtn.addEventListener('click', async () => {
+      if (!documentId || !apiBase) {
+        alert('Erreur : Document non chargé');
+        return;
+      }
+
+      if (!confirm('Voulez-vous récupérer les sections optionnelles perdues ?')) {
+        return;
+      }
+
+      recoverBtn.disabled = true;
+      recoverBtn.textContent = '🔄 Récupération...';
+
+      try {
+        const response = await fetch(`${apiBase}/agent-documentaire/document/${documentId}/sections/recover-optional`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' }
+        });
+
+        const payload = await response.json();
+        
+        if (payload.success) {
+          const recoveredCount = payload.recoveredCount || 0;
+          if (recoveredCount > 0) {
+            alert(`✅ ${recoveredCount} section(s) optionnelle(s) récupérée(s) !`);
+            await loadDocument();
+            // Recharger les cards si on est dans la vue cards
+            const cardsView = document.getElementById('cardsView');
+            if (cardsView && cardsView.classList.contains('is-active')) {
+              renderCardsWithOptions();
+            }
+          } else {
+            alert('ℹ️ Aucune section optionnelle perdue à récupérer.');
+          }
+        } else {
+          alert('Erreur : ' + (payload.error || 'Impossible de récupérer les sections'));
+        }
+      } catch (error) {
+        console.error('Erreur récupération sections:', error);
+        alert('Erreur lors de la récupération : ' + error.message);
+      } finally {
+        recoverBtn.disabled = false;
+        recoverBtn.textContent = '🔄 Récupérer';
+      }
     });
   }
 
@@ -3386,6 +4204,11 @@
         tab.classList.add('is-active');
         const panel = document.querySelector(`.canvas-tab-panel[data-panel="${targetTab}"]`);
         if (panel) panel.classList.add('is-active');
+
+        // Si on clique sur l'onglet Options, charger les options
+        if (targetTab === 'options') {
+          loadOptionsList();
+        }
       });
     });
 
@@ -3431,6 +4254,1101 @@
         }
       });
     }
+
+    // Boutons de l'onglet Options
+    const createOptionSectionBtn = document.getElementById('createOptionSectionBtn');
+    const createOptionDocumentBtn = document.getElementById('createOptionDocumentBtn');
+    const reintegrateDocumentBtn = document.getElementById('reintegrateDocumentBtn');
+
+    if (createOptionSectionBtn) {
+      createOptionSectionBtn.addEventListener('click', () => {
+        // Ouvrir un modal pour sélectionner une section à convertir en option
+        openSelectSectionModal();
+      });
+    }
+
+    if (createOptionDocumentBtn) {
+      createOptionDocumentBtn.addEventListener('click', () => {
+        openCreateOptionDocumentModal();
+      });
+    }
+
+    if (reintegrateDocumentBtn) {
+      reintegrateDocumentBtn.addEventListener('click', () => {
+        // Ouvrir un modal pour sélectionner un document à réintégrer
+        openReintegrateDocumentModal();
+      });
+    }
+  }
+
+  /**
+   * Charge et affiche la liste des options dans la vue cards
+   */
+  async function loadOptionsListCards() {
+    const optionsList = document.getElementById('optionsListCards');
+    if (!optionsList) return;
+
+    // Utiliser la même logique que loadOptionsList mais pour les cards
+    await loadOptionsListInternal(optionsList, 'cards');
+  }
+
+  /**
+   * Charge et affiche la liste des options dans le sidebar
+   */
+  async function loadOptionsListSidebar() {
+    console.log('🚀 loadOptionsListSidebar appelé');
+    const optionsList = document.getElementById('optionsListSidebar');
+    if (!optionsList) {
+      console.warn('❌ optionsListSidebar non trouvé dans le DOM');
+      return;
+    }
+    console.log('✅ optionsListSidebar trouvé');
+
+    // Vérifier si le document est chargé
+    console.log('📊 État du document:');
+    console.log('   - documentJson:', documentJson ? 'existe' : 'null');
+    console.log('   - sectionsTree:', sectionsTree?.length || 0, 'sections');
+    
+    if (!documentJson || !sectionsTree || sectionsTree.length === 0) {
+      console.log('⏳ Document non encore chargé, attente...');
+      // Attendre que le document soit chargé
+      let attempts = 0;
+      while ((!documentJson || !sectionsTree || sectionsTree.length === 0) && attempts < 10) {
+        await new Promise(resolve => setTimeout(resolve, 200));
+        attempts++;
+      }
+      
+      if (!documentJson || !sectionsTree || sectionsTree.length === 0) {
+        console.warn('⚠️ Document toujours non chargé après attente');
+        optionsList.innerHTML = '<p class="text-muted">Chargement du document en cours... Veuillez patienter.</p>';
+        return;
+      }
+    }
+
+    // Utiliser la même logique que loadOptionsList mais pour le sidebar
+    console.log('📥 Appel de loadOptionsListInternal...');
+    await loadOptionsListInternal(optionsList, 'sidebar');
+  }
+
+  /**
+   * Charge et affiche la liste des options
+   */
+  async function loadOptionsList() {
+    const optionsList = document.getElementById('optionsList');
+    if (!optionsList) return;
+
+    await loadOptionsListInternal(optionsList, 'modal');
+  }
+
+  /**
+   * Affiche les propriétés d'option d'une section dans l'onglet Options
+   */
+  function displaySectionOptionsProperties(section) {
+    if (!section) return '';
+
+    const structure = section.structure || 'structural';
+    const actif = section.actif !== undefined ? section.actif : (structure === 'structural' ? true : false);
+    
+    // Déterminer le parent : utiliser section.parent si défini, sinon trouver le parent dans l'arbre structurel
+    let parent = section.parent || null;
+    if (!parent && structure === 'optional') {
+      // Si pas de parent défini, chercher le parent dans l'arbre structurel
+      const structuralParent = findParentSection(section.id, sectionsTree);
+      if (structuralParent) {
+        parent = structuralParent.id;
+      }
+    }
+    
+    // Par défaut, la case à cocher est cochée si un parent est défini
+    const hasParentEnabled = parent !== null;
+    // Normaliser les catégories : convertir string en tableau si nécessaire
+    let categories = section.category || [];
+    if (typeof categories === 'string') {
+      categories = categories ? [categories] : [];
+    }
+    if (!Array.isArray(categories)) {
+      categories = [];
+    }
+    // Si aucune catégorie et que c'est optionnel, pré-remplir avec "dossier technique"
+    if (structure === 'optional' && categories.length === 0) {
+      categories = ['dossier technique'];
+    }
+    const isDocument = section.isDocument || false;
+    const documentId = section.documentId || null;
+    
+    // Liste des catégories disponibles
+    const availableCategories = ['dossier technique'];
+
+    // Récupérer toutes les sections pour le dropdown parent
+    const allSections = [];
+    const collectSections = (sections, level = 0) => {
+      sections.forEach(s => {
+        if (s.id !== section.id) {
+          allSections.push({ id: s.id, title: s.title || '(Sans titre)', level });
+          if (Array.isArray(s.children)) {
+            collectSections(s.children, level + 1);
+          }
+        }
+      });
+    };
+    collectSections(sectionsTree);
+
+    let html = `
+      <div class="options-section">
+        <h5>⚙️ Configuration de la section : ${section.title || '(Sans titre)'}</h5>
+        <div class="section-options-form" id="section-options-form-${section.id}">
+          <div class="form-group">
+            <label>Type <span class="text-danger">*</span></label>
+            <select class="form-control" id="section-structure-select-options" data-section-id="${section.id}">
+              <option value="structural" ${structure === 'structural' ? 'selected' : ''}>Structurel</option>
+              <option value="optional" ${structure === 'optional' ? 'selected' : ''}>Optionnel</option>
+            </select>
+            <small class="text-muted">Les sections structurelles sont toujours affichées. Les sections optionnelles peuvent être activées/désactivées.</small>
+          </div>
+          <div class="form-group">
+            <label>
+              <input type="checkbox" id="section-actif-checkbox-options" data-section-id="${section.id}" 
+                     ${actif ? 'checked' : ''}>
+              Actif
+            </label>
+            <small class="text-muted">Cocher pour activer cette option dans le document</small>
+          </div>
+          <div class="form-group">
+            <label>
+              <input type="checkbox" id="section-has-parent-checkbox-options" data-section-id="${section.id}" 
+                     ${hasParentEnabled ? 'checked' : ''}>
+              Utiliser une section parente
+            </label>
+          </div>
+          <div class="form-group" id="section-parent-wrapper-options" style="${hasParentEnabled && structure === 'optional' ? '' : 'display: none;'}">
+            <label>Section parente</label>
+            <select class="form-control" id="section-parent-select-options" data-section-id="${section.id}">
+              <option value="">Aucune (racine)</option>
+              ${allSections.map(s => 
+                `<option value="${s.id}" ${parent === s.id ? 'selected' : ''}>
+                  ${'&nbsp;&nbsp;'.repeat(s.level)}${s.title}
+                </option>`
+              ).join('')}
+            </select>
+            <small class="text-muted">Section parente où cette option sera logiquement placée</small>
+          </div>
+          <div class="form-group">
+            <label>Catégories <span class="text-danger">*</span></label>
+            <select class="form-control" id="section-category-select-options" 
+                    data-section-id="${section.id}" 
+                    required
+                    multiple
+                    size="${Math.min(availableCategories.length + 1, 5)}"
+                    style="min-height: 80px;">
+              ${availableCategories.map(cat => 
+                `<option value="${cat}" ${categories.includes(cat) ? 'selected' : ''}>${cat}</option>`
+              ).join('')}
+            </select>
+            <small class="text-muted">Sélectionnez une ou plusieurs catégories (maintenez Ctrl/Cmd pour sélection multiple)</small>
+          </div>
+          <div class="form-group" style="margin-top: 20px;">
+            <button type="button" class="btn btn-primary" id="section-validate-btn-options" data-section-id="${section.id}">
+              ✅ Valider les modifications
+            </button>
+          </div>
+    `;
+
+    // Si c'est un document réintégré
+    if (isDocument && documentId) {
+      html += `
+          <div class="form-group">
+            <label>
+              <input type="checkbox" id="section-is-document-checkbox-options" data-section-id="${section.id}" checked disabled>
+              Document réintégré
+            </label>
+            <button class="btn btn-sm btn-outline" onclick="window.open('${window.location.origin}${window.location.pathname}?document=${documentId}', '_blank')">
+              Ouvrir le document
+            </button>
+          </div>
+      `;
+    }
+
+    html += `
+        </div>
+      </div>
+    `;
+
+    return html;
+  }
+
+  /**
+   * Attache les événements pour les propriétés de section dans l'onglet Options
+   */
+  function attachSectionOptionsEvents() {
+    // Fonction pour activer/désactiver les champs selon le type
+    const updateFieldsState = (isOptional) => {
+      const actifCheckbox = document.getElementById('section-actif-checkbox-options');
+      const hasParentCheckbox = document.getElementById('section-has-parent-checkbox-options');
+      const parentWrapper = document.getElementById('section-parent-wrapper-options');
+      const parentSelect = document.getElementById('section-parent-select-options');
+      const categorySelect = document.getElementById('section-category-select-options');
+      
+      // Activer/désactiver selon le type
+      if (actifCheckbox) {
+        actifCheckbox.disabled = !isOptional;
+      }
+      if (hasParentCheckbox) {
+        hasParentCheckbox.disabled = !isOptional;
+      }
+      if (parentWrapper) {
+        parentWrapper.style.display = (isOptional && hasParentCheckbox?.checked) ? 'block' : 'none';
+      }
+      if (parentSelect) {
+        parentSelect.disabled = !isOptional;
+      }
+      if (categorySelect) {
+        categorySelect.disabled = !isOptional;
+        categorySelect.required = isOptional;
+      }
+    };
+    
+    // Initialiser l'état des champs
+    const structureSelect = document.getElementById('section-structure-select-options');
+    if (structureSelect) {
+      const currentValue = structureSelect.value;
+      updateFieldsState(currentValue === 'optional');
+      
+      // Changement de type Structurel/Optionnel (sans appliquer, juste mettre à jour l'UI)
+      structureSelect.addEventListener('change', (e) => {
+        const newStructure = e.target.value;
+        updateFieldsState(newStructure === 'optional');
+        
+        // Si on passe à optionnel, réinitialiser le parent à null (racine)
+        if (newStructure === 'optional') {
+          const hasParentCheckbox = document.getElementById('section-has-parent-checkbox-options');
+          const parentSelect = document.getElementById('section-parent-select-options');
+          const parentWrapper = document.getElementById('section-parent-wrapper-options');
+          
+          if (hasParentCheckbox) {
+            hasParentCheckbox.checked = false;
+          }
+          if (parentSelect) {
+            parentSelect.value = '';
+          }
+          if (parentWrapper) {
+            parentWrapper.style.display = 'none';
+          }
+        }
+      });
+    }
+    
+    // Bouton Valider - applique tous les changements d'un coup
+    const validateBtn = document.getElementById('section-validate-btn-options');
+    console.log('🔍 Bouton Valider trouvé:', validateBtn ? 'OUI' : 'NON');
+    
+    if (validateBtn) {
+      // Supprimer les anciens listeners pour éviter les doublons
+      const newValidateBtn = validateBtn.cloneNode(true);
+      validateBtn.parentNode.replaceChild(newValidateBtn, validateBtn);
+      
+      newValidateBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        
+        console.log('🔘 Clic sur le bouton Valider');
+        const sectionId = newValidateBtn.dataset.sectionId;
+        console.log('   Section ID:', sectionId);
+        
+        try {
+          const section = findSectionById(sectionId, sectionsTree);
+          
+          if (!section) {
+            alert('Erreur: Section non trouvée');
+            console.error('❌ Section non trouvée:', sectionId);
+            return;
+          }
+          
+          console.log('   Section trouvée:', section.title);
+          console.log('   Structure actuelle:', section.structure);
+          
+          // Récupérer toutes les valeurs du formulaire
+          const structureSelect = document.getElementById('section-structure-select-options');
+          const actifCheckbox = document.getElementById('section-actif-checkbox-options');
+          const hasParentCheckbox = document.getElementById('section-has-parent-checkbox-options');
+          const parentSelect = document.getElementById('section-parent-select-options');
+          const categorySelect = document.getElementById('section-category-select-options');
+          
+          if (!structureSelect) {
+            alert('Erreur: Formulaire non trouvé');
+            console.error('❌ structureSelect non trouvé');
+            return;
+          }
+          
+          const newStructure = structureSelect.value;
+          const newActif = actifCheckbox ? actifCheckbox.checked : false;
+          const hasParent = hasParentCheckbox ? hasParentCheckbox.checked : false;
+          const newParentId = (hasParent && parentSelect) ? (parentSelect.value || null) : null;
+          
+          console.log('   Nouvelle structure:', newStructure);
+          console.log('   Nouveau actif:', newActif);
+          console.log('   Nouveau parent:', newParentId);
+          
+          // Récupérer les catégories
+          let categories = [];
+          if (categorySelect) {
+            const selectedOptions = Array.from(categorySelect.selectedOptions);
+            categories = selectedOptions.map(opt => opt.value);
+          }
+          console.log('   Nouvelles catégories:', categories);
+          
+          // Si aucune catégorie et que c'est optionnel, pré-remplir avec "dossier technique"
+          if (newStructure === 'optional' && categories.length === 0) {
+            categories = ['dossier technique'];
+            console.log('   Catégorie par défaut ajoutée: dossier technique');
+          }
+          
+          // PRIORITÉ 1 : Si la structure change
+          if (newStructure !== (section.structure || 'structural')) {
+            console.log('   🔄 Changement de structure:', section.structure, '→', newStructure);
+            // Changer la structure
+            const success = changeSectionStructureLocal(sectionId, newStructure, newParentId, categories.length > 0 ? categories : null);
+            if (!success) {
+              alert('Erreur lors du changement de structure');
+              console.error('❌ Échec du changement de structure');
+              return;
+            }
+            console.log('   ✅ Changement de structure réussi');
+            
+            // Si on passe en optionnel, mettre à jour actif, parent et category
+            if (newStructure === 'optional') {
+              const updatedSection = findSectionById(sectionId, sectionsTree);
+              if (updatedSection) {
+                updatedSection.actif = newActif;
+                updatedSection.parent = newParentId;
+                updatedSection.category = categories.length > 0 ? categories : null;
+                console.log('   Propriétés optionnelles mises à jour:', { 
+                  actif: updatedSection.actif, 
+                  parent: updatedSection.parent, 
+                  category: updatedSection.category 
+                });
+              }
+            }
+          }
+          // PRIORITÉ 2 : Juste mettre à jour les propriétés (structure ne change pas)
+          else {
+            console.log('   🔄 Mise à jour des propriétés uniquement (structure ne change pas)');
+            // Si c'est optionnel, mettre à jour actif, parent et category
+            if (newStructure === 'optional') {
+              const oldActif = section.actif;
+              section.actif = newActif;
+              section.parent = newParentId;
+              section.category = categories.length > 0 ? categories : null;
+              console.log('   Propriétés optionnelles mises à jour:', { 
+                actif: `${oldActif} → ${section.actif}`, 
+                parent: section.parent, 
+                category: section.category 
+              });
+            }
+          }
+          
+          // Recalculer la numérotation
+          recalculateNumbering();
+          console.log('   Numérotation recalculée');
+          
+          // Vérifier l'état final de la section
+          const finalSection = findSectionById(sectionId, sectionsTree);
+          if (finalSection) {
+            console.log('   État final de la section:', {
+              id: finalSection.id,
+              title: finalSection.title,
+              structure: finalSection.structure,
+              actif: finalSection.actif,
+              parent: finalSection.parent,
+              category: finalSection.category
+            });
+          }
+          
+          // Mettre à jour l'affichage
+          const cardsView = document.querySelector('.view-card.is-active');
+          if (cardsView) {
+            renderCardsWithOptions();
+            console.log('   Cards réaffichées');
+            // Ré-sélectionner la card
+            setTimeout(() => {
+              const updatedSection = findSectionById(sectionId, sectionsTree);
+              if (updatedSection) {
+                const card = document.querySelector(`[data-card-id="${sectionId}"]`);
+                if (card) {
+                  card.classList.add('is-selected');
+                  displayOptionsForm(updatedSection);
+                  console.log('   Formulaire mis à jour avec la nouvelle section');
+                } else {
+                  console.warn('   ⚠️ Card non trouvée après mise à jour');
+                }
+              } else {
+                console.error('   ❌ Section non trouvée après mise à jour');
+              }
+            }, 100);
+          } else {
+            console.warn('   ⚠️ Vue card non active');
+          }
+          renderSommaire();
+          renderContent();
+          console.log('   Affichage mis à jour (sommaire et contenu)');
+          
+          // Feedback visuel
+          newValidateBtn.textContent = '✅ Validé !';
+          newValidateBtn.classList.add('btn-success');
+          setTimeout(() => {
+            newValidateBtn.textContent = '✅ Valider les modifications';
+            newValidateBtn.classList.remove('btn-success');
+          }, 1500);
+          
+          console.log('✅ Modifications validées (en mémoire, non sauvegardées)');
+        } catch (error) {
+          console.error('❌ Erreur lors de la validation:', error);
+          alert('Erreur lors de la validation: ' + error.message);
+        }
+      });
+    } else {
+      console.error('❌ Bouton Valider non trouvé dans le DOM');
+    }
+
+    // Changement d'état actif (juste mettre à jour l'UI, pas d'application immédiate)
+    const actifCheckbox = document.getElementById('section-actif-checkbox-options');
+    // Pas d'événement - les changements seront appliqués au clic sur "Valider"
+
+    // Case à cocher pour activer/désactiver la section parente
+    const hasParentCheckbox = document.getElementById('section-has-parent-checkbox-options');
+    if (hasParentCheckbox) {
+      hasParentCheckbox.addEventListener('change', (e) => {
+        const sectionId = e.target.dataset.sectionId;
+        const isChecked = e.target.checked;
+        const parentWrapper = document.getElementById('section-parent-wrapper-options');
+        const parentSelect = document.getElementById('section-parent-select-options');
+        
+        // Afficher/masquer le select de parent
+        if (parentWrapper) {
+          parentWrapper.style.display = isChecked ? 'block' : 'none';
+        }
+        
+        // Si on décoche, réinitialiser le parent à null
+        if (!isChecked && parentSelect) {
+          parentSelect.value = '';
+          
+          // Modifier localement (sans sauvegarder)
+          const section = findSectionById(sectionId, sectionsTree);
+          if (section) {
+            section.parent = null;
+            console.log('✅ Parent désactivé (modifications en mémoire, non sauvegardées)');
+          }
+        } else if (isChecked && parentSelect) {
+          // Si on coche et qu'il n'y a pas de parent sélectionné, mettre le parent par défaut
+          const section = findSectionById(sectionId, sectionsTree);
+          if (section && !parentSelect.value) {
+            // Trouver le parent dans l'arbre structurel
+            const structuralParent = findParentSection(sectionId, sectionsTree);
+            if (structuralParent) {
+              parentSelect.value = structuralParent.id;
+              section.parent = structuralParent.id;
+              console.log('✅ Parent par défaut appliqué:', structuralParent.title);
+            }
+          }
+        }
+      });
+    }
+
+    // Changement de section parente (juste mettre à jour l'UI, pas d'application immédiate)
+    // Les changements seront appliqués au clic sur "Valider"
+
+    // Changement de catégorie (juste mettre à jour l'UI, pas d'application immédiate)
+    // Les changements seront appliqués au clic sur "Valider"
+  }
+
+  /**
+   * Fonction interne pour charger les options (utilisée par sidebar et modal)
+   */
+  async function loadOptionsListInternal(optionsList, context = 'modal') {
+    if (!optionsList) {
+      console.warn('optionsList non trouvé dans loadOptionsListInternal');
+      return;
+    }
+
+    console.log('🔍 loadOptionsListInternal appelé, context:', context);
+    console.log('   sectionsTree:', sectionsTree?.length || 0, 'sections');
+
+    // Si le document n'est pas encore chargé
+    if (!sectionsTree || sectionsTree.length === 0) {
+      console.log('   ⚠️ sectionsTree vide, affichage message d\'attente');
+      optionsList.innerHTML = '<p class="text-muted">Aucune section trouvée. Le document est peut-être en cours de chargement...</p>';
+      return;
+    }
+
+    // Collecter toutes les sections (structurelles et optionnelles)
+    const allSections = [];
+    const optionalSections = [];
+    const collectSections = (sections, level = 0) => {
+      sections.forEach(section => {
+        const structure = section.structure || 'structural';
+        allSections.push({ ...section, level, structure });
+        if (structure === 'optional') {
+          optionalSections.push(section);
+        }
+        if (Array.isArray(section.children)) {
+          collectSections(section.children, level + 1);
+        }
+      });
+    };
+    collectSections(sectionsTree);
+
+    console.log('   📋 Sections totales:', allSections.length, '| Optionnelles:', optionalSections.length);
+
+    // Générer le HTML
+    let html = '';
+
+    // Section sélectionnée : Afficher ses propriétés si une section est sélectionnée
+    const selectedSectionElement = document.querySelector('.section-selected');
+    if (selectedSectionElement) {
+      const selectedSectionId = selectedSectionElement.dataset.sectionId;
+      const selectedSection = findSectionByIdInTree(selectedSectionId, sectionsTree);
+      if (selectedSection) {
+        html += displaySectionOptionsProperties(selectedSection.section || selectedSection);
+      }
+    } else {
+      html += `
+        <div class="options-section">
+          <p class="text-muted">Cliquez sur une section dans le contenu ou le sommaire pour voir et modifier ses propriétés d'option.</p>
+        </div>
+      `;
+    }
+
+    // Section 2 : Options existantes (actives et inactives)
+    if (optionalSections.length > 0) {
+      // Séparer les options actives et inactives
+      const activeOptions = optionalSections.filter(s => s.actif === true);
+      const inactiveOptions = optionalSections.filter(s => s.actif !== true);
+
+      // Grouper par catégorie (gérer les tableaux de catégories)
+      const byCategory = {};
+      optionalSections.forEach(section => {
+        // Normaliser les catégories : convertir string en tableau si nécessaire
+        let categories = section.category || [];
+        if (typeof categories === 'string') {
+          categories = categories ? [categories] : [];
+        }
+        if (!Array.isArray(categories)) {
+          categories = [];
+        }
+        
+        // Si aucune catégorie, utiliser "Sans catégorie"
+        if (categories.length === 0) {
+          categories = ['Sans catégorie'];
+        }
+        
+        // Ajouter la section à chaque catégorie
+        categories.forEach(category => {
+          if (!byCategory[category]) {
+            byCategory[category] = [];
+          }
+          byCategory[category].push(section);
+        });
+      });
+
+      html += `
+        <div class="options-section" style="margin-top: 20px;">
+          <h5>⚙️ Options configurées</h5>
+          <div class="options-categories">
+      `;
+
+      Object.keys(byCategory).sort().forEach(category => {
+        const categoryOptions = byCategory[category];
+        const categoryActive = categoryOptions.filter(s => s.actif === true);
+        const categoryInactive = categoryOptions.filter(s => s.actif !== true);
+
+        html += `
+          <div class="options-category">
+            <h6>${category} <span class="text-muted small">(${categoryActive.length} active${categoryActive.length > 1 ? 's' : ''}, ${categoryInactive.length} inactive${categoryInactive.length > 1 ? 's' : ''})</span></h6>
+            <div class="options-category-list">
+        `;
+
+        // Afficher d'abord les options actives
+        categoryActive.forEach(section => {
+          const parentSection = section.parent ? findSectionByIdInTree(section.parent, sectionsTree) : null;
+          const parentTitle = parentSection ? (parentSection.section?.title || '(Sans titre)') : 'Racine';
+          const isDocument = section.isDocument || false;
+          const documentId = section.documentId || null;
+          // Normaliser les catégories
+          let categories = section.category || [];
+          if (typeof categories === 'string') {
+            categories = categories ? [categories] : [];
+          }
+          if (!Array.isArray(categories)) {
+            categories = [];
+          }
+          const categoriesDisplay = categories.length > 0 ? categories.join(', ') : 'Sans catégorie';
+
+          html += `
+            <div class="option-item is-active" data-section-id="${section.id}">
+              <div class="option-item-header">
+                <div class="option-item-info">
+                  <h6>${section.title || '(Sans titre)'}</h6>
+                  <div class="option-item-meta">
+                    <span class="option-meta-item">
+                      <strong>Parent:</strong> ${parentTitle}
+                    </span>
+                    <span class="option-meta-item">
+                      <strong>Catégories:</strong> ${categoriesDisplay}
+                    </span>
+                    ${isDocument && documentId ? `
+                      <span class="option-meta-item">
+                        <strong>Type:</strong> Document réintégré
+                      </span>
+                    ` : `
+                      <span class="option-meta-item">
+                        <strong>Type:</strong> Section
+                      </span>
+                    `}
+                  </div>
+                </div>
+                <div class="option-item-actions">
+                  <label class="checkbox-label">
+                    <input type="checkbox" class="option-actif-checkbox" 
+                           data-section-id="${section.id}" 
+                           checked>
+                    <span>Actif</span>
+                  </label>
+                  ${isDocument && documentId ? `
+                    <button class="btn btn-sm btn-outline open-document-btn" 
+                            data-document-id="${documentId}">
+                      Ouvrir
+                    </button>
+                  ` : ''}
+                  <button class="btn btn-sm btn-outline edit-option-btn" 
+                          data-section-id="${section.id}">
+                    Éditer
+                  </button>
+                </div>
+              </div>
+            </div>
+          `;
+        });
+
+        // Afficher ensuite les options inactives
+        categoryInactive.forEach(section => {
+          const parentSection = section.parent ? findSectionByIdInTree(section.parent, sectionsTree) : null;
+          const parentTitle = parentSection ? (parentSection.section?.title || '(Sans titre)') : 'Racine';
+          const isDocument = section.isDocument || false;
+          const documentId = section.documentId || null;
+          // Normaliser les catégories
+          let categories = section.category || [];
+          if (typeof categories === 'string') {
+            categories = categories ? [categories] : [];
+          }
+          if (!Array.isArray(categories)) {
+            categories = [];
+          }
+          const categoriesDisplay = categories.length > 0 ? categories.join(', ') : 'Sans catégorie';
+
+          html += `
+            <div class="option-item is-inactive" data-section-id="${section.id}">
+              <div class="option-item-header">
+                <div class="option-item-info">
+                  <h6>${section.title || '(Sans titre)'} <span class="text-muted small">(inactive)</span></h6>
+                  <div class="option-item-meta">
+                    <span class="option-meta-item">
+                      <strong>Parent:</strong> ${parentTitle}
+                    </span>
+                    <span class="option-meta-item">
+                      <strong>Catégories:</strong> ${categoriesDisplay}
+                    </span>
+                    ${isDocument && documentId ? `
+                      <span class="option-meta-item">
+                        <strong>Type:</strong> Document réintégré
+                      </span>
+                    ` : `
+                      <span class="option-meta-item">
+                        <strong>Type:</strong> Section
+                      </span>
+                    `}
+                  </div>
+                </div>
+                <div class="option-item-actions">
+                  <label class="checkbox-label">
+                    <input type="checkbox" class="option-actif-checkbox" 
+                           data-section-id="${section.id}">
+                    <span>Actif</span>
+                  </label>
+                  ${isDocument && documentId ? `
+                    <button class="btn btn-sm btn-outline open-document-btn" 
+                            data-document-id="${documentId}">
+                      Ouvrir
+                    </button>
+                  ` : ''}
+                  <button class="btn btn-sm btn-outline edit-option-btn" 
+                          data-section-id="${section.id}">
+                    Éditer
+                  </button>
+                </div>
+              </div>
+            </div>
+          `;
+        });
+
+        html += `
+            </div>
+          </div>
+        `;
+      });
+
+      html += `
+          </div>
+        </div>
+      `;
+    } else {
+      html += `
+        <div class="options-section" style="margin-top: 20px;">
+          <h5>⚙️ Options configurées</h5>
+          <p class="text-muted">Aucune option configurée pour le moment.</p>
+        </div>
+      `;
+    }
+
+
+    console.log('   ✅ HTML généré, longueur:', html.length);
+    console.log('   📝 Avant mise à jour, innerHTML actuel:', optionsList.innerHTML.substring(0, 50));
+    optionsList.innerHTML = html;
+    console.log('   ✅ optionsList.innerHTML mis à jour, nouveau contenu:', optionsList.innerHTML.substring(0, 100));
+
+    // Attacher les événements pour les propriétés de section dans l'onglet Options
+    attachSectionOptionsEvents();
+
+    // Attacher les événements
+    optionsList.querySelectorAll('.option-actif-checkbox').forEach(checkbox => {
+      checkbox.addEventListener('change', (e) => {
+        const sectionId = e.target.dataset.sectionId;
+        const active = e.target.checked;
+
+        // Modifier localement (sans sauvegarder)
+        const section = findSectionById(sectionId, sectionsTree);
+        if (!section) {
+          alert('Erreur: Section non trouvée');
+          e.target.checked = !active;
+          return;
+        }
+
+        // Si on active une option, la transformer en structurelle
+        if (active && (section.structure || 'structural') === 'optional') {
+          // Transformer en structurelle localement
+          const success = changeSectionStructureLocal(sectionId, 'structural', null, null);
+          if (success) {
+            // Mettre à jour l'affichage
+            const optionItem = e.target.closest('.option-item');
+            if (optionItem) {
+              optionItem.classList.toggle('is-active', active);
+            }
+            // Recharger la liste des options
+            loadOptionsListInternal(optionsList, 'modal');
+            renderSommaire();
+            renderContent();
+            console.log('✅ Option transformée en structurelle (modifications en mémoire, non sauvegardées)');
+            return;
+          }
+        }
+
+        // Activation/désactivation simple (mise à jour locale)
+        section.actif = active;
+        
+        // Mettre à jour l'affichage
+        const optionItem = e.target.closest('.option-item');
+        if (optionItem) {
+          optionItem.classList.toggle('is-active', active);
+        }
+        renderSommaire();
+        renderContent();
+        console.log('✅ État actif modifié (modifications en mémoire, non sauvegardées)');
+      });
+    });
+
+    optionsList.querySelectorAll('.open-document-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        const docId = e.target.dataset.documentId;
+        window.open(`${window.location.origin}${window.location.pathname}?document=${docId}`, '_blank');
+      });
+    });
+
+    optionsList.querySelectorAll('.edit-option-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        const sectionId = e.target.dataset.sectionId;
+        const section = findSectionByIdInTree(sectionId, sectionsTree);
+        if (section) {
+          // Si on est dans le modal canevas, le fermer
+          if (context === 'modal') {
+            const canvasModal = document.getElementById('canvasModal');
+            if (canvasModal) {
+              canvasModal.style.display = 'none';
+            }
+          }
+          
+          // Basculer vers l'onglet Propriétés dans le sidebar
+          const propertiesTab = document.querySelector('[data-properties-tab="properties"]');
+          if (propertiesTab) {
+            propertiesTab.click();
+          }
+          
+          // Afficher les propriétés de la section
+          displaySectionProperties(section.section);
+          
+          // Scroll vers la section dans le contenu
+          const sectionElement = document.querySelector(`.section[data-section-id="${sectionId}"]`);
+          if (sectionElement) {
+            sectionElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            // Mettre en surbrillance
+            document.querySelectorAll('.section').forEach(s => s.classList.remove('section-selected'));
+            sectionElement.classList.add('section-selected');
+          }
+        }
+      });
+    });
+  }
+
+  /**
+   * Ouvre un modal pour sélectionner une section à convertir en option
+   */
+  function openSelectSectionModal() {
+    // Pour l'instant, on affiche une liste simple
+    // TODO: Créer un vrai modal avec liste des sections structurelles
+    const structuralSections = [];
+    const collectStructuralSections = (sections) => {
+      sections.forEach(section => {
+        if (section.structure === 'structural' || section.structure === undefined) {
+          structuralSections.push(section);
+        }
+        if (Array.isArray(section.children)) {
+          collectStructuralSections(section.children);
+        }
+      });
+    };
+    collectStructuralSections(sectionsTree);
+
+    if (structuralSections.length === 0) {
+      alert('Aucune section structurelle disponible');
+      return;
+    }
+
+    // Créer un prompt simple pour l'instant
+    const sectionList = structuralSections.map((s, i) => `${i + 1}. ${s.title || '(Sans titre)'}`).join('\n');
+    const choice = prompt(`Sélectionnez une section à convertir en option (entrez le numéro):\n\n${sectionList}`);
+    
+    if (choice) {
+      const index = parseInt(choice) - 1;
+      if (index >= 0 && index < structuralSections.length) {
+        const section = structuralSections[index];
+        // Ouvrir les propriétés de la section pour permettre la conversion
+        const canvasModal = document.getElementById('canvasModal');
+        if (canvasModal) {
+          canvasModal.style.display = 'none';
+        }
+        displaySectionProperties(section);
+        // Scroll vers la section
+        const sectionElement = document.querySelector(`.section[data-section-id="${section.id}"]`);
+        if (sectionElement) {
+          sectionElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          document.querySelectorAll('.section').forEach(s => s.classList.remove('section-selected'));
+          sectionElement.classList.add('section-selected');
+        }
+      }
+    }
+  }
+
+  /**
+   * Ouvre le modal pour créer une option document
+   */
+  function openCreateOptionDocumentModal() {
+    const modal = document.getElementById('createOptionDocumentModal');
+    const form = document.getElementById('createOptionDocumentForm');
+    const categoryInput = document.getElementById('optionDocumentCategory');
+    const parentSelect = document.getElementById('optionDocumentParent');
+    const titleInput = document.getElementById('optionDocumentTitle');
+    const activeCheckbox = document.getElementById('optionDocumentActive');
+    const closeBtn = document.getElementById('createOptionDocumentModalClose');
+    const cancelBtn = document.getElementById('createOptionDocumentCancel');
+    const createBtn = document.getElementById('createOptionDocumentCreate');
+
+    if (!modal) return;
+
+    // Remplir le dropdown des sections parentes
+    const allSections = [];
+    const collectSections = (sections, level = 0) => {
+      sections.forEach(s => {
+        allSections.push({ id: s.id, title: s.title || '(Sans titre)', level });
+        if (Array.isArray(s.children)) {
+          collectSections(s.children, level + 1);
+        }
+      });
+    };
+    collectSections(sectionsTree);
+
+    parentSelect.innerHTML = '<option value="">Aucune (racine)</option>' +
+      allSections.map(s => 
+        `<option value="${s.id}">${'&nbsp;&nbsp;'.repeat(s.level)}${s.title}</option>`
+      ).join('');
+
+    // Réinitialiser le formulaire
+    if (form) form.reset();
+    if (activeCheckbox) activeCheckbox.checked = true;
+
+    // Afficher le modal
+    modal.style.display = 'flex';
+
+    // Fermer le modal
+    const closeModal = () => {
+      modal.style.display = 'none';
+    };
+
+    if (closeBtn) closeBtn.addEventListener('click', closeModal);
+    if (cancelBtn) cancelBtn.addEventListener('click', closeModal);
+    if (modal) {
+      modal.addEventListener('click', (e) => {
+        if (e.target === modal) closeModal();
+      });
+    }
+
+    // Créer l'option document
+    if (createBtn) {
+      // Retirer les anciens listeners pour éviter les doublons
+      const newCreateBtn = createBtn.cloneNode(true);
+      createBtn.parentNode.replaceChild(newCreateBtn, createBtn);
+      
+      newCreateBtn.addEventListener('click', async () => {
+        const category = categoryInput.value.trim();
+        const parentId = parentSelect.value || null;
+        const title = titleInput.value.trim() || 'Nouvelle option';
+        const active = activeCheckbox.checked;
+
+        if (!category) {
+          alert('Veuillez renseigner une catégorie');
+          return;
+        }
+
+        try {
+          // 1. Créer un nouveau document avec le canevas et les variables hérités
+          const newDocId = `option-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+          
+          // Préparer le document avec héritage
+          const inheritedCanvas = documentJson?.canvas || null;
+          const inheritedVariables = documentJson?.variables || {};
+          
+          const newDocument = {
+            title: title,
+            original_filename: null,
+            word_file_path: null,
+            json_content: {
+              sections: [],
+              toc: [],
+              canvas: inheritedCanvas,
+              variables: inheritedVariables,
+              metadata: {
+                createdAt: new Date().toISOString(),
+                updatedAt: new Date().toISOString()
+              }
+            },
+            metadata: {
+              createdAt: new Date(),
+              updatedAt: new Date(),
+              version: 1
+            },
+            lockable_properties: {}
+          };
+
+          // Créer le document via l'API (PUT crée ou met à jour)
+          const createResponse = await fetch(`${apiBase}/agent-documentaire/document/${newDocId}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ 
+              json_content: newDocument.json_content,
+              title: newDocument.title,
+              metadata: newDocument.metadata
+            })
+          });
+
+          const createPayload = await createResponse.json();
+          if (!createPayload.success) {
+            throw new Error(createPayload.error || 'Erreur lors de la création du document');
+          }
+
+          // 2. Créer une section optionnelle dans le document parent
+          const sectionId = `section-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+          
+          // Récupérer le document parent
+          const parentDocResponse = await fetch(`${apiBase}/agent-documentaire/document/${documentId}`);
+          const parentDocPayload = await parentDocResponse.json();
+          
+          if (!parentDocPayload.success) {
+            throw new Error('Erreur lors de la récupération du document parent');
+          }
+
+          const parentDoc = parentDocPayload.data;
+          if (!Array.isArray(parentDoc.json_content.sections)) {
+            parentDoc.json_content.sections = [];
+          }
+
+          // Créer la section optionnelle directement
+          const newSection = {
+            id: sectionId,
+            title: title,
+            content: [],
+            children: [],
+            structure: 'optional',
+            actif: active,
+            parent: parentId,
+            category: category,
+            isDocument: true,
+            documentId: newDocId,
+            canvas: inheritedCanvas,
+            inheritedVariables: Object.keys(inheritedVariables),
+            customVariables: {},
+            level: 1
+          };
+
+          // Ajouter la section à la racine (elle sera placée sous le parent lors du rendu)
+          parentDoc.json_content.sections.push(newSection);
+
+          // Sauvegarder le document parent
+          const updateResponse = await fetch(`${apiBase}/agent-documentaire/document/${documentId}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ json_content: parentDoc.json_content })
+          });
+
+          const updatePayload = await updateResponse.json();
+          if (!updatePayload.success) {
+            throw new Error(updatePayload.error || 'Erreur lors de la création de la section optionnelle');
+          }
+
+          // 3. Ouvrir l'éditeur dans un nouvel onglet
+          const editorUrl = `${window.location.origin}${window.location.pathname}?document=${newDocId}`;
+          window.open(editorUrl, '_blank');
+
+          // 4. Fermer le modal et recharger le document parent
+          closeModal();
+          await loadDocument();
+          
+          // Recharger la liste des options si le modal canevas est ouvert
+          const optionsPanel = document.querySelector('.canvas-tab-panel[data-panel="options"]');
+          if (optionsPanel && optionsPanel.classList.contains('is-active')) {
+            loadOptionsList();
+          }
+
+          alert('Option document créée avec succès ! L\'éditeur s\'ouvre dans un nouvel onglet.');
+        } catch (error) {
+          console.error('Erreur création option document:', error);
+          alert('Erreur lors de la création de l\'option document : ' + error.message);
+        }
+      });
+    }
+  }
+
+  /**
+   * Ouvre un modal pour sélectionner un document à réintégrer
+   */
+  function openReintegrateDocumentModal() {
+    // TODO: Implémenter un vrai modal avec liste des documents disponibles
+    alert('Fonctionnalité de réintégration de document à venir. Pour l\'instant, créez une option document via "Créer option (document)".');
   }
 
   /**
@@ -3466,9 +5384,114 @@ const variableManager = (() => {
     if (state.contentRoot) {
       state.contentRoot.addEventListener('dragover', handleContentDragOver);
       state.contentRoot.addEventListener('drop', handleContentDrop);
+      
+      // Observer les suppressions d'occurrences dans le DOM
+      setupOccurrenceDeletionObserver();
+      
+      // Écouter les événements de suppression (Delete, Backspace)
+      state.contentRoot.addEventListener('keydown', handleContentKeyDown);
     }
 
     renderPanels();
+  }
+  
+  function setupOccurrenceDeletionObserver() {
+    if (!state.contentRoot) return;
+    
+    const observer = new MutationObserver((mutations) => {
+      mutations.forEach((mutation) => {
+        mutation.removedNodes.forEach((node) => {
+          // Vérifier si le nœud supprimé est une occurrence ou en contient
+          if (node.nodeType === Node.ELEMENT_NODE) {
+            const occurrences = node.classList?.contains(OCC_CLASS)
+              ? [node]
+              : node.querySelectorAll?.(`.${OCC_CLASS}`);
+            
+            if (occurrences && occurrences.length > 0) {
+              Array.from(occurrences).forEach((occElement) => {
+                const occurrenceId = occElement.dataset?.occurrenceId;
+                if (occurrenceId) {
+                  removeOccurrenceFromVariable(occurrenceId);
+                }
+              });
+            }
+          }
+        });
+      });
+    });
+    
+    observer.observe(state.contentRoot, {
+      childList: true,
+      subtree: true
+    });
+  }
+  
+  function handleContentKeyDown(event) {
+    // Détecter Delete ou Backspace
+    if (event.key !== 'Delete' && event.key !== 'Backspace') return;
+    
+    // Vérifier si on est en train de supprimer une occurrence
+    const selection = window.getSelection();
+    if (!selection || selection.rangeCount === 0) return;
+    
+    const range = selection.getRangeAt(0);
+    const startContainer = range.startContainer;
+    
+    // Vérifier si on supprime une occurrence
+    let targetElement = null;
+    if (startContainer.nodeType === Node.TEXT_NODE) {
+      targetElement = startContainer.parentElement;
+    } else {
+      targetElement = startContainer;
+    }
+    
+    if (targetElement && targetElement.classList.contains(OCC_CLASS)) {
+      // On supprime une occurrence, laisser le comportement par défaut
+      // Le MutationObserver la détectera
+      return;
+    }
+    
+    // Vérifier si la sélection contient une occurrence
+    const commonAncestor = range.commonAncestorContainer;
+    const occurrences = commonAncestor.nodeType === Node.ELEMENT_NODE
+      ? commonAncestor.querySelectorAll(`.${OCC_CLASS}`)
+      : commonAncestor.parentElement?.querySelectorAll(`.${OCC_CLASS}`);
+    
+    if (occurrences && occurrences.length > 0) {
+      // Vérifier si une occurrence est dans la sélection
+      Array.from(occurrences).forEach((occElement) => {
+        if (range.intersectsNode(occElement)) {
+          // L'occurrence sera supprimée, le MutationObserver la détectera
+          return;
+        }
+      });
+    }
+  }
+  
+  function removeOccurrenceFromVariable(occurrenceId) {
+    // Trouver la variable qui contient cette occurrence
+    for (const variable of state.variables) {
+      const occurrenceIndex = variable.occurrences.findIndex(
+        (occ) => occ.id === occurrenceId
+      );
+      
+      if (occurrenceIndex !== -1) {
+        // Retirer l'occurrence de la liste
+        variable.occurrences.splice(occurrenceIndex, 1);
+        
+        // Si c'était la variable sélectionnée et qu'elle n'a plus d'occurrences actives, la désélectionner
+        if (state.selectedVariableId === variable.id) {
+          const activeCount = variable.occurrences.filter(occ => occ.active).length;
+          if (activeCount === 0) {
+            state.selectedVariableId = null;
+          }
+        }
+        
+        // Mettre à jour l'affichage
+        renderPanels();
+        return;
+      }
+    }
   }
 
   function registerPanel(panelEl) {
@@ -3868,25 +5891,138 @@ const variableManager = (() => {
     const variable = state.variables.find((v) => v.id === variableId);
     if (!variable || variable.type !== 'text') return;
     event.preventDefault();
-    const range = caretRangeFromPoint(event.clientX, event.clientY) || createRangeAtEnd();
-    if (!range) return;
-    insertOccurrenceAtRange(variable, range);
-    renderPanels();
+    event.stopPropagation();
+    
+    // Ignorer si on drop sur un élément interactif ou sur une occurrence de variable existante
+    const target = event.target;
+    if (target.closest('button, a, .variable-occurrence-chip, .variable-occurrence-remove, [data-variable-action]')) {
+      return;
+    }
+    
+    // Obtenir la position exacte du drop
+    const range = caretRangeFromPoint(event.clientX, event.clientY);
+    if (!range) {
+      showDropErrorMessage('Impossible de déterminer la position du drop');
+      return;
+    }
+    
+    // Vérifier que le drop est dans une section valide
+    if (!isInValidSection(range.startContainer)) {
+      showDropErrorMessage('La variable doit être déposée dans une section (paragraphe, titre, etc.)');
+      return;
+    }
+    
+    const success = insertOccurrenceAtRange(variable, range);
+    if (success) {
+      renderPanels();
+    } else {
+      showDropErrorMessage('Impossible d\'insérer la variable à cet endroit');
+    }
+  }
+  
+  function showDropErrorMessage(message) {
+    // Créer un message temporaire pour informer l'utilisateur
+    const messageEl = document.createElement('div');
+    messageEl.style.cssText = `
+      position: fixed;
+      top: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: #dc2626;
+      color: white;
+      padding: 12px 24px;
+      border-radius: 8px;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+      z-index: 10000;
+      font-size: 14px;
+      pointer-events: none;
+    `;
+    messageEl.textContent = message;
+    document.body.appendChild(messageEl);
+    
+    // Retirer le message après 3 secondes
+    setTimeout(() => {
+      messageEl.style.opacity = '0';
+      messageEl.style.transition = 'opacity 0.3s ease';
+      setTimeout(() => {
+        if (messageEl.parentNode) {
+          messageEl.parentNode.removeChild(messageEl);
+        }
+      }, 300);
+    }, 3000);
   }
 
   function caretRangeFromPoint(x, y) {
+    // Essayer d'abord avec l'API moderne
     if (document.caretRangeFromPoint) {
-      return document.caretRangeFromPoint(x, y);
+      try {
+        const range = document.caretRangeFromPoint(x, y);
+        if (range) {
+          return range;
+        }
+      } catch (e) {
+        // Fallback si l'API échoue
+      }
     }
+    
+    // Fallback pour les anciens navigateurs
     if (document.caretPositionFromPoint) {
-      const position = document.caretPositionFromPoint(x, y);
-      if (position) {
+      try {
+        const position = document.caretPositionFromPoint(x, y);
+        if (position) {
+          const range = document.createRange();
+          range.setStart(position.offsetNode, position.offset);
+          range.collapse(true);
+          return range;
+        }
+      } catch (e) {
+        // Fallback si l'API échoue
+      }
+    }
+    
+    // Dernier recours : trouver l'élément sous le curseur et créer un range
+    const elementBelow = document.elementFromPoint(x, y);
+    if (elementBelow) {
+      // Chercher une section valide dans l'élément ou ses parents
+      let validSection = elementBelow;
+      while (validSection && validSection !== state.contentRoot) {
+        if (isInValidSection(validSection)) {
+          break;
+        }
+        validSection = validSection.parentElement;
+      }
+      
+      if (validSection && validSection !== state.contentRoot) {
+        // Chercher le nœud texte le plus proche dans la section valide
+        const walker = document.createTreeWalker(
+          validSection,
+          NodeFilter.SHOW_TEXT,
+          null
+        );
+        
+        let textNode = walker.nextNode();
+        if (textNode) {
+          const range = document.createRange();
+          // Essayer de trouver la position dans le texte en fonction de la position du curseur
+          const rect = textNode.getBoundingClientRect();
+          const relativeX = x - rect.left;
+          const textLength = textNode.textContent.length;
+          // Estimation approximative de la position (peut être améliorée)
+          const estimatedOffset = Math.round((relativeX / rect.width) * textLength);
+          const offset = Math.max(0, Math.min(estimatedOffset, textLength));
+          range.setStart(textNode, offset);
+          range.collapse(true);
+          return range;
+        }
+        
+        // Si pas de nœud texte, insérer à la fin de la section
         const range = document.createRange();
-        range.setStart(position.offsetNode, position.offset);
-        range.collapse(true);
+        range.selectNodeContents(validSection);
+        range.collapse(false);
         return range;
       }
     }
+    
     return null;
   }
 
@@ -3898,26 +6034,111 @@ const variableManager = (() => {
     return range;
   }
 
-  function insertOccurrenceAtRange(variable, range) {
-    if (!range) return;
-    const text = variable.pattern || variable.name;
-    let startNode = range.startContainer;
-    if (startNode.nodeType === Node.TEXT_NODE) {
-      const offset = range.startOffset;
-      if (offset < startNode.textContent.length) {
-        startNode = startNode.splitText(offset);
-      } else {
-        startNode = startNode.nextSibling;
+  /**
+   * Vérifie si un nœud appartient à une section valide (paragraphe, titre, etc.)
+   */
+  function isInValidSection(node) {
+    if (!node) return false;
+    
+    // Si c'est un nœud texte, vérifier son parent
+    let element = node.nodeType === Node.TEXT_NODE ? node.parentElement : node;
+    if (!element) return false;
+    
+    // Vérifier si l'élément ou un de ses ancêtres est une section valide
+    while (element && element !== state.contentRoot) {
+      const tagName = element.tagName?.toUpperCase();
+      // Sections valides : paragraphes, titres, listes
+      if (tagName === 'P' || 
+          tagName === 'H1' || tagName === 'H2' || tagName === 'H3' || 
+          tagName === 'H4' || tagName === 'H5' || tagName === 'H6' ||
+          tagName === 'LI' || tagName === 'TD' || tagName === 'TH' ||
+          element.classList?.contains('section') ||
+          element.classList?.contains('editable-text')) {
+        return true;
       }
+      element = element.parentElement;
     }
+    
+    return false;
+  }
+
+  function insertOccurrenceAtRange(variable, range) {
+    if (!range) return false;
+    
+    // Vérifier que l'insertion se fait dans une section valide
+    const container = range.startContainer;
+    if (!isInValidSection(container)) {
+      console.warn('Impossible d\'insérer la variable : elle doit être dans une section (paragraphe, titre, etc.)');
+      return false;
+    }
+    
+    const text = variable.pattern || variable.name;
     const span = createOccurrenceSpan(variable, text);
     const occurrence = createOccurrenceRecord(variable, span, text);
-    if (startNode && startNode.parentNode) {
-      startNode.parentNode.insertBefore(span, startNode);
-    } else if (state.contentRoot) {
-      state.contentRoot.appendChild(span);
+    
+    const offset = range.startOffset;
+    
+    try {
+      if (container.nodeType === Node.TEXT_NODE) {
+        // Insérer dans un nœud texte
+        const parent = container.parentNode;
+        if (!parent || !isInValidSection(parent)) {
+          console.warn('Impossible d\'insérer la variable : parent invalide');
+          return false;
+        }
+        
+        if (offset === 0) {
+          // Insérer au début du nœud texte
+          parent.insertBefore(span, container);
+        } else if (offset >= container.textContent.length) {
+          // Insérer à la fin du nœud texte
+          if (container.nextSibling) {
+            parent.insertBefore(span, container.nextSibling);
+          } else {
+            parent.appendChild(span);
+          }
+        } else {
+          // Insérer au milieu : diviser le nœud texte
+          const afterNode = container.splitText(offset);
+          parent.insertBefore(span, afterNode);
+        }
+      } else if (container.nodeType === Node.ELEMENT_NODE) {
+        // Vérifier que l'élément est une section valide
+        if (!isInValidSection(container)) {
+          console.warn('Impossible d\'insérer la variable : élément invalide');
+          return false;
+        }
+        
+        // Insérer dans un élément (paragraphe, div, etc.)
+        const children = Array.from(container.childNodes);
+        if (offset < children.length && children[offset]) {
+          // Insérer avant l'enfant à l'index offset
+          container.insertBefore(span, children[offset]);
+        } else {
+          // Insérer à la fin de l'élément
+          container.appendChild(span);
+        }
+      } else {
+        // Cas par défaut : trouver une section valide dans le parent
+        const parent = container.parentNode;
+        if (parent && isInValidSection(parent)) {
+          if (container.nextSibling) {
+            parent.insertBefore(span, container.nextSibling);
+          } else {
+            parent.appendChild(span);
+          }
+        } else {
+          console.warn('Impossible d\'insérer la variable : aucune section valide trouvée');
+          return false;
+        }
+      }
+      
+      variable.occurrences.push(occurrence);
+      return true;
+    } catch (error) {
+      console.error('Erreur lors de l\'insertion de l\'occurrence:', error);
+      return false;
     }
-    variable.occurrences.push(occurrence);
   }
 
   function removeVariable(variableId) {
@@ -4049,6 +6270,30 @@ function initPropertiesTabs() {
 
           tab.classList.add('is-active');
           targetPanel.classList.add('is-active');
+          
+          console.log('📑 Onglet cliqué:', target);
+          
+          // Si on clique sur l'onglet Options dans la vue cards
+          if (target === 'options' && groupId === 'card-properties') {
+            // Ne rien faire, le formulaire s'affichera quand une option sera sélectionnée
+            const optionsList = document.getElementById('optionsListCards');
+            if (optionsList) {
+              // Si aucune option n'est sélectionnée, afficher un message simple
+              const selectedCard = document.querySelector('.section-card.is-selected[data-card-type="option"]');
+              if (!selectedCard) {
+                optionsList.innerHTML = '<p class="text-muted">Sélectionnez une option pour voir et modifier ses paramètres.</p>';
+              }
+            }
+          } else if (target === 'options') {
+            // Vue texte : charger les options dans le sidebar
+            loadOptionsListSidebar();
+          }
+          
+          // Si on clique sur l'onglet options-properties dans le panel options
+          if (target === 'options-properties' && groupId === 'options-panel') {
+            console.log('⚙️ Chargement des propriétés d\'option...');
+            loadOptionsListOptionsPanel();
+          }
           
           // Désélectionner l'élément si on change d'onglet (sauf si on revient sur "properties")
           if (target !== 'properties') {
@@ -4565,6 +6810,134 @@ function initPropertiesTabs() {
     
     // Attacher les événements
     attachPropertyEvents();
+  }
+
+  /**
+   * Affiche les propriétés d'une section dans la colonne de droite
+   * @param {Object} section - Section à afficher
+   */
+  function displaySectionProperties(section) {
+    const propertiesArea = document.querySelector('[data-properties-area]');
+    if (!propertiesArea || !section) return;
+
+    // Trouver la section dans sectionsTree pour avoir les données complètes
+    const fullSection = findSectionByIdInTree(section.id, sectionsTree);
+    if (!fullSection) return;
+
+    const sectionData = fullSection.section || fullSection;
+    
+    // Valeurs par défaut si absentes
+    const structure = sectionData.structure || 'structural';
+    const actif = sectionData.actif !== undefined ? sectionData.actif : (structure === 'structural' ? true : false);
+    const parent = sectionData.parent || null;
+    const category = sectionData.category || '';
+    const isDocument = sectionData.isDocument || false;
+    const documentId = sectionData.documentId || null;
+
+    // Récupérer toutes les sections pour le dropdown parent
+    const allSections = [];
+    const collectSections = (sections, level = 0) => {
+      sections.forEach(s => {
+        if (s.id !== sectionData.id) { // Exclure la section actuelle
+          allSections.push({ id: s.id, title: s.title || '(Sans titre)', level });
+          if (Array.isArray(s.children)) {
+            collectSections(s.children, level + 1);
+          }
+        }
+      });
+    };
+    collectSections(sectionsTree);
+
+    // Créer le HTML (sans les champs d'options - ceux-ci sont dans l'onglet Options)
+    let html = `
+      <div class="property-item">
+        <span class="property-label">Type d'élément</span>
+        <span class="property-value">Section</span>
+      </div>
+      <div class="property-item">
+        <span class="property-label">Titre</span>
+        <span class="property-value">${sectionData.title || '(Sans titre)'}</span>
+      </div>
+      <div class="property-item">
+        <span class="property-label">Type</span>
+        <span class="property-value">${structure === 'structural' ? 'Structurel' : 'Optionnel'}</span>
+      </div>
+      <div class="property-item">
+        <span class="property-label">État</span>
+        <span class="property-value">${actif ? 'Actif' : 'Inactif'}</span>
+      </div>
+    `;
+
+    // Si optionnel, afficher les infos (en lecture seule)
+    if (structure === 'optional') {
+      const parentSection = parent ? findSectionByIdInTree(parent, sectionsTree) : null;
+      const parentTitle = parentSection ? (parentSection.section?.title || '(Sans titre)') : 'Racine';
+      
+      html += `
+        <div class="property-item">
+          <span class="property-label">Section parente</span>
+          <span class="property-value">${parentTitle}</span>
+        </div>
+        <div class="property-item">
+          <span class="property-label">Catégorie</span>
+          <span class="property-value">${category || '(Non définie)'}</span>
+        </div>
+        <div class="property-item">
+          <span class="property-label">Modifier les options</span>
+          <span class="property-value">
+            <small class="text-muted">Utilisez l'onglet "Options" pour modifier les propriétés d'option de cette section.</small>
+          </span>
+        </div>
+      `;
+    }
+
+    // Si c'est un document réintégré
+    if (isDocument && documentId) {
+      html += `
+        <div class="property-item">
+          <span class="property-label">Document réintégré</span>
+          <div class="property-value">
+            <span>Document ID: ${documentId}</span>
+            <button class="btn btn-sm btn-outline" id="open-document-btn" data-document-id="${documentId}">
+              Ouvrir le document
+            </button>
+          </div>
+        </div>
+      `;
+    }
+
+    propertiesArea.innerHTML = html;
+
+    // Attacher les événements (seulement pour le bouton ouvrir document)
+    const openDocumentBtn = document.getElementById('open-document-btn');
+
+    if (openDocumentBtn) {
+      openDocumentBtn.addEventListener('click', (e) => {
+        const docId = e.target.dataset.documentId;
+        window.open(`${window.location.origin}${window.location.pathname}?document=${docId}`, '_blank');
+      });
+    }
+  }
+
+  /**
+   * Trouve une section par son ID dans l'arbre (helper pour displaySectionProperties)
+   * @param {string} sectionId - ID de la section
+   * @param {Array} sections - Arbre de sections
+   * @returns {Object|null} Section trouvée avec { section }
+   */
+  function findSectionByIdInTree(sectionId, sections) {
+    if (!Array.isArray(sections)) return null;
+
+    for (const section of sections) {
+      if (section.id === sectionId) {
+        return { section };
+      }
+      if (Array.isArray(section.children)) {
+        const found = findSectionByIdInTree(sectionId, section.children);
+        if (found) return found;
+      }
+    }
+    return null;
   }
 
   /**
@@ -6431,6 +8804,33 @@ function initPropertiesTabs() {
       return;
     }
 
+    // Si on clique sur un titre de section, afficher les propriétés de la section
+    if (targetElement.classList.contains('section-title') && targetElement.dataset.sectionId) {
+      const sectionId = targetElement.dataset.sectionId;
+      const section = findSectionByIdInTree(sectionId, sectionsTree);
+      if (section) {
+        // Vérifier quel onglet est actif
+        const activeTab = document.querySelector('[data-properties-tab].is-active');
+        const activeTabName = activeTab ? activeTab.dataset.propertiesTab : null;
+        
+        // Afficher les propriétés selon l'onglet actif
+        if (activeTabName === 'properties') {
+          displaySectionProperties(section.section);
+        } else if (activeTabName === 'options') {
+          // Recharger l'onglet Options pour afficher les propriétés de la section sélectionnée
+          loadOptionsListSidebar();
+        }
+        
+        // Mettre en surbrillance la section
+        const sectionElement = contentArea.querySelector(`.section[data-section-id="${sectionId}"]`);
+        if (sectionElement) {
+          contentArea.querySelectorAll('.section').forEach(s => s.classList.remove('section-selected'));
+          sectionElement.classList.add('section-selected');
+        }
+        return;
+      }
+    }
+
     // Ne jamais ajouter la sélection aux éléments éditables
     if (targetElement.classList.contains('editable-text')) {
       displayElementProperties(targetElement);
@@ -7134,6 +9534,72 @@ function initPropertiesTabs() {
   }
 
   /**
+   * Charge et rend les documents réintégrés
+   */
+  async function loadIntegratedDocuments() {
+    const placeholders = document.querySelectorAll('.integrated-document-placeholder');
+    
+    for (const placeholder of placeholders) {
+      const docId = placeholder.dataset.documentId;
+      const sectionId = placeholder.dataset.sectionId;
+      
+      if (!docId) continue;
+
+      try {
+        // Trouver la section dans sectionsTree pour récupérer les infos (canvas, variables)
+        const section = findSectionByIdInTree(sectionId, sectionsTree);
+        if (!section) continue;
+
+        const sectionData = section.section || section;
+        const inheritedCanvas = sectionData.canvas || documentJson?.canvas || null;
+        const inheritedVariables = sectionData.inheritedVariables || [];
+        const customVariables = sectionData.customVariables || {};
+
+        // Charger le document réintégré
+        const response = await fetch(`${apiBase}/agent-documentaire/document/${docId}`);
+        const payload = await response.json();
+
+        if (!payload.success || !payload.data) {
+          placeholder.innerHTML = '<p class="text-danger">Erreur : Document non trouvé</p>';
+          continue;
+        }
+
+        const integratedDoc = payload.data;
+        const integratedSections = Array.isArray(integratedDoc.json_content?.sections) 
+          ? integratedDoc.json_content.sections 
+          : [];
+
+        // Rendre les sections du document réintégré
+        let html = '';
+        integratedSections.forEach(integratedSection => {
+          // Appliquer le canevas hérité si nécessaire
+          if (inheritedCanvas && integratedDoc.json_content) {
+            // Fusionner le canevas (hérité en priorité)
+            integratedDoc.json_content.canvas = {
+              ...integratedDoc.json_content.canvas,
+              ...inheritedCanvas
+            };
+          }
+          
+          html += generateSectionHTML(integratedSection, integratedSection.level || 1);
+        });
+
+        placeholder.innerHTML = html || '<p class="text-muted">Document vide</p>';
+
+        // Réappliquer les événements sur le nouveau contenu
+        attachContentClickEvents();
+        attachTextEditEvents();
+        processImageTransparency();
+        adjustImageWrappersForRotation();
+
+      } catch (error) {
+        console.error('Erreur chargement document réintégré:', error);
+        placeholder.innerHTML = '<p class="text-danger">Erreur lors du chargement du document</p>';
+      }
+    }
+  }
+
+  /**
    * Initialisation
    */
   function init() {
@@ -7146,10 +9612,38 @@ function initPropertiesTabs() {
     variableManager.init();
     initGlobalFocusReset();
     initSaveButton();
+    initSidebarOptionsButtons();
     loadDocument().then(() => {
       // Initialiser le canevas après le chargement du document
       initializeCanvasIfNeeded();
     });
+  }
+
+  /**
+   * Initialise les boutons des options dans le sidebar
+   */
+  function initSidebarOptionsButtons() {
+    const createOptionSectionBtn = document.getElementById('createOptionSectionBtnSidebar');
+    const createOptionDocumentBtn = document.getElementById('createOptionDocumentBtnSidebar');
+    const reintegrateDocumentBtn = document.getElementById('reintegrateDocumentBtnSidebar');
+
+    if (createOptionSectionBtn) {
+      createOptionSectionBtn.addEventListener('click', () => {
+        openSelectSectionModal();
+      });
+    }
+
+    if (createOptionDocumentBtn) {
+      createOptionDocumentBtn.addEventListener('click', () => {
+        openCreateOptionDocumentModal();
+      });
+    }
+
+    if (reintegrateDocumentBtn) {
+      reintegrateDocumentBtn.addEventListener('click', () => {
+        openReintegrateDocumentModal();
+      });
+    }
   }
 
   init();

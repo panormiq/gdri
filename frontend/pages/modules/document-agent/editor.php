@@ -1,4 +1,4 @@
-<h2 class="section-title" style="font-family: 'Michroma'; font-size: 22.5pt; color: #ED1C24; font-weight: bold; text-transform: none; text-align: center; background-color: #F2F3F3; margin-top: 12pt; margin-bottom: 6pt; margin-left: -70.85pt; padding-left: 70.85pt; margin-right: -70.85pt; padding-right: 70.85pt">Sommaire</h2><?php
+<?php
 require_once '../../../config/config.php';
 require_once '../../../auth/session.php';
 require_once '../../../includes/functions.php';
@@ -84,7 +84,6 @@ require_once '../../../includes/header.php';
                         <div class="properties-tabs" data-properties-tabs="main-properties">
                             <button class="properties-tab is-active" data-properties-tab="properties">Propriétés</button>
                             <button class="properties-tab" data-properties-tab="variables">Variables</button>
-                            <button class="properties-tab" data-properties-tab="options">Options</button>
                         </div>
                     </div>
                     <div class="doc-panel__body">
@@ -137,8 +136,16 @@ require_once '../../../includes/header.php';
                                     </div>
                                 </div>
                             <div class="properties-panel" data-properties-panel="options">
-                                <div class="properties-placeholder">
-                                    <p class="text-muted">Paramétrez les options avancées du canevas (à venir).</p>
+                                <div class="options-header">
+                                    <h4>Gestion des options</h4>
+                                    <div class="options-actions">
+                                        <button class="btn btn-sm btn-outline" id="createOptionSectionBtnSidebar">➕ Créer option (section)</button>
+                                        <button class="btn btn-sm btn-outline" id="createOptionDocumentBtnSidebar">📄 Créer option (document)</button>
+                                        <button class="btn btn-sm btn-outline" id="reintegrateDocumentBtnSidebar">🔗 Réintégrer document</button>
+                                    </div>
+                                </div>
+                                <div class="options-list" id="optionsListSidebar">
+                                    <p class="text-muted">Chargement des options...</p>
                                 </div>
                             </div>
                         </div>
@@ -149,20 +156,38 @@ require_once '../../../includes/header.php';
             
             <!-- VUE CARD (2 colonnes) -->
             <div class="view-container view-card">
-                <!-- COLONNE 1 : Cards -->
-                <div class="doc-panel">
-                    <div class="doc-panel__header">
-                        <div>
-                            <h3>Sections</h3>
-                            <div class="cards-breadcrumb" data-cards-breadcrumb>
-                                <span class="breadcrumb-item is-active">Niveau 1</span>
+                <!-- COLONNE 1 : Cards (Sections + Options) -->
+                <div>
+                    <!-- Panel Sections -->
+                    <div class="doc-panel">
+                        <div class="doc-panel__header">
+                            <div>
+                                <h3>Sections</h3>
+                                <div class="cards-breadcrumb" data-cards-breadcrumb>
+                                    <span class="breadcrumb-item is-active">Niveau 1</span>
+                                </div>
+                            </div>
+                            <button class="btn btn-sm btn-outline" data-cards-back style="display: none;">⬅️ Retour</button>
+                        </div>
+                        <div class="doc-panel__body">
+                            <div class="cards-grid" data-cards-grid>
+                                <p class="text-muted">Chargement...</p>
                             </div>
                         </div>
-                        <button class="btn btn-sm btn-outline" data-cards-back style="display: none;">⬅️ Retour</button>
                     </div>
-                    <div class="doc-panel__body">
-                        <div class="cards-grid" data-cards-grid>
-                            <p class="text-muted">Chargement...</p>
+
+                    <!-- Panel Options -->
+                    <div class="doc-panel">
+                        <div class="doc-panel__header">
+                            <h3>Options</h3>
+                            <button class="btn btn-sm btn-outline" id="recoverOptionalSectionsBtn" title="Récupérer les sections optionnelles perdues">
+                                🔄 Récupérer
+                            </button>
+                        </div>
+                        <div class="doc-panel__body">
+                            <div class="cards-grid" data-options-grid>
+                                <p class="text-muted">Chargement...</p>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -172,7 +197,6 @@ require_once '../../../includes/header.php';
                     <div class="doc-panel__header doc-panel__header--properties">
                         <div class="properties-tabs" data-properties-tabs="card-properties">
                             <button class="properties-tab is-active" data-properties-tab="properties">Propriétés</button>
-                            <button class="properties-tab" data-properties-tab="variables">Variables</button>
                             <button class="properties-tab" data-properties-tab="options">Options</button>
                         </div>
                     </div>
@@ -183,51 +207,9 @@ require_once '../../../includes/header.php';
                                     <p class="text-muted">Sélectionnez une section</p>
                                 </div>
                             </div>
-                            <div class="properties-panel" data-properties-panel="variables">
-                                <div class="variable-panel" data-variable-panel="cards">
-                                    <div class="variable-tabs" data-variable-tabs="card-variables">
-                                        <button class="variable-tab is-active" data-variable-tab="list">Liste</button>
-                                        <button class="variable-tab" data-variable-tab="create">Nouvelle variable</button>
-                                    </div>
-                                    <div class="variable-sections" data-variable-sections="card-variables">
-                                        <div class="variable-section is-active" data-variable-section="list">
-                                            <div class="variable-list" data-variable-list>
-                                                <p class="text-muted">Aucune variable n'a encore été créée.</p>
-                                            </div>
-                                        </div>
-                                        <div class="variable-section" data-variable-section="create">
-                                            <form class="variable-form" data-variable-form>
-                                                <div class="form-group">
-                                                    <label>Nom de la variable</label>
-                                                    <input type="text" class="form-control" name="variableName" placeholder="Ex : Client_nom" required>
-                                                </div>
-                                                <div class="form-row">
-                                                    <div class="form-group">
-                                                        <label>Type</label>
-                                                        <select class="form-control" name="variableType" data-variable-type-select>
-                                                            <option value="text">Variable</option>
-                                                            <option value="table">Tableau</option>
-                                                        </select>
-                                                    </div>
-                                                    <div class="form-group variable-pattern-group" data-variable-pattern-wrapper>
-                                                        <label>Texte à remplacer</label>
-                                                        <input type="text" class="form-control" name="variablePattern" placeholder="Texte exact à rechercher">
-                                                    </div>
-                                                </div>
-                                                <div class="variable-form__hint" data-variable-hint>
-                                                    <p class="text-muted">Indiquez le texte exact qui sera remplacé par cette variable.</p>
-                                                </div>
-                                                <div class="variable-form__actions">
-                                                    <button type="submit" class="btn btn-primary btn-sm">Ajouter la variable</button>
-                                                </div>
-                                            </form>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
                             <div class="properties-panel" data-properties-panel="options">
-                                <div class="properties-placeholder">
-                                    <p class="text-muted">Options spécifiques aux cartes (à venir).</p>
+                                <div class="options-list" id="optionsListCards">
+                                    <p class="text-muted">Chargement...</p>
                                 </div>
                             </div>
                         </div>
@@ -629,13 +611,66 @@ require_once '../../../includes/header.php';
 
                 <!-- Onglet Options -->
                 <div class="canvas-tab-panel" data-panel="options">
-                    <p>Définissez ici les options avancées du canevas (à venir).</p>
+                    <div class="options-header">
+                        <h4>Gestion des options</h4>
+                        <div class="options-actions">
+                            <button class="btn btn-sm btn-outline" id="createOptionSectionBtn">➕ Créer option (section)</button>
+                            <button class="btn btn-sm btn-outline" id="createOptionDocumentBtn">📄 Créer option (document)</button>
+                            <button class="btn btn-sm btn-outline" id="reintegrateDocumentBtn">🔗 Réintégrer document</button>
+                        </div>
+                    </div>
+                    <div class="options-list" id="optionsList">
+                        <p class="text-muted">Chargement des options...</p>
+                    </div>
                 </div>
             </div>
         </div>
         <div class="modal-footer">
             <button type="button" class="btn btn-outline" id="canvasModalCancel">Annuler</button>
             <button type="button" class="btn btn-primary" id="canvasModalSave">Enregistrer</button>
+        </div>
+    </div>
+</div>
+
+<!-- Modal Créer Option Document -->
+<div class="modal-overlay" id="createOptionDocumentModal" style="display: none;">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3>📄 Créer une option document</h3>
+            <button class="modal-close" id="createOptionDocumentModalClose">&times;</button>
+        </div>
+        <div class="modal-body">
+            <form id="createOptionDocumentForm">
+                <div class="form-group">
+                    <label>Catégorie <span class="text-danger">*</span></label>
+                    <input type="text" class="form-control" id="optionDocumentCategory" 
+                           placeholder="Ex: dossier-technique" required>
+                    <small class="text-muted">Catégorie obligatoire pour les options</small>
+                </div>
+                <div class="form-group">
+                    <label>Section parente</label>
+                    <select class="form-control" id="optionDocumentParent">
+                        <option value="">Aucune (racine)</option>
+                    </select>
+                    <small class="text-muted">Section où afficher cette option dans le document parent</small>
+                </div>
+                <div class="form-group">
+                    <label>Titre de l'option</label>
+                    <input type="text" class="form-control" id="optionDocumentTitle" 
+                           placeholder="Ex: Option Moteur" required>
+                    <small class="text-muted">Titre de la section optionnelle dans le document parent</small>
+                </div>
+                <div class="form-group">
+                    <label>
+                        <input type="checkbox" id="optionDocumentActive" checked>
+                        Activer cette option par défaut
+                    </label>
+                </div>
+            </form>
+        </div>
+        <div class="modal-footer">
+            <button type="button" class="btn btn-outline" id="createOptionDocumentCancel">Annuler</button>
+            <button type="button" class="btn btn-primary" id="createOptionDocumentCreate">Créer et ouvrir</button>
         </div>
     </div>
 </div>

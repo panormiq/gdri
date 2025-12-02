@@ -327,5 +327,117 @@ router.get('/document/:documentId/pdf', async (req, res) => {
   }
 });
 
+/**
+ * POST /document/:documentId/sections/:sectionId/migrate
+ * Migre les sections pour ajouter les champs structure/actif/parent
+ */
+router.post('/document/:documentId/sections/migrate', async (req, res) => {
+  try {
+    const { documentId } = req.params;
+    const documentService = getDocumentService();
+    const document = await documentService.migrateSectionsToStructure(documentId);
+    res.json({ success: true, data: document });
+  } catch (error) {
+    console.error('Erreur migration sections:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+/**
+ * PUT /document/:documentId/sections/:sectionId/structure
+ * Change le type structure/optionnel d'une section
+ * Body: { structure: 'structural'|'optional', parentId?: string, category?: string }
+ */
+router.put('/document/:documentId/sections/:sectionId/structure', async (req, res) => {
+  try {
+    const { documentId, sectionId } = req.params;
+    const { structure, parentId, category } = req.body;
+    
+    if (!structure) {
+      return res.status(400).json({ success: false, error: 'structure est requis' });
+    }
+    
+    const documentService = getDocumentService();
+    const document = await documentService.changeSectionStructure(
+      documentId,
+      sectionId,
+      structure,
+      parentId || null,
+      category || null
+    );
+    res.json({ success: true, data: document });
+  } catch (error) {
+    console.error('Erreur changement structure section:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+/**
+ * PUT /document/:documentId/sections/:sectionId/active
+ * Active ou désactive une section optionnelle
+ * Body: { active: true|false }
+ */
+router.put('/document/:documentId/sections/:sectionId/active', async (req, res) => {
+  try {
+    const { documentId, sectionId } = req.params;
+    const { active } = req.body;
+    
+    if (typeof active !== 'boolean') {
+      return res.status(400).json({ success: false, error: 'active doit être un boolean' });
+    }
+    
+    const documentService = getDocumentService();
+    const document = await documentService.toggleSectionActive(documentId, sectionId, active);
+    res.json({ success: true, data: document });
+  } catch (error) {
+    console.error('Erreur activation/désactivation section:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+/**
+ * PUT /document/:documentId/sections/:sectionId/category
+ * Met à jour la catégorie d'une section optionnelle
+ * Body: { category: string|Array<string> }
+ */
+router.put('/document/:documentId/sections/:sectionId/category', async (req, res) => {
+  try {
+    const { documentId, sectionId } = req.params;
+    const { category } = req.body;
+    
+    if (!category) {
+      return res.status(400).json({ success: false, error: 'category est requis' });
+    }
+    
+    const documentService = getDocumentService();
+    const document = await documentService.updateSectionCategory(documentId, sectionId, category);
+    res.json({ success: true, data: document });
+  } catch (error) {
+    console.error('Erreur mise à jour catégorie section:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+/**
+ * POST /document/:documentId/sections/recover-optional
+ * Récupère les sections optionnelles perdues
+ */
+router.post('/document/:documentId/sections/recover-optional', async (req, res) => {
+  try {
+    const { documentId } = req.params;
+    const documentService = getDocumentService();
+    const result = await documentService.recoverLostOptionalSections(documentId);
+    res.json({ 
+      success: true, 
+      data: result.document,
+      recoveredCount: result.recoveredCount,
+      totalOptional: result.totalOptional
+    });
+  } catch (error) {
+    console.error('Erreur récupération sections optionnelles:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
 module.exports = router;
 
