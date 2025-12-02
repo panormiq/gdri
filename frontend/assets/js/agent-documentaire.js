@@ -72,32 +72,25 @@
       
       sectionsTree = Array.isArray(documentJson.sections) ? documentJson.sections : [];
       
-      // Debug : analyser les sections chargées
-      console.log('🔍 loadDocument - documentJson.sections:', documentJson.sections);
-      console.log('🔍 loadDocument - sectionsTree.length:', sectionsTree.length);
-      console.log('🔍 loadDocument - sectionsTree est un array?', Array.isArray(sectionsTree));
+      // Debug : analyser les sections chargées (désactivé par défaut, activer si besoin)
+      // console.log('🔍 loadDocument - documentJson.sections:', documentJson.sections);
+      // console.log('🔍 loadDocument - sectionsTree.length:', sectionsTree.length);
       
-      if (sectionsTree.length > 0) {
-        sectionsTree.forEach((section, idx) => {
-          console.log(`   Section ${idx + 1}: "${section.title}", structure=${section.structure || 'undefined'}, actif=${section.actif}`);
-        });
-      }
-      
-      // Debug : compter les sections optionnelles
-      const countOptional = (sections) => {
-        let count = 0;
-        sections.forEach(s => {
-          if ((s.structure || 'structural') === 'optional') {
-            count++;
-          }
-          if (Array.isArray(s.children)) {
-            count += countOptional(s.children);
-          }
-        });
-        return count;
-      };
-      const optionalCount = countOptional(sectionsTree);
-      console.log(`📊 loadDocument - Sections optionnelles dans sectionsTree: ${optionalCount}`);
+      // Debug : compter les sections optionnelles (désactivé par défaut)
+      // const countOptional = (sections) => {
+      //   let count = 0;
+      //   sections.forEach(s => {
+      //     if ((s.structure || 'structural') === 'optional') {
+      //       count++;
+      //     }
+      //     if (Array.isArray(s.children)) {
+      //       count += countOptional(s.children);
+      //     }
+      //   });
+      //   return count;
+      // };
+      // const optionalCount = countOptional(sectionsTree);
+      // console.log(`📊 loadDocument - Sections optionnelles dans sectionsTree: ${optionalCount}`);
 
       // Charger le canevas (ou l'initialiser si absent)
       if (!documentJson.canvas) {
@@ -123,6 +116,12 @@
       const optionsPanel = document.querySelector('[data-properties-panel="options"]');
       if (optionsPanel && optionsPanel.classList.contains('is-active')) {
         loadOptionsListSidebar();
+      }
+
+      // Vérifier si le template document existe et afficher le modal si nécessaire
+      // Seulement au premier chargement
+      if (!templateCheckDone) {
+        await checkAndCreateDocumentTemplate(documentJson);
       }
     } catch (error) {
       console.error('❌ Erreur chargement document:', error);
@@ -2737,18 +2736,11 @@
       return;
     }
 
-    // Debug : vérifier l'état de sectionsTree
-    console.log('🔍 renderCardsWithOptions - sectionsTree:', sectionsTree);
-    console.log('🔍 renderCardsWithOptions - sectionsTree.length:', sectionsTree?.length || 0);
-    console.log('🔍 renderCardsWithOptions - sectionsTree est un array?', Array.isArray(sectionsTree));
-
     // Sections structurelles à afficher (filtrer les optionnelles)
     const sectionsToDisplay = sectionsTree || [];
-    console.log('🔍 renderCardsWithOptions - sectionsToDisplay.length:', sectionsToDisplay.length);
     
     const filteredSections = sectionsToDisplay.filter(section => {
       if (!section || typeof section !== 'object') {
-        console.log(`   ❌ Section invalide (pas un objet):`, section);
         return false;
       }
       
@@ -2756,7 +2748,6 @@
       
       // Exclure les annexes et le sommaire
       if (titleLower === 'annexes' || titleLower === 'annexe' || titleLower === 'sommaire') {
-        console.log(`   ❌ Section exclue (annexe/sommaire): "${section.title}"`);
         return false;
       }
       
@@ -2767,27 +2758,18 @@
       const isOptionalActive = structure === 'optional' && section.actif === true;
       
       if (!isStructural && !isOptionalActive) {
-        console.log(`   ❌ Section exclue (optionnelle inactive): "${section.title}" (structure=${structure}, actif=${section.actif})`);
         return false;
       }
       
-      // Section structurelle ou optionnelle active à inclure
-      if (isOptionalActive) {
-        console.log(`   ✅ Section optionnelle active incluse: "${section.title}"`);
-      }
       return true;
     });
-    
-    console.log('🔍 renderCardsWithOptions - filteredSections.length:', filteredSections.length);
 
     // Collecter toutes les options
     const optionalSections = [];
     const collectOptionalSections = (sections) => {
       sections.forEach(section => {
         const structure = section.structure || 'structural';
-        console.log(`   Section "${section.title}": structure=${structure}`);
         if (structure === 'optional') {
-          console.log(`   → Option trouvée: ${section.title}`);
           optionalSections.push(section);
         }
         if (Array.isArray(section.children)) {
@@ -2875,6 +2857,171 @@
     
     // Initialiser le bouton de récupération
     initRecoverOptionalSectionsButton();
+    
+    // Charger les templates disponibles dans le panel "Disponible"
+    loadAvailableTemplates();
+  }
+
+  /**
+   * Charge et affiche les templates de sections disponibles dans le panel "Disponible"
+   */
+  async function loadAvailableTemplates() {
+    const availableTemplatesList = document.getElementById('availableTemplatesList');
+    
+    if (!availableTemplatesList) {
+      console.warn('⚠️ Panel Disponible non trouvé');
+      return;
+    }
+
+    // Vérifier que le template document est défini
+    if (!documentTemplateName) {
+      availableTemplatesList.innerHTML = '<p class="text-muted">Template document non défini</p>';
+      return;
+    }
+
+    try {
+      // Récupérer tous les templates avec le scope du document actuel
+      const response = await fetch(`${apiBase}/agent-documentaire/templates?scope=${encodeURIComponent(documentTemplateName)}`);
+      
+      if (!response.ok) {
+        throw new Error(`Erreur HTTP: ${response.status}`);
+      }
+
+      const payload = await response.json();
+      
+      if (!payload.success) {
+        throw new Error(payload.error || 'Erreur lors du chargement des templates');
+      }
+
+      const allTemplates = payload.data || [];
+      
+      // Filtrer : garder seulement les templates de sections (avec ':' dans le namespace)
+      // et exclure le template document lui-même (sans ':')
+      const sectionTemplates = allTemplates.filter(template => {
+        // Exclure le template document (celui sans ':' dans le namespace)
+        if (!template.namespace.includes(':')) {
+          return false;
+        }
+        
+        // Garder seulement les templates de sections qui commencent par le scope du document
+        return template.namespace.startsWith(`${documentTemplateName}:`);
+      });
+
+      if (sectionTemplates.length === 0) {
+        availableTemplatesList.innerHTML = `
+          <div class="text-muted" style="padding: 20px; text-align: center;">
+            <p>Aucun template de section disponible</p>
+            <p style="font-size: 12px; margin-top: 8px;">Les templates de sections seront disponibles ici après sauvegarde.</p>
+          </div>
+        `;
+        return;
+      }
+
+      // Générer le HTML pour chaque template
+      const templatesHtml = sectionTemplates.map(template => {
+        const sectionName = template.namespace.split(':').pop(); // Nom de la section après le ':'
+        return `
+          <div class="template-item" data-template-namespace="${template.namespace}">
+            <div class="template-item__content">
+              <div class="template-item__name">${template.name || sectionName}</div>
+              <div class="template-item__meta">
+                ${template.metadata?.createdAt ? `Créé le ${new Date(template.metadata.createdAt).toLocaleDateString('fr-FR')}` : ''}
+              </div>
+            </div>
+            <button class="btn btn-sm btn-primary template-item__add-btn" data-add-template="${template.namespace}">
+              ➕ Ajouter
+            </button>
+          </div>
+        `;
+      }).join('');
+
+      availableTemplatesList.innerHTML = templatesHtml;
+
+      // Attacher les événements de clic pour ajouter un template
+      availableTemplatesList.querySelectorAll('[data-add-template]').forEach(btn => {
+        btn.addEventListener('click', async function(e) {
+          e.stopPropagation();
+          const templateNamespace = this.dataset.addTemplate;
+          await addTemplateToDocument(templateNamespace);
+        });
+      });
+
+    } catch (error) {
+      console.error('❌ Erreur chargement templates disponibles:', error);
+      availableTemplatesList.innerHTML = `
+        <div class="text-muted" style="padding: 20px; text-align: center; color: #d32f2f;">
+          <p>Erreur lors du chargement</p>
+          <p style="font-size: 12px; margin-top: 8px;">${error.message}</p>
+        </div>
+      `;
+    }
+  }
+
+  /**
+   * Ajoute une section depuis un template au document
+   * @param {string} templateNamespace - Namespace du template de section
+   */
+  async function addTemplateToDocument(templateNamespace) {
+    if (!templateNamespace) {
+      alert('Namespace du template manquant');
+      return;
+    }
+
+    try {
+      // Récupérer le template
+      const templateResponse = await fetch(`${apiBase}/agent-documentaire/templates/${encodeURIComponent(templateNamespace)}`);
+      
+      if (!templateResponse.ok) {
+        throw new Error(`Template non trouvé: ${templateResponse.status}`);
+      }
+
+      const templatePayload = await templateResponse.json();
+      
+      if (!templatePayload.success || !templatePayload.data) {
+        throw new Error(templatePayload.error || 'Template non trouvé');
+      }
+
+      const template = templatePayload.data;
+
+      // Créer une nouvelle section à partir du template
+      // Pour l'instant, on crée juste une section basique avec le contenu du template
+      // TODO: Gérer l'héritage du canvas, les variables, etc.
+      
+      const newSection = {
+        id: `sec_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+        title: template.title || template.name || 'Nouvelle section',
+        level: template.level || 1,
+        structure: template.isOptional ? 'optional' : 'structural',
+        actif: template.isOptional ? false : true,
+        content: template.content ? JSON.parse(JSON.stringify(template.content)) : [],
+        children: [],
+        numbering: '',
+        isAnnex: false
+      };
+
+      // Ajouter la section au document
+      if (!Array.isArray(sectionsTree)) {
+        sectionsTree = [];
+      }
+
+      sectionsTree.push(newSection);
+
+      // Recharger l'affichage
+      renderCardsWithOptions();
+      renderAll();
+
+      // Sauvegarder le document
+      await saveDocument();
+
+      // Recharger la liste des templates disponibles
+      await loadAvailableTemplates();
+
+      alert(`✅ Section "${newSection.title}" ajoutée avec succès !`);
+
+    } catch (error) {
+      console.error('❌ Erreur ajout template:', error);
+      alert(`Erreur lors de l'ajout de la section : ${error.message}`);
+    }
   }
 
   /**
@@ -9613,10 +9760,58 @@ function initPropertiesTabs() {
     initGlobalFocusReset();
     initSaveButton();
     initSidebarOptionsButtons();
+    initAvailableTemplatesButtons();
     loadDocument().then(() => {
       // Initialiser le canevas après le chargement du document
       initializeCanvasIfNeeded();
     });
+  }
+
+  /**
+   * Initialise les boutons du panel "Disponible"
+   */
+  function initAvailableTemplatesButtons() {
+    const createTemplateSectionBtn = document.getElementById('createTemplateSectionBtn');
+    const importTemplateSectionBtn = document.getElementById('importTemplateSectionBtn');
+
+    if (createTemplateSectionBtn) {
+      createTemplateSectionBtn.addEventListener('click', () => {
+        // TODO: Ouvrir un modal pour créer un nouveau template de section
+        alert('Fonctionnalité "Créer un template de section" à venir...');
+      });
+    }
+
+    if (importTemplateSectionBtn) {
+      importTemplateSectionBtn.addEventListener('click', () => {
+        // TODO: Ouvrir un modal pour importer un template de section
+        alert('Fonctionnalité "Importer un template de section" à venir...');
+      });
+    }
+  }
+
+  /**
+   * Génère un namespace automatiquement pour un template de section
+   * @param {string} sectionName - Nom de la section
+   * @returns {string} Namespace généré (template:section)
+   */
+  function generateTemplateNamespace(sectionName) {
+    if (!documentTemplateName) {
+      console.warn('⚠️ Template document non défini, impossible de générer le namespace');
+      return null;
+    }
+
+    // Normaliser le nom de la section
+    const normalizeAccents = (str) => {
+      return str
+        .toLowerCase()
+        .normalize('NFD') // Décompose les caractères accentués
+        .replace(/[\u0300-\u036f]/g, '') // Supprime les diacritiques (accents)
+        .replace(/\s+/g, '_') // Remplacer espaces par underscores
+        .replace(/[^a-z0-9_]/g, ''); // Garder seulement lettres, chiffres, underscores
+    };
+
+    const normalizedSection = normalizeAccents(sectionName);
+    return `${documentTemplateName}:${normalizedSection}`;
   }
 
   /**
@@ -9645,6 +9840,288 @@ function initPropertiesTabs() {
       });
     }
   }
+
+  /**
+   * ===================================
+   * MODAL NOM DU TEMPLATE DOCUMENT
+   * ===================================
+   */
+
+  let documentTemplateName = null; // Nom du template document actuel
+  let templateCheckDone = false; // Flag pour éviter les vérifications multiples
+  let templateModalVisible = false; // Flag pour savoir si le modal est déjà affiché
+
+  /**
+   * Vérifie si le template document existe et affiche le modal si nécessaire
+   * @param {Object} jsonContent - Contenu JSON du document (déjà chargé)
+   */
+  async function checkAndCreateDocumentTemplate(jsonContent = null) {
+    // Ne vérifier qu'une seule fois
+    if (templateCheckDone || templateModalVisible) {
+      return;
+    }
+
+    if (!documentId || !apiBase) {
+      templateCheckDone = true;
+      return;
+    }
+
+    try {
+      let documentData;
+      let jsonContentToUse = jsonContent;
+      
+      // Si jsonContent n'est pas fourni, récupérer le document
+      if (!jsonContentToUse) {
+        const docResponse = await fetch(`${apiBase}/agent-documentaire/document/${documentId}`);
+        const docPayload = await docResponse.json();
+        
+        if (!docPayload.success || !docPayload.data) {
+          console.error('Erreur récupération document:', docPayload.error);
+          templateCheckDone = true;
+          return;
+        }
+
+        documentData = docPayload.data;
+        jsonContentToUse = documentData.json_content || {};
+      } else {
+        // Utiliser les données déjà chargées
+        documentData = { json_content: jsonContentToUse };
+      }
+      
+      // Si le document a déjà un canvas avec un nom, le template est déjà défini
+      if (jsonContentToUse.canvas && jsonContentToUse.canvas.metadata && jsonContentToUse.canvas.metadata.name) {
+        const templateName = jsonContentToUse.canvas.metadata.name;
+        documentTemplateName = templateName;
+        console.log('✅ Template document déjà défini dans canvas:', documentTemplateName);
+        templateCheckDone = true;
+        // Charger les templates disponibles après avoir défini le nom du template
+        if (typeof loadAvailableTemplates === 'function') {
+          loadAvailableTemplates();
+        }
+        return;
+      }
+
+      // Récupérer le nom du fichier Word pour le nom par défaut du template
+      // Si on n'a pas encore documentData avec original_filename, le récupérer
+      if (!documentData || documentData.original_filename === undefined) {
+        const docResponse = await fetch(`${apiBase}/agent-documentaire/document/${documentId}`);
+        const docPayload = await docResponse.json();
+        if (docPayload.success && docPayload.data) {
+          documentData = docPayload.data;
+          if (!jsonContentToUse) {
+            jsonContentToUse = documentData.json_content || {};
+          }
+        }
+      }
+      
+      const originalFilename = documentData?.original_filename || '';
+      
+      // Fonction pour normaliser les caractères accentués (é → e, à → a, etc.)
+      const normalizeAccents = (str) => {
+        return str
+          .normalize('NFD') // Décompose les caractères accentués (é devient e + accent)
+          .replace(/[\u0300-\u036f]/g, ''); // Supprime les diacritiques (accents), garde la lettre de base
+      };
+      
+      // Extraire le nom sans extension pour le template
+      let defaultTemplateName = originalFilename
+        .replace(/\.docx?$/i, '') // Retirer extension .docx ou .doc
+        .toLowerCase()
+        .normalize('NFD') // Décompose les caractères accentués (é → e + accent)
+        .replace(/[\u0300-\u036f]/g, '') // Supprime les diacritiques (accents), garde la lettre de base
+        .replace(/\s+/g, '_') // Remplacer espaces par underscores
+        .replace(/[^a-z0-9_]/g, ''); // Garder seulement lettres, chiffres, underscores
+
+      // Si pas de nom, utiliser une valeur par défaut
+      if (!defaultTemplateName || defaultTemplateName.length === 0) {
+        defaultTemplateName = 'document_template';
+      }
+
+      // Vérifier si le template existe déjà en listant tous les templates (évite le 404)
+      try {
+        const templatesResponse = await fetch(`${apiBase}/agent-documentaire/templates`);
+        
+        if (templatesResponse.status === 200) {
+          const templatesPayload = await templatesResponse.json();
+          
+          if (templatesPayload.success && Array.isArray(templatesPayload.data)) {
+            // Chercher le template dans la liste
+            const existingTemplate = templatesPayload.data.find(t => t.namespace === defaultTemplateName);
+            
+            if (existingTemplate) {
+              // Template existe déjà
+              documentTemplateName = existingTemplate.namespace;
+              console.log('✅ Template document trouvé:', documentTemplateName);
+              templateCheckDone = true;
+              return;
+            }
+          }
+        }
+        // Template n'existe pas encore - on continue pour afficher le modal
+      } catch (templateError) {
+        // En cas d'erreur, on continue quand même (pas bloquant)
+        console.warn('Erreur lors de la vérification du template:', templateError);
+      }
+
+      // Template n'existe pas, afficher le modal (une seule fois)
+      if (!templateModalVisible) {
+        templateModalVisible = true;
+        showTemplateNameModal(defaultTemplateName);
+      }
+
+      templateCheckDone = true;
+
+    } catch (error) {
+      console.error('Erreur vérification template:', error);
+      templateCheckDone = true;
+      // En cas d'erreur, on continue quand même (pas bloquant)
+    }
+  }
+
+  /**
+   * Affiche le modal pour nommer le template document
+   */
+  function showTemplateNameModal(defaultName) {
+    const modal = document.getElementById('templateNameModal');
+    const input = document.getElementById('templateNameInput');
+    const submitBtn = document.getElementById('templateNameSubmit');
+
+    if (!modal || !input || !submitBtn) {
+      console.error('Modal template name non trouvé');
+      return;
+    }
+
+    // Définir la valeur par défaut
+    input.value = defaultName;
+
+    // Afficher le modal
+    modal.style.display = 'flex';
+
+    // Gérer la soumission
+    const handleSubmit = async () => {
+      const templateName = input.value.trim();
+      
+      if (!templateName) {
+        alert('Veuillez entrer un nom pour le template');
+        return;
+      }
+
+      // Normaliser le nom (minuscules, underscores, accents convertis : é → e, à → a, etc.)
+      const normalizedName = templateName
+        .toLowerCase()
+        .normalize('NFD') // Décompose les caractères accentués (é → e + accent)
+        .replace(/[\u0300-\u036f]/g, '') // Supprime les diacritiques (accents), garde la lettre de base
+        .replace(/\s+/g, '_') // Remplacer espaces par underscores
+        .replace(/[^a-z0-9_]/g, ''); // Garder seulement lettres, chiffres, underscores
+
+      if (normalizedName.length === 0) {
+        alert('Le nom du template n\'est pas valide');
+        return;
+      }
+
+      // Désactiver le bouton pendant la création
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Création...';
+
+      try {
+        // Récupérer le document pour créer le template avec son contenu
+        const docResponse = await fetch(`${apiBase}/agent-documentaire/document/${documentId}`);
+        const docPayload = await docResponse.json();
+        
+        if (!docPayload.success) {
+          throw new Error(docPayload.error || 'Erreur récupération document');
+        }
+
+        // Créer le template document
+        const createResponse = await fetch(`${apiBase}/agent-documentaire/templates/document`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            namespace: normalizedName,
+            documentId: documentId,
+            jsonContent: docPayload.data.json_content
+          })
+        });
+
+        const createPayload = await createResponse.json();
+        
+        if (!createPayload.success) {
+          // Si le template existe déjà (409), c'est OK, on continue
+          if (createResponse.status === 409 || createPayload.error?.includes('existe déjà')) {
+            documentTemplateName = normalizedName;
+            templateCheckDone = true;
+            console.log('✅ Template document existe déjà:', documentTemplateName);
+            templateModalVisible = false;
+            modal.style.display = 'none';
+            return;
+          }
+          throw new Error(createPayload.error || 'Erreur création template');
+        }
+
+        // Template créé avec succès
+        documentTemplateName = normalizedName;
+        templateCheckDone = true;
+        console.log('✅ Template document créé:', documentTemplateName);
+
+        // Fermer le modal
+        templateModalVisible = false;
+        modal.style.display = 'none';
+
+        // Ne pas recharger le document ici pour éviter la boucle
+        // Le template est créé, on continue normalement
+
+      } catch (error) {
+        console.error('❌ Erreur création template:', error);
+        
+        // Ne pas afficher d'alert si c'est juste que le template existe
+        if (error.message && error.message.includes('existe déjà')) {
+          documentTemplateName = normalizedName;
+          templateCheckDone = true;
+          templateModalVisible = false;
+          modal.style.display = 'none';
+          return;
+        }
+        
+        alert(`Erreur lors de la création du template: ${error.message}`);
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Continuer';
+      }
+    };
+
+    // Écouter le clic sur le bouton
+    submitBtn.onclick = handleSubmit;
+
+    // Écouter la touche Enter
+    input.onkeypress = (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        handleSubmit();
+      }
+    };
+
+    // Gérer la fermeture du modal
+    const closeBtn = document.getElementById('templateNameModalClose');
+    if (closeBtn) {
+      closeBtn.onclick = () => {
+        modal.style.display = 'none';
+      };
+    }
+
+    // Focus sur l'input
+    setTimeout(() => input.focus(), 100);
+  }
+
+  /**
+   * Initialise les événements du modal template name
+   */
+  function initTemplateNameModal() {
+    // La logique est déjà dans showTemplateNameModal
+    // On vérifie au chargement du document
+    checkAndCreateDocumentTemplate();
+  }
+
+  // Appeler la vérification après le chargement initial
+  // Modifier loadDocument pour appeler checkAndCreateDocumentTemplate après le chargement
 
   init();
 })();

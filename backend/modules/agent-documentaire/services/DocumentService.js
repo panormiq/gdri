@@ -1506,6 +1506,241 @@ class DocumentService {
     return document;
   }
 
+  /**
+   * Crée un nouveau document vide
+   * @param {Object} data - Données du document (title, json_content, etc.)
+   * @returns {Promise<Object>} Document créé
+   */
+  async createEmptyDocument(data = {}) {
+    const document = {
+      _id: new ObjectId(),
+      title: data.title || 'Nouveau modèle',
+      original_filename: data.original_filename || null,
+      word_file_path: data.word_file_path || null,
+      json_content: data.json_content || {
+        sections: [],
+        toc: [],
+        images: [],
+        metadata: {
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString()
+        }
+      },
+      metadata: {
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        version: 1,
+        status: data.status || 'draft'
+      },
+      lockable_properties: data.lockable_properties || lockableProperties.default
+    };
+
+    await this.collection.insertOne(document);
+    return document;
+  }
+
+  /**
+   * Copie les images d'un document source vers un nouveau document et met à jour les chemins dans les sections
+   * @param {string} sourceDocumentId - ID du document source
+   * @param {string} newDocumentId - ID du nouveau document
+   * @param {Array} sections - Sections avec références aux images
+   * @returns {Promise<Array>} Sections avec chemins mis à jour
+   */
+  async copyImagesFromSourceToNewDocument(sourceDocumentId, newDocumentId, sections) {
+    if (!Array.isArray(sections) || sections.length === 0) {
+      return sections;
+    }
+
+    // Créer le dossier images pour le nouveau document
+    const targetDir = path.join(this.imagesPath, newDocumentId);
+    await this.ensureDirectoryExists(targetDir);
+
+    // Fonction récursive pour extraire toutes les images des sections
+    const extractImages = (sectionsArray) => {
+      const images = [];
+      for (const section of sectionsArray) {
+        if (section.content && Array.isArray(section.content)) {
+          for (const item of section.content) {
+            if (item.type === 'image' && (item.src || item.name)) {
+              images.push(item);
+            }
+          }
+        }
+        if (section.children && Array.isArray(section.children)) {
+          images.push(...extractImages(section.children));
+        }
+      }
+      return images;
+    };
+
+    const imageItems = extractImages(sections);
+    
+    if (imageItems.length === 0) {
+      return sections;
+    }
+
+    // Copier chaque image et mettre à jour le chemin
+    const sourceDir = path.join(this.imagesPath, sourceDocumentId);
+    const imagePathMap = new Map(); // Map: oldPath -> newPath
+
+    for (const imageItem of imageItems) {
+      // Extraire le nom de l'image depuis src ou name
+      let imageName = null;
+      if (imageItem.src) {
+        // src peut être un chemin complet ou juste le nom
+        const srcParts = imageItem.src.split('/');
+        imageName = srcParts[srcParts.length - 1];
+      } else if (imageItem.name) {
+        imageName = imageItem.name;
+      }
+
+      if (!imageName) {
+        continue;
+      }
+
+      const sourceImagePath = path.join(sourceDir, imageName);
+      const targetImagePath = path.join(targetDir, imageName);
+
+      try {
+        // Vérifier que le fichier source existe
+        await fs.access(sourceImagePath);
+        
+        // Copier l'image
+        await fs.copyFile(sourceImagePath, targetImagePath);
+        
+        // Mapper l'ancien chemin vers le nouveau
+        const oldPath = imageItem.src || `storage/images/${sourceDocumentId}/${imageName}`;
+        const newPath = `storage/images/${newDocumentId}/${imageName}`;
+        imagePathMap.set(oldPath, newPath);
+        imagePathMap.set(imageName, imageName); // Aussi mapper juste le nom
+      } catch (error) {
+        console.warn(`⚠️ Image introuvable ou erreur de copie: ${imageName}`, error.message);
+        // Continue avec les autres images
+      }
+    }
+
+    // Fonction récursive pour mettre à jour les chemins dans les sections
+    const updateImagePaths = (sectionsArray) => {
+      for (const section of sectionsArray) {
+        if (section.content && Array.isArray(section.content)) {
+          for (const item of section.content) {
+            if (item.type === 'image') {
+              // Extraire le nom de l'image
+              let imageName = null;
+              if (item.src) {
+                const srcParts = item.src.split('/');
+                imageName = srcParts[srcParts.length - 1];
+              } else if (item.name) {
+                imageName = item.name;
+              }
+              
+              // Si l'image a été copiée (présente dans la map), mettre à jour le chemin
+              if (imageName && imagePathMap.has(imageName)) {
+                item.src = `storage/images/${newDocumentId}/${imageName}`;
+                // Garder le nom tel quel
+                if (!item.name) {
+                  item.name = imageName;
+                }
+              }
+            }
+          }
+        }
+        if (section.children && Array.isArray(section.children)) {
+          updateImagePaths(section.children);
+        }
+      }
+    };
+
+    updateImagePaths(sections);
+
+    return sections;
+  }
+
+  /**
+   * Crée un nouveau document à partir d'un template document
+   * @param {string} templateNamespace - Namespace du template document
+   * @param {string} documentTitle - Titre du nouveau document (optionnel)
+   * @returns {Promise<Object>} Document créé
+   */
+  async createDocumentFromTemplate(templateNamespace, documentTitle = null) {
+    const { getTemplateService } = require('../service-container');
+    const templateService = getTemplateService();
+    
+    // Récupérer le template document
+    const template = await templateService.getTemplate(templateNamespace);
+    if (!template) {
+      throw new Error(`Template "${templateNamespace}" non trouvé`);
+    }
+
+    // Copier le canvas avec le nom du template
+    let canvasCopy = null;
+    if (template.canvas) {
+      canvasCopy = JSON.parse(JSON.stringify(template.canvas)); // Copie profonde
+      // S'assurer que le nom du template est dans les métadonnées du canvas
+      if (!canvasCopy.metadata) {
+        canvasCopy.metadata = {};
+      }
+      canvasCopy.metadata.name = templateNamespace; // Nom du template
+    }
+
+    // Copier les sections initiales du template (si présentes)
+    let sectionsCopy = template.initialSections && template.initialSections.length > 0
+      ? JSON.parse(JSON.stringify(template.initialSections)) // Copie profonde
+      : [];
+    
+    // Copier le TOC initial du template (si présent)
+    const tocCopy = template.initialToc && template.initialToc.length > 0
+      ? JSON.parse(JSON.stringify(template.initialToc)) // Copie profonde
+      : [];
+
+    // Créer le nouveau document ID
+    const newDocumentId = new ObjectId();
+    const newDocumentIdStr = newDocumentId.toHexString();
+
+    // Copier les images du document source vers le nouveau document si disponible
+    const sourceDocumentId = template.sourceDocumentId;
+    if (sourceDocumentId && sectionsCopy.length > 0) {
+      try {
+        sectionsCopy = await this.copyImagesFromSourceToNewDocument(
+          sourceDocumentId,
+          newDocumentIdStr,
+          sectionsCopy
+        );
+      } catch (error) {
+        console.warn('⚠️ Erreur lors de la copie des images:', error.message);
+        // Continue même si la copie des images échoue
+      }
+    }
+
+    // Créer un nouveau document avec le canvas et les sections du template
+    const newDocument = {
+      _id: newDocumentId,
+      title: documentTitle || `${template.name || templateNamespace} - Nouveau document`,
+      original_filename: null,
+      word_file_path: null,
+      json_content: {
+        sections: sectionsCopy,
+        toc: tocCopy,
+        images: [],
+        canvas: canvasCopy,
+        metadata: {
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString()
+        }
+      },
+      metadata: {
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        version: 1,
+        status: 'draft'
+      },
+      lockable_properties: lockableProperties.default
+    };
+
+    await this.collection.insertOne(newDocument);
+    return newDocument;
+  }
+
   sanitizeFilename(filename = '') {
     return filename
       .toLowerCase()

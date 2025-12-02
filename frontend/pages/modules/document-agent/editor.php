@@ -28,6 +28,7 @@ require_once '../../../includes/header.php';
             </div>
             <div class="hero-actions">
                 <a class="btn btn-outline" href="<?= url('pages/modules/document-agent/index.php'); ?>">⬅️ Retour</a>
+                <a class="btn btn-outline" href="<?= url('pages/modules/document-agent/models.php'); ?>" title="Gérer les modèles">⚙️ Modèles</a>
                 <button class="btn btn-outline view-tab is-active" data-view="text">📄 Vue texte</button>
                 <button class="btn btn-outline view-tab" data-view="card">🃏 Vue card</button>
                 <button class="btn btn-outline" id="editCanvasBtn" title="Éditer le canevas">⚙️ Éditer le canevas</button>
@@ -190,6 +191,26 @@ require_once '../../../includes/header.php';
                             </div>
                         </div>
                     </div>
+
+                    <!-- Panel Disponible (Templates de sections) -->
+                    <div class="doc-panel">
+                        <div class="doc-panel__header">
+                            <h3>Disponible</h3>
+                            <div class="doc-panel__header-actions">
+                                <button class="btn btn-sm btn-outline" id="createTemplateSectionBtn" title="Créer un nouveau template de section">
+                                    ➕ Créer
+                                </button>
+                                <button class="btn btn-sm btn-outline" id="importTemplateSectionBtn" title="Importer un template de section">
+                                    📥 Importer
+                                </button>
+                            </div>
+                        </div>
+                        <div class="doc-panel__body">
+                            <div class="templates-list" id="availableTemplatesList">
+                                <p class="text-muted">Chargement des templates...</p>
+                            </div>
+                        </div>
+                    </div>
                 </div>
 
                 <!-- COLONNE 2 : Propriétés -->
@@ -276,6 +297,37 @@ require_once '../../../includes/header.php';
             <div style="flex: 1;"></div>
             <button type="button" class="btn btn-outline" id="imageCropCancel">Annuler</button>
             <button type="button" class="btn btn-primary" id="imageCropSave">Valider</button>
+        </div>
+    </div>
+</div>
+
+<!-- Modal Nom du Template Document -->
+<div class="modal-overlay" id="templateNameModal" style="display: none;">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3>📝 Nom du template document</h3>
+            <button class="modal-close" id="templateNameModalClose">&times;</button>
+        </div>
+        <div class="modal-body">
+            <p class="text-muted">Veuillez donner un nom à votre template document. Ce nom servira de référence pour toutes les sections.</p>
+            <form id="templateNameForm">
+                <div class="form-group">
+                    <label for="templateNameInput">Nom du template</label>
+                    <input 
+                        type="text" 
+                        id="templateNameInput" 
+                        name="templateName" 
+                        class="form-control" 
+                        required 
+                        autofocus
+                        placeholder="Ex: dossier_technique"
+                    >
+                    <small class="form-text text-muted">Le nom du fichier Word est utilisé par défaut</small>
+                </div>
+            </form>
+        </div>
+        <div class="modal-footer">
+            <button type="button" class="btn btn-primary" id="templateNameSubmit">Continuer</button>
         </div>
     </div>
 </div>
