@@ -13,13 +13,49 @@
   let currentTab = 'general';
   let fields = [];
   let variants = {};
+  
+  // Variables pour la gestion des modèles
+  let models = [];
+  let currentModel = null;
+  let modelVariables = [];
 
   /**
    * Initialisation
    */
   function init() {
     loadTemplates();
+    loadModels();
     initEventListeners();
+    initMainTabs();
+  }
+
+  /**
+   * Initialise les onglets principaux (Modèles / Templates)
+   */
+  function initMainTabs() {
+    const mainTabs = document.querySelectorAll('[data-main-tab]');
+    const mainPanels = document.querySelectorAll('[data-main-panel]');
+    
+    mainTabs.forEach((tab) => {
+      tab.addEventListener('click', () => {
+        const targetTab = tab.dataset.mainTab;
+        
+        // Désactiver tous les onglets
+        mainTabs.forEach((t) => t.classList.remove('is-active'));
+        
+        // Masquer tous les panneaux
+        mainPanels.forEach((panel) => panel.classList.remove('is-active'));
+        
+        // Activer l'onglet cliqué
+        tab.classList.add('is-active');
+        
+        // Afficher le panneau correspondant
+        const targetPanel = document.querySelector(`[data-main-panel="${targetTab}"]`);
+        if (targetPanel) {
+          targetPanel.classList.add('is-active');
+        }
+      });
+    });
   }
 
   /**
@@ -196,17 +232,47 @@
     variants = template?.variants || {};
 
     if (template) {
-      title.textContent = `Modifier le modèle "${template.name || template.namespace}"`;
+      // Extraire le nom depuis le namespace si name n'est pas défini
+      let templateDisplayName = template.name;
+      if (!templateDisplayName && template.namespace) {
+        const nameParts = template.namespace.split(':');
+        templateDisplayName = nameParts[nameParts.length - 1];
+      }
+      templateDisplayName = templateDisplayName || template.namespace || 'Template';
+      
+      title.textContent = `Modifier le template "${templateDisplayName}"`;
       
       // Remplir le formulaire
-      document.getElementById('templateNamespace').value = template.namespace;
-      document.getElementById('templateName').value = template.name || '';
+      document.getElementById('templateNamespace').value = template.namespace || '';
+      
+      // Pré-remplir le nom : utiliser template.name, sinon extraire depuis le namespace
+      const templateNameField = document.getElementById('templateName');
+      if (templateNameField) {
+        let nameToSet = '';
+        if (template.name && template.name.trim()) {
+          nameToSet = template.name;
+        } else if (template.namespace) {
+          // Extraire le nom depuis le namespace (dernière partie après le :)
+          const nameParts = template.namespace.split(':');
+          const extractedName = nameParts[nameParts.length - 1];
+          // Dénormaliser le nom (remplacer _ par espaces et mettre en forme)
+          nameToSet = extractedName.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+        }
+        
+        templateNameField.value = nameToSet;
+        console.log('🔧 Champ templateName rempli avec:', nameToSet, '(template.name:', template.name, ', namespace:', template.namespace, ')');
+      } else {
+        console.error('❌ Champ templateName non trouvé dans le DOM');
+      }
+      
       document.getElementById('templateTitle').value = template.title || '';
       document.getElementById('templateLevel').value = template.level || 1;
       
       // Scope (première partie du namespace)
-      if (template.namespace.includes(':')) {
+      if (template.namespace && template.namespace.includes(':')) {
         document.getElementById('templateScope').value = template.namespace.split(':')[0];
+      } else {
+        document.getElementById('templateScope').value = '';
       }
       
       // Propriétés
@@ -220,18 +286,22 @@
         document.getElementById('maxInstancesGroup').style.display = 'block';
       }
       
-      // Charger les champs et variantes
+      // Charger les champs et collections
       renderFields();
-      renderVariants();
+      loadCollectionsForTemplate();
+      renderSelectedCollection(template.modelNamespace || null);
+      loadDocumentVariables();
     } else {
-      title.textContent = 'Nouveau modèle';
+      title.textContent = 'Nouveau template';
       form.reset();
       fields = [];
       variants = {};
       document.getElementById('templateNamespace').value = '';
       document.getElementById('maxInstancesGroup').style.display = 'none';
       renderFields();
-      renderVariants();
+      loadCollectionsForTemplate();
+      renderSelectedCollection(null);
+      loadDocumentVariables();
     }
 
     // Réinitialiser les onglets
@@ -298,6 +368,7 @@
         // Mise à jour : envoyer dans updates
         url = `${apiBase}/agent-documentaire/templates/${encodeURIComponent(namespace)}`;
         method = 'PUT';
+        const templateModelSelect = document.getElementById('templateModelSelect');
         body = JSON.stringify({
           updates: {
             name: templateName,
@@ -309,7 +380,8 @@
             maxInstances: parseInt(document.getElementById('templateMaxInstances').value) || 1,
             isStandalone: document.getElementById('templateIsStandalone').checked,
             fields: fields,
-            variants: variants
+            variants: variants,
+            modelNamespace: templateModelSelect?.value || null
           }
         });
       } else {
@@ -329,6 +401,7 @@
             allowMultiple: document.getElementById('templateAllowMultiple').checked,
             maxInstances: parseInt(document.getElementById('templateMaxInstances').value) || 1,
             isStandalone: document.getElementById('templateIsStandalone').checked,
+            modelNamespace: document.getElementById('templateModelSelect')?.value || null,
             fields: fields,
             variants: variants
           }
@@ -348,6 +421,43 @@
       }
 
       alert(`✅ Modèle ${isUpdate ? 'modifié' : 'créé'} avec succès !`);
+      
+      // Si c'est un nouveau template de document (pas de scope), créer un document et ouvrir l'éditeur
+      if (!isUpdate && !templateScope) {
+        // Template de document : créer un document et ouvrir l'éditeur
+        try {
+          const createDocResponse = await fetch(`${apiBase}/agent-documentaire/document/from-template`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              templateNamespace: namespace,
+              title: templateTitle
+            })
+          });
+
+          const createDocPayload = await createDocResponse.json();
+          
+          if (!createDocPayload.success) {
+            throw new Error(createDocPayload.error || 'Erreur lors de la création du document');
+          }
+
+          const newDocument = createDocPayload.data;
+          const newDocumentId = newDocument._id || newDocument.id;
+          
+          // Construire l'URL de l'éditeur
+          const editorBaseUrl = window.EDITOR_URL || `${window.location.origin}/frontend/pages/modules/document-agent/editor.php`;
+          const editorUrl = `${editorBaseUrl}?document=${newDocumentId}&tab=variables`;
+          
+          // Rediriger vers l'éditeur avec le nouveau document
+          window.location.href = editorUrl;
+          return; // Ne pas continuer avec closeTemplateModal() et loadTemplates()
+          
+        } catch (docError) {
+          console.error('❌ Erreur création document depuis template:', docError);
+          alert(`Template créé, mais erreur lors de l'ouverture de l'éditeur : ${docError.message}`);
+        }
+      }
+      
       closeTemplateModal();
       loadTemplates();
 
@@ -374,6 +484,11 @@
         throw new Error(payload.error || 'Template non trouvé');
       }
 
+      // Debug: vérifier les données du template
+      console.log('📋 Template chargé:', payload.data);
+      console.log('   - namespace:', payload.data.namespace);
+      console.log('   - name:', payload.data.name);
+      
       await openTemplateModal(payload.data);
 
     } catch (error) {
@@ -497,52 +612,240 @@
   }
 
   /**
-   * Affiche les variantes
+   * Charge les collections disponibles dans le select de l'onglet Collection
    */
-  function renderVariants() {
-    const variantsList = document.getElementById('variantsList');
-    if (!variantsList) return;
+  async function loadCollectionsForTemplate() {
+    const templateModelSelect = document.getElementById('templateModelSelect');
+    if (!templateModelSelect) return;
 
-    const variantKeys = Object.keys(variants);
+    try {
+      const response = await fetch(`${apiBase}/agent-documentaire/models`);
+      if (!response.ok) {
+        throw new Error(`Erreur HTTP: ${response.status}`);
+      }
+
+      const payload = await response.json();
+      if (!payload.success) {
+        throw new Error(payload.error || 'Erreur lors du chargement');
+      }
+
+      const availableModels = payload.data || [];
+      
+      // Vider et remplir le select
+      templateModelSelect.innerHTML = '<option value="">Aucune collection</option>';
+      
+      availableModels.forEach(model => {
+        const option = document.createElement('option');
+        option.value = model.namespace || model.name;
+        option.textContent = model.name || model.namespace;
+        templateModelSelect.appendChild(option);
+      });
+
+    } catch (error) {
+      console.error('❌ Erreur chargement collections:', error);
+      templateModelSelect.innerHTML = '<option value="">Erreur de chargement</option>';
+    }
+  }
+
+  /**
+   * Affiche les variables de la collection sélectionnée
+   */
+  async function renderSelectedCollection(modelNamespace = null) {
+    const templateModelSelect = document.getElementById('templateModelSelect');
+    const selectedModelInfo = document.getElementById('selectedModelInfo');
+    const modelVariablesList = document.getElementById('modelVariablesList');
     
-    if (variantKeys.length === 0) {
-      variantsList.innerHTML = '<p class="text-muted">Aucune variante définie. Ajoutez des variantes pour permettre un choix multiple.</p>';
+    if (!templateModelSelect || !selectedModelInfo || !modelVariablesList) return;
+
+    // Définir la valeur du select si un modèle est fourni
+    if (modelNamespace) {
+      templateModelSelect.value = modelNamespace;
+    }
+
+    const selectedNamespace = templateModelSelect.value;
+
+    if (!selectedNamespace) {
+      selectedModelInfo.style.display = 'none';
       return;
     }
 
-    const html = variantKeys.map(key => {
-      const variant = variants[key];
-      return `
-        <div class="variant-item">
-          <div class="variant-item__info">
-            <div class="variant-item__name">${variant.name || key}</div>
-            <div class="variant-item__meta">${variant.description || 'Pas de description'}</div>
-          </div>
-          <div class="variant-item__actions">
-            <button class="btn btn-sm btn-outline" data-edit-variant="${key}">✏️</button>
-            <button class="btn btn-sm btn-outline" data-delete-variant="${key}">🗑️</button>
-          </div>
-        </div>
-      `;
-    }).join('');
+    try {
+      // Charger le modèle sélectionné
+      const response = await fetch(`${apiBase}/agent-documentaire/models/${encodeURIComponent(selectedNamespace)}`);
+      if (!response.ok) {
+        throw new Error(`Erreur HTTP: ${response.status}`);
+      }
 
-    variantsList.innerHTML = html;
+      const payload = await response.json();
+      if (!payload.success || !payload.data) {
+        throw new Error(payload.error || 'Collection non trouvée');
+      }
 
-    // Attacher les événements
-    variantsList.querySelectorAll('[data-edit-variant]').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const key = btn.dataset.editVariant;
-        openVariantModal(variants[key], key);
-      });
-    });
+      const model = payload.data;
+      const modelFields = model.fields || [];
 
-    variantsList.querySelectorAll('[data-delete-variant]').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const key = btn.dataset.deleteVariant;
-        delete variants[key];
-        renderVariants();
-      });
-    });
+      if (modelFields.length === 0) {
+        modelVariablesList.innerHTML = '<p class="text-muted">Aucune variable dans cette collection.</p>';
+      } else {
+        const typeLabels = {
+          text: 'Texte',
+          number: 'Nombre',
+          boolean: 'Booléen',
+          image: 'Image'
+        };
+
+        const html = modelFields.map(field => {
+          const unitDisplay = field.unit ? ` | Unité: ${field.unit}` : '';
+          return `
+            <div class="field-item">
+              <div class="field-item__info">
+                <div class="field-item__name">${field.label || field.name} <code>{{${model.namespace}:${field.name}}}</code></div>
+                <div class="field-item__meta">Type: ${typeLabels[field.type] || field.type}${unitDisplay} ${field.required ? '| Obligatoire' : ''}</div>
+              </div>
+            </div>
+          `;
+        }).join('');
+
+        modelVariablesList.innerHTML = html;
+      }
+
+      selectedModelInfo.style.display = 'block';
+
+    } catch (error) {
+      console.error('❌ Erreur chargement collection:', error);
+      modelVariablesList.innerHTML = `<p class="text-muted" style="color: #d32f2f;">Erreur: ${error.message}</p>`;
+      selectedModelInfo.style.display = 'block';
+    }
+  }
+
+  /**
+   * Charge les variables du document pour les afficher dans l'onglet Variables
+   */
+  async function loadDocumentVariables() {
+    const documentVariablesList = document.getElementById('documentVariablesList');
+    if (!documentVariablesList) return;
+
+    // Vérifier si un documentId est disponible
+    const documentId = window.DOCUMENT_ID;
+    if (!documentId) {
+      documentVariablesList.innerHTML = '<p class="text-muted">Aucun document associé. Les variables du document ne peuvent pas être chargées.</p>';
+      return;
+    }
+
+    try {
+      documentVariablesList.innerHTML = '<p class="text-muted">Chargement des variables du document...</p>';
+
+      // Charger le document
+      const response = await fetch(`${apiBase}/agent-documentaire/documents/${encodeURIComponent(documentId)}`);
+      if (!response.ok) {
+        throw new Error(`Erreur HTTP: ${response.status}`);
+      }
+
+      const payload = await response.json();
+      if (!payload.success || !payload.data) {
+        throw new Error(payload.error || 'Document non trouvé');
+      }
+
+      const document = payload.data;
+      
+      // Extraire les variables du document
+      // Les variables peuvent être dans json_content.variables ou dans les sections
+      let documentVariables = [];
+      
+      if (document.json_content && document.json_content.variables) {
+        // Variables globales du document
+        const vars = document.json_content.variables;
+        if (typeof vars === 'object') {
+          documentVariables = Object.keys(vars).map(key => {
+            const varData = vars[key];
+            return {
+              name: key,
+              type: varData.type || 'text',
+              value: varData.value || null,
+              label: varData.label || key,
+              occurrences: varData.occurrences || []
+            };
+          });
+        }
+      }
+
+      // Afficher les variables
+      if (documentVariables.length === 0) {
+        documentVariablesList.innerHTML = '<p class="text-muted">Aucune variable définie dans ce document.</p>';
+      } else {
+        const typeLabels = {
+          text: 'Texte',
+          number: 'Nombre',
+          boolean: 'Booléen',
+          image: 'Image',
+          table: 'Tableau'
+        };
+
+        const html = documentVariables.map(variable => {
+          const typeLabel = typeLabels[variable.type] || variable.type;
+          const occurrencesCount = variable.occurrences ? variable.occurrences.length : 0;
+          return `
+            <div class="field-item">
+              <div class="field-item__info">
+                <div class="field-item__name">${variable.label || variable.name} <code>{{${variable.name}}}</code></div>
+                <div class="field-item__meta">Type: ${typeLabel} | Utilisée ${occurrencesCount} fois</div>
+              </div>
+              <div class="field-item__actions">
+                <button class="btn btn-sm btn-outline" onclick="useDocumentVariable('${variable.name}', '${variable.type}')">➕ Utiliser</button>
+              </div>
+            </div>
+          `;
+        }).join('');
+
+        documentVariablesList.innerHTML = html;
+      }
+
+    } catch (error) {
+      console.error('❌ Erreur chargement variables du document:', error);
+      documentVariablesList.innerHTML = `<p class="text-muted" style="color: #d32f2f;">Erreur: ${error.message}</p>`;
+    }
+  }
+
+  /**
+   * Utilise une variable du document dans le template
+   */
+  function useDocumentVariable(varName, varType) {
+    // Vérifier si la variable n'existe pas déjà
+    if (fields.some(f => f.name === varName)) {
+      alert('Cette variable existe déjà dans le template.');
+      return;
+    }
+
+    // Ajouter la variable aux champs du template
+    const newField = {
+      name: varName,
+      label: varName, // Pourra être modifié après
+      type: varType || 'text',
+      required: false,
+      default: ''
+    };
+
+    fields.push(newField);
+    renderFields();
+    
+    // Afficher un message de confirmation
+    const notification = document.createElement('div');
+    notification.className = 'notification notification-success';
+    notification.textContent = `Variable "${varName}" ajoutée au template.`;
+    document.body.appendChild(notification);
+    setTimeout(() => notification.remove(), 3000);
+  }
+
+  // Exposer la fonction globalement pour qu'elle puisse être appelée depuis l'HTML
+  window.useDocumentVariable = useDocumentVariable;
+
+  /**
+   * Affiche les variantes (conservée pour compatibilité, mais l'onglet Collection utilise maintenant loadCollectionsForTemplate)
+   */
+  function renderVariants() {
+    // Cette fonction n'est plus utilisée pour l'onglet Collection
+    // Elle est conservée pour compatibilité mais ne fait plus rien
+    console.log('⚠️ renderVariants() appelée mais l\'onglet Collection utilise maintenant loadCollectionsForTemplate()');
   }
 
   /**
@@ -783,9 +1086,458 @@
   }
 
   /**
+   * ===================================
+   * GESTION DES MODÈLES (COLLECTIONS)
+   * ===================================
+   */
+
+  /**
+   * Charge la liste des modèles
+   */
+  async function loadModels() {
+    const modelsList = document.getElementById('modelsList');
+    if (!modelsList) return;
+
+    try {
+      modelsList.innerHTML = '<div class="loading-message"><p>Chargement des modèles...</p></div>';
+
+      const response = await fetch(`${apiBase}/agent-documentaire/models`);
+      
+      if (!response.ok) {
+        throw new Error(`Erreur HTTP: ${response.status}`);
+      }
+
+      const payload = await response.json();
+      
+      if (!payload.success) {
+        throw new Error(payload.error || 'Erreur lors du chargement');
+      }
+
+      models = payload.data || [];
+      renderModelsList(models);
+
+    } catch (error) {
+      console.error('❌ Erreur chargement modèles:', error);
+      modelsList.innerHTML = `
+        <div class="error-message" style="padding: 2rem; text-align: center; color: #d32f2f;">
+          <p>Erreur lors du chargement des modèles</p>
+          <p style="font-size: 0.9rem; margin-top: 0.5rem;">${error.message}</p>
+        </div>
+      `;
+    }
+  }
+
+  /**
+   * Affiche la liste des modèles
+   */
+  function renderModelsList(modelsToRender) {
+    const modelsList = document.getElementById('modelsList');
+    if (!modelsList) return;
+
+    if (modelsToRender.length === 0) {
+      modelsList.innerHTML = `
+        <div style="grid-column: 1 / -1; padding: 3rem; text-align: center;">
+          <p class="text-muted">Aucun modèle trouvé</p>
+          <button class="btn btn-primary" id="createModelBtnEmpty" style="margin-top: 1rem;">➕ Créer un modèle</button>
+        </div>
+      `;
+      
+      const createBtn = document.getElementById('createModelBtnEmpty');
+      if (createBtn) {
+        createBtn.addEventListener('click', () => openModelModal());
+      }
+      return;
+    }
+
+    const html = modelsToRender.map(model => {
+      const fieldsCount = (model.fields || []).length;
+      const variantsCount = (model.variants || []).length;
+
+      return `
+        <div class="template-card" data-namespace="${model.namespace}">
+          <div class="template-card__header">
+            <h3 class="template-card__name">${model.name}</h3>
+            <span class="template-card__type">Collection</span>
+          </div>
+          <div class="template-card__meta">
+            <div>Namespace: ${model.namespace}</div>
+            <div>Variables: ${fieldsCount}</div>
+            <div>Variantes: ${variantsCount}</div>
+            ${model.metadata?.createdAt ? 
+              `<div>Créé le ${new Date(model.metadata.createdAt).toLocaleDateString('fr-FR')}</div>` : 
+              ''
+            }
+          </div>
+          <div class="template-card__actions">
+            <button class="btn btn-sm btn-primary" data-edit-model="${model.namespace}">✏️ Modifier</button>
+            <button class="btn btn-sm btn-outline" data-delete-model="${model.namespace}">🗑️ Supprimer</button>
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    modelsList.innerHTML = html;
+
+    // Attacher les événements
+    modelsList.querySelectorAll('[data-edit-model]').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const namespace = btn.dataset.editModel;
+        editModel(namespace);
+      });
+    });
+
+    modelsList.querySelectorAll('[data-delete-model]').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const namespace = btn.dataset.deleteModel;
+        deleteModel(namespace);
+      });
+    });
+  }
+
+  /**
+   * Ouvre le modal de création/édition de modèle
+   */
+  function openModelModal(model = null) {
+    console.log('📝 Ouverture du modal de modèle, model:', model);
+    const modal = document.getElementById('modelModal');
+    const title = document.getElementById('modelModalTitle');
+    const form = document.getElementById('modelForm');
+    
+    console.log('🔍 Éléments du modal:', { modal, title, form });
+    
+    if (!modal || !title || !form) {
+      console.error('❌ Éléments du modal manquants');
+      return;
+    }
+
+    currentModel = model;
+    modelVariables = model?.fields || [];
+
+    if (model) {
+      title.textContent = `Modifier le modèle "${model.name}"`;
+      document.getElementById('modelName').value = model.name || '';
+    } else {
+      title.textContent = 'Nouveau template';
+      form.reset();
+      modelVariables = [];
+    }
+
+    renderModelVariables();
+    modal.style.display = 'flex';
+  }
+
+  /**
+   * Ferme le modal de modèle
+   */
+  function closeModelModal() {
+    const modal = document.getElementById('modelModal');
+    if (modal) {
+      modal.style.display = 'none';
+    }
+    currentModel = null;
+    modelVariables = [];
+  }
+
+  /**
+   * Affiche la liste des variables du modèle
+   */
+  function renderModelVariables() {
+    const variablesList = document.getElementById('modelVariablesList');
+    if (!variablesList) return;
+
+    if (modelVariables.length === 0) {
+      variablesList.innerHTML = '<p class="text-muted">Aucune variable définie. Cliquez sur "Ajouter une var" pour commencer.</p>';
+      return;
+    }
+
+    const html = modelVariables.map((variable, index) => {
+      const typeLabels = {
+        text: 'Texte',
+        number: 'Nombre',
+        boolean: 'Booléen',
+        image: 'Image'
+      };
+      
+      const unitDisplay = variable.unit ? ` | Unité: ${variable.unit}` : '';
+      return `
+        <div class="field-item">
+          <div class="field-item__info">
+            <div class="field-item__name">${variable.label || variable.name} <code>{{${variable.name}}}</code></div>
+            <div class="field-item__meta">Type: ${typeLabels[variable.type] || variable.type}${unitDisplay} ${variable.required ? '| Obligatoire' : ''}</div>
+          </div>
+          <div class="field-item__actions">
+            <button class="btn btn-sm btn-outline" data-edit-variable="${index}">✏️</button>
+            <button class="btn btn-sm btn-outline" data-delete-variable="${index}">🗑️</button>
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    variablesList.innerHTML = html;
+
+    // Attacher les événements
+    variablesList.querySelectorAll('[data-edit-variable]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const index = parseInt(btn.dataset.editVariable);
+        openVariableModal(modelVariables[index], index);
+      });
+    });
+
+    variablesList.querySelectorAll('[data-delete-variable]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const index = parseInt(btn.dataset.deleteVariable);
+        modelVariables.splice(index, 1);
+        renderModelVariables();
+      });
+    });
+  }
+
+  /**
+   * Ouvre le modal de variable
+   */
+  function openVariableModal(variable = null, index = null) {
+    const modal = document.getElementById('variableModal');
+    const title = document.getElementById('variableModalTitle');
+    const form = document.getElementById('variableForm');
+    
+    if (!modal || !title || !form) return;
+
+    if (variable) {
+      title.textContent = 'Modifier la variable';
+      document.getElementById('variableIndex').value = index;
+      document.getElementById('variableName').value = variable.name || '';
+      document.getElementById('variableLabel').value = variable.label || '';
+      document.getElementById('variableType').value = variable.type || 'text';
+      document.getElementById('variableUnit').value = variable.unit || '';
+      document.getElementById('variableRequired').checked = variable.required || false;
+    } else {
+      title.textContent = 'Nouvelle variable';
+      form.reset();
+      document.getElementById('variableIndex').value = '';
+      document.getElementById('variableType').value = 'text';
+      document.getElementById('variableUnit').value = '';
+    }
+
+    modal.style.display = 'flex';
+  }
+
+  /**
+   * Ferme le modal de variable
+   */
+  function closeVariableModal() {
+    const modal = document.getElementById('variableModal');
+    if (modal) {
+      modal.style.display = 'none';
+    }
+  }
+
+  /**
+   * Sauvegarde une variable
+   */
+  function saveVariable() {
+    const form = document.getElementById('variableForm');
+    if (!form) return;
+
+    const variableName = document.getElementById('variableName').value.trim();
+    const variableLabel = document.getElementById('variableLabel').value.trim();
+    
+    if (!variableName || !variableLabel) {
+      alert('Le nom et le libellé sont obligatoires');
+      return;
+    }
+
+    const variable = {
+      name: normalizeName(variableName),
+      label: variableLabel,
+      type: document.getElementById('variableType').value,
+      unit: document.getElementById('variableUnit').value.trim() || undefined,
+      required: document.getElementById('variableRequired').checked
+    };
+
+    const index = document.getElementById('variableIndex').value;
+    
+    if (index !== '' && index !== null) {
+      // Modifier
+      modelVariables[parseInt(index)] = variable;
+    } else {
+      // Ajouter
+      modelVariables.push(variable);
+    }
+
+    renderModelVariables();
+    closeVariableModal();
+  }
+
+  /**
+   * Sauvegarde le modèle
+   */
+  async function saveModel() {
+    const form = document.getElementById('modelForm');
+    if (!form) return;
+
+    const modelName = document.getElementById('modelName').value.trim();
+    
+    if (!modelName) {
+      alert('Le nom du modèle est obligatoire');
+      return;
+    }
+
+    try {
+      const isUpdate = !!currentModel;
+      let url, method, body;
+      
+      if (isUpdate) {
+        // Mise à jour
+        url = `${apiBase}/agent-documentaire/models/${encodeURIComponent(currentModel.namespace)}`;
+        method = 'PUT';
+        body = JSON.stringify({
+          name: modelName,
+          fields: modelVariables
+        });
+      } else {
+        // Création
+        url = `${apiBase}/agent-documentaire/models`;
+        method = 'POST';
+        body = JSON.stringify({
+          name: modelName,
+          fields: modelVariables,
+          variants: []
+        });
+      }
+
+      const response = await fetch(url, {
+        method: method,
+        headers: { 'Content-Type': 'application/json' },
+        body: body
+      });
+
+      const payload = await response.json();
+
+      if (!payload.success) {
+        throw new Error(payload.error || 'Erreur lors de la sauvegarde');
+      }
+
+      alert(`✅ Modèle ${isUpdate ? 'modifié' : 'créé'} avec succès !`);
+      closeModelModal();
+      loadModels();
+
+    } catch (error) {
+      console.error('❌ Erreur sauvegarde modèle:', error);
+      alert(`Erreur lors de la sauvegarde : ${error.message}`);
+    }
+  }
+
+  /**
+   * Édite un modèle
+   */
+  async function editModel(namespace) {
+    try {
+      const response = await fetch(`${apiBase}/agent-documentaire/models/${encodeURIComponent(namespace)}`);
+      
+      if (!response.ok) {
+        throw new Error(`Modèle non trouvé: ${response.status}`);
+      }
+
+      const payload = await response.json();
+      
+      if (!payload.success || !payload.data) {
+        throw new Error(payload.error || 'Modèle non trouvé');
+      }
+
+      openModelModal(payload.data);
+
+    } catch (error) {
+      console.error('❌ Erreur édition modèle:', error);
+      alert(`Erreur lors du chargement : ${error.message}`);
+    }
+  }
+
+  /**
+   * Supprime un modèle
+   */
+  async function deleteModel(namespace) {
+    const model = models.find(m => m.namespace === namespace);
+    const modelName = model?.name || namespace;
+
+    if (!confirm(`Êtes-vous sûr de vouloir supprimer le modèle "${modelName}" ?\n\nCette action est irréversible.`)) {
+      return;
+    }
+
+    try {
+      const response = await fetch(`${apiBase}/agent-documentaire/models/${encodeURIComponent(namespace)}`, {
+        method: 'DELETE'
+      });
+
+      const payload = await response.json();
+
+      if (!payload.success) {
+        throw new Error(payload.error || 'Erreur lors de la suppression');
+      }
+
+      alert('✅ Modèle supprimé avec succès !');
+      loadModels();
+
+    } catch (error) {
+      console.error('❌ Erreur suppression modèle:', error);
+      alert(`Erreur lors de la suppression : ${error.message}`);
+    }
+  }
+
+  /**
    * Initialise les événements
    */
   function initEventListeners() {
+    console.log('🔧 Initialisation des événements...');
+    
+    // Bouton créer modèle (collection)
+    const createModelBtn = document.getElementById('createModelBtn');
+    console.log('🔍 Bouton createModelBtn trouvé:', createModelBtn);
+    if (createModelBtn) {
+      createModelBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        console.log('✅ Clic sur createModelBtn détecté');
+        openModelModal();
+      });
+      createModelBtn.setAttribute('data-listener-attached', 'true');
+      console.log('✅ Événement attaché sur createModelBtn');
+    } else {
+      console.warn('⚠️ Bouton createModelBtn non trouvé dans le DOM');
+      // Réessayer après un court délai
+      setTimeout(() => {
+        const retryBtn = document.getElementById('createModelBtn');
+        if (retryBtn && !retryBtn.hasAttribute('data-listener-attached')) {
+          console.log('🔄 Réessai d\'attachement de l\'événement');
+          retryBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            console.log('✅ Clic sur createModelBtn détecté (retry)');
+            openModelModal();
+          });
+          retryBtn.setAttribute('data-listener-attached', 'true');
+        }
+      }, 500);
+    }
+
+    // Modal modèle
+    const modelModal = document.getElementById('modelModal');
+    if (modelModal) {
+      document.getElementById('modelModalClose')?.addEventListener('click', closeModelModal);
+      document.getElementById('modelModalCancel')?.addEventListener('click', closeModelModal);
+      document.getElementById('modelModalSave')?.addEventListener('click', saveModel);
+      document.getElementById('addVariableBtn')?.addEventListener('click', () => openVariableModal());
+    }
+
+    // Modal variable
+    const variableModal = document.getElementById('variableModal');
+    if (variableModal) {
+      document.getElementById('variableModalClose')?.addEventListener('click', closeVariableModal);
+      document.getElementById('variableModalCancel')?.addEventListener('click', closeVariableModal);
+      document.getElementById('variableModalSave')?.addEventListener('click', saveVariable);
+    }
+
     // Bouton créer template
     const createBtn = document.getElementById('createTemplateBtn');
     if (createBtn) {
@@ -899,13 +1651,63 @@
     filterType?.addEventListener('change', applyFilters);
     filterScope?.addEventListener('change', applyFilters);
     searchTemplates?.addEventListener('input', applyFilters);
+
+    // Recherche dans les modèles
+    const searchModels = document.getElementById('searchModels');
+    if (searchModels) {
+      searchModels.addEventListener('input', () => {
+        const search = searchModels.value.toLowerCase().trim();
+        if (search) {
+          const filtered = models.filter(m => 
+            (m.name || '').toLowerCase().includes(search) ||
+            (m.namespace || '').toLowerCase().includes(search)
+          );
+          renderModelsList(filtered);
+        } else {
+          renderModelsList(models);
+        }
+      });
+    }
   }
 
   // Initialiser quand le DOM est prêt
+  console.log('🚀 État du document:', document.readyState);
   if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', init);
+    console.log('⏳ Attente du chargement du DOM...');
+    document.addEventListener('DOMContentLoaded', () => {
+      console.log('✅ DOM chargé, initialisation...');
+      init();
+    });
   } else {
+    console.log('✅ DOM déjà prêt, initialisation immédiate...');
     init();
   }
+  
+  // Vérification supplémentaire après un court délai
+  setTimeout(() => {
+    const createModelBtn = document.getElementById('createModelBtn');
+    const modelModal = document.getElementById('modelModal');
+    console.log('🔍 Vérification après délai:', { createModelBtn, modelModal });
+    if (!createModelBtn) {
+      console.error('❌ Le bouton createModelBtn n\'existe toujours pas dans le DOM');
+    } else {
+      // Réessayer d'attacher l'événement si nécessaire
+      if (!createModelBtn.hasAttribute('data-listener-attached')) {
+        console.log('🔄 Ré-attachement de l\'événement sur createModelBtn');
+        createModelBtn.addEventListener('click', () => {
+          console.log('✅ Clic sur createModelBtn détecté (fallback)');
+          openModelModal();
+        });
+        createModelBtn.setAttribute('data-listener-attached', 'true');
+      }
+    }
+    if (!modelModal) {
+      console.error('❌ Le modal modelModal n\'existe toujours pas dans le DOM');
+    }
+  }, 1000);
+  
+  // Exposer openModelModal globalement pour débogage
+  window.openModelModal = openModelModal;
+  console.log('🌐 openModelModal exposé globalement pour débogage');
 })();
 

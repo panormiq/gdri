@@ -119,6 +119,20 @@
         loadOptionsListSidebar();
       }
 
+      // Vérifier si on doit ouvrir un onglet spécifique depuis l'URL
+      const urlParams = new URLSearchParams(window.location.search);
+      const tabParam = urlParams.get('tab');
+      if (tabParam) {
+        // Attendre un peu pour que tout soit bien rendu
+        setTimeout(() => {
+          const targetTab = document.querySelector(`[data-properties-tabs="main-properties"] [data-properties-tab="${tabParam}"]`);
+          if (targetTab) {
+            targetTab.click();
+            console.log('📑 Onglet activé depuis URL:', tabParam);
+          }
+        }, 300);
+      }
+
       // Vérifier si le template document existe et afficher le modal si nécessaire
       // Seulement au premier chargement
       if (!templateCheckDone) {
@@ -10707,17 +10721,41 @@ function initPropertiesTabs() {
         documentData = { json_content: jsonContentToUse };
       }
       
-      // Si le document a déjà un canvas avec un nom, le template est déjà défini
+      // Si le document a déjà un canvas avec un nom, vérifier si le template existe
       if (jsonContentToUse.canvas && jsonContentToUse.canvas.metadata && jsonContentToUse.canvas.metadata.name) {
         const templateName = jsonContentToUse.canvas.metadata.name;
-        documentTemplateName = templateName;
-        console.log('✅ Template document déjà défini dans canvas:', documentTemplateName);
-        templateCheckDone = true;
-        // Charger les templates disponibles après avoir défini le nom du template
-        if (typeof loadAvailableTemplates === 'function') {
-          loadAvailableTemplates();
+        
+        // Vérifier si ce template existe réellement
+        try {
+          const templatesResponse = await fetch(`${apiBase}/agent-documentaire/templates`);
+          
+          if (templatesResponse.status === 200) {
+            const templatesPayload = await templatesResponse.json();
+            
+            if (templatesPayload.success && Array.isArray(templatesPayload.data)) {
+              // Chercher le template dans la liste
+              const existingTemplate = templatesPayload.data.find(t => t.namespace === templateName);
+              
+              if (existingTemplate) {
+                // Template existe et correspond au canvas
+                documentTemplateName = templateName;
+                console.log('✅ Template document déjà défini dans canvas et vérifié:', documentTemplateName);
+                templateCheckDone = true;
+                // Charger les templates disponibles après avoir défini le nom du template
+                if (typeof loadAvailableTemplates === 'function') {
+                  loadAvailableTemplates();
+                }
+                return;
+              } else {
+                // Le canvas a un nom mais le template n'existe pas - continuer pour créer le template
+                console.warn('⚠️ Le canvas a un nom de template mais le template n\'existe pas:', templateName);
+              }
+            }
+          }
+        } catch (templateCheckError) {
+          console.warn('Erreur lors de la vérification du template depuis canvas:', templateCheckError);
+          // En cas d'erreur, continuer la vérification normale
         }
-        return;
       }
 
       // Récupérer le nom du fichier Word pour le nom par défaut du template
@@ -10764,15 +10802,49 @@ function initPropertiesTabs() {
           const templatesPayload = await templatesResponse.json();
           
           if (templatesPayload.success && Array.isArray(templatesPayload.data)) {
-            // Chercher le template dans la liste
-            const existingTemplate = templatesPayload.data.find(t => t.namespace === defaultTemplateName);
+            // Filtrer les templates de documents (pas de `:` dans le namespace)
+            const documentTemplates = templatesPayload.data.filter(t => !t.namespace.includes(':'));
+            
+            // Chercher d'abord un template avec le nom exact
+            let existingTemplate = documentTemplates.find(t => t.namespace === defaultTemplateName);
             
             if (existingTemplate) {
-              // Template existe déjà
+              // Template existe déjà avec le nom exact
               documentTemplateName = existingTemplate.namespace;
-              console.log('✅ Template document trouvé:', documentTemplateName);
+              console.log('✅ Template document trouvé (nom exact):', documentTemplateName);
               templateCheckDone = true;
+              
+              // Mettre à jour le canvas avec le nom du template si ce n'est pas déjà fait
+              if (!jsonContentToUse.canvas || !jsonContentToUse.canvas.metadata || !jsonContentToUse.canvas.metadata.name) {
+                // Le canvas n'a pas encore le nom du template, on le mettra à jour lors de la sauvegarde
+                console.log('ℹ️ Canvas n\'a pas encore le nom du template, il sera mis à jour lors de la sauvegarde');
+              }
+              
+              // Charger les templates disponibles
+              if (typeof loadAvailableTemplates === 'function') {
+                loadAvailableTemplates();
+              }
+              
               return;
+            }
+            
+            // Si aucun template avec le nom exact, vérifier s'il n'y a qu'un seul template de document
+            if (documentTemplates.length === 1) {
+              // Un seul template de document existe, l'utiliser automatiquement
+              existingTemplate = documentTemplates[0];
+              documentTemplateName = existingTemplate.namespace;
+              console.log('✅ Un seul template de document trouvé, utilisation automatique:', documentTemplateName);
+              templateCheckDone = true;
+              
+              // Charger les templates disponibles
+              if (typeof loadAvailableTemplates === 'function') {
+                loadAvailableTemplates();
+              }
+              
+              return;
+            } else if (documentTemplates.length > 1) {
+              // Plusieurs templates existent, on laisse l'utilisateur choisir via le modal
+              console.log(`ℹ️ ${documentTemplates.length} templates de documents trouvés, affichage du modal pour choix`);
             }
           }
         }

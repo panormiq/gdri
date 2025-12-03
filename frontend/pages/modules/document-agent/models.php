@@ -25,6 +25,9 @@ $extra_scripts = [
     url('assets/js/models-management.js')
 ];
 
+// Passer le documentId au JavaScript si disponible
+$documentIdJs = $documentId ? json_encode($documentId) : 'null';
+
 require_once '../../../includes/header.php';
 ?>
 
@@ -109,7 +112,7 @@ require_once '../../../includes/header.php';
 <div class="modal-overlay" id="templateModal" style="display: none;">
     <div class="modal modal-large">
         <div class="modal-header">
-            <h3 id="templateModalTitle">Nouveau modèle</h3>
+            <h3 id="templateModalTitle">Nouveau template</h3>
             <button class="modal-close" id="templateModalClose">×</button>
         </div>
         <div class="modal-body">
@@ -119,8 +122,8 @@ require_once '../../../includes/header.php';
                 <!-- Onglets -->
                 <div class="template-tabs">
                     <button type="button" class="template-tab is-active" data-tab="general">Général</button>
-                    <button type="button" class="template-tab" data-tab="fields">Champs</button>
-                    <button type="button" class="template-tab" data-tab="variants">Variantes</button>
+                    <button type="button" class="template-tab" data-tab="fields">Variables</button>
+                    <button type="button" class="template-tab" data-tab="variants">Collection</button>
                     <button type="button" class="template-tab" data-tab="preview">Aperçu</button>
                 </div>
 
@@ -188,27 +191,45 @@ require_once '../../../includes/header.php';
                     </div>
                 </div>
 
-                <!-- Onglet Champs -->
+                <!-- Onglet Variables -->
                 <div class="template-tab-panel" data-panel="fields">
                     <div class="fields-header">
-                        <h4>Champs du modèle</h4>
-                        <button type="button" class="btn btn-sm btn-outline" id="addFieldBtn">➕ Ajouter un champ</button>
+                        <h4>Variables du template</h4>
+                        <button type="button" class="btn btn-sm btn-outline" id="addFieldBtn">➕ Créer une variable</button>
                     </div>
                     <div class="fields-list" id="fieldsList">
-                        <p class="text-muted">Aucun champ défini. Ajoutez des champs pour créer des variables dans votre modèle.</p>
+                        <p class="text-muted">Aucune variable définie. Créez des variables ou utilisez celles du document.</p>
+                    </div>
+                    
+                    <div class="form-section" style="margin-top: 2rem;">
+                        <h4>Variables disponibles dans le document</h4>
+                        <div id="documentVariablesList">
+                            <p class="text-muted">Chargement des variables du document...</p>
+                        </div>
                     </div>
                 </div>
 
-                <!-- Onglet Variantes -->
+                <!-- Onglet Collection -->
                 <div class="template-tab-panel" data-panel="variants">
                     <div class="variants-header">
-                        <h4>Variantes (pour choix multiple)</h4>
-                        <small class="form-hint">Les variantes permettent de proposer plusieurs configurations prédéfinies pour cette section.</small>
+                        <h4>Collection (Modèle de produits)</h4>
+                        <small class="form-hint">Sélectionnez une collection pour utiliser ses variables dans ce template.</small>
                     </div>
-                    <div class="variants-list" id="variantsList">
-                        <p class="text-muted">Aucune variante définie. Ajoutez des variantes pour permettre un choix multiple.</p>
+                    <div class="form-group" style="margin-bottom: 1rem;">
+                        <label for="templateModelSelect">Collection associée</label>
+                        <select id="templateModelSelect" class="form-control">
+                            <option value="">Aucune collection</option>
+                        </select>
+                        <small class="form-hint">Si une collection est sélectionnée, ses variables seront disponibles dans le template</small>
                     </div>
-                    <button type="button" class="btn btn-sm btn-outline" id="addVariantBtn">➕ Ajouter une variante</button>
+                    <div id="selectedModelInfo" style="display: none;">
+                        <div class="form-section">
+                            <h4>Variables de la collection</h4>
+                            <div id="modelVariablesList">
+                                <p class="text-muted">Aucune variable dans cette collection.</p>
+                            </div>
+                        </div>
+                    </div>
                 </div>
 
                 <!-- Onglet Aperçu -->
@@ -318,6 +339,94 @@ require_once '../../../includes/header.php';
         <div class="modal-footer">
             <button type="button" class="btn btn-outline" id="variantModalCancel">Annuler</button>
             <button type="button" class="btn btn-primary" id="variantModalSave">Enregistrer</button>
+        </div>
+    </div>
+</div>
+
+<!-- Modal Création/Édition Modèle (Collection) -->
+<div class="modal-overlay" id="modelModal" style="display: none;">
+    <div class="modal modal-large">
+        <div class="modal-header">
+            <h3 id="modelModalTitle">Nouveau modèle</h3>
+            <button class="modal-close" id="modelModalClose">×</button>
+        </div>
+        <div class="modal-body">
+            <form id="modelForm">
+                <div class="form-group">
+                    <label for="modelName">Nom *</label>
+                    <input type="text" id="modelName" name="name" class="form-control" required placeholder="Moteur">
+                    <small class="form-hint">Nom de la collection (ex: Moteur, Équipement, etc.)</small>
+                </div>
+
+                <div class="form-section">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+                        <h4 style="margin: 0;">Variables de la collection</h4>
+                        <button type="button" class="btn btn-primary" id="addVariableBtn">➕ Ajouter une var</button>
+                    </div>
+                    <div id="modelVariablesList">
+                        <p class="text-muted">Aucune variable définie. Cliquez sur "Ajouter une var" pour commencer.</p>
+                    </div>
+                </div>
+            </form>
+        </div>
+        <div class="modal-footer">
+            <button type="button" class="btn btn-outline" id="modelModalCancel">Annuler</button>
+            <button type="button" class="btn btn-primary" id="modelModalSave">Enregistrer</button>
+        </div>
+    </div>
+</div>
+
+<!-- Modal Variable -->
+<div class="modal-overlay" id="variableModal" style="display: none;">
+    <div class="modal">
+        <div class="modal-header">
+            <h3 id="variableModalTitle">Nouvelle variable</h3>
+            <button class="modal-close" id="variableModalClose">×</button>
+        </div>
+        <div class="modal-body">
+            <form id="variableForm">
+                <input type="hidden" id="variableIndex" name="index">
+                
+                <div class="form-group">
+                    <label for="variableName">Nom de la variable *</label>
+                    <input type="text" id="variableName" name="name" class="form-control" required placeholder="puissance">
+                    <small class="form-hint">Nom technique de la variable (sera utilisé dans {{variable}})</small>
+                </div>
+
+                <div class="form-group">
+                    <label for="variableLabel">Libellé *</label>
+                    <input type="text" id="variableLabel" name="label" class="form-control" required placeholder="Puissance réelle">
+                    <small class="form-hint">Nom affiché dans l'interface</small>
+                </div>
+
+                <div class="form-group">
+                    <label for="variableType">Type *</label>
+                    <select id="variableType" name="type" class="form-control" required>
+                        <option value="text">Texte</option>
+                        <option value="number">Nombre</option>
+                        <option value="boolean">Booléen</option>
+                        <option value="image">Image</option>
+                    </select>
+                    <small class="form-hint">Type de données de la variable</small>
+                </div>
+
+                <div class="form-group">
+                    <label for="variableUnit">Unité</label>
+                    <input type="text" id="variableUnit" name="unit" class="form-control" placeholder="Watt, KWatt, chevaux, etc.">
+                    <small class="form-hint">Unité de mesure (optionnel, ex: Watt, KWatt, chevaux, kg, m, etc.)</small>
+                </div>
+
+                <div class="form-group">
+                    <label class="checkbox-label">
+                        <input type="checkbox" id="variableRequired" name="required">
+                        <span>Obligatoire</span>
+                    </label>
+                </div>
+            </form>
+        </div>
+        <div class="modal-footer">
+            <button type="button" class="btn btn-outline" id="variableModalCancel">Annuler</button>
+            <button type="button" class="btn btn-primary" id="variableModalSave">Enregistrer</button>
         </div>
     </div>
 </div>
@@ -592,6 +701,13 @@ require_once '../../../includes/header.php';
     margin-bottom: 1.5rem;
 }
 </style>
+
+<script>
+  // Passer le documentId au JavaScript si disponible
+  window.DOCUMENT_ID = <?= $documentIdJs; ?>;
+  // Passer l'URL de l'éditeur
+  window.EDITOR_URL = <?= json_encode(url('pages/modules/document-agent/editor.php')); ?>;
+</script>
 
 <?php require_once '../../../includes/footer.php'; ?>
 
