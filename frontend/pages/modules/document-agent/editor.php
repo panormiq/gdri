@@ -28,7 +28,7 @@ require_once '../../../includes/header.php';
             </div>
             <div class="hero-actions">
                 <a class="btn btn-outline" href="<?= url('pages/modules/document-agent/index.php'); ?>">⬅️ Retour</a>
-                <a class="btn btn-outline" href="<?= url('pages/modules/document-agent/models.php'); ?>" title="Gérer les modèles">⚙️ Modèles</a>
+                <a class="btn btn-outline" href="<?= url('pages/modules/document-agent/models.php'); ?>?from=editor&document=<?= htmlspecialchars($documentId); ?>" title="Gérer les modèles">⚙️ Modèles</a>
                 <button class="btn btn-outline view-tab is-active" data-view="text">📄 Vue texte</button>
                 <button class="btn btn-outline view-tab" data-view="card">🃏 Vue card</button>
                 <button class="btn btn-outline" id="editCanvasBtn" title="Éditer le canevas">⚙️ Éditer le canevas</button>
@@ -163,7 +163,10 @@ require_once '../../../includes/header.php';
                     <div class="doc-panel">
                         <div class="doc-panel__header">
                             <div>
-                                <h3>Sections</h3>
+                                <div class="cards-tabs" data-cards-tabs>
+                                    <button class="cards-tab is-active" data-cards-tab="sections">Sections</button>
+                                    <button class="cards-tab" data-cards-tab="annexes">Annexes</button>
+                                </div>
                                 <div class="cards-breadcrumb" data-cards-breadcrumb>
                                     <span class="breadcrumb-item is-active">Niveau 1</span>
                                 </div>
@@ -171,8 +174,15 @@ require_once '../../../includes/header.php';
                             <button class="btn btn-sm btn-outline" data-cards-back style="display: none;">⬅️ Retour</button>
                         </div>
                         <div class="doc-panel__body">
-                            <div class="cards-grid" data-cards-grid>
-                                <p class="text-muted">Chargement...</p>
+                            <div class="cards-tab-panel is-active" data-cards-tab-panel="sections">
+                                <div class="cards-grid" data-cards-grid>
+                                    <p class="text-muted">Chargement...</p>
+                                </div>
+                            </div>
+                            <div class="cards-tab-panel" data-cards-tab-panel="annexes">
+                                <div class="cards-grid" data-cards-grid-annexes>
+                                    <p class="text-muted">Chargement...</p>
+                                </div>
                             </div>
                         </div>
                     </div>

@@ -587,6 +587,35 @@ button.btn.btn-outline.view-tab.is-active,
   font-size: 0.85rem;
 }
 
+/* Zone de drop dans le breadcrumb pour remonter au niveau supérieur */
+.cards-breadcrumb.breadcrumb-drop-zone {
+  cursor: pointer;
+  transition: all 0.3s ease;
+  padding: 8px 12px;
+  border-radius: 6px;
+  border: 2px dashed transparent;
+}
+
+.cards-breadcrumb.breadcrumb-drop-zone:hover {
+  background: rgba(75, 158, 216, 0.1);
+  border-color: rgba(75, 158, 216, 0.3);
+}
+
+.cards-breadcrumb.breadcrumb-drop-zone.breadcrumb-drop-zone--active {
+  background: rgba(75, 158, 216, 0.2);
+  border-color: #4b9ed8;
+  border-style: solid;
+  box-shadow: 0 0 0 4px rgba(75, 158, 216, 0.15);
+}
+
+.cards-breadcrumb.breadcrumb-drop-zone.breadcrumb-drop-zone--active::before {
+  content: '⬆️ Remonter au niveau supérieur';
+  display: block;
+  font-weight: 600;
+  color: #4b9ed8;
+  margin-bottom: 4px;
+}
+
 .breadcrumb-item {
   color: var(--doc-text-muted);
 }
@@ -610,6 +639,7 @@ button.btn.btn-outline.view-tab.is-active,
   padding: 20px;
   cursor: pointer;
   transition: all 0.3s ease;
+  position: relative; /* Pour que le badge optionnel en position absolute soit correctement positionné */
 }
 
 .section-card:hover {
@@ -660,6 +690,9 @@ button.btn.btn-outline.view-tab.is-active,
   font-weight: 600;
   font-size: 0.8rem;
   z-index: 1;
+  display: block !important; /* Toujours visible, pas seulement au survol */
+  opacity: 1 !important; /* Toujours visible */
+  visibility: visible !important; /* Toujours visible */
 }
 
 /* Propriétés */
@@ -726,6 +759,48 @@ button.btn.btn-outline.view-tab.is-active,
 .properties-panel.is-active {
   display: flex;
   flex-direction: column;
+}
+
+/* Cards tabs (onglets Sections/Annexes) */
+.cards-tabs {
+  display: inline-flex;
+  gap: 4px;
+  padding: 4px;
+  border-radius: 8px;
+  background: rgba(75, 158, 216, 0.08);
+  border: 1px solid rgba(75, 158, 216, 0.15);
+  margin-bottom: 8px;
+}
+
+.cards-tab {
+  padding: 6px 16px;
+  border: none;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--doc-text-muted);
+  background: transparent;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.cards-tab:hover {
+  color: var(--doc-accent-strong);
+  background: rgba(75, 158, 216, 0.12);
+}
+
+.cards-tab.is-active {
+  color: #fff;
+  background: var(--doc-accent-strong);
+  box-shadow: 0 4px 12px rgba(75, 158, 216, 0.3);
+}
+
+.cards-tab-panel {
+  display: none;
+}
+
+.cards-tab-panel.is-active {
+  display: block;
 }
 
 .properties-placeholder {

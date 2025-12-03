@@ -204,6 +204,19 @@ class TemplateService {
     const initialToc = jsonContent && jsonContent.toc
       ? JSON.parse(JSON.stringify(jsonContent.toc)) // Copie profonde
       : [];
+    
+    // Sauvegarder les formats de numérotation et autres métadonnées Word importantes
+    const numberingFormats = jsonContent && jsonContent.numberingFormats
+      ? JSON.parse(JSON.stringify(jsonContent.numberingFormats)) // Copie profonde
+      : null;
+    
+    const styles = jsonContent && jsonContent.styles
+      ? JSON.parse(JSON.stringify(jsonContent.styles)) // Copie profonde
+      : null;
+    
+    const styleHierarchy = jsonContent && jsonContent.styleHierarchy
+      ? JSON.parse(JSON.stringify(jsonContent.styleHierarchy)) // Copie profonde
+      : null;
 
     // Si le template existe déjà
     if (existingTemplate) {
@@ -217,6 +230,17 @@ class TemplateService {
           initialToc: initialToc.length > 0 ? initialToc : (existingTemplate.initialToc || []),
           'metadata.updatedAt': new Date()
         };
+        
+        // Préserver les formats de numérotation et styles si présents
+        if (numberingFormats) {
+          updateData.numberingFormats = numberingFormats;
+        }
+        if (styles) {
+          updateData.styles = styles;
+        }
+        if (styleHierarchy) {
+          updateData.styleHierarchy = styleHierarchy;
+        }
         
         // Si sourceDocumentId est fourni et n'existe pas encore, l'ajouter
         if (sourceDocumentId && !existingTemplate.sourceDocumentId) {
@@ -261,14 +285,17 @@ class TemplateService {
       isStandalone: true // Template document est toujours standalone
     });
 
-    // Ajouter les sections initiales, le TOC et l'ID du document source au template (mise à jour)
+    // Ajouter les sections initiales, le TOC, les formats de numérotation et l'ID du document source au template (mise à jour)
     await this.collection.updateOne(
       { namespace: namespace },
       { 
         $set: { 
           initialSections: initialSections,
           initialToc: initialToc,
-          sourceDocumentId: sourceDocumentId || null
+          sourceDocumentId: sourceDocumentId || null,
+          numberingFormats: numberingFormats,
+          styles: styles,
+          styleHierarchy: styleHierarchy
         }
       }
     );
@@ -277,6 +304,9 @@ class TemplateService {
     template.initialSections = initialSections;
     template.initialToc = initialToc;
     template.sourceDocumentId = sourceDocumentId || null;
+    template.numberingFormats = numberingFormats;
+    template.styles = styles;
+    template.styleHierarchy = styleHierarchy;
     
     return template;
   }

@@ -9,6 +9,15 @@ if (!hasRole(ROLE_ADMIN_GDRI) && !hasRole(ROLE_ADMIN_ENTITY)) {
 
 $page_title = 'Agent Documentaire — Gestion des Modèles';
 
+// Détecter si on vient de l'éditeur
+$fromEditor = isset($_GET['from']) && $_GET['from'] === 'editor';
+$documentId = isset($_GET['document']) ? trim($_GET['document']) : null;
+
+// URL de retour : vers l'éditeur si on vient de là, sinon vers l'index
+$backUrl = $fromEditor && $documentId 
+    ? url('pages/modules/document-agent/editor.php') . '?document=' . htmlspecialchars($documentId)
+    : url('pages/modules/document-agent/index.php');
+
 $extra_styles = [
     url('assets/css/agent-documentaire.css')
 ];
@@ -29,7 +38,7 @@ require_once '../../../includes/header.php';
                 </p>
             </div>
             <div class="hero-actions">
-                <a class="btn btn-outline" href="<?= url('pages/modules/document-agent/index.php'); ?>">⬅️ Retour</a>
+                <a class="btn btn-outline" href="<?= $backUrl; ?>">⬅️ Retour</a>
             </div>
         </div>
     </div>

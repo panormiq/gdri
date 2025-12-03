@@ -16,6 +16,7 @@
   let documentJson = null;
   let sectionsTree = [];
   let currentCardParent = null; // Pour la navigation dans les cards
+  let cardNavigationStack = []; // Pile de navigation pour le bouton retour
   let selectedElement = null; // Élément actuellement sélectionné pour édition
   let dropMessageElement = null; // Message affiché pendant un drag & drop d'image
   let currentDropImageWrapper = null; // Image actuellement ciblée pour remplacement
@@ -148,73 +149,37 @@
     if (!Array.isArray(sections)) return [];
 
     const result = [];
-    const optionalSectionsByParent = {}; // parentId -> [sections optionnelles]
 
-    // Première passe : collecter les sections structurelles et les optionnelles actives
-    const collectSections = (sections, parentId = null) => {
+    // SIMPLIFICATION : Collecter les sections structurelles et optionnelles actives directement depuis l'arbre
+    const collectSections = (sections) => {
       sections.forEach(section => {
         const structure = section.structure || 'structural';
         const actif = section.actif !== undefined ? section.actif : (structure === 'structural' ? true : false);
 
-        // Section structurelle : toujours inclure
-        if (structure === 'structural' || structure === undefined) {
+        // SIMPLIFICATION : Inclure les sections structurelles ET les sections optionnelles actives directement
+        // Puisque les sections optionnelles restent dans l'arbre, pas besoin de les collecter séparément
+        const isStructural = structure === 'structural' || structure === undefined;
+        const isOptionalActive = structure === 'optional' && actif === true;
+        
+        if (isStructural || isOptionalActive) {
           const sectionCopy = { ...section };
           // Récursivement traiter les enfants
           if (Array.isArray(section.children)) {
-            sectionCopy.children = collectSections(section.children, section.id);
+            sectionCopy.children = collectSections(section.children);
           } else {
             sectionCopy.children = [];
           }
           result.push(sectionCopy);
-        }
-        // Section optionnelle active : ajouter à la liste par parent
-        else if (structure === 'optional' && actif === true) {
-          const parent = section.parent || null;
-          const parentKey = parent || 'root';
-          if (!optionalSectionsByParent[parentKey]) {
-            optionalSectionsByParent[parentKey] = [];
+        } else {
+          // Pour les sections optionnelles inactives, traiter quand même leurs enfants récursivement
+          if (Array.isArray(section.children)) {
+            collectSections(section.children);
           }
-          optionalSectionsByParent[parentKey].push({ ...section });
-        }
-
-        // Traiter les enfants récursivement (même pour les optionnelles, au cas où)
-        if (Array.isArray(section.children)) {
-          collectSections(section.children, section.id);
         }
       });
     };
 
     collectSections(sections);
-
-    // Deuxième passe : insérer les sections optionnelles sous leur parent
-    const insertOptionalSections = (sections) => {
-      sections.forEach(section => {
-        // Si cette section a des sections optionnelles attachées
-        const parentKey = section.id || 'root';
-        if (optionalSectionsByParent[parentKey]) {
-          // Insérer les sections optionnelles après les enfants structurels
-          const optionalSections = optionalSectionsByParent[parentKey];
-          if (!Array.isArray(section.children)) {
-            section.children = [];
-          }
-          // Ajouter les sections optionnelles à la fin des enfants
-          section.children.push(...optionalSections);
-        }
-
-        // Traiter récursivement les enfants
-        if (Array.isArray(section.children)) {
-          insertOptionalSections(section.children);
-        }
-      });
-
-      // Gérer les sections optionnelles à la racine (parent = null ou '')
-      if (optionalSectionsByParent['root']) {
-        const rootOptionals = optionalSectionsByParent['root'];
-        result.push(...rootOptionals);
-      }
-    };
-
-    insertOptionalSections(result);
 
     return result;
   }
@@ -972,10 +937,13 @@
     // Recalculer la numérotation
     recalculateNumbering();
 
-    // Re-render tout
+    // Re-render tout (vue texte)
     renderSommaire();
     renderContent();
 
+    // Mettre à jour aussi la vue card (même si elle n'est pas active)
+    updateCardsView();
+    
     cleanupDragClasses();
   }
 
@@ -1113,64 +1081,92 @@
       }
     }
 
-    // Si on passe de structural à optional
+    // SIMPLIFICATION : Si on passe de structural à optional
     if (oldStructure === 'structural' && newStructure === 'optional') {
-      // Retirer de son parent actuel
-      removeSectionFromTree(section);
-      
-      // Mettre à jour les champs
       section.structure = 'optional';
-      section.actif = false; // Par défaut désactivé
-      section.parent = parentId;
-      section.category = normalizedCategory;
       
-      // Garder la section optionnelle à la racine pour qu'elle reste accessible
-      const isAtRoot = sectionsTree.some(s => s.id === sectionId);
-      if (!isAtRoot) {
-        sectionsTree.push(section);
+      // IMPORTANT : Par défaut, la section optionnelle est ACTIVE pour qu'elle reste à sa place
+      // Si l'utilisateur la désactive ensuite, elle sera retirée de l'arbre
+      section.actif = true; // Par défaut activée pour que rien ne change
+      
+      // Garder la catégorie si fournie
+      if (normalizedCategory) {
+        section.category = normalizedCategory;
+      }
+      
+      // NE PAS RETIRER de l'arbre si elle est active - elle reste à sa place exactement comme avant
+      // Sauvegarder juste la position pour la réintégration future si nécessaire
+      const parent = findParentSection(sectionId, sectionsTree);
+      const sourceArray = parent ? parent.children : sectionsTree;
+      const originalIndex = sourceArray.findIndex(s => s.id === sectionId);
+      
+      if (originalIndex !== -1) {
+        section._originalStructuralIndex = originalIndex;
+        section._originalParentId = parent ? parent.id : null;
+      }
+      
+      // Vérifier que la section est bien dans les enfants de son parent
+      const parentAfter = findParentSection(sectionId, sectionsTree);
+      const isInParentChildren = parentAfter ? (parentAfter.children || []).some(s => s.id === sectionId) : sectionsTree.some(s => s.id === sectionId);
+      
+      console.log(`✅ Section "${section.title}" passée en optionnelle (active) - reste à sa place, rien ne change`);
+      console.log(`   🔍 Vérification: parent=${parentAfter ? parentAfter.id : 'racine'}, dans children=${isInParentChildren}`);
+      
+      if (!isInParentChildren) {
+        console.warn(`   ⚠️ ATTENTION: La section n'est pas dans les enfants de son parent !`);
       }
     }
-    // Si on passe de optional à structural
+    // Quand on réintègre (optional → structural) : placer à la fin et utiliser drag & drop pour repositionner
     else if (oldStructure === 'optional' && newStructure === 'structural') {
-      const oldParentId = section.parent;
+      // Retirer de l'arbre actuel (elle est peut-être à la racine)
       removeSectionFromTree(section);
       
-      // Réintégrer
-      if (parentId !== null) {
-        const parent = findSectionById(parentId, sectionsTree);
-        if (parent) {
-          if (!Array.isArray(parent.children)) {
-            parent.children = [];
-          }
-          parent.children.push(section);
-        } else {
-          sectionsTree.push(section);
-        }
-      } else if (oldParentId) {
-        const oldParent = findSectionById(oldParentId, sectionsTree);
-        if (oldParent) {
-          if (!Array.isArray(oldParent.children)) {
-            oldParent.children = [];
-          }
-          oldParent.children.push(section);
-        } else {
-          sectionsTree.push(section);
-        }
-      } else {
-        sectionsTree.push(section);
-      }
-      
-      // Mettre à jour les champs
+      // Changer le statut
       section.structure = 'structural';
       section.actif = true; // Forcé à true pour structural
-      section.parent = null;
-      section.category = null;
+      
+      // Nettoyer les champs optionnels
+      if (section.category) {
+        section.category = null;
+      }
+      
+      // Nettoyer les champs temporaires
+      if (section._originalStructuralIndex !== undefined) {
+        delete section._originalStructuralIndex;
+      }
+      if (section._originalParentId !== undefined) {
+        delete section._originalParentId;
+      }
+      
+      // Placer à la fin de la racine par défaut (l'utilisateur pourra utiliser drag & drop pour repositionner)
+      sectionsTree.push(section);
+      section.parent = null; // À la racine
+      
+      console.log(`✅ Section "${section.title}" repassée en structurelle - placée à la fin (utiliser drag & drop pour repositionner)`);
     }
     // Si on change juste le parent ou la catégorie d'une option
     else if (oldStructure === 'optional' && newStructure === 'optional') {
-      section.parent = parentId;
+      const oldParent = section.parent;
+      // Normaliser parentId : 
+      // - '' ou 'null' = null (racine explicitement choisie)
+      // - undefined = garder le parent actuel
+      // - string avec ID = parent choisi
+      if (parentId === '' || parentId === 'null') {
+        section.parent = null; // Racine explicitement choisie
+      } else if (parentId !== undefined && parentId !== null && parentId !== '') {
+        section.parent = parentId; // Parent explicite choisi
+      }
+      // Si parentId est undefined, garder le parent actuel (pas de changement)
       if (normalizedCategory !== null) {
         section.category = normalizedCategory;
+      }
+      
+      // IMPORTANT : Si le parent change vers la racine, s'assurer que la section est dans sectionsTree
+      const isAtRoot = sectionsTree.some(s => s.id === sectionId);
+      if (section.parent === null && !isAtRoot) {
+        // Mettre à la racine pour qu'elle reste accessible
+        sectionsTree.push(section);
+        console.log(`   ✅ Section optionnelle "${section.title}" déplacée à la racine pour rester accessible`);
       }
     }
 
@@ -1224,7 +1220,7 @@
    * @param {Object} numberingFormats - Formats de numérotation extraits depuis Word
    * @returns {string} Numérotation générée (ex: "I.", "1.1.", etc.)
    */
-  function generateNumbering(format, levelNumbers, numberingFormats) {
+  function generateNumbering(format, levelNumbers, numberingFormats, currentLevelIndex = null) {
     if (!format || !numberingFormats) {
       // Fallback : utiliser le format simple
       return levelNumbers.map(n => n.toString()).join('.') + '.';
@@ -1232,69 +1228,110 @@
 
     let result = format;
     
-    // Dans Word, %1 = niveau 1, %2 = niveau 2, etc.
-    // Mais levelNumbers est indexé à partir de 0 : [niveau0, niveau1, niveau2, ...]
-    // Donc levelNumbers[0] = niveau 1, levelNumbers[1] = niveau 2, etc.
+    // Dans Word, les placeholders dans w:lvlText sont relatifs au niveau actuel :
+    // - %1 = niveau actuel (celui défini par w:ilvl)
+    // - %2 = niveau parent (w:ilvl - 1)
+    // - %3 = niveau grand-parent (w:ilvl - 2), etc.
+    //
+    // levelNumbers contient tous les niveaux jusqu'au niveau actuel :
+    // levelNumbers[0] = niveau racine (I, II, III, etc.)
+    // levelNumbers[1] = niveau enfant (1, 2, 3, etc.)
+    // levelNumbers[2] = niveau petit-enfant (1.1, 1.2, etc.)
+    // etc.
+    
+    // Déterminer le niveau actuel
+    // Si currentLevelIndex est fourni, l'utiliser
+    // Sinon, utiliser la longueur de levelNumbers - 1 comme niveau actuel
+    const actualLevelIndex = currentLevelIndex !== null ? currentLevelIndex : (levelNumbers.length - 1);
     
     // Trouver tous les placeholders dans le format (%1, %2, %3, etc.)
     const placeholderRegex = /%(\d+)/g;
     const placeholders = [];
     let match;
     while ((match = placeholderRegex.exec(format)) !== null) {
-      const levelNum = parseInt(match[1]); // 1, 2, 3, etc. (niveau Word)
-      const levelIndex = levelNum - 1; // 0, 1, 2, etc. (index dans levelNumbers)
+      const placeholderLevelNum = parseInt(match[1]); // 1, 2, 3, etc.
       placeholders.push({
         placeholder: match[0], // "%1", "%2", etc.
-        levelNum: levelNum, // 1, 2, 3, etc.
-        levelIndex: levelIndex // 0, 1, 2, etc.
+        levelNum: placeholderLevelNum // 1, 2, 3, etc.
       });
     }
     
     // Remplacer chaque placeholder par le numéro formaté
-    for (const placeholder of placeholders) {
-      const { placeholder: placeholderStr, levelNum: placeholderLevelNum, levelIndex } = placeholder;
+    // IMPORTANT : Dans Word, les placeholders dans w:lvlText sont RELATIFS au niveau actuel :
+    // - %1 = niveau actuel (celui défini par w:ilvl)
+    // - %2 = niveau parent (w:ilvl - 1)
+    // - %3 = niveau grand-parent (w:ilvl - 2), etc.
+    //
+    // levelNumbers contient tous les niveaux jusqu'au niveau actuel dans l'ordre :
+    // levelNumbers[0] = niveau racine (niveau 1, ilvl=0)
+    // levelNumbers[1] = niveau enfant (niveau 2, ilvl=1)
+    // levelNumbers[2] = niveau petit-enfant (niveau 3, ilvl=2)
+    // etc.
+    //
+    // Pour un niveau actuel N (actualLevelIndex = N) :
+    // %1 = niveau actuel → levelNumbers[N]
+    // %2 = niveau parent → levelNumbers[N-1]
+    // %3 = niveau grand-parent → levelNumbers[N-2]
+    // etc.
+    
+    // IMPORTANT : Dans Word, pour les formats comme "%1.%2.", l'ordre des placeholders
+    // détermine l'ordre d'affichage. Pour obtenir "II.1" (parent puis actuel),
+    // le format Word est généralement "%2.%1." où %2 = parent et %1 = actuel.
+    // Si le format extrait est "%1.%2.", cela donne "1.II" (incorrect).
+    // On doit donc traiter les placeholders dans l'ordre du format Word pour respecter l'ordre souhaité.
+    
+    // Trier les placeholders par ordre d'apparition dans le format (du premier au dernier)
+    // Cela permet de respecter l'ordre défini dans le format Word
+    const sortedPlaceholders = [...placeholders].sort((a, b) => {
+      const indexA = format.indexOf(a.placeholder);
+      const indexB = format.indexOf(b.placeholder);
+      return indexA - indexB;
+    });
+    
+    for (const placeholder of sortedPlaceholders) {
+      const { placeholder: placeholderStr, levelNum: placeholderLevelNum } = placeholder;
       
-      // Dans Word, les placeholders dans w:lvlText sont relatifs au niveau actuel :
-      // - %1 = niveau actuel (celui défini par w:ilvl)
-      // - %2 = niveau parent (w:ilvl - 1)
-      // - %3 = niveau grand-parent (w:ilvl - 2), etc.
-      // 
-      // Mais en réalité, Word utilise %1 pour le niveau actuel, %2 pour le niveau parent, etc.
-      // Donc pour le niveau 0, %1 = niveau 0
-      // Pour le niveau 1, %1 = niveau 1, %2 = niveau 0 (parent)
+      // Calculer l'index dans levelNumbers en fonction du placeholder
+      // %1 = niveau actuel → levelNumbers[actualLevelIndex]
+      // %2 = niveau parent → levelNumbers[actualLevelIndex - 1]
+      // %3 = niveau grand-parent → levelNumbers[actualLevelIndex - 2]
+      // etc.
+      const targetLevelIndex = actualLevelIndex - (placeholderLevelNum - 1);
       
-      // Le placeholderLevelNum (1, 2, 3, etc.) correspond au niveau Word
-      // Mais levelNumbers est indexé à partir de 0 : [niveau0, niveau1, niveau2, ...]
-      // Donc levelNumbers[0] = niveau 1, levelNumbers[1] = niveau 2, etc.
+      // Debug
+      if (actualLevelIndex <= 2) {
+        console.log(`🔍 generateNumbering: format="${format}", placeholder=${placeholderStr}, placeholderLevelNum=${placeholderLevelNum}, actualLevelIndex=${actualLevelIndex}, targetLevelIndex=${targetLevelIndex}, levelNumbers=${JSON.stringify(levelNumbers)}, levelNumbers.length=${levelNumbers.length}`);
+      }
       
-      // Calculer l'index réel dans levelNumbers
-      // Si on est au niveau N et qu'on a un placeholder %M, alors :
-      // - Si M = 1, on utilise le niveau actuel (levelNumbers[N])
-      // - Si M = 2, on utilise le niveau parent (levelNumbers[N-1])
-      // - etc.
-      
-      // Mais en fait, levelNumbers contient déjà tous les niveaux jusqu'au niveau actuel
-      // levelNumbers[0] = niveau 0, levelNumbers[1] = niveau 1, etc.
-      // Donc levelIndex = placeholderLevelNum - 1 est correct
-      
-      // Vérifier que le niveau existe dans levelNumbers
-      if (levelIndex < 0 || levelIndex >= levelNumbers.length) {
-        console.warn(`⚠️ Placeholder ${placeholderStr} référence un niveau ${levelIndex} qui n'existe pas (levelNumbers.length=${levelNumbers.length})`);
+      // Vérifier que l'index est valide
+      if (targetLevelIndex < 0 || targetLevelIndex >= levelNumbers.length) {
+        console.warn(`⚠️ Placeholder ${placeholderStr} référence un niveau hors limites (targetLevelIndex=${targetLevelIndex}, levelNumbers.length=${levelNumbers.length}, actualLevelIndex=${actualLevelIndex})`);
         continue;
       }
       
-      const levelNum = levelNumbers[levelIndex];
+      const levelNum = levelNumbers[targetLevelIndex];
       
-      // Trouver le format pour ce niveau (utiliser levelIndex car c'est l'index dans numberingFormats)
-      const levelFormat = numberingFormats.formats?.[levelIndex];
+      // Trouver le format pour ce niveau (utiliser targetLevelIndex car c'est l'index dans numberingFormats)
+      const levelFormat = numberingFormats.formats?.[targetLevelIndex];
       const numFmt = levelFormat?.numFmt || 'decimal';
       
       // Formater le numéro
       const formattedNum = formatNumber(levelNum, numFmt);
       
+      // Debug
+      if (actualLevelIndex <= 2) {
+        console.log(`🔍 generateNumbering: levelNum=${levelNum}, numFmt=${numFmt}, formattedNum="${formattedNum}"`);
+      }
+      
       // Remplacer dans le format (échapper le placeholder pour éviter les problèmes avec les regex)
       const escapedPlaceholder = placeholderStr.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const beforeReplace = result;
       result = result.replace(new RegExp(escapedPlaceholder, 'g'), formattedNum);
+      
+      // Debug si le remplacement n'a pas eu lieu
+      if (actualLevelIndex <= 2 && beforeReplace === result) {
+        console.warn(`⚠️ Le placeholder ${placeholderStr} n'a pas été remplacé dans "${format}" (beforeReplace="${beforeReplace}", result="${result}")`);
+      }
     }
     
     return result;
@@ -1304,15 +1341,65 @@
    * Recalcule la numérotation de toutes les sections en utilisant les formats Word
    */
   function recalculateNumbering() {
+    console.log('🔄 recalculateNumbering() appelée');
     const numberingFormats = documentJson?.numberingFormats || { formats: {} };
-    const levelCounters = {}; // Compteurs par niveau
+    const levelCounters = {}; // Compteurs globaux par niveau (pour les sections racine)
     
-    function processSection(section, parentLevelNumbers = []) {
-      // Introduction : ignorer complètement
+    // Collecter toutes les sections optionnelles actives par parent
+    const optionalSectionsByParent = {};
+    const collectOptionalSections = (sections) => {
+      if (!Array.isArray(sections)) return;
+      sections.forEach(section => {
+        const structure = section.structure || 'structural';
+        if (structure === 'optional' && section.actif === true) {
+          const parent = section.parent || null;
+          const parentKey = parent || 'root';
+          if (!optionalSectionsByParent[parentKey]) {
+            optionalSectionsByParent[parentKey] = [];
+          }
+          optionalSectionsByParent[parentKey].push(section);
+        }
+        if (Array.isArray(section.children)) {
+          collectOptionalSections(section.children);
+        }
+      });
+    };
+    collectOptionalSections(sectionsTree);
+    
+    // Créer une copie de l'arbre avec les sections optionnelles intégrées pour la numérotation
+    function createIntegratedTree(sections) {
+      if (!Array.isArray(sections)) return [];
+      return sections.map(section => {
+        const sectionCopy = { ...section };
+        // Ajouter les enfants structurels
+        if (Array.isArray(section.children)) {
+          sectionCopy.children = createIntegratedTree(section.children);
+        } else {
+          sectionCopy.children = [];
+        }
+        // SIMPLIFICATION : Les sections optionnelles actives restent dans l'arbre normal
+        // Donc elles sont déjà dans sectionCopy.children, pas besoin de les ajouter ici
+        // Cette logique était utilisée pour les replacer à leur position originale, mais cela crée des fantômes
+        // Maintenant, les sections optionnelles actives sont déjà dans l'arbre à leur position actuelle
+        // On ne fait plus rien ici - elles sont déjà dans l'arbre
+        return sectionCopy;
+      });
+    }
+    
+    const integratedSections = createIntegratedTree(sectionsTree);
+    
+    // SIMPLIFICATION : Les sections optionnelles actives restent dans l'arbre normal
+    // Donc elles sont déjà dans integratedSections, pas besoin de les ajouter ici
+    // La logique d'ajout avec _originalStructuralIndex créait des "fantômes" quand on réintégrait des sections
+    // Maintenant, les sections optionnelles actives sont déjà dans l'arbre à leur position actuelle
+    
+    function processSection(section, parentLevelNumbers = [], localCounters = {}) {
+      // Introduction : ignorer complètement (ne pas compter, ne pas numéroter)
       if (section.type === 'introduction') {
         section.numbering = null;
         if (section.children) {
-          section.children.forEach(child => processSection(child, []));
+          const childCounters = {};
+          section.children.forEach(child => processSection(child, [], childCounters));
         }
         return;
       }
@@ -1322,33 +1409,77 @@
       if (isSommaire) {
         section.numbering = null;
         if (section.children && section.children.length > 0) {
+          const childCounters = {};
           section.children.forEach(child => {
-            processSection(child, []);
+            processSection(child, [], childCounters);
           });
         }
+        return;
+      }
+      
+      // SIMPLIFICATION : Traiter les sections STRUCTURELLES et OPTIONNELLES ACTIVES de la même manière
+      const structure = section.structure || 'structural';
+      const isStructural = structure === 'structural';
+      const isOptionalActive = structure === 'optional' && section.actif === true;
+      
+      // Si la section est optionnelle mais inactive, ne pas la numéroter
+      if (structure === 'optional' && !section.actif) {
+        section.numbering = null;
+        // Traiter quand même les enfants (récursion)
+        if (section.children && section.children.length > 0) {
+          const childCounters = {};
+          section.children.forEach(child => {
+            processSection(child, parentLevelNumbers, childCounters);
+          });
+        }
+        return; // Ne pas incrémenter les compteurs
+      }
+      
+      // Traiter les sections structurelles ET optionnelles actives exactement de la même manière
+      // Si ce n'est ni structurel ni optionnel actif, ne pas traiter
+      if (!isStructural && !isOptionalActive) {
         return;
       }
       
       const level = section.level || 1;
       const levelIndex = level - 1; // Convertir en index 0-based
       
-      // Initialiser le compteur pour ce niveau si nécessaire
-      if (!levelCounters[levelIndex]) {
-        levelCounters[levelIndex] = 0;
-      }
-      
-      // Incrémenter le compteur pour ce niveau
-      levelCounters[levelIndex]++;
-      
-      // Réinitialiser les compteurs des niveaux inférieurs
-      for (let i = levelIndex + 1; i < 10; i++) {
-        levelCounters[i] = 0;
-      }
-      
       // Construire les numéros de chaque niveau jusqu'à ce niveau
-      const levelNumbers = [];
-      for (let i = 0; i <= levelIndex; i++) {
-        levelNumbers.push(levelCounters[i] || 1);
+      const levelNumbers = [...parentLevelNumbers];
+      
+      // Si on est au niveau racine (pas de parent), utiliser les compteurs globaux
+      if (parentLevelNumbers.length === 0) {
+        // Niveau racine : utiliser le compteur global
+        if (!levelCounters[levelIndex]) {
+          levelCounters[levelIndex] = 0;
+        }
+        levelCounters[levelIndex]++;
+        levelNumbers.push(levelCounters[levelIndex]);
+        // Réinitialiser les compteurs des niveaux inférieurs
+        for (let i = levelIndex + 1; i < 10; i++) {
+          levelCounters[i] = 0;
+        }
+      } else {
+        // Niveau enfant : utiliser les compteurs locaux (réinitialisés pour chaque parent)
+        // Le compteur local commence à 0 pour chaque nouveau parent
+        // counterKey = 0 pour le premier niveau enfant, 1 pour le deuxième, etc.
+        const counterKey = levelIndex - parentLevelNumbers.length;
+        
+        // Initialiser le compteur local pour ce niveau si nécessaire
+        if (!localCounters[counterKey]) {
+          localCounters[counterKey] = 0;
+        }
+        
+        // Incrémenter le compteur local pour ce niveau
+        localCounters[counterKey]++;
+        
+        // Réinitialiser les compteurs des niveaux inférieurs
+        for (let i = counterKey + 1; i < 10; i++) {
+          localCounters[i] = 0;
+        }
+        
+        // Ajouter le compteur local au numéro de niveau
+        levelNumbers.push(localCounters[counterKey] || 1);
       }
       
       // Trouver le format pour ce niveau
@@ -1356,22 +1487,41 @@
       const format = levelFormat?.format || levelFormat?.text || '%1.';
       
       // Debug : log pour voir ce qui est utilisé
-      if (level === 1) {
-        console.log(`🔢 Section "${section.title}": level=${level}, levelIndex=${levelIndex}, format="${format}", levelFormat:`, levelFormat);
-        console.log(`   levelNumbers:`, levelNumbers);
+      if (level === 1 || level === 2) {
+        console.log(`🔢 Section "${section.title}": level=${level}, levelIndex=${levelIndex}, parentLevelNumbers=${JSON.stringify(parentLevelNumbers)}, levelNumbers=${JSON.stringify(levelNumbers)}, format="${format}", localCounters:`, localCounters);
+        console.log(`   Format source:`, levelFormat);
       }
       
-      // Générer la numérotation
-      section.numbering = generateNumbering(format, levelNumbers, numberingFormats);
+      // Générer la numérotation (passer le levelIndex pour interpréter correctement les placeholders)
+      let numberingResult = generateNumbering(format, levelNumbers, numberingFormats, levelIndex);
       
-      if (level === 1) {
+      // Pour les sous-sections (levelIndex > 0), si la numérotation contient deux segments séparés par un point,
+      // inverser l'ordre d'affichage pour avoir parent puis enfant (ex: "II.1" au lieu de "1.II")
+      if (levelIndex > 0 && numberingResult.includes('.')) {
+        const segments = numberingResult.split('.').filter(s => s.trim() !== '');
+        if (segments.length >= 2) {
+          // Inverser l'ordre : parent puis enfant
+          numberingResult = segments.reverse().join('.') + '.';
+          console.log(`🔄 Numérotation inversée pour niveau ${levelIndex}: format="${format}" → résultat="${numberingResult}"`);
+        }
+      }
+      
+      section.numbering = numberingResult;
+      
+      // Debug : log du résultat
+      if (level === 1 || level === 2) {
+        console.log(`   → Résultat final: "${section.numbering}" (format: "${format}")`);
+      }
+      
+      if (level === 1 || level === 2) {
         console.log(`   → numbering: "${section.numbering}"`);
       }
       
-      // Traiter les enfants
+      // Traiter les enfants avec des compteurs locaux réinitialisés
       if (section.children && section.children.length > 0) {
+        const childCounters = {};
         section.children.forEach(child => {
-          processSection(child, levelNumbers);
+          processSection(child, levelNumbers, childCounters);
         });
       }
     }
@@ -1381,10 +1531,59 @@
       levelCounters[i] = 0;
     }
     
-    // Traiter toutes les sections
-    sectionsTree.forEach(section => {
-      processSection(section, []);
+    // Map pour stocker la numérotation calculée par ID de section
+    const numberingMap = {};
+    
+    // Fonction pour stocker la numérotation dans la map
+    function storeNumbering(section) {
+      if (section.id) {
+        numberingMap[section.id] = {
+          numbering: section.numbering,
+          level: section.level
+        };
+      }
+      if (Array.isArray(section.children)) {
+        section.children.forEach(child => storeNumbering(child));
+      }
+    }
+    
+    // Traiter toutes les sections de l'arbre intégré (avec sections optionnelles actives)
+    console.log(`🔄 recalculateNumbering: ${integratedSections.length} sections racine à traiter`);
+    integratedSections.forEach((section, index) => {
+      const rootCounters = {};
+      const oldNumbering = section.numbering;
+      processSection(section, [], rootCounters);
+      storeNumbering(section); // Stocker la numérotation calculée
+      if (oldNumbering && oldNumbering !== section.numbering) {
+        console.log(`   ⚠️ Section "${section.title}" (${section.id}): numérotation changée de "${oldNumbering}" à "${section.numbering}" (position: ${index})`);
+      }
     });
+    
+    // Appliquer la numérotation aux sections réelles dans sectionsTree
+    function applyNumberingToRealSections(sections) {
+      if (!Array.isArray(sections)) return;
+      sections.forEach(section => {
+        if (section.id && numberingMap[section.id]) {
+          section.numbering = numberingMap[section.id].numbering;
+          // Le level est déjà correct, on ne le modifie pas
+        }
+        if (Array.isArray(section.children)) {
+          applyNumberingToRealSections(section.children);
+        }
+      });
+    }
+    
+    // Appliquer la numérotation aux sections réelles (y compris les sections optionnelles à la racine)
+    applyNumberingToRealSections(sectionsTree);
+    
+    // Appliquer aussi aux sections optionnelles qui sont à la racine de sectionsTree
+    if (optionalSectionsByParent['root']) {
+      optionalSectionsByParent['root'].forEach(optSection => {
+        if (optSection.id && numberingMap[optSection.id]) {
+          optSection.numbering = numberingMap[optSection.id].numbering;
+        }
+      });
+    }
   }
 
   /**
@@ -2240,6 +2439,11 @@
     recalculateNumbering();
 
     documentJson.sections = sectionsTree;
+    
+    // Vérifier que numberingFormats est présent (il doit être préservé depuis le chargement)
+    if (!documentJson.numberingFormats) {
+      console.warn('⚠️ numberingFormats absent dans documentJson lors de la sauvegarde. Le backend devrait le préserver depuis le document existant.');
+    }
 
     const response = await fetch(`${apiBase}/agent-documentaire/document/${documentId}`, {
       method: 'PUT',
@@ -2677,6 +2881,27 @@
   }
 
   /**
+   * Met à jour la vue card (utilitaire pour synchronisation)
+   */
+  function updateCardsView() {
+    const cardsView = document.querySelector('.view-card');
+    if (!cardsView) {
+      console.log('⚠️ Vue card non trouvée dans le DOM');
+      return;
+    }
+    
+    console.log('🔄 Mise à jour de la vue card après réorganisation...');
+    
+    if (currentCardParent) {
+      renderCards(currentCardParent);
+    } else {
+      renderCardsWithOptions();
+    }
+    
+    console.log('✅ Vue card mise à jour');
+  }
+
+  /**
    * Rend les cards (vue card, colonne 1)
    */
   function renderCards(parentSection = null) {
@@ -2692,53 +2917,28 @@
     
     if (!cardsGrid) return;
 
-    // Sections à afficher
-    const sectionsToDisplay = parentSection.children || [];
+    // SIMPLIFICATION : Les sections optionnelles restent dans l'arbre, donc elles sont déjà dans children
+    // Pas besoin de les collecter et ajouter séparément, cela créerait des doublons
+    let sectionsToDisplay = parentSection.children || [];
 
-    // Filtrer les annexes
-    const filteredSections = sectionsToDisplay.filter(section => {
-      const titleLower = (section.title || '').toLowerCase().trim();
-      return titleLower !== 'annexes' && titleLower !== 'annexe' && titleLower !== 'sommaire';
+    // Collecter les sections optionnelles désactivées qui ont ce parent (pour les afficher aussi)
+    // Les sections optionnelles désactivées sont à la racine, mais on vérifie leur parent original
+    const parentId = parentSection ? parentSection.id : null;
+    const inactiveOptionalSections = [];
+    
+    // Parcourir toutes les sections à la racine (où sont les options désactivées)
+    sectionsTree.forEach(section => {
+      const structure = section.structure || 'structural';
+      if (structure === 'optional' && section.actif !== true) {
+        // Vérifier le parent actuel OU le parent original sauvegardé
+        const sectionParent = section.parent || section._originalParentId || null;
+        if (sectionParent === parentId) {
+          inactiveOptionalSections.push(section);
+        }
+      }
     });
 
-    // Générer les cards
-    let html = '';
-    filteredSections.forEach(section => {
-      html += generateCardHTML(section);
-    });
-
-    cardsGrid.innerHTML = html || '<p class="text-muted">Aucune section</p>';
-
-    // Breadcrumb
-    if (breadcrumb) {
-      breadcrumb.textContent = parentSection.title || 'Sous-sections';
-    }
-
-    // Bouton retour
-    if (backButton) {
-      backButton.style.display = 'inline-block';
-    }
-
-    // Attacher les événements
-    attachCardEvents();
-  }
-
-  /**
-   * Rend les cards avec les options (niveau racine)
-   */
-  function renderCardsWithOptions() {
-    const cardsGrid = document.querySelector('[data-cards-grid]');
-    const breadcrumb = document.querySelector('[data-cards-breadcrumb]');
-    const backButton = document.querySelector('[data-cards-back]');
-    
-    if (!cardsGrid) {
-      console.warn('⚠️ cardsGrid non trouvé');
-      return;
-    }
-
-    // Sections structurelles à afficher (filtrer les optionnelles)
-    const sectionsToDisplay = sectionsTree || [];
-    
+    // Filtrer les annexes et gérer les sections optionnelles
     const filteredSections = sectionsToDisplay.filter(section => {
       if (!section || typeof section !== 'object') {
         return false;
@@ -2752,16 +2952,216 @@
       }
       
       // Déterminer si la section est structurelle OU optionnelle active
-      // Par défaut, si structure n'est pas défini ou est invalide, on considère que c'est structurel
+      const structure = section.structure || 'structural';
+      const isStructural = structure === 'structural';
+      const isOptionalActive = structure === 'optional' && section.actif === true;
+      
+      // Afficher seulement les sections structurelles ou optionnelles actives
+      return isStructural || isOptionalActive;
+    });
+    
+    // Ajouter les sections optionnelles désactivées à la fin
+    filteredSections.push(...inactiveOptionalSections);
+
+    // Générer les cards
+    let html = '';
+    filteredSections.forEach(section => {
+      html += generateCardHTML(section);
+    });
+
+    cardsGrid.innerHTML = html || '<p class="text-muted">Aucune section</p>';
+
+    // Breadcrumb - Afficher le chemin complet avec zone de drop pour remonter au niveau supérieur
+    if (breadcrumb) {
+      if (parentSection) {
+        // Construire le breadcrumb avec le chemin complet
+        const breadcrumbPath = [];
+        let currentParent = parentSection;
+        while (currentParent) {
+          breadcrumbPath.unshift(currentParent.title || 'Sous-sections');
+          // Trouver le parent de currentParent dans la pile de navigation
+          const parentIndex = cardNavigationStack.findIndex(p => p.id === currentParent.id);
+          if (parentIndex > 0) {
+            currentParent = cardNavigationStack[parentIndex - 1];
+          } else {
+            currentParent = null;
+          }
+        }
+        const breadcrumbHTML = breadcrumbPath.map((title, index) => {
+          if (index === breadcrumbPath.length - 1) {
+            return `<span class="breadcrumb-item is-active">${title}</span>`;
+          }
+          return `<span class="breadcrumb-item">${title}</span> <span class="breadcrumb-separator">/</span>`;
+        }).join(' ');
+        
+        // Ajouter une zone de drop pour remonter au niveau supérieur
+        breadcrumb.innerHTML = breadcrumbHTML;
+      } else {
+        breadcrumb.innerHTML = '<span>Niveau 1</span>';
+      }
+    }
+
+    // Bouton retour - Afficher seulement si on a un parent ou des éléments dans la pile
+    if (backButton) {
+      if (currentCardParent || cardNavigationStack.length > 0) {
+        backButton.style.display = 'inline-block';
+      } else {
+        backButton.style.display = 'none';
+      }
+    }
+
+    // Attacher les événements
+    attachCardEvents();
+    attachCardDragEvents(); // Ajouter le drag & drop pour les sous-sections
+    attachBreadcrumbDropZone(parentSection); // Ajouter la zone de drop sur le breadcrumb
+  }
+
+  /**
+   * Vérifie si un titre est la section "ANNEXES"
+   */
+  function isAnnexesSectionTitle(title) {
+    if (!title || typeof title !== 'string') return false;
+    const normalized = title.trim().toUpperCase();
+    return normalized === 'ANNEXES' || 
+           normalized === 'ANNEXE' || 
+           normalized === 'ANNEX' ||
+           normalized === 'APPENDIX';
+  }
+
+  /**
+   * Trouve la section "ANNEXES" dans l'arbre des sections
+   */
+  function findAnnexesSection(sections) {
+    if (!sections || !Array.isArray(sections)) return null;
+    
+    for (const section of sections) {
+      if (isAnnexesSectionTitle(section.title)) {
+        return section;
+      }
+      if (Array.isArray(section.children)) {
+        const found = findAnnexesSection(section.children);
+        if (found) return found;
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Vérifie si une section est une annexe
+   */
+  function isAnnexSection(section, sectionsTree) {
+    if (!section) return false;
+    
+    // Vérifier si c'est la section "ANNEXES" elle-même
+    if (isAnnexesSectionTitle(section.title)) {
+      return false; // "ANNEXES" n'est pas une annexe, c'est la section parente
+    }
+    
+    // Trouver la section "ANNEXES" parente
+    const annexesSection = findAnnexesSection(sectionsTree || []);
+    if (!annexesSection) return false;
+    
+    // Vérifier si la section est un enfant direct ou indirect de "ANNEXES"
+    function isChildOfAnnexes(sectionToCheck, parentSection) {
+      if (!parentSection || !Array.isArray(parentSection.children)) return false;
+      
+      // Vérifier les enfants directs
+      if (parentSection.children.some(child => child === sectionToCheck || (child.title === sectionToCheck.title && child.level === sectionToCheck.level))) {
+        return true;
+      }
+      
+      // Vérifier récursivement dans les enfants
+      return parentSection.children.some(child => isChildOfAnnexes(sectionToCheck, child));
+    }
+    
+    return isChildOfAnnexes(section, annexesSection);
+  }
+
+  /**
+   * Collecte toutes les annexes depuis l'arbre des sections
+   */
+  function collectAnnexes(sections) {
+    const annexes = [];
+    
+    if (!sections || !Array.isArray(sections)) return annexes;
+    
+    const annexesSection = findAnnexesSection(sections);
+    if (!annexesSection || !Array.isArray(annexesSection.children)) return annexes;
+    
+    // Fonction récursive pour collecter toutes les annexes
+    function collectFromSection(section) {
+      annexes.push(section);
+      if (Array.isArray(section.children)) {
+        section.children.forEach(child => collectFromSection(child));
+      }
+    }
+    
+    annexesSection.children.forEach(child => collectFromSection(child));
+    
+    return annexes;
+  }
+
+  /**
+   * Rend les cards avec les options (niveau racine)
+   */
+  function renderCardsWithOptions() {
+    const activeTab = document.querySelector('[data-cards-tab].is-active')?.dataset.cardsTab || 'sections';
+    
+    if (activeTab === 'annexes') {
+      renderAnnexesCards();
+      return;
+    }
+    
+    const cardsGrid = document.querySelector('[data-cards-grid]');
+    const breadcrumb = document.querySelector('[data-cards-breadcrumb]');
+    const backButton = document.querySelector('[data-cards-back]');
+    
+    if (!cardsGrid) {
+      console.warn('⚠️ cardsGrid non trouvé');
+      return;
+    }
+
+    // Afficher les sections de niveau 0 (racine) : structurelles uniquement + optionnelles à la racine (sans parent)
+    const sectionsToDisplay = sectionsTree || [];
+    
+    // Filtrer les sections pour n'afficher que le niveau 0
+    const filteredSections = sectionsToDisplay.filter(section => {
+      if (!section || typeof section !== 'object') {
+        return false;
+      }
+      
+      const titleLower = (section.title || '').toLowerCase().trim();
+      
+      // Exclure le sommaire
+      if (titleLower === 'sommaire') {
+        return false;
+      }
+      
+      // Exclure la section "ANNEXES" parente
+      if (isAnnexesSectionTitle(section.title)) {
+        return false;
+      }
+      
+      // Exclure toutes les annexes (enfants de la section "ANNEXES")
+      if (isAnnexSection(section, sectionsTree)) {
+        return false;
+      }
+      
+      // Déterminer si la section est structurelle OU optionnelle active à la racine
       const structure = section.structure;
       const isStructural = structure === 'structural' || structure === undefined || structure === null || structure === '';
       const isOptionalActive = structure === 'optional' && section.actif === true;
       
-      if (!isStructural && !isOptionalActive) {
-        return false;
+      // SIMPLIFICATION : Afficher les sections structurelles ET les sections optionnelles actives
+      // Si elle est optionnelle active, elle reste à sa place (dans l'arbre avec son parent)
+      // Elle apparaîtra dans les sous-sections quand on double-clique sur son parent
+      // Pour le niveau 0 : afficher seulement les sections racine (sans parent ou à la racine)
+      if (isOptionalActive && section.parent) {
+        return false; // Les sections optionnelles avec parent ne sont pas au niveau 0, elles apparaîtront dans les sous-sections
       }
       
-      return true;
+      // Afficher les sections structurelles ou optionnelles actives à la racine
+      return isStructural || (isOptionalActive && !section.parent);
     });
 
     // Collecter toutes les options
@@ -2860,6 +3260,53 @@
     
     // Charger les templates disponibles dans le panel "Disponible"
     loadAvailableTemplates();
+  }
+
+  /**
+   * Rend les cards des annexes (niveau racine)
+   */
+  function renderAnnexesCards() {
+    const cardsGrid = document.querySelector('[data-cards-grid-annexes]');
+    const breadcrumb = document.querySelector('[data-cards-breadcrumb]');
+    const backButton = document.querySelector('[data-cards-back]');
+    
+    if (!cardsGrid) {
+      console.warn('⚠️ cardsGrid-annexes non trouvé');
+      return;
+    }
+
+    // Collecter toutes les annexes
+    const annexes = collectAnnexes(sectionsTree || []);
+    
+    // Générer le HTML pour les annexes
+    let annexesHtml = '';
+    
+    if (annexes.length > 0) {
+      annexes.forEach(annex => {
+        annexesHtml += generateCardHTML(annex);
+      });
+    } else {
+      annexesHtml = `
+        <div class="text-muted" style="padding: 20px; text-align: center;">
+          <p>Aucune annexe</p>
+        </div>
+      `;
+    }
+    
+    cardsGrid.innerHTML = annexesHtml;
+
+    // Breadcrumb
+    if (breadcrumb) {
+      breadcrumb.textContent = 'Annexes';
+    }
+
+    // Bouton retour
+    if (backButton) {
+      backButton.style.display = 'none';
+    }
+
+    // Attacher les événements
+    attachCardEvents();
   }
 
   /**
@@ -3030,16 +3477,36 @@
   function generateCardHTML(section) {
     const sectionId = section.id || '';
     const title = section.title || '(Sans titre)';
-    const numbering = section.numbering || '';
+    let numbering = section.numbering || '';
     const level = section.level || 1;
     const childrenCount = (section.children || []).length;
     const structure = section.structure || 'structural';
     const isOptional = structure === 'optional';
+    
+    // Si pas de numérotation, essayer de récupérer celle du parent
+    if (!numbering) {
+      const parentId = section.parent || section._originalParentId;
+      if (parentId) {
+        const parentSection = findSectionById(parentId, sectionsTree);
+        if (parentSection && parentSection.numbering) {
+          numbering = parentSection.numbering;
+        }
+      } else {
+        // Si pas de parent ID, chercher le parent dans l'arbre
+        const parentSection = findParentSection(sectionId, sectionsTree);
+        if (parentSection && parentSection.numbering) {
+          numbering = parentSection.numbering;
+        }
+      }
+    }
+    
+    // Toujours afficher la numérotation si elle existe (y compris celle du parent)
+    const numberingDisplay = numbering ? `<div class="section-card__numbering">${numbering}</div>` : '';
 
     return `
       <div class="section-card" data-card-id="${sectionId}" draggable="true">
         ${isOptional ? `<span class="section-card__badge section-card__badge--optional">🔘 Optionnel</span>` : ''}
-        ${numbering ? `<div class="section-card__numbering">${numbering}</div>` : ''}
+        ${numberingDisplay}
         <div class="section-card__title">${title}</div>
         <div class="section-card__meta">
           <span class="section-card__badge">📄 Niveau ${level}</span>
@@ -3185,6 +3652,10 @@
         
         // Seulement pour les sections structurelles avec enfants
         if (section && !cardType && section.children && section.children.length > 0) {
+          // Ajouter le parent actuel à la pile de navigation
+          if (currentCardParent) {
+            cardNavigationStack.push(currentCardParent);
+          }
           currentCardParent = section;
           renderCards(section);
         }
@@ -3249,6 +3720,11 @@
         const verticalMidpoint = rect.top + rect.height / 2;
         const horizontalMidpoint = rect.left + rect.width / 2;
         
+        // Zone header (25% du haut) = attacher au parent (niveau supérieur)
+        const headerZoneTop = rect.top;
+        const headerZoneBottom = rect.top + rect.height * 0.25;
+        const isInHeaderZone = e.clientY >= headerZoneTop && e.clientY <= headerZoneBottom;
+        
         // Zone centrale (30% du centre) = sous-section
         const centerZoneTop = rect.top + rect.height * 0.35;
         const centerZoneBottom = rect.top + rect.height * 0.65;
@@ -3258,16 +3734,20 @@
         const isInCenterZone = e.clientY >= centerZoneTop && e.clientY <= centerZoneBottom &&
                                e.clientX >= centerZoneLeft && e.clientX <= centerZoneRight;
         
-        // Si dans la zone centrale → sous-section
-        if (isInCenterZone) {
-          card.classList.remove('drop-above', 'drop-below', 'drop-left', 'drop-right');
+        // Si dans la zone header → niveau supérieur
+        if (isInHeaderZone) {
+          card.classList.remove('drop-above', 'drop-below', 'drop-left', 'drop-right', 'drop-inside');
+          card.classList.add('drop-parent'); // Nouvelle classe pour le header
+        } else if (isInCenterZone) {
+          // Si dans la zone centrale → sous-section
+          card.classList.remove('drop-above', 'drop-below', 'drop-left', 'drop-right', 'drop-parent');
           card.classList.add('drop-inside');
         } else {
           // Sinon, déterminer la position relative
           const isAbove = e.clientY < verticalMidpoint;
           const isLeft = e.clientX < horizontalMidpoint;
           
-          card.classList.remove('drop-above', 'drop-below', 'drop-left', 'drop-right', 'drop-inside');
+          card.classList.remove('drop-above', 'drop-below', 'drop-left', 'drop-right', 'drop-inside', 'drop-parent');
           
           if (isAbove) {
             card.classList.add('drop-above');
@@ -3285,7 +3765,7 @@
 
       // Drag leave
       card.addEventListener('dragleave', (e) => {
-        card.classList.remove('drop-above', 'drop-below', 'drop-left', 'drop-right', 'drop-inside');
+        card.classList.remove('drop-above', 'drop-below', 'drop-left', 'drop-right', 'drop-inside', 'drop-parent');
       });
 
       // Drop
@@ -3311,18 +3791,29 @@
         const horizontalMidpoint = rect.left + rect.width / 2;
         const verticalMidpoint = rect.top + rect.height / 2;
         
+        // Zone header (25% du haut) = attacher au parent (niveau supérieur)
+        const headerZoneTop = rect.top;
+        const headerZoneBottom = rect.top + rect.height * 0.25;
+        
         // Zone centrale (40% du centre verticalement et horizontalement) = sous-section
         const centerZoneTop = rect.top + rect.height * 0.3;
         const centerZoneBottom = rect.top + rect.height * 0.7;
         const centerZoneLeft = rect.left + rect.width * 0.3;
         const centerZoneRight = rect.left + rect.width * 0.7;
         
+        // Vérifier si on est dans la zone header (haut de la card)
+        const isInHeaderZone = e.clientY >= headerZoneTop && e.clientY <= headerZoneBottom;
+        
         // Vérifier si on est dans la zone centrale
         const isInCenterZone = e.clientY >= centerZoneTop && e.clientY <= centerZoneBottom &&
                                e.clientX >= centerZoneLeft && e.clientX <= centerZoneRight;
         
         let dropPosition;
-        if (isInCenterZone) {
+        if (isInHeaderZone) {
+          // Drop sur le header → attacher au parent (niveau supérieur)
+          dropPosition = 'parent';
+          console.log('📍 Drop: header (niveau supérieur)');
+        } else if (isInCenterZone) {
           // Drop au centre → sous-section
           dropPosition = 'inside';
           console.log('📍 Drop: inside (sous-section)');
@@ -3349,7 +3840,36 @@
         }
 
         // Réorganiser dans sectionsTree
-        reorganizeSections(draggedCardSection, targetSection, dropPosition);
+        // Si dropPosition = 'parent', attacher au parent de targetSection (niveau supérieur)
+        if (dropPosition === 'parent') {
+          const targetParent = findParentSection(targetSection.id, sectionsTree);
+          if (targetParent) {
+            // Retirer draggedSection de son emplacement actuel
+            removeSectionFromTree(draggedCardSection);
+            // Trouver targetSection dans les enfants du parent
+            const parentArray = targetParent.children || [];
+            const targetIndex = parentArray.findIndex(s => s.id === targetSection.id);
+            if (targetIndex !== -1) {
+              // Insérer juste avant targetSection (même niveau)
+              parentArray.splice(targetIndex, 0, draggedCardSection);
+              draggedCardSection.level = targetSection.level || 0;
+              draggedCardSection.parent = targetParent.id;
+              updateChildrenLevels(draggedCardSection);
+            }
+          } else {
+            // Pas de parent, attacher à la racine juste avant targetSection
+            removeSectionFromTree(draggedCardSection);
+            const targetIndex = sectionsTree.findIndex(s => s.id === targetSection.id);
+            if (targetIndex !== -1) {
+              sectionsTree.splice(targetIndex, 0, draggedCardSection);
+              draggedCardSection.level = targetSection.level || 0;
+              draggedCardSection.parent = null;
+              updateChildrenLevels(draggedCardSection);
+            }
+          }
+        } else {
+          reorganizeSections(draggedCardSection, targetSection, dropPosition);
+        }
 
         // Recalculer la numérotation localement
         recalculateNumbering();
@@ -3388,8 +3908,118 @@
   function cleanupCardDragClasses() {
     // Nettoyer toutes les classes de drop de toutes les cards
     document.querySelectorAll('.section-card').forEach(card => {
-      card.classList.remove('drop-above', 'drop-below', 'drop-left', 'drop-right', 'drop-inside', 'dragging');
+      card.classList.remove('drop-above', 'drop-below', 'drop-left', 'drop-right', 'drop-inside', 'drop-parent', 'dragging');
     });
+  }
+
+  /**
+   * Attache les événements de drop sur le breadcrumb/header pour remonter au niveau supérieur
+   */
+  function attachBreadcrumbDropZone(parentSection) {
+    const breadcrumb = document.querySelector('[data-cards-breadcrumb]');
+    if (!breadcrumb || !parentSection) return; // Pas de parent = on est déjà à la racine
+    
+    // Rendre le breadcrumb entier droppable (ne pas modifier son contenu HTML)
+    breadcrumb.classList.add('breadcrumb-drop-zone');
+    breadcrumb.setAttribute('title', 'Déposer une section ici pour remonter au niveau supérieur');
+    
+    // Créer un wrapper pour passer parentSection AVANT de l'utiliser
+    const handleBreadcrumbDropWrapper = (e) => handleBreadcrumbDrop(e, parentSection);
+    
+    // Supprimer les anciens événements pour éviter les doublons
+    if (breadcrumb._dropHandler) {
+      breadcrumb.removeEventListener('dragover', handleBreadcrumbDragOver);
+      breadcrumb.removeEventListener('drop', breadcrumb._dropHandler);
+      breadcrumb.removeEventListener('dragleave', handleBreadcrumbDragLeave);
+    }
+    
+    // Stocker la référence pour pouvoir la retirer plus tard
+    breadcrumb._dropHandler = handleBreadcrumbDropWrapper;
+    
+    // Drag over
+    breadcrumb.addEventListener('dragover', handleBreadcrumbDragOver);
+    
+    // Drop
+    breadcrumb.addEventListener('drop', handleBreadcrumbDropWrapper);
+    
+    // Drag leave
+    breadcrumb.addEventListener('dragleave', handleBreadcrumbDragLeave);
+  }
+  
+  function handleBreadcrumbDragOver(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    e.dataTransfer.dropEffect = 'move';
+    
+    const dropZone = e.currentTarget;
+    dropZone.classList.add('breadcrumb-drop-zone--active');
+  }
+  
+  function handleBreadcrumbDragLeave(e) {
+    const dropZone = e.currentTarget;
+    dropZone.classList.remove('breadcrumb-drop-zone--active');
+  }
+  
+  async function handleBreadcrumbDrop(e, targetParentSection) {
+    e.preventDefault();
+    e.stopPropagation();
+    
+    const dropZone = e.currentTarget;
+    dropZone.classList.remove('breadcrumb-drop-zone--active');
+    
+    if (!draggedCardSection) {
+      // Récupérer la section depuis le dataTransfer
+      const cardId = e.dataTransfer.getData('text/plain');
+      if (cardId) {
+        draggedCardSection = findSectionById(cardId, sectionsTree);
+      }
+    }
+    
+    if (!draggedCardSection) return;
+    
+    // Trouver le parent du parentSection (niveau supérieur)
+    const grandParent = findParentSection(targetParentSection.id, sectionsTree);
+    
+    if (grandParent) {
+      // Retirer draggedSection de son emplacement actuel
+      removeSectionFromTree(draggedCardSection);
+      
+      // Trouver targetParentSection dans les enfants du grand-parent
+      const parentArray = grandParent.children || [];
+      const targetIndex = parentArray.findIndex(s => s.id === targetParentSection.id);
+      
+      if (targetIndex !== -1) {
+        // Insérer juste avant targetParentSection (même niveau que targetParentSection)
+        parentArray.splice(targetIndex, 0, draggedCardSection);
+        draggedCardSection.level = targetParentSection.level || 0;
+        draggedCardSection.parent = grandParent.id;
+        updateChildrenLevels(draggedCardSection);
+      }
+    } else {
+      // Pas de grand-parent, remonter à la racine juste avant targetParentSection
+      removeSectionFromTree(draggedCardSection);
+      const targetIndex = sectionsTree.findIndex(s => s.id === targetParentSection.id);
+      
+      if (targetIndex !== -1) {
+        sectionsTree.splice(targetIndex, 0, draggedCardSection);
+        draggedCardSection.level = targetParentSection.level || 0;
+        draggedCardSection.parent = null;
+        updateChildrenLevels(draggedCardSection);
+      }
+    }
+    
+    // Recalculer la numérotation
+    recalculateNumbering();
+    
+    // Mettre à jour l'affichage
+    renderCards(targetParentSection); // Recharger la vue actuelle
+    renderSommaire();
+    renderContent();
+    
+    console.log('✅ Section remontée au niveau supérieur');
+    
+    draggedCardSection = null;
+    draggedCard = null;
   }
 
   /**
@@ -3535,8 +4165,16 @@
     if (!backButton) return;
 
     backButton.addEventListener('click', () => {
-      currentCardParent = null;
-      renderCards(); // renderCards() appelle renderCardsWithOptions() si parentSection est null
+      // Si on a des parents dans la pile, revenir au précédent
+      if (cardNavigationStack.length > 0) {
+        currentCardParent = cardNavigationStack.pop();
+        renderCards(currentCardParent);
+      } else {
+        // Sinon, revenir à la racine
+        currentCardParent = null;
+        cardNavigationStack = [];
+        renderCards(); // renderCards() appelle renderCardsWithOptions() si parentSection est null
+      }
     });
   }
 
@@ -4496,18 +5134,46 @@
     const structure = section.structure || 'structural';
     const actif = section.actif !== undefined ? section.actif : (structure === 'structural' ? true : false);
     
-    // Déterminer le parent : utiliser section.parent si défini, sinon trouver le parent dans l'arbre structurel
-    let parent = section.parent || null;
-    if (!parent && structure === 'optional') {
-      // Si pas de parent défini, chercher le parent dans l'arbre structurel
+    // Déterminer le parent pour l'affichage dans le formulaire
+    // Pour les sections optionnelles : utiliser le parent original par défaut si pas de choix explicite
+    // Pour les sections structurelles : calculer le parent original pour prévisualisation (au cas où on passe en optionnel)
+    let parent = null;
+    
+    if (structure === 'optional') {
+      // Si c'est un choix explicite de l'utilisateur (_parentExplicitlySet === true), utiliser section.parent
+      if (section._parentExplicitlySet === true) {
+        parent = section.parent; // Utiliser la valeur explicite (peut être null pour racine ou un string pour parent)
+      } 
+      // Sinon, utiliser TOUJOURS le parent original par défaut
+      else {
+        // D'abord essayer le parent sauvegardé (_originalParentId)
+        if (section._originalParentId) {
+          parent = section._originalParentId; // Parent original par défaut - TOUJOURS l'utiliser si disponible
+          console.log(`   📌 Parent original trouvé pour "${section.title}": ${section._originalParentId}`);
+        } else {
+          // Sinon, chercher le parent dans l'arbre structurel actuel
+          const structuralParent = findParentSection(section.id, sectionsTree);
+          if (structuralParent) {
+            parent = structuralParent.id;
+            console.log(`   📌 Parent structurel trouvé pour "${section.title}": ${structuralParent.id}`);
+          } else {
+            parent = null; // Pas de parent trouvé, afficher "racine"
+            console.log(`   ⚠️ Aucun parent trouvé pour "${section.title}", affichage "racine"`);
+          }
+        }
+      }
+    } else {
+      // Section structurelle : calculer le parent original pour prévisualisation (au cas où on passe en optionnel)
       const structuralParent = findParentSection(section.id, sectionsTree);
       if (structuralParent) {
-        parent = structuralParent.id;
+        parent = structuralParent.id; // Afficher le parent actuel par défaut
+        console.log(`   📌 Parent structurel actuel pour "${section.title}": ${structuralParent.id}`);
+      } else {
+        parent = null; // À la racine, afficher "racine"
       }
     }
     
-    // Par défaut, la case à cocher est cochée si un parent est défini
-    const hasParentEnabled = parent !== null;
+    // Plus besoin de hasParentEnabled, le dropdown est toujours visible
     // Normaliser les catégories : convertir string en tableau si nécessaire
     let categories = section.category || [];
     if (typeof categories === 'string') {
@@ -4540,6 +5206,10 @@
     };
     collectSections(sectionsTree);
 
+    // Log pour déboguer
+    console.log(`   🔍 displaySectionOptionsProperties - Section: "${section.title}", structure: ${structure}`);
+    console.log(`   🔍 Parent calculé: ${parent}, _originalParentId: ${section._originalParentId}, _parentExplicitlySet: ${section._parentExplicitlySet}`);
+
     let html = `
       <div class="options-section">
         <h5>⚙️ Configuration de la section : ${section.title || '(Sans titre)'}</h5>
@@ -4560,24 +5230,21 @@
             </label>
             <small class="text-muted">Cocher pour activer cette option dans le document</small>
           </div>
-          <div class="form-group">
-            <label>
-              <input type="checkbox" id="section-has-parent-checkbox-options" data-section-id="${section.id}" 
-                     ${hasParentEnabled ? 'checked' : ''}>
-              Utiliser une section parente
-            </label>
-          </div>
-          <div class="form-group" id="section-parent-wrapper-options" style="${hasParentEnabled && structure === 'optional' ? '' : 'display: none;'}">
+          <div class="form-group" id="section-parent-wrapper-options" style="${structure === 'optional' ? '' : 'display: none;'}">
             <label>Section parente</label>
             <select class="form-control" id="section-parent-select-options" data-section-id="${section.id}">
-              <option value="">Aucune (racine)</option>
-              ${allSections.map(s => 
-                `<option value="${s.id}" ${parent === s.id ? 'selected' : ''}>
+              <option value="" ${!parent || parent === null || parent === '' ? 'selected' : ''}>Aucune (racine)</option>
+              ${allSections.map(s => {
+                const isSelected = parent && parent === s.id;
+                if (isSelected) {
+                  console.log(`   ✅ Option parent sélectionnée: "${s.title}" (${s.id})`);
+                }
+                return `<option value="${s.id}" ${isSelected ? 'selected' : ''}>
                   ${'&nbsp;&nbsp;'.repeat(s.level)}${s.title}
-                </option>`
-              ).join('')}
+                </option>`;
+              }).join('')}
             </select>
-            <small class="text-muted">Section parente où cette option sera logiquement placée</small>
+            <small class="text-muted">Par défaut : parent original. Choisissez "Aucune (racine)" pour placer à la racine du document.</small>
           </div>
           <div class="form-group">
             <label>Catégories <span class="text-danger">*</span></label>
@@ -4627,32 +5294,28 @@
    * Attache les événements pour les propriétés de section dans l'onglet Options
    */
   function attachSectionOptionsEvents() {
-    // Fonction pour activer/désactiver les champs selon le type
-    const updateFieldsState = (isOptional) => {
-      const actifCheckbox = document.getElementById('section-actif-checkbox-options');
-      const hasParentCheckbox = document.getElementById('section-has-parent-checkbox-options');
-      const parentWrapper = document.getElementById('section-parent-wrapper-options');
-      const parentSelect = document.getElementById('section-parent-select-options');
-      const categorySelect = document.getElementById('section-category-select-options');
-      
-      // Activer/désactiver selon le type
-      if (actifCheckbox) {
-        actifCheckbox.disabled = !isOptional;
-      }
-      if (hasParentCheckbox) {
-        hasParentCheckbox.disabled = !isOptional;
-      }
-      if (parentWrapper) {
-        parentWrapper.style.display = (isOptional && hasParentCheckbox?.checked) ? 'block' : 'none';
-      }
-      if (parentSelect) {
-        parentSelect.disabled = !isOptional;
-      }
-      if (categorySelect) {
-        categorySelect.disabled = !isOptional;
-        categorySelect.required = isOptional;
-      }
-    };
+      // Fonction pour activer/désactiver les champs selon le type
+      const updateFieldsState = (isOptional) => {
+        const actifCheckbox = document.getElementById('section-actif-checkbox-options');
+        const parentWrapper = document.getElementById('section-parent-wrapper-options');
+        const parentSelect = document.getElementById('section-parent-select-options');
+        const categorySelect = document.getElementById('section-category-select-options');
+        
+        // Activer/désactiver selon le type
+        if (actifCheckbox) {
+          actifCheckbox.disabled = !isOptional;
+        }
+        if (parentWrapper) {
+          parentWrapper.style.display = isOptional ? 'block' : 'none';
+        }
+        if (parentSelect) {
+          parentSelect.disabled = !isOptional;
+        }
+        if (categorySelect) {
+          categorySelect.disabled = !isOptional;
+          categorySelect.required = isOptional;
+        }
+      };
     
     // Initialiser l'état des champs
     const structureSelect = document.getElementById('section-structure-select-options');
@@ -4665,22 +5328,7 @@
         const newStructure = e.target.value;
         updateFieldsState(newStructure === 'optional');
         
-        // Si on passe à optionnel, réinitialiser le parent à null (racine)
-        if (newStructure === 'optional') {
-          const hasParentCheckbox = document.getElementById('section-has-parent-checkbox-options');
-          const parentSelect = document.getElementById('section-parent-select-options');
-          const parentWrapper = document.getElementById('section-parent-wrapper-options');
-          
-          if (hasParentCheckbox) {
-            hasParentCheckbox.checked = false;
-          }
-          if (parentSelect) {
-            parentSelect.value = '';
-          }
-          if (parentWrapper) {
-            parentWrapper.style.display = 'none';
-          }
-        }
+        // Le dropdown parent reste visible, pas besoin de réinitialiser
       });
     }
     
@@ -4716,7 +5364,6 @@
           // Récupérer toutes les valeurs du formulaire
           const structureSelect = document.getElementById('section-structure-select-options');
           const actifCheckbox = document.getElementById('section-actif-checkbox-options');
-          const hasParentCheckbox = document.getElementById('section-has-parent-checkbox-options');
           const parentSelect = document.getElementById('section-parent-select-options');
           const categorySelect = document.getElementById('section-category-select-options');
           
@@ -4728,8 +5375,17 @@
           
           const newStructure = structureSelect.value;
           const newActif = actifCheckbox ? actifCheckbox.checked : false;
-          const hasParent = hasParentCheckbox ? hasParentCheckbox.checked : false;
-          const newParentId = (hasParent && parentSelect) ? (parentSelect.value || null) : null;
+          // Le dropdown parent est toujours visible, récupérer la valeur directement
+          let newParentId = undefined; // Par défaut, pas de changement
+          if (parentSelect) {
+            const selectedValue = parentSelect.value;
+            if (selectedValue === '' || selectedValue === 'null') {
+              newParentId = ''; // Racine explicitement choisie (sera converti en null)
+            } else if (selectedValue) {
+              newParentId = selectedValue; // Parent explicite choisi
+            }
+            // Si selectedValue est vide ou undefined, newParentId reste undefined (pas de changement)
+          }
           
           console.log('   Nouvelle structure:', newStructure);
           console.log('   Nouveau actif:', newActif);
@@ -4753,6 +5409,10 @@
           if (newStructure !== (section.structure || 'structural')) {
             console.log('   🔄 Changement de structure:', section.structure, '→', newStructure);
             // Changer la structure
+            // IMPORTANT : Si on passe en optionnel, forcer actif = true par défaut pour qu'elle reste visible
+            // L'utilisateur peut la désactiver après s'il le souhaite
+            const finalActif = (newStructure === 'optional' && newActif === false) ? false : true;
+            
             const success = changeSectionStructureLocal(sectionId, newStructure, newParentId, categories.length > 0 ? categories : null);
             if (!success) {
               alert('Erreur lors du changement de structure');
@@ -4765,14 +5425,63 @@
             if (newStructure === 'optional') {
               const updatedSection = findSectionById(sectionId, sectionsTree);
               if (updatedSection) {
-                updatedSection.actif = newActif;
-                updatedSection.parent = newParentId;
-                updatedSection.category = categories.length > 0 ? categories : null;
-                console.log('   Propriétés optionnelles mises à jour:', { 
-                  actif: updatedSection.actif, 
-                  parent: updatedSection.parent, 
-                  category: updatedSection.category 
-                });
+                // IMPORTANT : Par défaut, si on passe en optionnel, la section est active pour qu'elle reste visible
+                updatedSection.actif = finalActif;
+                
+                // IMPORTANT : Si la section est active, NE RIEN CHANGER - elle reste exactement où elle est
+                // Ne pas changer le parent ni déplacer la section dans l'arbre pour éviter les doublons
+                if (updatedSection.actif) {
+                  // Juste mettre à jour la catégorie si nécessaire
+                  // NE PAS CHANGER le parent - elle reste où elle est
+                  updatedSection.category = categories.length > 0 ? categories : null;
+                  console.log('   ✅ Section optionnelle ACTIVE - reste à sa place, aucune modification de position');
+                  console.log('   Propriétés mises à jour:', { 
+                    actif: updatedSection.actif, 
+                    parent: updatedSection.parent, 
+                    category: updatedSection.category 
+                  });
+                  
+                  // S'assurer qu'elle n'est pas dupliquée : vérifier qu'elle n'est pas à la racine ET dans un parent
+                  const currentParent = findParentSection(sectionId, sectionsTree);
+                  const isAtRoot = sectionsTree.some(s => s.id === sectionId);
+                  
+                  if (isAtRoot && currentParent) {
+                    // Elle est à la racine ET dans un parent = doublon ! Retirer de la racine
+                    const rootIndex = sectionsTree.findIndex(s => s.id === sectionId);
+                    if (rootIndex !== -1) {
+                      sectionsTree.splice(rootIndex, 1);
+                      console.log(`   🔧 Doublon corrigé : section retirée de la racine, elle reste dans son parent`);
+                    }
+                  }
+                } else {
+                  // Si la section devient inactive, alors on peut changer le parent et la retirer
+                  // Normaliser newParentId : '' ou 'null' = null (racine explicitement choisie)
+                  if (newParentId === '' || newParentId === 'null') {
+                    updatedSection.parent = null; // Racine explicitement choisie
+                  } else if (newParentId !== undefined && newParentId !== null && newParentId !== '') {
+                    updatedSection.parent = newParentId; // Parent explicite choisi
+                  }
+                  // Si newParentId est undefined, garder le parent actuel (pas de changement)
+                  updatedSection.category = categories.length > 0 ? categories : null;
+                  
+                  // Retirer de l'arbre et recalculer la numérotation
+                  const parent = findParentSection(sectionId, sectionsTree);
+                  const sourceArray = parent ? parent.children : sectionsTree;
+                  const currentIndex = sourceArray.findIndex(s => s.id === sectionId);
+                  
+                  if (currentIndex !== -1) {
+                    updatedSection._originalStructuralIndex = currentIndex;
+                    updatedSection._originalParentId = parent ? parent.id : null;
+                  }
+                  
+                  removeSectionFromTree(updatedSection);
+                  
+                  // Ajouter à la racine pour qu'elle reste accessible
+                  if (!sectionsTree.some(s => s.id === sectionId)) {
+                    sectionsTree.push(updatedSection);
+                  }
+                  console.log(`   ✅ Section "${updatedSection.title}" désactivée - retirée de l'arbre`);
+                }
               }
             }
           }
@@ -4782,12 +5491,80 @@
             // Si c'est optionnel, mettre à jour actif, parent et category
             if (newStructure === 'optional') {
               const oldActif = section.actif;
+              const oldParent = section.parent;
               section.actif = newActif;
-              section.parent = newParentId;
+              // Normaliser newParentId : 
+              // - '' ou 'null' = null (racine explicitement choisie)
+              // - undefined = garder le parent actuel (pas de changement)
+              // - string avec ID = parent choisi
+              if (newParentId === '' || newParentId === 'null') {
+                section.parent = null; // Racine explicitement choisie
+              } else if (newParentId !== undefined && newParentId !== null && newParentId !== '') {
+                section.parent = newParentId; // Parent explicite choisi
+              }
+              // Si newParentId est undefined, garder le parent actuel (pas de changement implicite)
               section.category = categories.length > 0 ? categories : null;
+              
+              // IMPORTANT : Si la section est active, ne RIEN changer dans l'arbre
+              // Elle reste exactement où elle est pour éviter les doublons
+              if (!section.actif) {
+                // Seulement si inactive, on peut déplacer
+                const currentParent = findParentSection(sectionId, sectionsTree);
+                const isAtRoot = sectionsTree.some(s => s.id === sectionId);
+                
+                // Si le parent change vers null (racine)
+                if (section.parent === null && (!isAtRoot || (currentParent && currentParent.id !== null))) {
+                  // Retirer de l'ancien parent si nécessaire
+                  if (currentParent) {
+                    const parentArray = currentParent.children || [];
+                    const index = parentArray.findIndex(s => s.id === sectionId);
+                    if (index !== -1) {
+                      parentArray.splice(index, 1);
+                      console.log(`   ✅ Section "${section.title}" retirée de son parent`);
+                    }
+                  }
+                  // Ajouter à la racine si elle n'y est pas déjà
+                  if (!isAtRoot) {
+                    sectionsTree.push(section);
+                    console.log(`   ✅ Section "${section.title}" déplacée à la racine`);
+                  }
+                } else if (section.parent !== null) {
+                  // Si on donne un nouveau parent, retirer de la racine si elle y est
+                  if (isAtRoot && oldParent === null) {
+                    const rootIndex = sectionsTree.findIndex(s => s.id === sectionId);
+                    if (rootIndex !== -1) {
+                      sectionsTree.splice(rootIndex, 1);
+                      console.log(`   ✅ Section "${section.title}" retirée de la racine`);
+                    }
+                  }
+                  // Retirer de l'ancien parent si différent
+                  if (currentParent && currentParent.id !== section.parent) {
+                    const parentArray = currentParent.children || [];
+                    const index = parentArray.findIndex(s => s.id === sectionId);
+                    if (index !== -1) {
+                      parentArray.splice(index, 1);
+                      console.log(`   ✅ Section "${section.title}" retirée de son ancien parent`);
+                    }
+                  }
+                  // Ajouter au nouveau parent
+                  const newParent = findSectionById(section.parent, sectionsTree);
+                  if (newParent) {
+                    if (!Array.isArray(newParent.children)) {
+                      newParent.children = [];
+                    }
+                    if (!newParent.children.some(s => s.id === sectionId)) {
+                      newParent.children.push(section);
+                      console.log(`   ✅ Section "${section.title}" ajoutée au nouveau parent`);
+                    }
+                  }
+                }
+              } else {
+                console.log(`   ✅ Section "${section.title}" est active - aucune modification de position (évite les doublons)`);
+              }
+              
               console.log('   Propriétés optionnelles mises à jour:', { 
                 actif: `${oldActif} → ${section.actif}`, 
-                parent: section.parent, 
+                parent: `${oldParent} → ${section.parent}`, 
                 category: section.category 
               });
             }
@@ -4813,8 +5590,14 @@
           // Mettre à jour l'affichage
           const cardsView = document.querySelector('.view-card.is-active');
           if (cardsView) {
-            renderCardsWithOptions();
-            console.log('   Cards réaffichées');
+            // Si on est dans une sous-section, rester dans cette vue au lieu de revenir à la vue d'origine
+            if (currentCardParent) {
+              renderCards(currentCardParent);
+              console.log('   Cards réaffichées (vue sous-section conservée)');
+            } else {
+              renderCardsWithOptions();
+              console.log('   Cards réaffichées (vue d\'origine)');
+            }
             // Ré-sélectionner la card
             setTimeout(() => {
               const updatedSection = findSectionById(sectionId, sectionsTree);
@@ -4860,51 +5643,8 @@
     const actifCheckbox = document.getElementById('section-actif-checkbox-options');
     // Pas d'événement - les changements seront appliqués au clic sur "Valider"
 
-    // Case à cocher pour activer/désactiver la section parente
-    const hasParentCheckbox = document.getElementById('section-has-parent-checkbox-options');
-    if (hasParentCheckbox) {
-      hasParentCheckbox.addEventListener('change', (e) => {
-        const sectionId = e.target.dataset.sectionId;
-        const isChecked = e.target.checked;
-        const parentWrapper = document.getElementById('section-parent-wrapper-options');
-        const parentSelect = document.getElementById('section-parent-select-options');
-        
-        // Afficher/masquer le select de parent
-        if (parentWrapper) {
-          parentWrapper.style.display = isChecked ? 'block' : 'none';
-        }
-        
-        // Si on décoche, réinitialiser le parent à null
-        if (!isChecked && parentSelect) {
-          parentSelect.value = '';
-          
-          // Modifier localement (sans sauvegarder)
-          const section = findSectionById(sectionId, sectionsTree);
-          if (section) {
-            section.parent = null;
-            console.log('✅ Parent désactivé (modifications en mémoire, non sauvegardées)');
-          }
-        } else if (isChecked && parentSelect) {
-          // Si on coche et qu'il n'y a pas de parent sélectionné, mettre le parent par défaut
-          const section = findSectionById(sectionId, sectionsTree);
-          if (section && !parentSelect.value) {
-            // Trouver le parent dans l'arbre structurel
-            const structuralParent = findParentSection(sectionId, sectionsTree);
-            if (structuralParent) {
-              parentSelect.value = structuralParent.id;
-              section.parent = structuralParent.id;
-              console.log('✅ Parent par défaut appliqué:', structuralParent.title);
-            }
-          }
-        }
-      });
-    }
-
-    // Changement de section parente (juste mettre à jour l'UI, pas d'application immédiate)
-    // Les changements seront appliqués au clic sur "Valider"
-
-    // Changement de catégorie (juste mettre à jour l'UI, pas d'application immédiate)
-    // Les changements seront appliqués au clic sur "Valider"
+    // Le dropdown parent est maintenant toujours visible quand la section est optionnelle
+    // Plus besoin de gérer une checkbox
   }
 
   /**
@@ -5178,27 +5918,68 @@
           return;
         }
 
-        // Si on active une option, la transformer en structurelle
-        if (active && (section.structure || 'structural') === 'optional') {
-          // Transformer en structurelle localement
-          const success = changeSectionStructureLocal(sectionId, 'structural', null, null);
-          if (success) {
-            // Mettre à jour l'affichage
-            const optionItem = e.target.closest('.option-item');
-            if (optionItem) {
-              optionItem.classList.toggle('is-active', active);
-            }
-            // Recharger la liste des options
-            loadOptionsListInternal(optionsList, 'modal');
-            renderSommaire();
-            renderContent();
-            console.log('✅ Option transformée en structurelle (modifications en mémoire, non sauvegardées)');
-            return;
-          }
-        }
-
-        // Activation/désactivation simple (mise à jour locale)
+        // SIMPLIFICATION : Si on active/désactive une option, intégrer/retirer de l'arbre
         section.actif = active;
+        
+        if (active) {
+          // Si on active : réintégrer dans l'arbre à sa position originale si disponible
+          const isInTree = findParentSection(sectionId, sectionsTree) !== null || sectionsTree.some(s => s.id === sectionId);
+          
+          if (!isInTree) {
+            // La section n'est pas dans l'arbre, la réintégrer
+            const originalParentId = section._originalParentId;
+            const originalIndex = section._originalStructuralIndex;
+            
+            if (originalParentId) {
+              const parent = findSectionById(originalParentId, sectionsTree);
+              if (parent) {
+                if (!Array.isArray(parent.children)) {
+                  parent.children = [];
+                }
+                // Insérer à la position originale ou à la fin
+                if (originalIndex !== undefined && originalIndex !== null && originalIndex >= 0 && originalIndex <= parent.children.length) {
+                  parent.children.splice(originalIndex, 0, section);
+                } else {
+                  parent.children.push(section);
+                }
+                console.log(`✅ Option "${section.title}" réintégrée dans l'arbre (active)`);
+              } else {
+                // Parent non trouvé, mettre à la racine
+                sectionsTree.push(section);
+              }
+            } else {
+              // Pas de parent original, mettre à la racine
+              if (originalIndex !== undefined && originalIndex !== null && originalIndex >= 0 && originalIndex <= sectionsTree.length) {
+                sectionsTree.splice(originalIndex, 0, section);
+              } else {
+                sectionsTree.push(section);
+              }
+              console.log(`✅ Option "${section.title}" réintégrée à la racine (active)`);
+            }
+          }
+        } else {
+          // Si on désactive : retirer de l'arbre pour créer le "trou" dans la numérotation
+          // Sauvegarder la position avant de retirer
+          const parent = findParentSection(sectionId, sectionsTree);
+          const sourceArray = parent ? parent.children : sectionsTree;
+          const currentIndex = sourceArray.findIndex(s => s.id === sectionId);
+          
+          if (currentIndex !== -1) {
+            section._originalStructuralIndex = currentIndex;
+            section._originalParentId = parent ? parent.id : null;
+          }
+          
+          removeSectionFromTree(section);
+          
+          // Ajouter à la racine pour qu'elle reste accessible
+          if (!sectionsTree.some(s => s.id === sectionId)) {
+            sectionsTree.push(section);
+          }
+          console.log(`✅ Option "${section.title}" retirée de l'arbre (inactive)`);
+        }
+        
+        // Recalculer la numérotation
+        recalculateNumbering();
         
         // Mettre à jour l'affichage
         const optionItem = e.target.closest('.option-item');
@@ -5207,7 +5988,8 @@
         }
         renderSommaire();
         renderContent();
-        console.log('✅ État actif modifié (modifications en mémoire, non sauvegardées)');
+        renderCardsWithOptions();
+        console.log('✅ État actif modifié - numérotation recalculée');
       });
     });
 
@@ -9751,6 +10533,7 @@ function initPropertiesTabs() {
    */
   function init() {
     initViewTabs();
+    initCardsTabs();
     initCardBackButton();
     initContextMenu();
     initSectionModal();
@@ -9764,6 +10547,42 @@ function initPropertiesTabs() {
     loadDocument().then(() => {
       // Initialiser le canevas après le chargement du document
       initializeCanvasIfNeeded();
+    });
+  }
+
+  /**
+   * Initialise les onglets Sections/Annexes dans la vue Card
+   */
+  function initCardsTabs() {
+    const cardsTabs = document.querySelectorAll('[data-cards-tab]');
+    const cardsTabPanels = document.querySelectorAll('[data-cards-tab-panel]');
+    
+    cardsTabs.forEach((tab) => {
+      tab.addEventListener('click', () => {
+        const targetTab = tab.dataset.cardsTab;
+        
+        // Désactiver tous les onglets
+        cardsTabs.forEach((t) => t.classList.remove('is-active'));
+        
+        // Masquer tous les panneaux
+        cardsTabPanels.forEach((panel) => panel.classList.remove('is-active'));
+        
+        // Activer l'onglet cliqué
+        tab.classList.add('is-active');
+        
+        // Afficher le panneau correspondant
+        const targetPanel = document.querySelector(`[data-cards-tab-panel="${targetTab}"]`);
+        if (targetPanel) {
+          targetPanel.classList.add('is-active');
+        }
+        
+        // Recharger les cards selon l'onglet actif
+        if (!currentCardParent) {
+          renderCardsWithOptions();
+        } else {
+          renderCards(currentCardParent);
+        }
+      });
     });
   }
 

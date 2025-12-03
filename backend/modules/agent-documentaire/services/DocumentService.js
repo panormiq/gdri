@@ -78,13 +78,21 @@ class DocumentService {
   async loadWordDocument(filename = null) {
     if (filename) {
       const filePath = path.resolve(filename);
-      await fs.access(filePath);
-      return filePath;
+      try {
+        await fs.access(filePath);
+        return filePath;
+      } catch (error) {
+        throw new Error(`Fichier Word introuvable: ${filePath}. ${error.message}`);
+      }
     }
     
     // Utiliser le fichier par défaut
-    await fs.access(this.defaultTestFile);
-    return this.defaultTestFile;
+    try {
+      await fs.access(this.defaultTestFile);
+      return this.defaultTestFile;
+    } catch (error) {
+      throw new Error(`Fichier Word par défaut introuvable: ${this.defaultTestFile}. Vérifiez la configuration dans config.json (defaultTestFile). ${error.message}`);
+    }
   }
 
   /**
@@ -145,8 +153,9 @@ class DocumentService {
       }
     }
 
-    if (!document && documentId === 'default-test') {
-      console.log('⚠️  Document default-test non trouvé, création...');
+    // Pour le document par défaut, toujours re-parser depuis le Word
+    if (documentId === 'default-test') {
+      console.log('🔄 Document default-test : re-parsing depuis le fichier Word...');
       document = await this.createDefaultDocument();
     }
 
@@ -182,7 +191,58 @@ class DocumentService {
     const objectId = ObjectId.isValid(documentId) ? new ObjectId(documentId) : documentId;
     const document = await this.getDocument(documentId);
     
-    document.json_content = jsonContent;
+    // Préserver les champs importants qui ne doivent pas être perdus lors de la mise à jour
+    const existingJsonContent = document.json_content || {};
+    
+    // Champs à préserver absolument (extraits du Word ou du template initial)
+    // Ces champs ne doivent JAMAIS être écrasés s'ils existent déjà
+    const fieldsToPreserve = [
+      'numberingFormats',  // Formats de numérotation extraits du Word
+      'styles',            // Styles généraux du document
+      'styleHierarchy',    // Hiérarchie des styles de titres
+      'extractionInfo'     // Informations sur l'extraction
+    ];
+    
+    // Merger les champs à préserver : TOUJOURS préserver l'existant s'il existe
+    // Ces champs sont extraits du Word et ne doivent jamais être écrasés
+    fieldsToPreserve.forEach(field => {
+      if (existingJsonContent[field]) {
+        // Préserver l'existant même si le nouveau contient quelque chose
+        jsonContent[field] = existingJsonContent[field];
+        console.log(`✅ Champ préservé: ${field}`);
+      } else if (jsonContent[field]) {
+        // Si l'existant n'a pas le champ mais le nouveau oui, garder le nouveau
+        // (cas d'une nouvelle extraction)
+        console.log(`📥 Nouveau champ utilisé: ${field}`);
+      } else {
+        console.log(`⚠️ Champ absent: ${field} (dans existant ET nouveau)`);
+      }
+    });
+    
+    // Pour les images, merger les deux listes plutôt que remplacer
+    if (existingJsonContent.images && Array.isArray(existingJsonContent.images)) {
+      if (jsonContent.images && Array.isArray(jsonContent.images)) {
+        // Merger les deux listes (éviter les doublons)
+        const existingImageNames = new Set(existingJsonContent.images.map(img => img.name || img));
+        const newImages = jsonContent.images.filter(img => !existingImageNames.has(img.name || img));
+        jsonContent.images = [...existingJsonContent.images, ...newImages];
+      } else {
+        jsonContent.images = existingJsonContent.images;
+      }
+    }
+    
+    // Si les sections sont présentes, régénérer le TOC pour qu'il reflète l'ordre actuel
+    if (jsonContent.sections && Array.isArray(jsonContent.sections)) {
+      this.renumberSections(jsonContent.sections);
+      jsonContent.toc = this.generateTocFromSections(jsonContent.sections);
+    }
+    
+    // Merger le nouveau contenu avec l'existant (préserver ce qui n'est pas dans le nouveau)
+    document.json_content = {
+      ...existingJsonContent,
+      ...jsonContent
+    };
+    
     document.metadata.updatedAt = new Date();
     document.metadata.version = (document.metadata.version || 0) + 1;
     
@@ -191,7 +251,79 @@ class DocumentService {
       { $set: document }
     );
     
+    // Si le document est créé depuis un template, mettre à jour le template avec les nouvelles sections et TOC
+    const templateNamespace = jsonContent?.canvas?.metadata?.name;
+    if (templateNamespace) {
+      await this.updateTemplateFromDocument(templateNamespace, document.json_content);
+    }
+    
     return document;
+  }
+
+  /**
+   * Met à jour le template document avec les sections, TOC et formats de numérotation du document
+   * @param {string} templateNamespace - Namespace du template
+   * @param {Object} jsonContent - Contenu JSON du document
+   */
+  async updateTemplateFromDocument(templateNamespace, jsonContent) {
+    try {
+      const { getTemplateService } = require('../service-container');
+      const templateService = getTemplateService();
+      
+      // Récupérer le template
+      const template = await templateService.getTemplate(templateNamespace);
+      if (!template) {
+        console.warn(`⚠️ Template "${templateNamespace}" non trouvé pour mise à jour`);
+        return;
+      }
+
+      // Extraire les sections du document
+      const sections = Array.isArray(jsonContent.sections) 
+        ? JSON.parse(JSON.stringify(jsonContent.sections)) // Copie profonde
+        : [];
+      
+      // Régénérer le TOC à partir des sections pour préserver l'ordre actuel
+      // Cela garantit que le TOC reflète l'ordre des sections après réorganisation
+      const toc = this.generateTocFromSections(sections);
+      
+      // Extraire les formats de numérotation et styles (si présents)
+      const numberingFormats = jsonContent.numberingFormats
+        ? JSON.parse(JSON.stringify(jsonContent.numberingFormats)) // Copie profonde
+        : null;
+      
+      const styles = jsonContent.styles
+        ? JSON.parse(JSON.stringify(jsonContent.styles)) // Copie profonde
+        : null;
+      
+      const styleHierarchy = jsonContent.styleHierarchy
+        ? JSON.parse(JSON.stringify(jsonContent.styleHierarchy)) // Copie profonde
+        : null;
+
+      // Préparer les mises à jour
+      const updates = {
+        initialSections: sections,
+        initialToc: toc
+      };
+      
+      // Ajouter les formats de numérotation et styles si présents
+      if (numberingFormats) {
+        updates.numberingFormats = numberingFormats;
+      }
+      if (styles) {
+        updates.styles = styles;
+      }
+      if (styleHierarchy) {
+        updates.styleHierarchy = styleHierarchy;
+      }
+
+      // Mettre à jour le template avec les nouvelles sections, TOC et formats de numérotation
+      await templateService.updateTemplate(templateNamespace, updates);
+
+      console.log(`✅ Template "${templateNamespace}" mis à jour avec ${sections.length} sections et ${toc.length} entrées TOC`);
+    } catch (error) {
+      console.error(`❌ Erreur mise à jour template "${templateNamespace}":`, error);
+      // Ne pas faire échouer la sauvegarde du document si la mise à jour du template échoue
+    }
   }
 
   /**
@@ -1448,33 +1580,45 @@ class DocumentService {
    * @returns {Promise<Object|null>} Canevas ou null
    */
   async getCanvas(documentId) {
-    const document = await this.getDocument(documentId);
-    const canvas = document.json_content.canvas;
-    
-    if (!canvas) {
+    try {
+      const document = await this.getDocument(documentId);
+      
+      // Vérifier que json_content existe
+      if (!document || !document.json_content) {
+        return null;
+      }
+      
+      const canvas = document.json_content.canvas;
+      
+      if (!canvas) {
+        return null;
+      }
+
+      // Nettoyer les valeurs obsolètes de marginBottom (migration)
+      // Si marginBottom est exactement 6 dans les paragraphes, c'est probablement une valeur par défaut obsolète
+      let needsUpdate = false;
+      
+      if (canvas.paragraphs?.default?.marginBottom === 6) {
+        canvas.paragraphs.default.marginBottom = null;
+        needsUpdate = true;
+      }
+      
+      if (canvas.annexes?.default?.marginBottom === 6) {
+        canvas.annexes.default.marginBottom = null;
+        needsUpdate = true;
+      }
+      
+      // Si on a nettoyé, sauvegarder
+      if (needsUpdate) {
+        await this.updateCanvas(documentId, canvas);
+      }
+      
+      return canvas;
+    } catch (error) {
+      console.error(`❌ Erreur getCanvas pour documentId "${documentId}":`, error);
+      // Retourner null au lieu de lancer l'erreur pour permettre l'initialisation automatique
       return null;
     }
-
-    // Nettoyer les valeurs obsolètes de marginBottom (migration)
-    // Si marginBottom est exactement 6 dans les paragraphes, c'est probablement une valeur par défaut obsolète
-    let needsUpdate = false;
-    
-    if (canvas.paragraphs?.default?.marginBottom === 6) {
-      canvas.paragraphs.default.marginBottom = null;
-      needsUpdate = true;
-    }
-    
-    if (canvas.annexes?.default?.marginBottom === 6) {
-      canvas.annexes.default.marginBottom = null;
-      needsUpdate = true;
-    }
-    
-    // Si on a nettoyé, sauvegarder
-    if (needsUpdate) {
-      await this.updateCanvas(documentId, canvas);
-    }
-    
-    return canvas;
   }
 
   /**
@@ -1482,8 +1626,21 @@ class DocumentService {
    * @returns {Promise<Object>} Document créé
    */
   async createDefaultDocument() {
+    // IMPORTANT : Le JSON est TOUJOURS extrait depuis le Word, jamais depuis le document existant
+    // On préserve uniquement le canvas (paramétrage utilisateur) et les métadonnées
+    
+    // Charger le fichier Word et extraire le JSON
     const wordFilePath = await this.loadWordDocument();
     const jsonContent = await WordExtractionService.extract(wordFilePath);
+    
+    // Récupérer le document existant UNIQUEMENT pour préserver le canvas (paramétrage)
+    const existingDocument = await this.collection.findOne({ _id: 'default-test' });
+    const existingCanvas = existingDocument?.json_content?.canvas || null;
+    
+    // Préserver le canvas existant si disponible (c'est un paramétrage utilisateur)
+    if (existingCanvas) {
+      jsonContent.canvas = existingCanvas;
+    }
     
     // Note: Les images sont déjà sauvegardées par WordExtractionService.extract()
 
@@ -1492,14 +1649,14 @@ class DocumentService {
       title: jsonContent.metadata?.title || 'Document test',
       original_filename: path.basename(wordFilePath),
       word_file_path: wordFilePath,
-      json_content: jsonContent,
+      json_content: jsonContent, // JSON TOUJOURS extrait depuis Word
       metadata: {
-        createdAt: new Date(),
+        createdAt: existingDocument?.metadata?.createdAt || new Date(),
         updatedAt: new Date(),
-        version: 1,
+        version: (existingDocument?.metadata?.version || 0) + 1,
         status: 'test',
       },
-      lockable_properties: lockableProperties.default,
+      lockable_properties: existingDocument?.lockable_properties || lockableProperties.default,
     };
 
     await this.collection.replaceOne({ _id: 'default-test' }, document, { upsert: true });
@@ -1712,7 +1869,20 @@ class DocumentService {
       }
     }
 
-    // Créer un nouveau document avec le canvas et les sections du template
+    // Copier les formats de numérotation et styles depuis le template (si présents)
+    const numberingFormatsCopy = template.numberingFormats
+      ? JSON.parse(JSON.stringify(template.numberingFormats)) // Copie profonde
+      : null;
+    
+    const stylesCopy = template.styles
+      ? JSON.parse(JSON.stringify(template.styles)) // Copie profonde
+      : null;
+    
+    const styleHierarchyCopy = template.styleHierarchy
+      ? JSON.parse(JSON.stringify(template.styleHierarchy)) // Copie profonde
+      : null;
+    
+    // Créer un nouveau document avec le canvas, les sections et les formats de numérotation du template
     const newDocument = {
       _id: newDocumentId,
       title: documentTitle || `${template.name || templateNamespace} - Nouveau document`,
@@ -1736,6 +1906,17 @@ class DocumentService {
       },
       lockable_properties: lockableProperties.default
     };
+    
+    // Ajouter les formats de numérotation et styles au nouveau document si présents dans le template
+    if (numberingFormatsCopy) {
+      newDocument.json_content.numberingFormats = numberingFormatsCopy;
+    }
+    if (stylesCopy) {
+      newDocument.json_content.styles = stylesCopy;
+    }
+    if (styleHierarchyCopy) {
+      newDocument.json_content.styleHierarchy = styleHierarchyCopy;
+    }
 
     await this.collection.insertOne(newDocument);
     return newDocument;
