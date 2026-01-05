@@ -46,13 +46,42 @@ router.post('/upload', async (req, res) => {
  */
 router.post('/extract/:documentId', async (req, res) => {
   try {
-    const { documentId } = req.params;
-    const { filename } = req.body; // Optionnel : nom de fichier à utiliser
+    let { documentId } = req.params;
+    const { filename, title } = req.body; // Optionnel : nom de fichier et titre du document
+    
+    // Si documentId est 'null' (string), le convertir en null
+    if (documentId === 'null' || documentId === 'undefined') {
+      documentId = null;
+    }
+    
     const documentService = getDocumentService();
-    const result = await documentService.extractWordToJson(documentId, filename);
+    const result = await documentService.extractWordToJson(documentId, filename, title);
     res.json({ success: true, data: result });
   } catch (error) {
     console.error('Erreur extraction document:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+/**
+ * GET /documents
+ * Récupère tous les documents (avec filtres optionnels)
+ * Query params: ?templateNamespace=xxx (filtrer par template source)
+ */
+router.get('/documents', async (req, res) => {
+  try {
+    const { templateNamespace } = req.query;
+    const documentService = getDocumentService();
+    
+    const filters = {};
+    if (templateNamespace) {
+      filters['templateSource.templateNamespace'] = templateNamespace;
+    }
+    
+    const documents = await documentService.getAllDocuments(filters);
+    res.json({ success: true, data: documents });
+  } catch (error) {
+    console.error('Erreur récupération documents:', error);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -80,12 +109,33 @@ router.get('/document/:documentId', async (req, res) => {
 router.put('/document/:documentId', async (req, res) => {
   try {
     const { documentId } = req.params;
-    const { json_content } = req.body;
+    const { json_content, title } = req.body;
     const documentService = getDocumentService();
-    const result = await documentService.updateDocument(documentId, json_content);
+    const result = await documentService.updateDocument(documentId, json_content, title);
     res.json({ success: true, data: result });
   } catch (error) {
     console.error('Erreur mise à jour document:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+/**
+ * DELETE /document/:documentId
+ * Supprime un document
+ */
+router.delete('/document/:documentId', async (req, res) => {
+  try {
+    const { documentId } = req.params;
+    const documentService = getDocumentService();
+    
+    const deleted = await documentService.deleteDocument(documentId);
+    if (!deleted) {
+      return res.status(404).json({ success: false, error: 'Document non trouvé' });
+    }
+    
+    res.json({ success: true, message: 'Document supprimé' });
+  } catch (error) {
+    console.error('Erreur suppression document:', error);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -631,18 +681,24 @@ router.post('/document/new', async (req, res) => {
 /**
  * POST /document/from-template
  * Crée un nouveau document à partir d'un template document
- * Body: { templateNamespace, title? }
+ * Body: { templateNamespace, title?, variables?, templateSource? }
+ *   - templateSource: { collectionNamespace?, collectionEntryId? }
  */
 router.post('/document/from-template', async (req, res) => {
   try {
-    const { templateNamespace, title } = req.body;
+    const { templateNamespace, title, variables, templateSource } = req.body;
     
     if (!templateNamespace) {
       return res.status(400).json({ success: false, error: 'templateNamespace est requis' });
     }
     
     const documentService = getDocumentService();
-    const document = await documentService.createDocumentFromTemplate(templateNamespace, title);
+    const document = await documentService.createDocumentFromTemplate(
+      templateNamespace, 
+      title, 
+      variables || {}, 
+      templateSource || null
+    );
     
     res.json({ success: true, data: document });
   } catch (error) {
@@ -762,6 +818,35 @@ router.delete('/models/:identifier', async (req, res) => {
     res.json({ success: true, message: 'Modèle supprimé' });
   } catch (error) {
     console.error('Erreur suppression modèle:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+/**
+ * PUT /models/:identifier/variants
+ * Met à jour les variants (entrées) d'un modèle
+ * Body: { variants: Array }
+ */
+router.put('/models/:identifier/variants', async (req, res) => {
+  try {
+    const { identifier } = req.params;
+    const { variants } = req.body;
+    
+    if (!Array.isArray(variants)) {
+      return res.status(400).json({ success: false, error: 'variants doit être un tableau' });
+    }
+    
+    const modelService = getModelService();
+    const model = await modelService.updateVariants(identifier, variants);
+    
+    res.json({ success: true, data: model });
+  } catch (error) {
+    console.error('Erreur mise à jour variants:', error);
+    
+    if (error.message?.includes('non trouvé')) {
+      return res.status(404).json({ success: false, error: error.message });
+    }
+    
     res.status(500).json({ success: false, error: error.message });
   }
 });

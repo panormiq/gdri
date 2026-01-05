@@ -819,6 +819,136 @@ button.btn.btn-outline.view-tab.is-active,
   height: 100%;
 }
 
+/* Variables et conditions atomiques (Option A - bordure pointillée) */
+.doc-variable-occurrence,
+.doc-condition-wrapper {
+  display: inline-block;
+  border: 1px dashed #4b9ed8;
+  background: rgba(75, 158, 216, 0.05);
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-family: monospace;
+  font-size: 0.9em;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  user-select: none;
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+}
+
+.doc-variable-occurrence:hover,
+.doc-condition-wrapper:hover {
+  border-color: #2e7fd4;
+  background: rgba(75, 158, 216, 0.1);
+  box-shadow: 0 0 0 2px rgba(75, 158, 216, 0.2);
+}
+
+/* Conditions - champ texte encadré */
+.doc-condition-wrapper {
+  position: relative;
+  padding: 0;
+  min-width: 100px;
+}
+
+.doc-condition-text {
+  display: block;
+  padding: 4px 8px;
+  min-height: 1.2em;
+  user-select: none;
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+}
+
+.doc-condition-tabs-hover {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  margin-top: 4px;
+  background: white;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  z-index: 1000;
+  padding: 4px;
+  display: none;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 150px;
+}
+
+.doc-condition-wrapper:hover .doc-condition-tabs-hover {
+  display: flex;
+}
+
+.condition-tab-hover {
+  padding: 6px 10px;
+  border: none;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  border-radius: 3px;
+  font-size: 0.85rem;
+  transition: background 0.2s;
+}
+
+.condition-tab-hover:hover {
+  background: rgba(75, 158, 216, 0.1);
+}
+
+/* Condition management (similaire à variable-panel) */
+.condition-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  height: 100%;
+}
+
+.condition-tabs {
+  display: inline-flex;
+  gap: 6px;
+  padding: 4px;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.05);
+}
+
+.condition-tab {
+  padding: 4px 12px;
+  border: none;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--doc-text-muted);
+  background: transparent;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.condition-tab.is-active {
+  color: #fff;
+  background: var(--doc-accent-strong);
+  box-shadow: 0 6px 14px rgba(75, 158, 216, 0.35);
+}
+
+.condition-sections {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.condition-section {
+  display: none;
+  flex: 1;
+  flex-direction: column;
+}
+
+.condition-section.is-active {
+  display: flex;
+}
+
 .variable-tabs {
   display: inline-flex;
   gap: 6px;
@@ -2213,4 +2343,93 @@ button.btn.btn-outline.view-tab.is-active,
 .template-item__add-btn {
   flex-shrink: 0;
   margin-left: 12px;
+}
+
+/* Styles pour le drag and drop des colonnes */
+.draggable-column-header {
+  user-select: none;
+  transition: background-color 0.2s ease;
+}
+
+.draggable-column-header:hover:not(.column-dragging) {
+  background-color: #e8e8e8 !important;
+}
+
+.draggable-column-header.column-dragging {
+  opacity: 0.6;
+  cursor: grabbing !important;
+  background-color: #d4e9ff !important;
+}
+
+.draggable-column-header.column-drag-over {
+  background-color: #e3f2fd !important;
+}
+
+.draggable-column-header.column-drop-before::before {
+  content: '';
+  position: absolute;
+  left: -2px;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  background-color: #0066cc;
+  z-index: 10;
+  box-shadow: 0 0 4px rgba(0, 102, 204, 0.5);
+}
+
+.draggable-column-header.column-drop-after::after {
+  content: '';
+  position: absolute;
+  right: -2px;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  background-color: #0066cc;
+  z-index: 10;
+  box-shadow: 0 0 4px rgba(0, 102, 204, 0.5);
+}
+
+/* Styles pour l'édition inline des cellules */
+.editable-cell {
+  transition: background-color 0.2s ease;
+}
+
+.editable-cell:hover {
+  background-color: #f0f7ff !important;
+}
+
+.editable-cell.cell-editing {
+  padding: 0 !important;
+  background-color: #fff !important;
+}
+
+.editable-cell.cell-editing input,
+.editable-cell.cell-editing select {
+  outline: none;
+  font-family: inherit;
+}
+
+/* ===================================
+   IMPORT CANEVAS MODAL
+   =================================== */
+.canvas-import-item {
+  padding: 1rem;
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  margin-bottom: 0.75rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  background: #fff;
+}
+
+.canvas-import-item:hover {
+  border-color: var(--doc-accent-strong, #4b9ed8);
+  background: #f0f9ff;
+  box-shadow: 0 2px 8px rgba(75, 158, 216, 0.15);
+  transform: translateY(-1px);
+}
+
+.canvas-import-item:active {
+  transform: translateY(0);
+  box-shadow: 0 1px 4px rgba(75, 158, 216, 0.2);
 }

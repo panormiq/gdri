@@ -99,9 +99,10 @@ class DocumentService {
    * Extrait Word → JSON
    * @param {string} documentId - ID du document (ou null pour nouveau)
    * @param {string|null} filename - Nom du fichier optionnel
+   * @param {string|null} documentTitle - Titre du document (optionnel, sinon extrait depuis Word)
    * @returns {Promise<Object>} Document avec JSON extrait
    */
-  async extractWordToJson(documentId = null, filename = null) {
+  async extractWordToJson(documentId = null, filename = null, documentTitle = null) {
     // Charger le fichier Word
     const wordFilePath = await this.loadWordDocument(filename);
     
@@ -113,8 +114,11 @@ class DocumentService {
       return await this.updateDocument(documentId, jsonContent);
     } else {
       // Créer un nouveau document
+      // Utiliser le titre fourni, sinon celui du metadata, sinon le nom du fichier, sinon un titre par défaut
+      const title = documentTitle || jsonContent.metadata?.title || path.basename(wordFilePath, path.extname(wordFilePath)) || 'Document sans titre';
+      
       const document = {
-        title: jsonContent.metadata?.title || 'Document sans titre',
+        title: title,
         original_filename: path.basename(wordFilePath),
         word_file_path: wordFilePath,
         json_content: jsonContent,
@@ -129,6 +133,15 @@ class DocumentService {
       const result = await this.collection.insertOne(document);
       return { ...document, _id: result.insertedId };
     }
+  }
+
+  /**
+   * Récupère tous les documents (avec filtres optionnels)
+   * @param {Object} filters - Filtres optionnels
+   * @returns {Promise<Array>} Liste des documents
+   */
+  async getAllDocuments(filters = {}) {
+    return await this.collection.find(filters).sort({ 'metadata.createdAt': -1 }).toArray();
   }
 
   /**
@@ -182,14 +195,30 @@ class DocumentService {
   }
 
   /**
+   * Supprime un document
+   * @param {string} documentId - ID du document
+   * @returns {Promise<boolean>} true si supprimé
+   */
+  async deleteDocument(documentId) {
+    const objectId = ObjectId.isValid(documentId) ? new ObjectId(documentId) : documentId;
+    const result = await this.collection.deleteOne({ _id: objectId });
+    return result.deletedCount > 0;
+  }
+
+  /**
    * Met à jour le JSON d'un document
    * @param {string} documentId - ID du document
    * @param {Object} jsonContent - Nouveau contenu JSON
    * @returns {Promise<Object>} Document mis à jour
    */
-  async updateDocument(documentId, jsonContent) {
+  async updateDocument(documentId, jsonContent, title = null) {
     const objectId = ObjectId.isValid(documentId) ? new ObjectId(documentId) : documentId;
     const document = await this.getDocument(documentId);
+    
+    // Mettre à jour le titre si fourni
+    if (title && title.trim()) {
+      document.title = title.trim();
+    }
     
     // Préserver les champs importants qui ne doivent pas être perdus lors de la mise à jour
     const existingJsonContent = document.json_content || {};
@@ -203,19 +232,31 @@ class DocumentService {
       'extractionInfo'     // Informations sur l'extraction
     ];
     
-    // Merger les champs à préserver : TOUJOURS préserver l'existant s'il existe
-    // Ces champs sont extraits du Word et ne doivent jamais être écrasés
+    // Préserver les champs importants : préférer le nouveau s'il est présent, sinon garder l'existant
+    // Exception pour numberingFormats : toujours préserver le nouveau s'il est présent pour éviter les changements de style
     fieldsToPreserve.forEach(field => {
-      if (existingJsonContent[field]) {
-        // Préserver l'existant même si le nouveau contient quelque chose
-        jsonContent[field] = existingJsonContent[field];
-        console.log(`✅ Champ préservé: ${field}`);
-      } else if (jsonContent[field]) {
-        // Si l'existant n'a pas le champ mais le nouveau oui, garder le nouveau
-        // (cas d'une nouvelle extraction)
-        console.log(`📥 Nouveau champ utilisé: ${field}`);
+      if (field === 'numberingFormats') {
+        // Pour numberingFormats : préférer le nouveau s'il est présent, sinon garder l'existant
+        if (jsonContent[field] && jsonContent[field].formats) {
+          // Le nouveau contient des formats, l'utiliser
+          console.log(`✅ Champ ${field}: nouveau format préservé`);
+        } else if (existingJsonContent[field]) {
+          // Pas de nouveau format, garder l'existant
+          jsonContent[field] = existingJsonContent[field];
+          console.log(`✅ Champ ${field}: format existant préservé`);
+        } else {
+          console.log(`⚠️ Champ ${field} absent (dans existant ET nouveau)`);
+        }
       } else {
-        console.log(`⚠️ Champ absent: ${field} (dans existant ET nouveau)`);
+        // Pour les autres champs : préserver l'existant s'il existe (logique originale)
+        if (existingJsonContent[field]) {
+          jsonContent[field] = existingJsonContent[field];
+          console.log(`✅ Champ préservé: ${field}`);
+        } else if (jsonContent[field]) {
+          console.log(`📥 Nouveau champ utilisé: ${field}`);
+        } else {
+          console.log(`⚠️ Champ absent: ${field} (dans existant ET nouveau)`);
+        }
       }
     });
     
@@ -1817,9 +1858,13 @@ class DocumentService {
    * Crée un nouveau document à partir d'un template document
    * @param {string} templateNamespace - Namespace du template document
    * @param {string} documentTitle - Titre du nouveau document (optionnel)
+   * @param {Object} variables - Variables à remplacer dans le contenu (optionnel)
+   * @param {Object} templateSource - Informations sur la source du template (optionnel)
+   *   - collectionNamespace: namespace de la collection utilisée
+   *   - collectionEntryId: ID de l'entrée de collection sélectionnée
    * @returns {Promise<Object>} Document créé
    */
-  async createDocumentFromTemplate(templateNamespace, documentTitle = null) {
+  async createDocumentFromTemplate(templateNamespace, documentTitle = null, variables = {}, templateSource = null) {
     const { getTemplateService } = require('../service-container');
     const templateService = getTemplateService();
     
@@ -1838,12 +1883,105 @@ class DocumentService {
         canvasCopy.metadata = {};
       }
       canvasCopy.metadata.name = templateNamespace; // Nom du template
+      
+      // Remplacer les variables dans les variables du canvas si des variables sont fournies
+      if (variables && Object.keys(variables).length > 0 && canvasCopy.variables) {
+        Object.keys(canvasCopy.variables).forEach(varName => {
+          if (variables.hasOwnProperty(varName)) {
+            canvasCopy.variables[varName].value = variables[varName];
+          }
+        });
+      }
+    } else {
+      // Si le template n'a pas de canvas, créer un canvas minimal avec le nom du template
+      canvasCopy = {
+        metadata: {
+          name: templateNamespace // Nom du template
+        }
+      };
+      
+      // Si des variables sont fournies, créer la structure variables dans le canvas
+      if (variables && Object.keys(variables).length > 0) {
+        canvasCopy.variables = {};
+        Object.keys(variables).forEach(varName => {
+          canvasCopy.variables[varName] = {
+            type: 'text',
+            value: variables[varName]
+          };
+        });
+      }
     }
 
     // Copier les sections initiales du template (si présentes)
     let sectionsCopy = template.initialSections && template.initialSections.length > 0
       ? JSON.parse(JSON.stringify(template.initialSections)) // Copie profonde
       : [];
+    
+    // Ajouter le titre de chaque section dans son contenu si le contenu est vide
+    const ensureTitleInContent = (sections) => {
+      sections.forEach(section => {
+        // Si la section a un titre mais pas de contenu (ou contenu vide)
+        if (section.title && (!section.content || section.content.length === 0)) {
+          // Créer un paragraphe avec le titre
+          const titleParagraph = {
+            type: 'paragraph',
+            id: `par_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+            text: section.title,
+            styles: {
+              fontWeight: 'bold',
+              fontSize: section.level === 1 ? '18pt' : section.level === 2 ? '16pt' : '14pt'
+            }
+          };
+          
+          // Initialiser le contenu si nécessaire
+          if (!section.content) {
+            section.content = [];
+          }
+          
+          // Ajouter le titre comme premier élément du contenu
+          section.content.unshift(titleParagraph);
+        }
+        
+        // Traiter récursivement les sous-sections
+        if (section.children && Array.isArray(section.children) && section.children.length > 0) {
+          ensureTitleInContent(section.children);
+        }
+      });
+    };
+    
+    // Appliquer la fonction à toutes les sections
+    if (sectionsCopy.length > 0) {
+      ensureTitleInContent(sectionsCopy);
+      
+      // Remplacer les variables dans le contenu si des variables sont fournies
+      if (variables && Object.keys(variables).length > 0) {
+        sectionsCopy = this.replaceVariablesInSections(sectionsCopy, variables);
+      }
+    } else {
+      // Si le template n'a pas de sections, créer une section par défaut
+      const defaultSection = {
+        id: `sec_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+        type: 'section',
+        title: documentTitle || template.name || 'Nouvelle section',
+        level: 1,
+        numbering: null,
+        order: 1,
+        isAnnex: false,
+        content: [
+          {
+            type: 'paragraph',
+            id: `par_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+            text: documentTitle || template.name || 'Nouvelle section',
+            styles: {
+              fontWeight: 'bold',
+              fontSize: '18pt'
+            }
+          }
+        ],
+        children: []
+      };
+      sectionsCopy = [defaultSection];
+    }
     
     // Copier le TOC initial du template (si présent)
     const tocCopy = template.initialToc && template.initialToc.length > 0
@@ -1904,6 +2042,18 @@ class DocumentService {
         version: 1,
         status: 'draft'
       },
+      // Métadonnées sur la source du template (pour traçabilité et recréation)
+      templateSource: templateSource ? {
+        templateNamespace: templateSource.templateNamespace || templateNamespace,
+        collectionNamespace: templateSource.collectionNamespace || null,
+        collectionEntryId: templateSource.collectionEntryId || null,
+        variables: templateSource.variables || variables // Sauvegarder les variables utilisées pour pouvoir recréer le document
+      } : {
+        templateNamespace: templateNamespace,
+        collectionNamespace: null,
+        collectionEntryId: null,
+        variables: variables // Sauvegarder les variables utilisées pour pouvoir recréer le document
+      },
       lockable_properties: lockableProperties.default
     };
     
@@ -1920,6 +2070,126 @@ class DocumentService {
 
     await this.collection.insertOne(newDocument);
     return newDocument;
+  }
+
+  /**
+   * Remplace les variables dans les sections récursivement
+   * @param {Array} sections - Sections à traiter
+   * @param {Object} variables - Objet avec les valeurs des variables (ex: { nom_moteur: "F100T", puissance: "100" })
+   * @returns {Array} Sections avec variables remplacées
+   */
+  replaceVariablesInSections(sections, variables) {
+    if (!sections || !Array.isArray(sections)) {
+      return sections;
+    }
+
+    return sections.map(section => {
+      const sectionCopy = JSON.parse(JSON.stringify(section)); // Copie profonde
+
+      // Remplacer dans le titre
+      if (sectionCopy.title && typeof sectionCopy.title === 'string') {
+        sectionCopy.title = this.replaceVariablesInText(sectionCopy.title, variables);
+      }
+
+      // Remplacer dans le contenu
+      if (sectionCopy.content && Array.isArray(sectionCopy.content)) {
+        sectionCopy.content = sectionCopy.content.map(item => {
+          return this.replaceVariablesInContentItem(item, variables);
+        });
+      }
+
+      // Traiter récursivement les sous-sections
+      if (sectionCopy.children && Array.isArray(sectionCopy.children)) {
+        sectionCopy.children = this.replaceVariablesInSections(sectionCopy.children, variables);
+      }
+
+      return sectionCopy;
+    });
+  }
+
+  /**
+   * Remplace les variables dans un élément de contenu
+   * @param {Object} item - Élément de contenu (paragraphe, tableau, etc.)
+   * @param {Object} variables - Variables à remplacer
+   * @returns {Object} Élément avec variables remplacées
+   */
+  replaceVariablesInContentItem(item, variables) {
+    if (!item) return item;
+
+    const itemCopy = JSON.parse(JSON.stringify(item)); // Copie profonde
+
+    // Si c'est un paragraphe avec du texte
+    if (itemCopy.type === 'paragraph' && itemCopy.text && typeof itemCopy.text === 'string') {
+      itemCopy.text = this.replaceVariablesInText(itemCopy.text, variables);
+    }
+
+    // Si c'est un tableau
+    if (itemCopy.type === 'table' && itemCopy.rows && Array.isArray(itemCopy.rows)) {
+      itemCopy.rows = itemCopy.rows.map(row => {
+        if (row.cells && Array.isArray(row.cells)) {
+          row.cells = row.cells.map(cell => {
+            if (cell.text && typeof cell.text === 'string') {
+              cell.text = this.replaceVariablesInText(cell.text, variables);
+            }
+            return cell;
+          });
+        }
+        return row;
+      });
+    }
+
+    // Si l'élément a un contenu imbriqué
+    if (itemCopy.content && Array.isArray(itemCopy.content)) {
+      itemCopy.content = itemCopy.content.map(subItem => {
+        return this.replaceVariablesInContentItem(subItem, variables);
+      });
+    }
+
+    return itemCopy;
+  }
+
+  /**
+   * Remplace les variables dans un texte (syntaxe {{variable}})
+   * @param {string} text - Texte contenant des variables
+   * @param {Object} variables - Variables à remplacer
+   * @returns {string} Texte avec variables remplacées
+   */
+  replaceVariablesInText(text, variables) {
+    if (!text || typeof text !== 'string') {
+      return text;
+    }
+
+    // Pattern pour trouver {{variable}} ou {{namespace:variable}}
+    const variablePattern = /\{\{([^}]+)\}\}/g;
+    
+    return text.replace(variablePattern, (match, varContent) => {
+      const varName = varContent.trim();
+      
+      // Chercher la variable dans l'objet (avec ou sans namespace)
+      let value = null;
+      
+      // Essayer d'abord avec le nom exact
+      if (variables.hasOwnProperty(varName)) {
+        value = variables[varName];
+      } else {
+        // Si le nom contient un namespace (ex: "collection:nom"), essayer sans le namespace
+        const parts = varName.split(':');
+        if (parts.length > 1) {
+          const varNameWithoutNamespace = parts[parts.length - 1];
+          if (variables.hasOwnProperty(varNameWithoutNamespace)) {
+            value = variables[varNameWithoutNamespace];
+          }
+        }
+      }
+      
+      // Si une valeur est trouvée, la retourner, sinon garder le pattern original
+      if (value !== null && value !== undefined) {
+        return String(value);
+      }
+      
+      // Si pas de valeur trouvée, garder le pattern original (variable non remplie)
+      return match;
+    });
   }
 
   sanitizeFilename(filename = '') {

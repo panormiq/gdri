@@ -181,13 +181,6 @@ require_once '../../../includes/header.php';
                             <label for="templateMaxInstances">Nombre maximum d'instances</label>
                             <input type="number" id="templateMaxInstances" name="maxInstances" class="form-control" min="1" value="1">
                         </div>
-                        <div class="form-group">
-                            <label class="checkbox-label">
-                                <input type="checkbox" id="templateIsStandalone" name="isStandalone" checked>
-                                <span>Standalone (styles indépendants)</span>
-                            </label>
-                            <small class="form-hint">Si désactivé, hérite des styles du template document parent</small>
-                        </div>
                     </div>
                 </div>
 

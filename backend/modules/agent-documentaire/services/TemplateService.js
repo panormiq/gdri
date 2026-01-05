@@ -300,6 +300,34 @@ class TemplateService {
       }
     );
 
+    // Si un document source est fourni, mettre à jour son canvas avec le nom du template
+    if (sourceDocumentId) {
+      try {
+        const { getDocumentService } = require('../service-container');
+        const documentService = getDocumentService();
+        
+        const document = await documentService.getDocument(sourceDocumentId);
+        if (document && document.json_content) {
+          // S'assurer que le canvas existe
+          if (!document.json_content.canvas) {
+            document.json_content.canvas = {};
+          }
+          if (!document.json_content.canvas.metadata) {
+            document.json_content.canvas.metadata = {};
+          }
+          
+          // Mettre le nom du template dans le canvas
+          document.json_content.canvas.metadata.name = namespace;
+          
+          // Mettre à jour le document
+          await documentService.updateDocument(sourceDocumentId, document.json_content);
+        }
+      } catch (updateError) {
+        console.warn('⚠️ Erreur mise à jour canvas du document source (non bloquant):', updateError);
+        // Ne pas bloquer si la mise à jour échoue
+      }
+    }
+
     // Retourner le template mis à jour
     template.initialSections = initialSections;
     template.initialToc = initialToc;

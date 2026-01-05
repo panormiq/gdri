@@ -65,6 +65,16 @@ require_once '../../../includes/header.php';
                     </button>
                 </div>
 
+                <!-- Option 3.5 : Remplir un document ou une collection -->
+                <div class="home-option-card" id="fillDocumentCard">
+                    <div class="option-icon">📝</div>
+                    <h3>Remplir un document/collection</h3>
+                    <p>Remplissez un document à partir d'un canevas ou une collection avec ses valeurs</p>
+                    <a href="<?= url('pages/modules/document-agent/fill-document.php'); ?>" class="btn btn-primary">
+                        📝 Remplir un document/collection
+                    </a>
+                </div>
+
                 <!-- Option 4 : Supprimer un modèle existant -->
                 <div class="home-option-card" id="deleteModelsCard">
                     <div class="option-icon">🗑️</div>
@@ -86,7 +96,6 @@ require_once '../../../includes/header.php';
         </div>
     </div>
 </section>
-
 
 <style>
 .document-agent-home {
@@ -210,10 +219,12 @@ require_once '../../../includes/header.php';
     // Ouvrir le document test Word
     if (createFromWordBtn) {
         createFromWordBtn.addEventListener('click', function() {
-            const documentId = 'default-test';
+            // Utiliser un documentId spécial pour indiquer qu'on veut créer un nouveau document depuis Word
+            const documentId = 'new-from-word';
             window.location.href = `<?= url('pages/modules/document-agent/editor.php'); ?>?document=${documentId}`;
         });
     }
+
 
     // Créer un nouveau modèle vierge
     if (createNewModelBtn) {

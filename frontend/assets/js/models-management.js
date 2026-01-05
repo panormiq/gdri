@@ -159,7 +159,6 @@
       if (template.isOptional) properties.push('Optionnel');
       if (template.hasMultipleChoice) properties.push('Choix multiple');
       if (template.allowMultiple) properties.push('Dupliquable');
-      if (template.isStandalone) properties.push('Standalone');
 
       return `
         <div class="template-card" data-namespace="${template.namespace}">
@@ -280,7 +279,6 @@
       document.getElementById('templateHasMultipleChoice').checked = template.hasMultipleChoice || false;
       document.getElementById('templateAllowMultiple').checked = template.allowMultiple || false;
       document.getElementById('templateMaxInstances').value = template.maxInstances || 1;
-      document.getElementById('templateIsStandalone').checked = template.isStandalone !== undefined ? template.isStandalone : true;
       
       if (template.allowMultiple) {
         document.getElementById('maxInstancesGroup').style.display = 'block';
@@ -378,7 +376,6 @@
             hasMultipleChoice: document.getElementById('templateHasMultipleChoice').checked,
             allowMultiple: document.getElementById('templateAllowMultiple').checked,
             maxInstances: parseInt(document.getElementById('templateMaxInstances').value) || 1,
-            isStandalone: document.getElementById('templateIsStandalone').checked,
             fields: fields,
             variants: variants,
             modelNamespace: templateModelSelect?.value || null
@@ -400,7 +397,6 @@
             hasMultipleChoice: document.getElementById('templateHasMultipleChoice').checked,
             allowMultiple: document.getElementById('templateAllowMultiple').checked,
             maxInstances: parseInt(document.getElementById('templateMaxInstances').value) || 1,
-            isStandalone: document.getElementById('templateIsStandalone').checked,
             modelNamespace: document.getElementById('templateModelSelect')?.value || null,
             fields: fields,
             variants: variants
@@ -736,7 +732,7 @@
       documentVariablesList.innerHTML = '<p class="text-muted">Chargement des variables du document...</p>';
 
       // Charger le document
-      const response = await fetch(`${apiBase}/agent-documentaire/documents/${encodeURIComponent(documentId)}`);
+      const response = await fetch(`${apiBase}/agent-documentaire/document/${encodeURIComponent(documentId)}`);
       if (!response.ok) {
         throw new Error(`Erreur HTTP: ${response.status}`);
       }
@@ -1252,6 +1248,9 @@
       return;
     }
 
+    // Récupérer les champs de référence depuis le modèle actuel
+    const referenceFields = currentModel?.referenceFields || [];
+
     const html = modelVariables.map((variable, index) => {
       const typeLabels = {
         text: 'Texte',
@@ -1261,11 +1260,19 @@
       };
       
       const unitDisplay = variable.unit ? ` | Unité: ${variable.unit}` : '';
+      const isReference = referenceFields.includes(variable.name);
+      
       return `
         <div class="field-item">
-          <div class="field-item__info">
-            <div class="field-item__name">${variable.label || variable.name} <code>{{${variable.name}}}</code></div>
-            <div class="field-item__meta">Type: ${typeLabels[variable.type] || variable.type}${unitDisplay} ${variable.required ? '| Obligatoire' : ''}</div>
+          <div class="field-item__info" style="display: flex; align-items: center; gap: 0.75rem; flex: 1;">
+            <label class="checkbox-label" style="margin: 0; cursor: pointer;" title="Utiliser comme champ de référence pour la sélection dans les templates">
+              <input type="checkbox" class="reference-field-checkbox" data-field-name="${variable.name}" ${isReference ? 'checked' : ''} style="margin: 0;">
+              <span style="font-size: 0.9rem; color: #666;">Réf.</span>
+            </label>
+            <div style="flex: 1;">
+              <div class="field-item__name">${variable.label || variable.name} <code>{{${variable.name}}}</code></div>
+              <div class="field-item__meta">Type: ${typeLabels[variable.type] || variable.type}${unitDisplay} ${variable.required ? '| Obligatoire' : ''}</div>
+            </div>
           </div>
           <div class="field-item__actions">
             <button class="btn btn-sm btn-outline" data-edit-variable="${index}">✏️</button>
@@ -1290,6 +1297,28 @@
         const index = parseInt(btn.dataset.deleteVariable);
         modelVariables.splice(index, 1);
         renderModelVariables();
+      });
+    });
+
+    // Gestionnaire pour les cases à cocher de référence
+    variablesList.querySelectorAll('.reference-field-checkbox').forEach(checkbox => {
+      checkbox.addEventListener('change', () => {
+        // Mettre à jour currentModel.referenceFields en temps réel
+        if (!currentModel) {
+          currentModel = { referenceFields: [] };
+        }
+        if (!currentModel.referenceFields) {
+          currentModel.referenceFields = [];
+        }
+        
+        const fieldName = checkbox.dataset.fieldName;
+        if (checkbox.checked) {
+          if (!currentModel.referenceFields.includes(fieldName)) {
+            currentModel.referenceFields.push(fieldName);
+          }
+        } else {
+          currentModel.referenceFields = currentModel.referenceFields.filter(f => f !== fieldName);
+        }
       });
     });
   }
@@ -1385,6 +1414,16 @@
     }
 
     try {
+      // Collecter les champs de référence depuis les cases à cocher
+      const referenceFields = [];
+      const checkboxes = document.querySelectorAll('.reference-field-checkbox:checked');
+      checkboxes.forEach(checkbox => {
+        const fieldName = checkbox.dataset.fieldName;
+        if (fieldName) {
+          referenceFields.push(fieldName);
+        }
+      });
+
       const isUpdate = !!currentModel;
       let url, method, body;
       
@@ -1394,7 +1433,8 @@
         method = 'PUT';
         body = JSON.stringify({
           name: modelName,
-          fields: modelVariables
+          fields: modelVariables,
+          referenceFields: referenceFields
         });
       } else {
         // Création
@@ -1403,7 +1443,8 @@
         body = JSON.stringify({
           name: modelName,
           fields: modelVariables,
-          variants: []
+          variants: [],
+          referenceFields: referenceFields
         });
       }
 

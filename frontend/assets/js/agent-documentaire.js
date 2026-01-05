@@ -58,6 +58,12 @@
       return;
     }
 
+    // Si documentId est 'new-from-word', demander le nom et créer le document
+    if (documentId === 'new-from-word') {
+      showDocumentNameModalForExtraction();
+      return;
+    }
+
     const url = `${apiBase}/agent-documentaire/document/${documentId}`;
 
     try {
@@ -72,6 +78,17 @@
       documentJson = payload.data.json_content;
       
       sectionsTree = Array.isArray(documentJson.sections) ? documentJson.sections : [];
+      
+      console.log('📥 loadDocument - sectionsTree mis à jour, longueur:', sectionsTree.length);
+      if (sectionsTree.length > 0) {
+        console.log('📥 loadDocument - Premières sections:', sectionsTree.slice(0, 3).map(s => ({
+          id: s?.id,
+          title: s?.title,
+          structure: s?.structure,
+          parent: s?.parent,
+          level: s?.level
+        })));
+      }
       
       // Debug : analyser les sections chargées (désactivé par défaut, activer si besoin)
       // console.log('🔍 loadDocument - documentJson.sections:', documentJson.sections);
@@ -138,9 +155,52 @@
       if (!templateCheckDone) {
         await checkAndCreateDocumentTemplate(documentJson);
       }
+
+      // Charger les variables depuis le document et les collections
+      if (typeof variableManager.loadVariablesFromDocument === 'function' && documentJson) {
+        await variableManager.loadVariablesFromDocument(documentJson);
+      }
+      
+      // Charger les conditions depuis le document
+      if (typeof conditionManager.loadConditionsFromDocument === 'function' && documentJson) {
+        await conditionManager.loadConditionsFromDocument(documentJson);
+      }
+      
+      // Mettre à jour le titre avec le nom du modèle
+      updateEditorTitle(documentJson);
     } catch (error) {
       console.error('❌ Erreur chargement document:', error);
       console.error('Stack trace:', error.stack);
+    }
+  }
+
+  /**
+   * Met à jour le titre de l'éditeur avec le nom du modèle
+   * @param {Object} documentJson - Contenu JSON du document
+   */
+  function updateEditorTitle(documentJson) {
+    const titleElement = document.getElementById('editorTitle');
+    if (!titleElement) return;
+    
+    // Récupérer le nom du modèle depuis canvas.metadata.name
+    let modelName = '';
+    if (documentJson && documentJson.canvas && documentJson.canvas.metadata && documentJson.canvas.metadata.name) {
+      modelName = documentJson.canvas.metadata.name;
+      
+      // Dénormaliser le nom : remplacer les underscores par des espaces et mettre en forme
+      // Extraire juste le nom si c'est un namespace (sans les sections)
+      const nameParts = modelName.split(':');
+      const displayName = nameParts[nameParts.length - 1];
+      
+      // Remplacer les underscores par des espaces et mettre en majuscule la première lettre de chaque mot
+      const formattedName = displayName
+        .replace(/_/g, ' ')
+        .replace(/\b\w/g, l => l.toUpperCase());
+      
+      titleElement.textContent = formattedName;
+    } else {
+      // Pas de nom de modèle, garder le titre par défaut
+      titleElement.textContent = 'Éditeur de modèle documentaire';
     }
   }
 
@@ -206,161 +266,77 @@
    * @param {boolean} ignoreWordIndentation - Si true, ignore l'indentation Word et utilise uniquement les marges du canevas
    * @returns {string} CSS inline
    */
-  function stylesToCSS(styles, isTitle = false, level = 1, ignoreWordIndentation = false) {
+  function stylesToCSS(styles, isTitle = false, level = 1, ignoreWordIndentation = false, isImportedSection = false) {
     const cssProps = [];
     
-    // Vérifier si un canevas existe
+    // TOUJOURS utiliser le canvas du document parent
     const canvas = documentJson?.canvas;
-    let canvasStyles = null;
     
+    // Récupérer les styles du canvas selon le type et le niveau
+    let canvasStyles = null;
     if (canvas) {
       if (isTitle) {
-        // Utiliser le canevas pour les titres selon le niveau
         const levelKey = `level${Math.min(level, 3)}`;
         canvasStyles = canvas.titles?.[levelKey];
+        if (!canvasStyles) {
+          console.warn(`⚠️ Canvas styles non trouvés pour titre niveau ${levelKey}`, canvas.titles);
+        }
       } else {
-        // Utiliser le canevas pour les paragraphes
         canvasStyles = canvas.paragraphs?.default;
-      }
-    }
-    
-    // Fusionner : canevas en priorité, styles Word en fallback
-    const mergedStyles = { ...styles };
-    if (canvasStyles) {
-      // Fusionner les propriétés du canevas
-      Object.keys(canvasStyles).forEach(key => {
-        if (canvasStyles[key] !== null && canvasStyles[key] !== undefined) {
-          mergedStyles[key] = canvasStyles[key];
+        if (!canvasStyles) {
+          console.warn(`⚠️ Canvas styles non trouvés pour paragraphe`, canvas.paragraphs);
         }
-      });
-    }
-    
-    // Propriétés de police (canevas ou Word)
-    if (mergedStyles.fontFamily) {
-      cssProps.push(`font-family: '${mergedStyles.fontFamily}'`);
-    }
-    if (mergedStyles.fontSize) {
-      cssProps.push(`font-size: ${mergedStyles.fontSize}pt`);
-    }
-    if (mergedStyles.color) {
-      cssProps.push(`color: ${mergedStyles.color}`);
-    }
-    
-    // Font-weight : canevas ou Word (bold)
-    if (mergedStyles.fontWeight) {
-      cssProps.push(`font-weight: ${mergedStyles.fontWeight}`);
-    } else if (mergedStyles.bold && !canvasStyles) {
-      cssProps.push('font-weight: bold');
-    }
-    
-    if (mergedStyles.italic) {
-      cssProps.push('font-style: italic');
-    }
-    if (mergedStyles.underline) {
-      cssProps.push('text-decoration: underline');
-    }
-    
-    // Text-transform : canevas ou Word (caps)
-    if (mergedStyles.textTransform) {
-      cssProps.push(`text-transform: ${mergedStyles.textTransform}`);
-    } else if (mergedStyles.caps && !canvasStyles) {
-      cssProps.push('text-transform: uppercase');
-    }
-    
-    // Alignement : canevas (alignment) ou Word (alignment)
-    const alignment = mergedStyles.alignment || mergedStyles.textAlign;
-    if (alignment) {
-      cssProps.push(`text-align: ${alignment}`);
-    }
-    
-    // Couleur de fond : toujours depuis Word (pas dans le canevas pour l'instant)
-    if (styles.backgroundColor) {
-      cssProps.push(`background-color: ${styles.backgroundColor}`);
-    }
-    if (styles.runBackgroundColor && !styles.backgroundColor) {
-      cssProps.push(`background-color: ${styles.runBackgroundColor}`);
-    }
-    
-    // Marges : canevas en priorité, sinon Word
-    const paddingTopSource = canvasStyles?.marginTop ?? styles.marginTop ?? styles.spacing?.before;
-    const paddingBottomSource = canvasStyles?.marginBottom ?? styles.marginBottom ?? styles.spacing?.after;
-
-    if (paddingTopSource && paddingTopSource > 0) {
-      cssProps.push(`padding-top: ${paddingTopSource}pt`);
-    }
-    if (paddingBottomSource && paddingBottomSource > 0) {
-      cssProps.push(`padding-bottom: ${paddingBottomSource}pt`);
-    }
-    
-    // Line-height : canevas pour paragraphes, sinon Word
-    if (!isTitle) {
-      if (canvasStyles && mergedStyles.lineHeight) {
-        cssProps.push(`line-height: ${mergedStyles.lineHeight}`);
-      } else if (styles.spacing && styles.spacing.line) {
-        if (styles.spacing.lineType === 'fixed') {
-          cssProps.push(`line-height: ${styles.spacing.line}pt`);
-        } else {
-          cssProps.push(`line-height: ${styles.spacing.line}`);
-        }
-      }
-    }
-    
-    // Text-indent : canevas ou Word
-    if (canvasStyles && mergedStyles.textIndent) {
-      cssProps.push(`text-indent: ${mergedStyles.textIndent}pt`);
-    } else if (styles.indentation && styles.indentation.firstLine) {
-      cssProps.push(`text-indent: ${styles.indentation.firstLine}pt`);
-    }
-    
-    // Indentation + Marges de page (logique simplifiée)
-    // Par défaut : appliquer les marges de page
-    // Si Word a une marge négative : transformer en padding pour protéger le texte
-    
-    // Si ignoreWordIndentation est true (ex: titre "Sommaire")
-    if (ignoreWordIndentation) {
-      // Pour le margin-left : utiliser uniquement la marge de page du canevas (ignorer l'indentation Word)
-      if (pageMargins && pageMargins.left) {
-        cssProps.push(`margin-left: ${pageMargins.left}pt`);
-      }
-      
-      // Pour le margin-right : appliquer le margin-right négatif de Word avec padding si défini, sinon utiliser la marge du canevas
-      const rightIndent = styles.indentation?.right ?? 0;
-      if (rightIndent < 0) {
-        // Marge négative : sortir du bord + padding pour protéger le texte
-        cssProps.push(`margin-right: ${rightIndent}pt`);
-        cssProps.push(`padding-right: ${pageMargins.right}pt`);
-      } else if (pageMargins && pageMargins.right) {
-        // Pas d'indentation négative : utiliser la marge de page du canevas
-        cssProps.push(`margin-right: ${pageMargins.right}pt`);
       }
     } else {
-      // Logique normale : prendre en compte l'indentation Word
-      const leftIndent = styles.indentation?.left ?? 0;
-      const rightIndent = styles.indentation?.right ?? 0;
-      
-      // Gestion de la marge gauche
-      if (leftIndent < 0) {
-        // Marge négative : sortir du bord + padding pour protéger le texte
-        cssProps.push(`margin-left: ${leftIndent}pt`);
-        cssProps.push(`padding-left: ${pageMargins.left}pt`);
-      } else if (leftIndent > 0) {
-        // Indentation positive : ajouter à la marge de page
-        cssProps.push(`margin-left: ${leftIndent + pageMargins.left}pt`);
-      } else {
-        // Pas d'indentation : appliquer uniquement la marge de page
+      console.warn(`⚠️ Canvas non trouvé dans documentJson`, documentJson);
+    }
+    
+    // Récupérer les marges de page depuis le canvas
+    const pageMargins = canvas?.pageMargins || documentJson?.pageMargins || {
+      top: 70.85,
+      right: 70.85,
+      bottom: 70.85,
+      left: 70.85
+    };
+    
+    // TOUJOURS utiliser le canvas parent (PAS d'écrasement par les styles Word)
+    if (canvasStyles) {
+      if (canvasStyles.fontFamily) cssProps.push(`font-family: '${canvasStyles.fontFamily}'`);
+      if (canvasStyles.fontSize) cssProps.push(`font-size: ${canvasStyles.fontSize}pt`);
+      if (canvasStyles.color) cssProps.push(`color: ${canvasStyles.color}`);
+      if (canvasStyles.fontWeight) cssProps.push(`font-weight: ${canvasStyles.fontWeight}`);
+      if (canvasStyles.textTransform) cssProps.push(`text-transform: ${canvasStyles.textTransform}`);
+      if (canvasStyles.alignment) cssProps.push(`text-align: ${canvasStyles.alignment}`);
+      if (isTitle && canvasStyles.backgroundColor) cssProps.push(`background-color: ${canvasStyles.backgroundColor}`);
+      if (canvasStyles.marginTop !== null && canvasStyles.marginTop !== undefined && canvasStyles.marginTop > 0) {
+        cssProps.push(`padding-top: ${canvasStyles.marginTop}pt`);
+      }
+      if (canvasStyles.marginBottom !== null && canvasStyles.marginBottom !== undefined && canvasStyles.marginBottom > 0) {
+        cssProps.push(`padding-bottom: ${canvasStyles.marginBottom}pt`);
+      }
+      if (!isTitle && canvasStyles.lineHeight) cssProps.push(`line-height: ${canvasStyles.lineHeight}`);
+      if (canvasStyles.textIndent !== null && canvasStyles.textIndent !== undefined) {
+        cssProps.push(`text-indent: ${canvasStyles.textIndent}pt`);
+      }
+    }
+    
+    // Styles inline UNIQUEMENT : gras, italique, underline, backgroundColor
+    if (styles && typeof styles === 'object') {
+      if (styles.bold && (!canvasStyles || !canvasStyles.fontWeight)) cssProps.push('font-weight: bold');
+      if (styles.italic) cssProps.push('font-style: italic');
+      if (styles.underline) cssProps.push('text-decoration: underline');
+      if (!isTitle) {
+        if (styles.backgroundColor) cssProps.push(`background-color: ${styles.backgroundColor}`);
+        if (styles.runBackgroundColor && !styles.backgroundColor) cssProps.push(`background-color: ${styles.runBackgroundColor}`);
+      }
+    }
+    
+    // Marges de page : UNIQUEMENT depuis le canvas parent
+    if (pageMargins) {
+      if (pageMargins.left) {
         cssProps.push(`margin-left: ${pageMargins.left}pt`);
       }
-      
-      // Gestion de la marge droite
-      if (rightIndent < 0) {
-        // Marge négative : sortir du bord + padding pour protéger le texte
-        cssProps.push(`margin-right: ${rightIndent}pt`);
-        cssProps.push(`padding-right: ${pageMargins.right}pt`);
-      } else if (rightIndent > 0) {
-        // Indentation positive : ajouter à la marge de page
-        cssProps.push(`margin-right: ${rightIndent + pageMargins.right}pt`);
-      } else {
-        // Pas d'indentation : appliquer uniquement la marge de page
+      if (pageMargins.right) {
         cssProps.push(`margin-right: ${pageMargins.right}pt`);
       }
     }
@@ -372,7 +348,7 @@
    * Génère une section HTML récursive
    * @param {boolean} hideTitle - Si true, ne pas afficher le titre (pour la vue texte complète)
    */
-  function generateSectionHTML(section, level = 1, hideTitle = false) {
+  function generateSectionHTML(section, level = 1, hideTitle = false, parentIsImported = false) {
     if (!section) return '';
 
     const sectionId = section.id || `section-${Date.now()}-${Math.random()}`;
@@ -386,6 +362,10 @@
     // Vérifier si c'est un document réintégré
     const isDocument = section.isDocument || false;
     const documentId = section.documentId || null;
+    
+    // Hériter du statut importé du parent si la section n'a pas explicitement _imported
+    // Si le parent est importé, tous ses enfants le sont aussi (héritage naturel)
+    const isImportedSection = section._imported === true || parentIsImported;
 
     let html = `<div id="${sectionId}" class="section level-${level} ${isDocument ? 'is-integrated-document' : ''}" data-section-id="${sectionId}" ${isDocument && documentId ? `data-integrated-document-id="${documentId}"` : ''}>`;
     
@@ -408,7 +388,7 @@
       }
       // Pour le titre "Sommaire", ignorer l'indentation Word et utiliser uniquement les marges du canevas
       const ignoreWordIndentation = isSommaire;
-      const titleStyleAttr = stylesToCSS(titleStyles, true, titleLevel, ignoreWordIndentation); // isTitle=true, level requis
+      const titleStyleAttr = stylesToCSS(titleStyles, true, titleLevel, ignoreWordIndentation, section._imported === true);
       const titleStyleString = titleStyleAttr ? ` style="${titleStyleAttr}"` : '';
       
       // Rendre le titre éditable
@@ -426,6 +406,7 @@
       </div>`;
     } else {
       // Contenu normal (paragraphes, images, etc.)
+      const isImportedSection = section._imported === true; // Détecter si section vient d'un sous-canevas (sous-canevas)
       content.forEach(item => {
         if (item.type === 'paragraph') {
         // Si le paragraphe a un saut de page, ajouter un séparateur
@@ -437,14 +418,17 @@
         const styles = item.styles || {};
         
         // Si le paragraphe est vide, afficher &nbsp; pour faciliter l'édition future
-        const displayText = text.trim() === '' ? '&nbsp;' : text;
+        let displayText = text.trim() === '' ? '&nbsp;' : text;
+        
+        // Pour le moment, on garde les variables au format {{namespace:nom_var}} dans le texte
+        // Pas de parsing en spans HTML pour simplifier
         
         // Gérer la couleur de fond : paragraphe vs run
         if (styles.runBackgroundColor && displayText !== '&nbsp;') {
           // Background de run : wrapper le texte dans un <span>
           const paragraphStyles = { ...styles };
           delete paragraphStyles.runBackgroundColor; // Retirer du paragraphe
-          const paragraphStyleAttr = stylesToCSS(paragraphStyles);
+          const paragraphStyleAttr = stylesToCSS(paragraphStyles, false, 1, false, isImportedSection);
           const paragraphStyleString = paragraphStyleAttr ? ` style="${paragraphStyleAttr}"` : '';
           // Rendre le paragraphe éditable
           const paragraphId = item.id || `para_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
@@ -453,7 +437,7 @@
           // Background de paragraphe (ou pas de background)
           // Pour les paragraphes vides, s'assurer que le background est visible
           const styleProps = [];
-          const cssStyles = stylesToCSS(styles);
+          const cssStyles = stylesToCSS(styles, false, 1, false, isImportedSection);
           if (cssStyles) {
             styleProps.push(cssStyles);
           }
@@ -492,9 +476,69 @@
         }
         
         // Construire les styles de l'image
+        // Utiliser le canvas pour la taille (unification du texte)
+        const canvas = documentJson?.canvas;
+        const imageCanvas = canvas?.images?.default;
+        
         const imgStyleProps = [];
-        if (width) imgStyleProps.push(`width: ${width}px`);
-        if (height) imgStyleProps.push(`height: ${height}px`);
+        
+        // Taille depuis le canvas (priorité) ou depuis Word (fallback)
+        let imageWidth = width;
+        let imageHeight = height;
+        
+        if (imageCanvas) {
+          // Utiliser maxWidth depuis le canvas si défini
+          if (imageCanvas.maxWidth) {
+            const maxWidthValue = typeof imageCanvas.maxWidth === 'string' 
+              ? parseFloat(imageCanvas.maxWidth) 
+              : imageCanvas.maxWidth;
+            
+            if (!isNaN(maxWidthValue) && maxWidthValue > 0) {
+              // Si l'image a une largeur Word, prendre le minimum entre Word et canvas
+              if (width && !isNaN(parseFloat(width))) {
+                imageWidth = Math.min(parseFloat(width), maxWidthValue);
+              } else {
+                // Sinon utiliser directement le maxWidth du canvas
+                imageWidth = maxWidthValue;
+              }
+            }
+          }
+          
+          // Utiliser maxHeight depuis le canvas si défini
+          if (imageCanvas.maxHeight) {
+            const maxHeightValue = typeof imageCanvas.maxHeight === 'string' 
+              ? parseFloat(imageCanvas.maxHeight) 
+              : imageCanvas.maxHeight;
+            
+            if (!isNaN(maxHeightValue) && maxHeightValue > 0) {
+              // Si l'image a une hauteur Word, prendre le minimum entre Word et canvas
+              if (height && !isNaN(parseFloat(height))) {
+                imageHeight = Math.min(parseFloat(height), maxHeightValue);
+              } else {
+                // Sinon utiliser directement le maxHeight du canvas
+                imageHeight = maxHeightValue;
+              }
+            }
+          }
+        }
+        
+        // Appliquer les tailles (en pixels)
+        if (imageWidth) {
+          imgStyleProps.push(`width: ${imageWidth}px`);
+        }
+        if (imageHeight) {
+          imgStyleProps.push(`height: ${imageHeight}px`);
+        }
+        
+        // Si maxWidth est défini dans le canvas, l'utiliser comme limite
+        if (imageCanvas?.maxWidth) {
+          const maxWidthValue = typeof imageCanvas.maxWidth === 'string' 
+            ? parseFloat(imageCanvas.maxWidth) 
+            : imageCanvas.maxWidth;
+          if (!isNaN(maxWidthValue) && maxWidthValue > 0) {
+            imgStyleProps.push(`max-width: ${maxWidthValue}px`);
+          }
+        }
         
         // Border radius extrait du Word
         if (item.borderRadius !== null && item.borderRadius !== undefined) {
@@ -612,7 +656,8 @@
     // Enfants récursifs (sauf pour le sommaire qui affiche déjà toutes les sections)
     if (!isSommaire) {
       children.forEach(child => {
-        html += generateSectionHTML(child, level + 1, hideTitle);
+        // Les enfants héritent automatiquement du statut importé du parent
+        html += generateSectionHTML(child, level + 1, hideTitle, isImportedSection);
       });
     }
 
@@ -1619,6 +1664,137 @@
   }
 
   /**
+   * Parse le texte pour remplacer les patterns {{namespace:nom_var}} par des spans HTML
+   * @param {string} text - Texte à parser
+   * @returns {string} HTML avec les variables converties en spans
+   */
+  function parseVariablesInText(text) {
+    if (!text || typeof text !== 'string') return text;
+    
+    // Ne pas parser si le texte contient déjà du HTML (des spans de variables)
+    // Cela évite de parser deux fois
+    if (text.includes('<span') || text.includes('</span>')) {
+      console.log('⚠️ parseVariablesInText: Le texte contient déjà du HTML, on ne parse pas');
+      return text;
+    }
+    
+    // Pattern pour détecter {{...}} (peut contenir namespace:nom_var)
+    const variablePattern = /\{\{([^}]+)\}\}/g;
+    
+    // Vérifier s'il y a des patterns dans le texte
+    if (!variablePattern.test(text)) {
+      return text; // Pas de patterns, retourner tel quel
+    }
+    
+    // Réinitialiser le regex (car test() modifie lastIndex)
+    variablePattern.lastIndex = 0;
+    
+    console.log('🔍 parseVariablesInText: Patterns trouvés dans le texte');
+    
+    // Remplacer chaque pattern par un span HTML
+    return text.replace(variablePattern, (match, varContent) => {
+      // varContent contient le contenu entre les accolades (ex: "namespace:nom_var" ou "nom_var")
+      const varName = varContent.trim();
+      console.log('   → Pattern détecté:', match);
+      
+      // Trouver la variable correspondante dans le variableManager (si disponible)
+      let variable = null;
+      if (typeof variableManager !== 'undefined' && typeof variableManager.getAllVariables === 'function') {
+        const allVars = variableManager.getAllVariables();
+        variable = allVars.find(v => {
+          const pattern = v.pattern || `{{${v.name}}}`;
+          return pattern === match || v.name === varName || v.name.endsWith(':' + varName);
+        });
+        
+        // Si pas trouvé par pattern, chercher par nom
+        if (!variable && varName.includes(':')) {
+          variable = allVars.find(v => v.name === varName);
+        } else if (!variable) {
+          variable = allVars.find(v => {
+            if (v.name === varName) return true;
+            if (v.name === `document:${varName}`) return true;
+            if (v.name.endsWith(`:${varName}`)) return true;
+            return false;
+          });
+        }
+      }
+      
+      // Déterminer le texte à afficher
+      let displayText = varName;
+      if (!displayText.includes(':')) {
+        displayText = `document:${displayText}`;
+      }
+      
+      // Créer le span avec les bonnes classes et attributs
+      const spanClass = 'doc-variable-occurrence';
+      const variableId = variable ? variable.id : '';
+      const originalText = match; // Garder le pattern original pour la sauvegarde
+      
+      console.log('   → Span créé avec pattern:', originalText, 'variableId:', variableId || 'aucun');
+      
+      return `<span class="${spanClass}" data-variable-id="${variableId || ''}" data-original-text="${escapeHtml(originalText)}" contenteditable="false">${escapeHtml(displayText)}</span>`;
+    });
+  }
+  
+  /**
+   * Échappe les caractères HTML pour la sécurité
+   */
+  function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+  }
+
+  /**
+   * Parse le texte pour remplacer les patterns {{namespace:nom_var}} par des spans HTML
+   * @param {string} text - Texte à parser
+   * @returns {string} HTML avec les variables converties en spans
+   */
+  function parseVariablesInText(text) {
+    if (!text || typeof text !== 'string') return text;
+    
+    // Pattern pour détecter {{...}} (peut contenir namespace:nom_var)
+    const variablePattern = /\{\{([^}]+)\}\}/g;
+    
+    // Remplacer chaque pattern par un span HTML
+    return text.replace(variablePattern, (match, varContent) => {
+      // varContent contient le contenu entre les accolades (ex: "namespace:nom_var" ou "nom_var")
+      const varName = varContent.trim();
+      
+      // Trouver la variable correspondante dans le variableManager
+      let variable = null;
+      if (typeof variableManager !== 'undefined' && typeof variableManager.getAllVariables === 'function') {
+        const allVars = variableManager.getAllVariables();
+        // Chercher par pattern exact ou par nom
+        variable = allVars.find(v => {
+          const pattern = v.pattern || `{{${v.name}}}`;
+          return pattern === match || v.name === varName || v.name.endsWith(':' + varName) || v.name === `document:${varName}`;
+        });
+      }
+      
+      // Déterminer le texte à afficher
+      let displayText = varName;
+      if (!displayText.includes(':')) {
+        displayText = `document:${displayText}`;
+      }
+      
+      // Créer le span avec les bonnes classes et attributs
+      const spanClass = 'doc-variable-occurrence';
+      const variableId = variable ? variable.id : '';
+      const originalText = match; // Garder le pattern original pour la sauvegarde
+      
+      // Échapper le HTML dans originalText et displayText pour la sécurité
+      const escapeHtml = (str) => {
+        const div = document.createElement('div');
+        div.textContent = str;
+        return div.innerHTML;
+      };
+      
+      return `<span class="${spanClass}" data-variable-id="${variableId || ''}" data-original-text="${escapeHtml(originalText)}" contenteditable="false">${escapeHtml(displayText)}</span>`;
+    });
+  }
+
+  /**
    * Rend le contenu complet (colonne 2) - tout afficher
    */
   function renderContent() {
@@ -1630,7 +1806,7 @@
 
     let html = '';
     sectionsToRender.forEach(section => {
-      html += generateSectionHTML(section, section.level || 1);
+      html += generateSectionHTML(section, section.level || 1, false, false);
     });
 
     contentArea.innerHTML = html || '<p class="text-muted">Aucun contenu</p>';
@@ -1651,6 +1827,9 @@
       attachScrollPrevention();
       // Attacher les événements d'édition de texte
       attachTextEditEvents();
+      // Les variables sont déjà converties en spans HTML par le parseur parseVariablesInText()
+      // lors du rendu dans generateSectionHTML(), donc pas besoin de restoreVariablesFromPatterns()
+      // qui créerait des conflits
       // Initialiser le rognage d'image
       initImageCrop();
       // Charger les documents réintégrés
@@ -2443,6 +2622,22 @@
       throw new Error('Document non initialisé.');
     }
 
+    // FORCER la sauvegarde de tous les éléments en cours d'édition avant de sauvegarder
+    // Cela garantit que les variables et autres modifications dans le DOM sont synchronisées
+    console.log('💾 Sauvegarde : synchronisation des éléments en cours d\'édition...');
+    const contentArea = document.querySelector('[data-content-area]');
+    if (contentArea) {
+      const editableElements = contentArea.querySelectorAll('.editable-text[contenteditable="true"]');
+      editableElements.forEach(element => {
+        // Forcer le blur pour déclencher handleTextEdit
+        if (document.activeElement === element) {
+          element.blur();
+        }
+      });
+      // Attendre un peu pour que les événements blur soient traités
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+
     const tempMappings = collectTempImageMappings();
     if (tempMappings.length > 0) {
       const promotionResults = await promoteTempImages(tempMappings);
@@ -2454,9 +2649,25 @@
 
     documentJson.sections = sectionsTree;
     
-    // Vérifier que numberingFormats est présent (il doit être préservé depuis le chargement)
+    // S'assurer que numberingFormats est présent dans documentJson pour la sauvegarde
+    // Si absent, il sera préservé par le backend depuis l'existant
     if (!documentJson.numberingFormats) {
       console.warn('⚠️ numberingFormats absent dans documentJson lors de la sauvegarde. Le backend devrait le préserver depuis le document existant.');
+    } else {
+      // S'assurer que numberingFormats est bien envoyé au backend
+      console.log('✅ numberingFormats présent dans documentJson, sera préservé lors de la sauvegarde');
+    }
+
+    // Récupérer le titre du document depuis le document complet (pas seulement json_content)
+    let documentTitle = null;
+    try {
+      const docResponse = await fetch(`${apiBase}/agent-documentaire/document/${documentId}`);
+      const docPayload = await docResponse.json();
+      if (docPayload.success && docPayload.data && docPayload.data.title) {
+        documentTitle = docPayload.data.title;
+      }
+    } catch (e) {
+      console.warn('⚠️ Impossible de récupérer le titre du document:', e);
     }
 
     const response = await fetch(`${apiBase}/agent-documentaire/document/${documentId}`, {
@@ -2464,7 +2675,10 @@
       headers: {
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify({ json_content: documentJson })
+      body: JSON.stringify({ 
+        json_content: documentJson,
+        title: documentTitle // Préserver le titre existant
+      })
     });
 
     const payload = await response.json();
@@ -2475,7 +2689,16 @@
     if (payload.data?.json_content) {
       documentJson = payload.data.json_content;
       sectionsTree = Array.isArray(documentJson.sections) ? documentJson.sections : sectionsTree;
+      
+      // Recalculer la numérotation avec les formats préservés après la sauvegarde
+      recalculateNumbering();
     }
+
+    // NOTE IMPORTANTE : 
+    // - Les CANEVAS/MODÈLES sont des templates réutilisables (créés explicitement)
+    // - Les DOCUMENTS sont des instances créées depuis un canevas
+    // - La sauvegarde ne fait QUE sauvegarder le document, elle ne crée PAS de canevas/modèle
+    // - Les canevas/modèles sont créés explicitement par l'utilisateur via le modal checkAndCreateDocumentTemplate
 
     renderContent();
   }
@@ -3131,16 +3354,23 @@
     const backButton = document.querySelector('[data-cards-back]');
     
     if (!cardsGrid) {
-      console.warn('⚠️ cardsGrid non trouvé');
+      console.warn('⚠️ cardsGrid non trouvé dans le DOM');
+      console.warn('⚠️ Vérification du sélecteur [data-cards-grid]:', document.querySelectorAll('[data-cards-grid]').length);
       return;
     }
+    
+    console.log('🔄 renderCardsWithOptions() - cardsGrid trouvé, sectionsTree.length:', sectionsTree?.length || 0);
 
     // Afficher les sections de niveau 0 (racine) : structurelles uniquement + optionnelles à la racine (sans parent)
     const sectionsToDisplay = sectionsTree || [];
     
+    console.log('🔍 renderCardsWithOptions - sectionsToDisplay.length:', sectionsToDisplay.length);
+    console.log('🔍 renderCardsWithOptions - sectionsToDisplay:', sectionsToDisplay);
+    
     // Filtrer les sections pour n'afficher que le niveau 0
     const filteredSections = sectionsToDisplay.filter(section => {
       if (!section || typeof section !== 'object') {
+        console.log('❌ Section invalide (pas un objet):', section);
         return false;
       }
       
@@ -3148,16 +3378,19 @@
       
       // Exclure le sommaire
       if (titleLower === 'sommaire') {
+        console.log('⏭️ Section exclue (sommaire):', section.title);
         return false;
       }
       
       // Exclure la section "ANNEXES" parente
       if (isAnnexesSectionTitle(section.title)) {
+        console.log('⏭️ Section exclue (annexes):', section.title);
         return false;
       }
       
       // Exclure toutes les annexes (enfants de la section "ANNEXES")
       if (isAnnexSection(section, sectionsTree)) {
+        console.log('⏭️ Section exclue (annexe):', section.title);
         return false;
       }
       
@@ -3166,16 +3399,21 @@
       const isStructural = structure === 'structural' || structure === undefined || structure === null || structure === '';
       const isOptionalActive = structure === 'optional' && section.actif === true;
       
+      console.log(`🔍 Section "${section.title}": structure="${structure}", isStructural=${isStructural}, isOptionalActive=${isOptionalActive}, parent="${section.parent}"`);
+      
       // SIMPLIFICATION : Afficher les sections structurelles ET les sections optionnelles actives
       // Si elle est optionnelle active, elle reste à sa place (dans l'arbre avec son parent)
       // Elle apparaîtra dans les sous-sections quand on double-clique sur son parent
       // Pour le niveau 0 : afficher seulement les sections racine (sans parent ou à la racine)
       if (isOptionalActive && section.parent) {
+        console.log('⏭️ Section exclue (optionnelle avec parent):', section.title);
         return false; // Les sections optionnelles avec parent ne sont pas au niveau 0, elles apparaîtront dans les sous-sections
       }
       
       // Afficher les sections structurelles ou optionnelles actives à la racine
-      return isStructural || (isOptionalActive && !section.parent);
+      const shouldDisplay = isStructural || (isOptionalActive && !section.parent);
+      console.log(`✅ Section "${section.title}" ${shouldDisplay ? 'AFFICHÉE' : 'EXCLUE'}`);
+      return shouldDisplay;
     });
 
     // Collecter toutes les options
@@ -6333,9 +6571,88 @@ const variableManager = (() => {
       
       // Écouter les événements de suppression (Delete, Backspace)
       state.contentRoot.addEventListener('keydown', handleContentKeyDown);
+      
+      // Écouter les double-clics sur les variables pour ouvrir le modal
+      state.contentRoot.addEventListener('dblclick', handleVariableDoubleClick);
     }
 
     renderPanels();
+  }
+  
+  /**
+   * Gère le double-clic sur une variable pour ouvrir le modal d'édition
+   */
+  function handleVariableDoubleClick(event) {
+    const target = event.target;
+    const occurrence = target.closest(`.${OCC_CLASS}`);
+    
+    if (!occurrence) return;
+    
+    const variableId = occurrence.dataset.variableId;
+    if (!variableId) return;
+    
+    const variable = state.variables.find(v => v.id === variableId);
+    if (!variable) return;
+    
+    event.preventDefault();
+    event.stopPropagation();
+    
+    openVariableEditModal(variable);
+  }
+  
+  /**
+   * Ouvre le modal d'édition d'une variable
+   */
+  function openVariableEditModal(variable) {
+    const modal = document.getElementById('variableEditModal');
+    const nameInput = document.getElementById('variableEditName');
+    const typeInput = document.getElementById('variableEditType');
+    
+    if (!modal || !nameInput || !typeInput) return;
+    
+    // Afficher le nom avec namespace
+    let displayName = variable.name;
+    if (!displayName.includes(':')) {
+      displayName = `document:${displayName}`;
+    }
+    nameInput.value = displayName;
+    
+    // Afficher le type
+    const typeLabels = {
+      text: 'Texte',
+      number: 'Nombre',
+      boolean: 'Booléen',
+      image: 'Image',
+      table: 'Tableau'
+    };
+    typeInput.value = typeLabels[variable.type] || variable.type;
+    
+    // Afficher le modal
+    modal.style.display = 'flex';
+    
+    // Fermer le modal
+    const closeBtn = document.getElementById('variableEditModalClose');
+    const cancelBtn = document.getElementById('variableEditCancel');
+    
+    const closeModal = () => {
+      modal.style.display = 'none';
+    };
+    
+    if (closeBtn) {
+      closeBtn.onclick = closeModal;
+    }
+    if (cancelBtn) {
+      cancelBtn.onclick = closeModal;
+    }
+    
+    // Fermer en cliquant en dehors
+    const handleModalClick = (e) => {
+      if (e.target === modal) {
+        closeModal();
+        modal.removeEventListener('click', handleModalClick);
+      }
+    };
+    modal.addEventListener('click', handleModalClick);
   }
   
   function setupOccurrenceDeletionObserver() {
@@ -6592,9 +6909,12 @@ const variableManager = (() => {
       const before = currentNode;
       const matchNode = before.splitText(index);
       const afterNode = matchNode.splitText(pattern.length);
-      const span = createOccurrenceSpan(variable, matchNode.nodeValue);
+      // Utiliser le pattern comme originalText pour pouvoir le restaurer lors de la sauvegarde
+      // Le pattern est soit variable.pattern, soit le pattern trouvé dans le texte
+      const patternToSave = variable.pattern || pattern || `{{${variable.name}}}`;
+      const span = createOccurrenceSpan(variable, patternToSave);
       matchNode.parentNode.replaceChild(span, matchNode);
-      results.push(createOccurrenceRecord(variable, span, matchNode.nodeValue));
+      results.push(createOccurrenceRecord(variable, span, patternToSave));
       currentNode = afterNode;
       remaining = afterNode.nodeValue;
     }
@@ -6602,12 +6922,38 @@ const variableManager = (() => {
     return results;
   }
 
-  function createOccurrenceSpan(variable, text) {
+  function createOccurrenceSpan(variable, pattern) {
     const span = document.createElement('span');
     span.classList.add(OCC_CLASS);
     span.dataset.variableId = variable.id;
-    span.dataset.originalText = text;
-    span.textContent = text;
+    
+    // S'assurer que le pattern est au bon format {{namespace:nom_var}}
+    let patternToSave = pattern || '';
+    
+    // Si le pattern n'est pas déjà au format {{...}}, le créer
+    if (!patternToSave.startsWith('{{') || !patternToSave.endsWith('}}')) {
+      let varName = variable.name;
+      if (!varName.includes(':')) {
+        varName = `document:${varName}`;
+      }
+      patternToSave = `{{${varName}}}`;
+    }
+    
+    // Stocker le pattern dans dataset.originalText pour la sauvegarde
+    span.dataset.originalText = patternToSave;
+    
+    // Afficher le namespace:nom_champ au lieu du pattern
+    // Si la variable a déjà un namespace dans son nom (contient ':'), l'utiliser
+    // Sinon, utiliser 'document:nom_var' pour les variables globales
+    let displayText = variable.name;
+    if (!displayText.includes(':')) {
+      displayText = `document:${displayText}`;
+    }
+    span.textContent = displayText;
+    
+    // Rendre la variable atomique (indestructible)
+    span.contentEditable = false;
+    
     return span;
   }
 
@@ -6669,7 +7015,8 @@ const variableManager = (() => {
     item.className = 'variable-item';
     item.dataset.variableId = variable.id;
     item.dataset.variableItem = 'true';
-    item.setAttribute('draggable', variable.type === 'text');
+    // Toutes les variables sont draggable pour pouvoir les insérer dans le texte
+    item.setAttribute('draggable', 'true');
 
     const header = document.createElement('div');
     header.className = 'variable-item__header';
@@ -6816,7 +7163,8 @@ const variableManager = (() => {
     const variableId = item.dataset.variableId;
     if (!variableId) return;
     const variable = state.variables.find((v) => v.id === variableId);
-    if (!variable || variable.type !== 'text') return;
+    if (!variable) return;
+    // Permettre le drag de toutes les variables (pas seulement 'text')
     event.dataTransfer.setData('text/variable-id', variableId);
     event.dataTransfer.effectAllowed = 'copy';
   }
@@ -6832,7 +7180,8 @@ const variableManager = (() => {
     const variableId = event.dataTransfer ? event.dataTransfer.getData('text/variable-id') : null;
     if (!variableId) return;
     const variable = state.variables.find((v) => v.id === variableId);
-    if (!variable || variable.type !== 'text') return;
+    if (!variable) return;
+    
     event.preventDefault();
     event.stopPropagation();
     
@@ -6842,24 +7191,50 @@ const variableManager = (() => {
       return;
     }
     
-    // Obtenir la position exacte du drop
-    const range = caretRangeFromPoint(event.clientX, event.clientY);
-    if (!range) {
-      showDropErrorMessage('Impossible de déterminer la position du drop');
-      return;
-    }
-    
-    // Vérifier que le drop est dans une section valide
-    if (!isInValidSection(range.startContainer)) {
-      showDropErrorMessage('La variable doit être déposée dans une section (paragraphe, titre, etc.)');
-      return;
-    }
-    
-    const success = insertOccurrenceAtRange(variable, range);
-    if (success) {
-      renderPanels();
+    // Deux cas de figure selon le type de variable
+    if (variable.type === 'image') {
+      // Pour les images : créer un placeholder d'image avec resizeur
+      insertVariableImagePlaceholder(variable, target);
     } else {
-      showDropErrorMessage('Impossible d\'insérer la variable à cet endroit');
+      // Pour les autres types (text, number, etc.) : insérer juste la valeur (nom du champ)
+      const range = caretRangeFromPoint(event.clientX, event.clientY);
+      if (!range) {
+        showDropErrorMessage('Impossible de déterminer la position du drop');
+        return;
+      }
+      
+      // Vérifier que le drop est dans une section valide
+      if (!isInValidSection(range.startContainer)) {
+        showDropErrorMessage('La variable doit être déposée dans une section (paragraphe, titre, etc.)');
+        return;
+      }
+      
+      // Construire le pattern {{namespace:nom_var}}
+      let varName = variable.name;
+      if (!varName.includes(':')) {
+        varName = `document:${varName}`;
+      }
+      const pattern = `{{${varName}}}`;
+      
+      // Insérer directement le pattern comme texte brut
+      try {
+        // Supprimer tout ce qui est sélectionné
+        range.deleteContents();
+        
+        // Insérer le texte à la position du curseur
+        const textNode = document.createTextNode(pattern);
+        range.insertNode(textNode);
+        
+        // Placer le curseur après le texte inséré
+        range.setStartAfter(textNode);
+        range.collapse(true);
+        const selection = window.getSelection();
+        selection.removeAllRanges();
+        selection.addRange(range);
+      } catch (error) {
+        console.error('Erreur lors de l\'insertion du pattern:', error);
+        showDropErrorMessage('Impossible d\'insérer la variable à cet endroit');
+      }
     }
   }
   
@@ -7015,7 +7390,9 @@ const variableManager = (() => {
       return false;
     }
     
-    const text = variable.pattern || variable.name;
+    // Pour les variables texte/nombre : créer le span avec le namespace
+    // Le texte affiché sera le namespace:nom_champ (géré dans createOccurrenceSpan)
+    const text = variable.pattern || `{{${variable.name}}}`;
     const span = createOccurrenceSpan(variable, text);
     const occurrence = createOccurrenceRecord(variable, span, text);
     
@@ -7082,6 +7459,69 @@ const variableManager = (() => {
       console.error('Erreur lors de l\'insertion de l\'occurrence:', error);
       return false;
     }
+  }
+
+  /**
+   * Insère un placeholder d'image pour une variable de type image
+   * @param {Object} variable - Variable de type image
+   * @param {HTMLElement} targetElement - Élément DOM cible
+   */
+  function insertVariableImagePlaceholder(variable, targetElement) {
+    if (!variable || variable.type !== 'image') return;
+    
+    // Trouver la section depuis l'élément cible
+    const sectionElement = targetElement.closest('.section');
+    if (!sectionElement || !sectionElement.dataset.sectionId) {
+      showDropErrorMessage('La variable image doit être déposée dans une section');
+      return;
+    }
+    
+    const sectionId = sectionElement.dataset.sectionId;
+    
+    // Utiliser la fonction findSectionById du scope global (définie dans le fichier principal)
+    if (typeof findSectionById !== 'function') {
+      console.error('findSectionById n\'est pas disponible');
+      showDropErrorMessage('Erreur : impossible de trouver la section');
+      return;
+    }
+    
+    const targetSection = findSectionById(sectionId, sectionsTree);
+    
+    if (!targetSection) {
+      showDropErrorMessage('Section introuvable');
+      return;
+    }
+    
+    if (!Array.isArray(targetSection.content)) {
+      targetSection.content = [];
+    }
+    
+    // Créer un placeholder d'image pour la variable
+    const placeholderImage = {
+      type: 'image',
+      id: `var_img_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+      variableId: variable.id,
+      variableName: variable.name,
+      src: '', // Pas d'image, juste un placeholder
+      name: variable.name,
+      alt: '', // Champ alt à remplir
+      width: 200, // Dimensions par défaut
+      height: 150,
+      locked: { width: false, height: false }, // Permettre le resize
+      textAlign: '',
+      paragraphBackgroundColor: '',
+      isVariable: true, // Marquer comme variable pour l'identifier
+    };
+    
+    targetSection.content.push(placeholderImage);
+    
+    // Re-rendre le contenu pour afficher le placeholder
+    if (typeof renderContent === 'function') {
+      renderContent();
+    }
+    renderPanels();
+    
+    console.log('✅ Placeholder d\'image variable créé:', placeholderImage);
   }
 
   function removeVariable(variableId) {
@@ -7184,9 +7624,283 @@ const variableManager = (() => {
     });
   }
 
+  /**
+   * Charge les variables depuis le document et les collections attachées
+   * @param {Object} docJson - Le JSON du document (json_content)
+   */
+  async function loadVariablesFromDocument(docJson) {
+    if (!docJson || !apiBase) return;
+    
+    try {
+      // D'abord, charger les variables existantes du document
+      if (docJson.variables) {
+        const vars = docJson.variables;
+        if (typeof vars === 'object') {
+          Object.keys(vars).forEach(key => {
+            const varData = vars[key];
+            // Vérifier si la variable n'existe pas déjà
+            const existingVar = state.variables.find(v => v.name === key);
+            if (existingVar) return;
+            
+            const variable = {
+              id: `var_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+              name: key,
+              type: varData.type || 'text',
+              pattern: varData.pattern || `{{${key}}}`,
+              occurrences: varData.occurrences || []
+            };
+            
+            state.variables.push(variable);
+          });
+        }
+      }
+      
+      // Ensuite, charger les variables de la collection attachée au template
+      const templateNamespace = docJson.canvas?.metadata?.name;
+      
+      if (templateNamespace) {
+        // Charger le template pour obtenir le modelNamespace
+        const templateResponse = await fetch(`${apiBase}/agent-documentaire/templates/${encodeURIComponent(templateNamespace)}`);
+        
+        if (templateResponse.ok) {
+          const templatePayload = await templateResponse.json();
+          
+          if (templatePayload.success && templatePayload.data) {
+            const template = templatePayload.data;
+            const modelNamespace = template.modelNamespace;
+            
+            if (modelNamespace) {
+              // Charger le modèle (collection) pour obtenir ses variables
+              const modelResponse = await fetch(`${apiBase}/agent-documentaire/models/${encodeURIComponent(modelNamespace)}`);
+              
+              if (modelResponse.ok) {
+                const modelPayload = await modelResponse.json();
+                
+                if (modelPayload.success && modelPayload.data) {
+                  const model = modelPayload.data;
+                  
+                  // Ajouter les variables de la collection au variableManager
+                  if (model.fields && Array.isArray(model.fields)) {
+                    model.fields.forEach(field => {
+                      // Créer la variable avec le namespace complet
+                      const variableName = `${templateNamespace}:${field.name}`;
+                      
+                      // Vérifier si la variable n'existe pas déjà (avec le nom complet)
+                      const existingVar = state.variables.find(v => v.name === variableName);
+                      if (existingVar) return;
+                      
+                      const variable = {
+                        id: `var_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+                        name: variableName,
+                        type: field.type || 'text',
+                        pattern: `{{${variableName}}}`,
+                        occurrences: []
+                      };
+                      
+                      state.variables.push(variable);
+                    });
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+      
+      // Re-rendre les panneaux avec toutes les variables
+      console.log('📋 Variables chargées:', state.variables.length);
+      renderPanels();
+    } catch (error) {
+      console.warn('⚠️ Erreur lors du chargement des variables:', error);
+    }
+  }
+
+  /**
+   * Obtient une variable par son ID
+   */
+  function getVariableById(variableId) {
+    return state.variables.find(v => v.id === variableId);
+  }
+
+  /**
+   * Restaure les variables depuis les patterns dans le contenu après le rendu
+   */
+  function restoreVariablesFromPatterns() {
+    if (!state.contentRoot || !state.variables.length) return;
+    
+    state.variables.forEach(variable => {
+      if (variable.type === 'text' && variable.pattern) {
+        // Rechercher et remplacer les patterns par des spans
+        wrapOccurrences(variable, variable.pattern);
+      }
+    });
+  }
+
+  /**
+   * Obtient toutes les variables
+   */
+  function getAllVariables() {
+    return state.variables || [];
+  }
+
   return {
     init,
-    clearSelection: () => selectVariable(null, { force: true })
+    clearSelection: () => selectVariable(null, { force: true }),
+    loadVariablesFromDocument,
+    getVariableById,
+    restoreVariablesFromPatterns,
+    getAllVariables
+  };
+})();
+
+/**
+ * Condition Manager - Gestion des conditions dans le document
+ */
+const conditionManager = (() => {
+  const state = {
+    initialized: false,
+    conditions: [],
+    panels: [],
+    contentRoot: null,
+    selectedConditionId: null
+  };
+
+  const CONDITION_CLASS = 'doc-condition-wrapper';
+  const CONDITION_TEXT_CLASS = 'doc-condition-text';
+  const CONDITION_TABS_HOVER_CLASS = 'doc-condition-tabs-hover';
+
+  function init() {
+    if (state.initialized) return;
+    const panelEls = document.querySelectorAll('[data-condition-panel]');
+    if (!panelEls.length) return;
+
+    state.initialized = true;
+    state.contentRoot = document.querySelector('[data-content-area]');
+
+    panelEls.forEach(registerPanel);
+
+    if (state.contentRoot) {
+      // Écouter les double-clics sur les conditions pour ouvrir le modal
+      state.contentRoot.addEventListener('dblclick', handleConditionDoubleClick);
+    }
+
+    renderPanels();
+  }
+
+  function registerPanel(panelEl) {
+    const panel = {
+      el: panelEl,
+      list: panelEl.querySelector('[data-condition-list]'),
+      tabsGroup: panelEl.querySelector('[data-condition-tabs]'),
+      sectionsWrapper: panelEl.querySelector('[data-condition-sections]')
+    };
+
+    if (panel.list) {
+      panel.list.addEventListener('click', handleConditionListClick);
+      panel.list.addEventListener('dragstart', handleConditionDragStart);
+    }
+
+    setupConditionTabs(panel);
+    state.panels.push(panel);
+  }
+
+  function setupConditionTabs(panel) {
+    if (!panel.tabsGroup || !panel.sectionsWrapper) return;
+    const tabs = Array.from(panel.tabsGroup.querySelectorAll('[data-condition-tab]'));
+    const sections = Array.from(panel.sectionsWrapper.querySelectorAll('[data-condition-section]'));
+
+    tabs.forEach((tab) => {
+      tab.addEventListener('click', () => {
+        const target = tab.dataset.conditionTab;
+        const targetSection = sections.find((section) => section.dataset.conditionSection === target);
+        if (!targetSection) return;
+        tabs.forEach((btn) => btn.classList.toggle('is-active', btn === tab));
+        sections.forEach((section) => section.classList.toggle('is-active', section === targetSection));
+      });
+    });
+  }
+
+  function handleConditionListClick(event) {
+    // TODO: Gérer les clics sur la liste des conditions
+  }
+
+  function handleConditionDragStart(event) {
+    // TODO: Gérer le drag & drop des conditions
+  }
+
+  function handleConditionDoubleClick(event) {
+    const target = event.target;
+    const conditionWrapper = target.closest(`.${CONDITION_CLASS}`);
+    
+    if (!conditionWrapper) return;
+    
+    const conditionId = conditionWrapper.dataset.conditionId;
+    if (!conditionId) return;
+    
+    const condition = state.conditions.find(c => c.id === conditionId);
+    if (!condition) return;
+    
+    event.preventDefault();
+    event.stopPropagation();
+    
+    openConditionEditModal(condition);
+  }
+
+  function openConditionEditModal(condition) {
+    // TODO: Ouvrir le modal d'édition de condition
+    console.log('Ouvrir modal condition:', condition);
+  }
+
+  function renderPanels() {
+    state.panels.forEach((panel) => renderPanel(panel));
+  }
+
+  function renderPanel(panel) {
+    if (!panel.list) return;
+    panel.list.innerHTML = '';
+
+    if (!state.conditions.length) {
+      panel.list.innerHTML = '<p class="text-muted">Aucune condition n\'a encore été créée.</p>';
+      return;
+    }
+
+    // TODO: Afficher la liste des conditions
+  }
+
+  async function loadConditionsFromDocument(docJson) {
+    if (!docJson || !apiBase) return;
+    
+    try {
+      if (docJson.conditions) {
+        const conds = docJson.conditions;
+        if (typeof conds === 'object') {
+          Object.keys(conds).forEach(key => {
+            const condData = conds[key];
+            const existingCond = state.conditions.find(c => c.id === key);
+            if (existingCond) return;
+            
+            const condition = {
+              id: key,
+              name: condData.name || key,
+              type: 'condition',
+              activeRuleId: condData.activeRuleId || null,
+              rules: condData.rules || []
+            };
+            
+            state.conditions.push(condition);
+          });
+        }
+      }
+      
+      renderPanels();
+    } catch (error) {
+      console.warn('⚠️ Erreur lors du chargement des conditions:', error);
+    }
+  }
+
+  return {
+    init,
+    loadConditionsFromDocument
   };
 })();
 
@@ -9882,9 +10596,12 @@ function initPropertiesTabs() {
     editableElement.classList.remove('element-selected');
 
     const editType = editableElement.dataset.editType;
-    const newText = editableElement.textContent.trim();
+    let newText;
 
     if (editType === 'title') {
+      // Pour les titres, utiliser textContent (pas de variables)
+      newText = editableElement.textContent.trim();
+      
       // Éditer le titre d'une section
       const sectionId = editableElement.dataset.sectionId;
       if (sectionId) {
@@ -9904,6 +10621,10 @@ function initPropertiesTabs() {
         }
       }
     } else if (editType === 'paragraph') {
+      // Pour les paragraphes, les variables sont déjà au format {{namespace:nom_var}} dans le texte
+      // On utilise simplement textContent qui préserve le format
+      newText = editableElement.textContent.trim() || '\u00A0';
+      
       // Éditer un paragraphe
       const paragraphId = editableElement.dataset.paragraphId;
       if (paragraphId) {
@@ -9911,6 +10632,96 @@ function initPropertiesTabs() {
         updateParagraphText(paragraphId, newText);
       }
     }
+  }
+  
+  /**
+   * Extrait le contenu d'un paragraphe en préservant les variables
+   * Convertit les spans de variables en format {{namespace:nom_var}}
+   */
+  /**
+   * Extrait le contenu d'un paragraphe en préservant les variables
+   * Convertit les spans de variables en format {{namespace:nom_var}}
+   */
+  function extractParagraphContentWithVariables(paragraphElement) {
+    const OCC_CLASS = 'doc-variable-occurrence';
+    
+    // Vérifier si le paragraphe contient des variables
+    const variables = paragraphElement.querySelectorAll(`.${OCC_CLASS}`);
+    
+    if (variables.length === 0) {
+      // Pas de variables, utiliser textContent normal (échapper le HTML éventuel)
+      return paragraphElement.textContent.trim() || '\u00A0';
+    }
+    
+    console.log(`🔍 Extraction: ${variables.length} variable(s) trouvée(s) dans le paragraphe`);
+    
+    // Il y a des variables, il faut les préserver en les convertissant en patterns {{...}}
+    const result = [];
+    
+    // Parcourir tous les nœuds enfants du paragraphe dans l'ordre
+    function processNode(node) {
+      if (node.nodeType === Node.TEXT_NODE) {
+        // Ajouter le texte tel quel
+        const text = node.textContent;
+        if (text) {
+          result.push(text);
+        }
+      } else if (node.nodeType === Node.ELEMENT_NODE) {
+        // Si c'est une variable, la convertir en format {{...}}
+        if (node.classList && node.classList.contains(OCC_CLASS)) {
+          // Utiliser dataset.originalText qui contient le pattern sauvegardé au format {{...}}
+          let pattern = node.dataset.originalText || '';
+          
+          // Si pas de originalText, reconstruire depuis le texte affiché ou le variableId
+          if (!pattern) {
+            if (node.dataset.variableId && typeof variableManager !== 'undefined' && typeof variableManager.getVariableById === 'function') {
+              const variable = variableManager.getVariableById(node.dataset.variableId);
+              if (variable) {
+                // Créer un pattern avec le namespace
+                let varName = variable.name;
+                if (!varName.includes(':')) {
+                  varName = `document:${varName}`;
+                }
+                pattern = `{{${varName}}}`;
+              }
+            }
+            
+            // Si toujours pas de pattern, reconstruire depuis le texte affiché
+            if (!pattern) {
+              const displayText = node.textContent || '';
+              if (displayText.includes(':')) {
+                pattern = `{{${displayText}}}`;
+              } else if (displayText) {
+                pattern = `{{document:${displayText}}}`;
+              }
+            }
+          }
+          
+          if (pattern) {
+            result.push(pattern);
+            console.log('✅ Variable extraite, pattern:', pattern);
+          } else {
+            console.warn('⚠️ Variable trouvée mais pattern vide', node);
+          }
+        } else {
+          // Autre élément (span de style, etc.) - parcourir ses enfants récursivement
+          for (let child = node.firstChild; child; child = child.nextSibling) {
+            processNode(child);
+          }
+        }
+      }
+    }
+    
+    // Parcourir tous les enfants directs du paragraphe
+    for (let child = paragraphElement.firstChild; child; child = child.nextSibling) {
+      processNode(child);
+    }
+    
+    const finalText = result.join('').trim();
+    console.log('📝 Texte final extrait avec variables:', finalText);
+    
+    // Si le résultat est vide, retourner au moins un espace insécable
+    return finalText || '\u00A0';
   }
 
   /**
@@ -10524,7 +11335,7 @@ function initPropertiesTabs() {
             };
           }
           
-          html += generateSectionHTML(integratedSection, integratedSection.level || 1);
+          html += generateSectionHTML(integratedSection, integratedSection.level || 1, false, false);
         });
 
         placeholder.innerHTML = html || '<p class="text-muted">Document vide</p>';
@@ -10554,6 +11365,7 @@ function initPropertiesTabs() {
     initCanvasModal();
     initPropertiesTabs();
     variableManager.init();
+    conditionManager.init();
     initGlobalFocusReset();
     initSaveButton();
     initSidebarOptionsButtons();
@@ -10601,24 +11413,364 @@ function initPropertiesTabs() {
   }
 
   /**
-   * Initialise les boutons du panel "Disponible"
+   * Initialise les boutons du panel "Options" (fusionné avec Disponible)
    */
   function initAvailableTemplatesButtons() {
-    const createTemplateSectionBtn = document.getElementById('createTemplateSectionBtn');
     const importTemplateSectionBtn = document.getElementById('importTemplateSectionBtn');
-
-    if (createTemplateSectionBtn) {
-      createTemplateSectionBtn.addEventListener('click', () => {
-        // TODO: Ouvrir un modal pour créer un nouveau template de section
-        alert('Fonctionnalité "Créer un template de section" à venir...');
-      });
-    }
 
     if (importTemplateSectionBtn) {
       importTemplateSectionBtn.addEventListener('click', () => {
-        // TODO: Ouvrir un modal pour importer un template de section
-        alert('Fonctionnalité "Importer un template de section" à venir...');
+        openImportCanvasModal();
       });
+    }
+
+    // Gestion du modal d'import
+    const importCanvasModal = document.getElementById('importCanvasModal');
+    if (importCanvasModal) {
+      document.getElementById('importCanvasModalClose')?.addEventListener('click', closeImportCanvasModal);
+      document.getElementById('importCanvasCancel')?.addEventListener('click', closeImportCanvasModal);
+    }
+  }
+
+  /**
+   * Ouvre le modal d'import de canevas
+   */
+  async function openImportCanvasModal() {
+    const modal = document.getElementById('importCanvasModal');
+    const canvasList = document.getElementById('importCanvasList');
+    
+    if (!modal || !canvasList) return;
+
+    modal.style.display = 'flex';
+    canvasList.innerHTML = '<p class="text-muted">Chargement des canevas...</p>';
+
+    try {
+      const response = await fetch(`${apiBase}/agent-documentaire/templates`);
+      const payload = await response.json();
+      
+      if (!payload.success) {
+        throw new Error(payload.error || 'Erreur lors du chargement');
+      }
+
+      const templates = payload.data || [];
+      
+      // Filtrer les templates document (canevas) - sans ':' dans le namespace
+      const documentTemplates = templates.filter(t => !t.namespace.includes(':'));
+
+      if (documentTemplates.length === 0) {
+        canvasList.innerHTML = '<p class="text-muted">Aucun canevas disponible. Créez-en un d\'abord.</p>';
+        return;
+      }
+
+      // Fonction escapeHtml locale si nécessaire
+      const escapeHtml = (text) => {
+        if (!text) return '';
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+      };
+
+      canvasList.innerHTML = documentTemplates.map(template => {
+        const createdAt = template.metadata?.createdAt 
+          ? new Date(template.metadata.createdAt).toLocaleDateString('fr-FR') 
+          : 'Date inconnue';
+        
+        return `
+          <div class="canvas-import-item" data-namespace="${template.namespace}" style="padding: 1rem; border: 1px solid #e0e0e0; border-radius: 8px; margin-bottom: 0.75rem; cursor: pointer; transition: all 0.2s;">
+            <div style="font-weight: 600; color: #333; margin-bottom: 0.25rem;">${escapeHtml(template.name || template.namespace)}</div>
+            <div style="font-size: 0.85rem; color: #666;">Créé le ${createdAt}</div>
+          </div>
+        `;
+      }).join('');
+
+      // Ajouter les événements de clic
+      canvasList.querySelectorAll('.canvas-import-item').forEach(item => {
+        item.addEventListener('click', function() {
+          const namespace = this.dataset.namespace;
+          if (namespace) {
+            importCanvas(namespace);
+          }
+        });
+      });
+
+    } catch (error) {
+      console.error('Erreur chargement canevas:', error);
+      canvasList.innerHTML = `<p class="text-danger">Erreur lors du chargement : ${error.message}</p>`;
+    }
+  }
+
+  /**
+   * Ferme le modal d'import de canevas
+   */
+  function closeImportCanvasModal() {
+    const modal = document.getElementById('importCanvasModal');
+    if (modal) {
+      modal.style.display = 'none';
+    }
+  }
+
+  /**
+   * Importe un canevas dans le document actuel
+   */
+  async function importCanvas(templateNamespace) {
+    if (!documentId) {
+      alert('Erreur : Document ID non trouvé');
+      return;
+    }
+
+    try {
+      // Créer un document depuis le template (sans variables pour l'instant)
+      const response = await fetch(`${apiBase}/agent-documentaire/document/from-template`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          templateNamespace: templateNamespace,
+          title: `Importé depuis ${templateNamespace}`,
+          variables: {},
+          templateSource: {
+            templateNamespace: templateNamespace,
+            collectionNamespace: null,
+            collectionEntryId: null,
+            variables: {}
+          }
+        })
+      });
+
+      const payload = await response.json();
+
+      if (!payload.success) {
+        throw new Error(payload.error || 'Erreur lors de l\'import');
+      }
+
+      const importedDocument = payload.data;
+      
+      // Récupérer les sections du document importé
+      const importedSections = importedDocument.json_content?.sections || [];
+      
+      if (importedSections.length === 0) {
+        alert('Le canevas importé ne contient aucune section.');
+        closeImportCanvasModal();
+        return;
+      }
+
+      // Charger le document actuel
+      const currentDocResponse = await fetch(`${apiBase}/agent-documentaire/document/${encodeURIComponent(documentId)}`);
+      const currentDocPayload = await currentDocResponse.json();
+      
+      if (!currentDocPayload.success) {
+        throw new Error('Erreur lors du chargement du document actuel');
+      }
+
+      const currentDocument = currentDocPayload.data;
+      const currentSections = currentDocument.json_content?.sections || [];
+
+      console.log('📥 Import canevas - Sections actuelles:', currentSections.length);
+      console.log('📥 Import canevas - Sections importées:', importedSections.length);
+
+      // Fonction récursive pour normaliser les sections (ID unique, structure, etc.)
+      const normalizeSection = (section, existingIds = new Set()) => {
+        // Générer un ID unique si absent ou en conflit
+        if (!section.id || existingIds.has(section.id)) {
+          section.id = `sec_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+        }
+        existingIds.add(section.id);
+
+        // Pour les sections importées, les mettre en structural pour qu'elles apparaissent dans le cards grid
+        // On force toujours la structure à 'structural' pour les sections importées
+        section.structure = 'structural';
+        
+        // Les sections structurelles n'ont pas besoin de propriété actif (elles sont toujours actives)
+        // Mais on peut supprimer actif si présent pour éviter toute confusion
+        if (section.actif !== undefined) {
+          delete section.actif;
+        }
+        
+        // Supprimer parent et category si présents (les sections structurelles n'en ont pas besoin)
+        if (section.parent !== undefined) {
+          delete section.parent;
+        }
+        if (section.category !== undefined) {
+          delete section.category;
+        }
+        
+        // Marquer les sections importées avec une propriété pour les identifier
+        section._imported = true;
+        
+        console.log(`📥 Section importée normalisée: "${section.title}", structure="${section.structure}"`);
+
+        // S'assurer que la section a un type
+        if (!section.type) {
+          section.type = 'section';
+        }
+
+        // S'assurer que les sections importées n'ont pas de parent (elles sont au niveau racine)
+        // Supprimer la propriété parent si elle existe pour les sections de niveau 0
+        if (section.parent) {
+          console.log(`⚠️ Section "${section.title}" a un parent "${section.parent}", suppression pour l'import au niveau racine`);
+          delete section.parent;
+        }
+
+        // Normaliser récursivement les enfants
+        if (Array.isArray(section.children) && section.children.length > 0) {
+          section.children = section.children.map(child => normalizeSection(child, existingIds));
+        } else if (!section.children) {
+          section.children = [];
+        }
+
+        return section;
+      };
+
+      // Collecter tous les IDs existants dans les sections actuelles
+      const existingIds = new Set();
+      const collectIds = (sections) => {
+        sections.forEach(section => {
+          if (section.id) {
+            existingIds.add(section.id);
+          }
+          if (Array.isArray(section.children)) {
+            collectIds(section.children);
+          }
+        });
+      };
+      collectIds(currentSections);
+
+      // Normaliser toutes les sections importées
+      const normalizedImportedSections = importedSections
+        .map(section => normalizeSection(section, existingIds))
+        .filter(section => {
+          // Filtrer les sections sans titre (elles ne peuvent pas être affichées)
+          if (!section.title || section.title.trim() === '') {
+            console.warn('⚠️ Section sans titre ignorée lors de l\'import:', section);
+            return false;
+          }
+          return true;
+        });
+      
+      console.log('📥 Import canevas - Sections normalisées:', normalizedImportedSections.length);
+
+      // Fusionner les sections importées avec les sections existantes
+      const mergedSections = [...currentSections, ...normalizedImportedSections];
+
+      console.log('📥 Import canevas - Sections fusionnées:', mergedSections.length);
+      console.log('📥 Import canevas - Détail des sections fusionnées:', mergedSections.map(s => ({
+        id: s.id,
+        title: s.title,
+        structure: s.structure,
+        parent: s.parent,
+        level: s.level
+      })));
+
+      // Mettre à jour le document avec les sections fusionnées
+      const updateResponse = await fetch(`${apiBase}/agent-documentaire/document/${encodeURIComponent(documentId)}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          json_content: {
+            ...currentDocument.json_content,
+            sections: mergedSections
+          }
+        })
+      });
+
+      const updatePayload = await updateResponse.json();
+
+      if (!updatePayload.success) {
+        throw new Error(updatePayload.error || 'Erreur lors de la mise à jour');
+      }
+
+      // Vérifier que les sections sont bien dans la réponse
+      const updatedSections = updatePayload.data?.json_content?.sections || [];
+      console.log('📥 Import canevas - Sections dans la réponse de mise à jour:', updatedSections.length);
+      if (updatedSections.length !== mergedSections.length) {
+        console.warn('⚠️ Nombre de sections différent entre fusion et réponse:', {
+          merged: mergedSections.length,
+          updated: updatedSections.length
+        });
+      }
+
+      // Supprimer le document temporaire créé
+      try {
+        await fetch(`${apiBase}/agent-documentaire/document/${encodeURIComponent(importedDocument._id || importedDocument.id)}`, {
+          method: 'DELETE'
+        });
+      } catch (deleteError) {
+        console.warn('Erreur lors de la suppression du document temporaire:', deleteError);
+      }
+
+      alert(`✅ Canevas importé avec succès ! ${importedSections.length} section(s) ajoutée(s).`);
+      closeImportCanvasModal();
+      
+      // Recharger le document et forcer le rafraîchissement des cards
+      if (typeof loadDocument === 'function') {
+        await loadDocument();
+        
+        // Vérifier que sectionsTree a bien été mis à jour
+        console.log('📊 Après import - sectionsTree.length:', sectionsTree.length);
+        console.log('📊 Après import - sectionsTree:', sectionsTree);
+        
+        // Vérifier que le conteneur cards-grid existe
+        const cardsGrid = document.querySelector('[data-cards-grid]');
+        console.log('📊 Après import - cardsGrid trouvé:', cardsGrid ? 'OUI' : 'NON');
+        
+        // Vérifier si la vue cards est active
+        const cardsView = document.querySelector('.view-card.is-active');
+        console.log('📊 Après import - Vue cards active:', cardsView ? 'OUI' : 'NON');
+        
+        // Attendre un peu pour s'assurer que tout est bien chargé
+        setTimeout(() => {
+          // Forcer le rafraîchissement des cards après le chargement
+          console.log('🔄 Rafraîchissement des cards après import...');
+          
+          // Vérifier à nouveau que sectionsTree est bien rempli
+          if (!sectionsTree || sectionsTree.length === 0) {
+            console.error('❌ sectionsTree est vide après import !');
+            console.log('📊 documentJson.sections:', documentJson?.sections);
+            // Essayer de récupérer les sections depuis documentJson
+            if (documentJson?.sections && Array.isArray(documentJson.sections)) {
+              sectionsTree = documentJson.sections;
+              console.log('✅ sectionsTree récupéré depuis documentJson, longueur:', sectionsTree.length);
+            } else {
+              console.error('❌ documentJson.sections n\'existe pas ou n\'est pas un tableau');
+              return;
+            }
+          }
+          
+          // Forcer le rendu même si la vue n'est pas active
+          if (typeof renderCardsWithOptions === 'function') {
+            renderCardsWithOptions();
+            console.log('✅ renderCardsWithOptions() appelé');
+            
+            // Vérifier que le HTML a bien été injecté
+            setTimeout(() => {
+              const cardsGridAfter = document.querySelector('[data-cards-grid]');
+              if (cardsGridAfter) {
+                const cardsCount = cardsGridAfter.querySelectorAll('.section-card').length;
+                console.log('📊 Nombre de cards affichées:', cardsCount);
+                if (cardsCount === 0) {
+                  console.error('❌ Aucune card affichée malgré renderCardsWithOptions()');
+                  console.log('📊 Contenu de cardsGrid:', cardsGridAfter.innerHTML.substring(0, 200));
+                }
+              }
+            }, 200);
+          } else if (typeof renderCards === 'function') {
+            renderCards();
+            console.log('✅ renderCards() appelé');
+          } else {
+            console.error('❌ Aucune fonction de rendu de cards trouvée');
+          }
+        }, 100);
+      } else {
+        // Recharger la page si la fonction n'est pas disponible
+        window.location.reload();
+      }
+
+    } catch (error) {
+      console.error('Erreur import canevas:', error);
+      alert(`Erreur lors de l'import : ${error.message}`);
     }
   }
 
@@ -10867,6 +12019,210 @@ function initPropertiesTabs() {
       templateCheckDone = true;
       // En cas d'erreur, on continue quand même (pas bloquant)
     }
+  }
+
+  /**
+   * Affiche le modal pour demander le nom du document avant extraction Word
+   */
+  async function showDocumentNameModalForExtraction() {
+    const modal = document.getElementById('templateNameModal');
+    const input = document.getElementById('templateNameInput');
+    const submitBtn = document.getElementById('templateNameSubmit');
+    const modalTitle = modal?.querySelector('h3');
+    const modalDescription = modal?.querySelector('.text-muted');
+    const label = modal?.querySelector('label[for="templateNameInput"]');
+
+    if (!modal || !input || !submitBtn) {
+      console.error('Modal template name non trouvé');
+      return;
+    }
+
+    // Adapter le modal pour demander le nom du document
+    if (modalTitle) modalTitle.textContent = '📝 Nom du document';
+    if (modalDescription) modalDescription.textContent = 'Veuillez donner un nom à votre document. Ce nom sera utilisé pour créer le document depuis Word.';
+    if (label) label.textContent = 'Nom du document';
+
+    // Récupérer le titre depuis Word en faisant une extraction sans créer le document
+    // On passe un documentId temporaire ou on extrait juste pour récupérer le titre
+    input.value = 'Chargement du titre depuis Word...';
+    input.disabled = true;
+    modal.style.display = 'flex';
+
+    try {
+      // Faire une extraction sans titre pour que le backend utilise celui du Word
+      // On va créer un document temporaire puis le supprimer, ou mieux : extraire sans sauvegarder
+      const extractResponse = await fetch(`${apiBase}/agent-documentaire/extract/null`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          // Ne pas passer de title pour que le backend utilise celui du Word
+        })
+      });
+
+      let extractedTitle = 'Nouveau document depuis Word';
+      
+      if (extractResponse.ok) {
+        const extractPayload = await extractResponse.json();
+        if (extractPayload.success && extractPayload.data) {
+          // Récupérer le titre depuis les métadonnées du JSON extrait
+          extractedTitle = extractPayload.data.json_content?.metadata?.title 
+            || extractPayload.data.title 
+            || extractPayload.data.original_filename?.replace(/\.docx?$/i, '')
+            || extractedTitle;
+          
+          // Supprimer le document temporaire créé
+          const tempDocId = extractPayload.data._id || extractPayload.data.id;
+          if (tempDocId) {
+            try {
+              await fetch(`${apiBase}/agent-documentaire/document/${tempDocId}`, {
+                method: 'DELETE'
+              });
+            } catch (deleteError) {
+              console.warn('⚠️ Erreur suppression document temporaire (non bloquant):', deleteError);
+            }
+          }
+        }
+      }
+
+      // Préremplir avec le titre extrait
+      input.value = extractedTitle;
+      input.disabled = false;
+      input.placeholder = 'Ex: Dossier technique moteur';
+      setTimeout(() => input.focus(), 100);
+      input.select(); // Sélectionner le texte pour faciliter la modification
+
+    } catch (error) {
+      console.warn('⚠️ Erreur récupération titre Word (non bloquant):', error);
+      // En cas d'erreur, utiliser une valeur par défaut
+      input.value = 'Nouveau document depuis Word';
+      input.disabled = false;
+      input.placeholder = 'Ex: Dossier technique moteur';
+      setTimeout(() => input.focus(), 100);
+    }
+
+    // Gérer la soumission
+    const handleSubmit = async () => {
+      const documentName = input.value.trim();
+      
+      if (!documentName) {
+        alert('Veuillez entrer un nom pour le document');
+        return;
+      }
+
+      // Désactiver le bouton pendant la création
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Création...';
+
+      try {
+        // Extraire Word → JSON avec le nom fourni
+        const response = await fetch(`${apiBase}/agent-documentaire/extract/null`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            title: documentName
+          })
+        });
+
+        const payload = await response.json();
+        
+        if (!payload.success) {
+          throw new Error(payload.error || 'Erreur lors de l\'extraction');
+        }
+
+        const newDocumentId = payload.data._id || payload.data.id;
+        
+        if (!newDocumentId) {
+          throw new Error('Document créé mais ID non trouvé');
+        }
+
+        // Créer automatiquement le template document avec le nom du document
+        // Normaliser le nom pour le namespace (minuscules, underscores, sans accents)
+        const normalizedName = documentName
+          .toLowerCase()
+          .normalize('NFD')
+          .replace(/[\u0300-\u036f]/g, '')
+          .replace(/\s+/g, '_')
+          .replace(/[^a-z0-9_]/g, '');
+
+        if (normalizedName.length > 0) {
+          try {
+            // D'abord, mettre à jour le document pour ajouter le nom du template dans le canvas
+            const docResponse = await fetch(`${apiBase}/agent-documentaire/document/${newDocumentId}`);
+            const docPayload = await docResponse.json();
+            
+            if (docPayload.success && docPayload.data) {
+              const currentJsonContent = docPayload.data.json_content || {};
+              
+              // S'assurer que le canvas existe et a les métadonnées
+              if (!currentJsonContent.canvas) {
+                currentJsonContent.canvas = {};
+              }
+              if (!currentJsonContent.canvas.metadata) {
+                currentJsonContent.canvas.metadata = {};
+              }
+              
+              // Mettre le nom du template dans le canvas
+              currentJsonContent.canvas.metadata.name = normalizedName;
+              
+              // Mettre à jour le document avec le canvas modifié
+              await fetch(`${apiBase}/agent-documentaire/document/${newDocumentId}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ json_content: currentJsonContent })
+              });
+            }
+            
+            // Créer le template document
+            const templateResponse = await fetch(`${apiBase}/agent-documentaire/templates/document`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                namespace: normalizedName,
+                documentId: newDocumentId
+              })
+            });
+
+            const templatePayload = await templateResponse.json();
+            
+            if (templatePayload.success) {
+              console.log('✅ Template document créé automatiquement:', normalizedName);
+            } else if (templateResponse.status === 409) {
+              console.log('ℹ️ Template document existe déjà:', normalizedName);
+            } else {
+              console.warn('⚠️ Erreur création template (non bloquant):', templatePayload.error);
+            }
+          } catch (templateError) {
+            console.warn('⚠️ Erreur création template (non bloquant):', templateError);
+            // Ne pas bloquer si la création du template échoue
+          }
+        }
+
+        // Fermer le modal
+        modal.style.display = 'none';
+
+        // Recharger la page avec le nouveau documentId
+        window.location.href = `?document=${newDocumentId}`;
+
+      } catch (error) {
+        console.error('❌ Erreur création document:', error);
+        alert(`Erreur lors de la création du document : ${error.message}`);
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Continuer';
+      }
+    };
+
+    // Nettoyer les anciens listeners et en ajouter un nouveau
+    const newSubmitBtn = submitBtn.cloneNode(true);
+    submitBtn.parentNode.replaceChild(newSubmitBtn, submitBtn);
+    newSubmitBtn.addEventListener('click', handleSubmit);
+
+    // Gérer Enter dans l'input
+    const handleEnter = (e) => {
+      if (e.key === 'Enter') {
+        handleSubmit();
+      }
+    };
+    input.addEventListener('keydown', handleEnter);
   }
 
   /**

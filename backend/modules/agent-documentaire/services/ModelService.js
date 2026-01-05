@@ -60,6 +60,7 @@ class ModelService {
       name: name,
       fields: Array.isArray(fields) ? [...fields] : [],
       variants: Array.isArray(variants) ? [...variants] : [],
+      referenceFields: [], // Champs utilisés comme référence pour la sélection dans les templates
       metadata: {
         createdAt: new Date(),
         updatedAt: new Date()
@@ -132,6 +133,35 @@ class ModelService {
 
     const result = await this.collection.deleteOne({ _id: model._id });
     return result.deletedCount > 0;
+  }
+
+  /**
+   * Met à jour les variants (entrées) d'un modèle
+   * @param {string} identifier - Namespace ou nom du modèle
+   * @param {Array} variants - Nouveau tableau de variants
+   * @returns {Promise<Object>} Modèle mis à jour
+   */
+  async updateVariants(identifier, variants) {
+    if (!Array.isArray(variants)) {
+      throw new Error('variants doit être un tableau');
+    }
+
+    const model = await this.getModel(identifier);
+    if (!model) {
+      throw new Error(`Modèle "${identifier}" non trouvé`);
+    }
+
+    await this.collection.updateOne(
+      { _id: model._id },
+      { 
+        $set: { 
+          variants: variants,
+          'metadata.updatedAt': new Date()
+        } 
+      }
+    );
+
+    return await this.getModel(identifier);
   }
 
   /**

@@ -21,7 +21,7 @@ require_once '../../../includes/header.php';
     <div class="container">
         <div class="hero-content">
             <div>
-                <h1>Éditeur de modèle documentaire</h1>
+                <h1 id="editorTitle">Éditeur de modèle documentaire</h1>
                 <p class="hero-description">
                     JSON = source de vérité. Modifiez vos sections, contenu et images en temps réel.
                 </p>
@@ -85,6 +85,7 @@ require_once '../../../includes/header.php';
                         <div class="properties-tabs" data-properties-tabs="main-properties">
                             <button class="properties-tab is-active" data-properties-tab="properties">Propriétés</button>
                             <button class="properties-tab" data-properties-tab="variables">Variables</button>
+                            <button class="properties-tab" data-properties-tab="conditions">Conditions</button>
                         </div>
                     </div>
                     <div class="doc-panel__body">
@@ -132,6 +133,24 @@ require_once '../../../includes/header.php';
                                                         <button type="submit" class="btn btn-primary btn-sm">Ajouter la variable</button>
                                                     </div>
                                                 </form>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="properties-panel" data-properties-panel="conditions">
+                                    <div class="condition-panel" data-condition-panel="main">
+                                        <div class="condition-tabs" data-condition-tabs="main-conditions">
+                                            <button class="condition-tab is-active" data-condition-tab="list">Liste</button>
+                                            <button class="condition-tab" data-condition-tab="create">Nouvelle condition</button>
+                                        </div>
+                                        <div class="condition-sections" data-condition-sections="main-conditions">
+                                            <div class="condition-section is-active" data-condition-section="list">
+                                                <div class="condition-list" data-condition-list>
+                                                    <p class="text-muted">Aucune condition n'a encore été créée.</p>
+                                                </div>
+                                            </div>
+                                            <div class="condition-section" data-condition-section="create">
+                                                <p class="text-muted">Formulaire de création de condition à venir...</p>
                                             </div>
                                         </div>
                                     </div>
@@ -187,37 +206,37 @@ require_once '../../../includes/header.php';
                         </div>
                     </div>
 
-                    <!-- Panel Options -->
+                    <!-- Panel Options (fusionné avec Disponible) -->
                     <div class="doc-panel">
                         <div class="doc-panel__header">
                             <h3>Options</h3>
-                            <button class="btn btn-sm btn-outline" id="recoverOptionalSectionsBtn" title="Récupérer les sections optionnelles perdues">
-                                🔄 Récupérer
-                            </button>
-                        </div>
-                        <div class="doc-panel__body">
-                            <div class="cards-grid" data-options-grid>
-                                <p class="text-muted">Chargement...</p>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Panel Disponible (Templates de sections) -->
-                    <div class="doc-panel">
-                        <div class="doc-panel__header">
-                            <h3>Disponible</h3>
                             <div class="doc-panel__header-actions">
-                                <button class="btn btn-sm btn-outline" id="createTemplateSectionBtn" title="Créer un nouveau template de section">
-                                    ➕ Créer
+                                <button class="btn btn-sm btn-outline" id="recoverOptionalSectionsBtn" title="Récupérer les sections optionnelles perdues">
+                                    🔄 Récupérer
                                 </button>
-                                <button class="btn btn-sm btn-outline" id="importTemplateSectionBtn" title="Importer un template de section">
-                                    📥 Importer
+                                <button class="btn btn-sm btn-primary" id="importTemplateSectionBtn" title="Importer un canevas existant">
+                                    📥 Importer un canevas
                                 </button>
                             </div>
                         </div>
                         <div class="doc-panel__body">
-                            <div class="templates-list" id="availableTemplatesList">
-                                <p class="text-muted">Chargement des templates...</p>
+                            <!-- Section Options -->
+                            <div style="margin-bottom: 2rem;">
+                                <h4 style="margin: 0 0 1rem 0; font-size: 1rem; color: #666;">Sections optionnelles</h4>
+                                <div class="cards-grid" data-options-grid>
+                                    <p class="text-muted">Chargement...</p>
+                                </div>
+                            </div>
+                            
+                            <!-- Séparateur -->
+                            <div style="border-top: 2px solid #e0e0e0; margin: 1.5rem 0;"></div>
+                            
+                            <!-- Section Disponible (Templates de sections) -->
+                            <div>
+                                <h4 style="margin: 0 0 1rem 0; font-size: 1rem; color: #666;">Templates disponibles</h4>
+                                <div class="templates-list" id="availableTemplatesList">
+                                    <p class="text-muted">Chargement des templates...</p>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -338,6 +357,33 @@ require_once '../../../includes/header.php';
         </div>
         <div class="modal-footer">
             <button type="button" class="btn btn-primary" id="templateNameSubmit">Continuer</button>
+        </div>
+    </div>
+</div>
+
+<!-- Modal Édition Variable -->
+<div class="modal-overlay" id="variableEditModal" style="display: none;">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3>📝 Éditer variable</h3>
+            <button class="modal-close" id="variableEditModalClose">&times;</button>
+        </div>
+        <div class="modal-body">
+            <form id="variableEditForm">
+                <div class="form-group">
+                    <label>Nom de la variable</label>
+                    <input type="text" id="variableEditName" class="form-control" readonly>
+                    <small class="form-text text-muted">Le nom de la variable ne peut pas être modifié</small>
+                </div>
+                <div class="form-group">
+                    <label>Type attendu</label>
+                    <input type="text" id="variableEditType" class="form-control" readonly>
+                    <small class="form-text text-muted">Type de données attendu pour cette variable</small>
+                </div>
+            </form>
+        </div>
+        <div class="modal-footer">
+            <button type="button" class="btn btn-outline" id="variableEditCancel">Fermer</button>
         </div>
     </div>
 </div>
@@ -733,6 +779,25 @@ require_once '../../../includes/header.php';
         <div class="modal-footer">
             <button type="button" class="btn btn-outline" id="createOptionDocumentCancel">Annuler</button>
             <button type="button" class="btn btn-primary" id="createOptionDocumentCreate">Créer et ouvrir</button>
+        </div>
+    </div>
+</div>
+
+<!-- Modal Importer un canevas -->
+<div class="modal-overlay" id="importCanvasModal" style="display: none;">
+    <div class="modal-content" style="max-width: 700px;">
+        <div class="modal-header">
+            <h3>📥 Importer un canevas</h3>
+            <button class="modal-close" id="importCanvasModalClose">&times;</button>
+        </div>
+        <div class="modal-body">
+            <p style="margin-bottom: 1.5rem; color: #666;">Sélectionnez un canevas existant à importer dans ce document :</p>
+            <div id="importCanvasList" style="max-height: 400px; overflow-y: auto;">
+                <p class="text-muted">Chargement des canevas...</p>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button type="button" class="btn btn-outline" id="importCanvasCancel">Annuler</button>
         </div>
     </div>
 </div>
