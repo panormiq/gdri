@@ -32,6 +32,13 @@ export default class RichTextEditor {
     this.pageBreakObserver = null; // Observer pour gérer les sauts de page
     this.pageBreakCheckTimeout = null; // Timeout pour debounce des vérifications de saut de page
     this.recalculateSpacersTimeout = null; // Timeout pour debounce du recalcul des spacers
+    
+    // Images en attente d'upload (seront uploadées lors de la sauvegarde)
+    this.pendingImageUploads = new Map(); // key: img element, value: { file, tempUrl }
+    
+    // Callbacks pour notifier FormatTab
+    this.onImageSelected = null;
+    this.onImageDeselected = null;
   }
 
   render(container) {
@@ -59,8 +66,21 @@ export default class RichTextEditor {
       this.handleContentChange();
       // Rendre les variables draggables après chaque modification
       this.makeVariablesDraggable();
+      
+      // Maintenir le scroll en bas si on est sur la dernière ligne
+      this.maintainScrollAtBottom();
     };
     this.editorElement.onpaste = (e) => this.handlePaste(e);
+    
+    // Désélectionner les images quand on clique ailleurs
+    this.editorElement.onclick = (e) => {
+      // Si on ne clique pas sur une image ou ses contrôles
+      if (!e.target.closest('.template-image-container')) {
+        document.querySelectorAll('.template-image-container.selected').forEach(container => {
+          this.deselectImage(container);
+        });
+      }
+    };
     
     // Gérer la touche Entrée dans un titre : créer un paragraphe et mettre à jour la numérotation
     this.editorElement.addEventListener('keydown', (e) => {
@@ -97,6 +117,24 @@ export default class RichTextEditor {
         }, 100);
       }
     });
+    
+    // Le scroll est maintenant géré par le container parent (.template-builder-center)
+    // S'assurer que le padding-top reste visible lors du scroll
+    const scrollContainer = this.editorElement.closest('.template-builder-center');
+    if (scrollContainer) {
+      // Observer les changements de scroll pour s'assurer que le padding-top reste visible
+      scrollContainer.addEventListener('scroll', () => {
+        const computedStyle = window.getComputedStyle(this.editorElement);
+        const paddingTop = parseFloat(computedStyle.paddingTop) || 0;
+        const editorRect = this.editorElement.getBoundingClientRect();
+        const containerRect = scrollContainer.getBoundingClientRect();
+        
+        // Si le padding-top est scrollé hors de la vue, le remettre en place
+        if (scrollContainer.scrollTop > 0 && editorRect.top < containerRect.top + paddingTop) {
+          // Le padding-top est visible, pas besoin d'ajustement
+        }
+      });
+    }
     
     // Gestion du drag & drop pour les variables
     this.dragCaretIndicator = null;
@@ -854,7 +892,14 @@ export default class RichTextEditor {
         if (margins.top) {
           const topValue = parseFloat(margins.top) || 0;
           const topUnit = margins.top.replace(/[\d.-]/g, '') || 'px';
-          this.editorElement.style.paddingTop = `calc(${topValue}${topUnit} * var(--scale-ratio, ${scaleRatio}))`;
+          const paddingTopValue = `calc(${topValue}${topUnit} * var(--scale-ratio, ${scaleRatio}))`;
+          this.editorElement.style.paddingTop = paddingTopValue;
+          // S'assurer que le container parent respecte aussi le padding-top
+          const scrollContainer = this.editorElement.closest('.template-builder-center');
+          if (scrollContainer) {
+            // Le padding-top doit être visible, donc on ne l'applique pas au container
+            // mais on s'assure que le scroll commence bien après le padding
+          }
         }
         if (margins.right) {
           const rightValue = parseFloat(margins.right) || 0;
@@ -989,16 +1034,16 @@ export default class RichTextEditor {
       size = PAGE_SIZES[pageSize] || PAGE_SIZES.A4;
     }
     
-    const pxPerCm = 37.795275591;
-    const pageHeightCm = orientation === 'portrait' ? size.height : size.width;
-    const pageWidthCm = orientation === 'portrait' ? size.width : size.height;
-    
-    // Calculer la hauteur de page
+    // Calculer la hauteur de page en fonction de la largeur de l'éditeur
+    // Formule : hauteur = (largeur_éditeur / largeur_format_cm) * hauteur_format_cm
+    // Exemple A4 portrait : si largeur = 600px, hauteur = 600 / 21 * 29.7
     const editorRect = this.editorElement.getBoundingClientRect();
     const editorWidth = editorRect.width;
-    const realWidthPx = pageWidthCm * pxPerCm;
-    const realHeightPx = pageHeightCm * pxPerCm;
-    const pageHeightPx = (editorWidth / realWidthPx) * realHeightPx;
+    const pageWidthCm = orientation === 'portrait' ? size.width : size.height;
+    const pageHeightCm = orientation === 'portrait' ? size.height : size.width;
+    
+    // Calculer la hauteur de page directement avec le ratio
+    const pageHeightPx = (editorWidth / pageWidthCm) * pageHeightCm;
     
     const margins = this.template?.generalStyles?.default?.margin || {};
     const marginTop = this.parseMargin(margins.top || '2.5cm', scaleRatio);
@@ -1058,9 +1103,9 @@ export default class RichTextEditor {
       const elementBottom = positionInCurrentPage + elementHeight + marginBottomEl;
       
       if (elementBottom > pageLimit) {
-        // Calculer la hauteur disponible
-        const availableHeight = Math.max(0, pageLimit - positionInCurrentPage);
-        const footerHeight = marginBottom + availableHeight;
+        // Footer réduit à une ligne minimum (hauteur de ligne)
+        const lineHeight = parseFloat(getComputedStyle(this.editorElement).lineHeight) || 19.2;
+        const footerHeight = marginBottom + lineHeight; // Une ligne minimum
         
         // Créer le footer spacer
         const footerSpacer = document.createElement('p');
@@ -1146,16 +1191,16 @@ export default class RichTextEditor {
       size = PAGE_SIZES[pageSize] || PAGE_SIZES.A4;
     }
     
-    const pxPerCm = 37.795275591;
-    const pageHeightCm = orientation === 'portrait' ? size.height : size.width;
-    const pageWidthCm = orientation === 'portrait' ? size.width : size.height;
-    
-    // Calculer la hauteur de page
+    // Calculer la hauteur de page en fonction de la largeur de l'éditeur
+    // Formule : hauteur = (largeur_éditeur / largeur_format_cm) * hauteur_format_cm
+    // Exemple A4 portrait : si largeur = 600px, hauteur = 600 / 21 * 29.7
     const editorRect = this.editorElement.getBoundingClientRect();
     const editorWidth = editorRect.width;
-    const realWidthPx = pageWidthCm * pxPerCm;
-    const realHeightPx = pageHeightCm * pxPerCm;
-    const pageHeightPx = (editorWidth / realWidthPx) * realHeightPx;
+    const pageWidthCm = orientation === 'portrait' ? size.width : size.height;
+    const pageHeightCm = orientation === 'portrait' ? size.height : size.width;
+    
+    // Calculer la hauteur de page directement avec le ratio
+    const pageHeightPx = (editorWidth / pageWidthCm) * pageHeightCm;
     
     const margins = this.template?.generalStyles?.default?.margin || {};
     const marginTop = this.parseMargin(margins.top || '2.5cm', scaleRatio);
@@ -1341,7 +1386,7 @@ export default class RichTextEditor {
       // Insérer après le header
       headerSpacer.parentNode.insertBefore(newParagraph, headerSpacer.nextSibling);
       
-      // Placer le caret dans le nouveau paragraphe
+        // Placer le caret dans le nouveau paragraphe
       setTimeout(() => {
         const range = document.createRange();
         const selection = window.getSelection();
@@ -1353,8 +1398,8 @@ export default class RichTextEditor {
         // Focus sur l'éditeur pour que le caret soit visible
         this.editorElement.focus();
         
-        // Scroller pour que le nouveau paragraphe soit visible
-        newParagraph.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        // Ne pas scroller automatiquement pour éviter les sauts désagréables
+        // Le scroll se fera naturellement si nécessaire
       }, 10);
     }
   }
@@ -1376,6 +1421,51 @@ export default class RichTextEditor {
         // (logique à implémenter si nécessaire)
       }
     });
+  }
+  
+  maintainScrollAtBottom() {
+    // Détecter si on est sur la dernière ligne et maintenir le scroll en bas
+    if (!this.editorElement) return;
+    
+    const selection = window.getSelection();
+    if (selection.rangeCount === 0) return;
+    
+    const range = selection.getRangeAt(0);
+    let element = range.startContainer;
+    if (element.nodeType === Node.TEXT_NODE) {
+      element = element.parentElement;
+    }
+    
+    // Trouver le paragraphe parent
+    while (element && element !== this.editorElement) {
+      if (element.tagName === 'P' || 
+          element.classList.contains('doc-title-level-1') || 
+          element.classList.contains('doc-title-level-2') || 
+          element.classList.contains('doc-title-level-3')) {
+        break;
+      }
+      element = element.parentElement;
+    }
+    
+    if (!element || element === this.editorElement) return;
+    
+    // Vérifier si c'est le dernier élément éditable
+    const allElements = Array.from(this.editorElement.querySelectorAll('p, div.doc-title-level-1, div.doc-title-level-2, div.doc-title-level-3'))
+      .filter(el => !el.classList.contains('margin-spacer-footer') && !el.classList.contains('margin-spacer-header'));
+    
+    const lastElement = allElements[allElements.length - 1];
+    
+    // Si on est sur le dernier élément, maintenir le scroll en bas
+    if (lastElement && (element === lastElement || element.contains(lastElement) || lastElement.contains(element))) {
+      // Le container parent qui gère le scroll (template-builder-center)
+      const scrollContainer = this.editorElement.closest('.template-builder-center');
+      if (scrollContainer) {
+        // Attendre que le DOM soit mis à jour
+        setTimeout(() => {
+          scrollContainer.scrollTop = scrollContainer.scrollHeight;
+        }, 10);
+      }
+    }
   }
   
   moveCursorToEditableZone(yPosition) {
@@ -1517,7 +1607,18 @@ export default class RichTextEditor {
   }
 
   renderAllSections() {
-    if (!this.editorElement || !this.template || !this.template.structure) return;
+    if (!this.editorElement || !this.template) return;
+    
+    // Si le template a un contenu HTML sauvegardé, l'utiliser au lieu de régénérer depuis la structure
+    // Cela préserve les images et autres éléments HTML complexes qui ne sont pas dans la structure JSON
+    if (this.template.content && this.template.content.trim()) {
+      console.log('📄 Utilisation du contenu HTML sauvegardé au lieu de régénérer depuis la structure');
+      this.setContent(this.template.content);
+      return;
+    }
+    
+    // Sinon, régénérer depuis la structure JSON (comportement par défaut)
+    if (!this.template.structure) return;
     
     const sections = this.template.structure.sections || [];
     if (sections.length === 0) {
@@ -1945,6 +2046,27 @@ export default class RichTextEditor {
       }
     }
     
+    // Gérer l'alignement des images
+    if (['justifyLeft', 'justifyCenter', 'justifyRight', 'justifyFull'].includes(command)) {
+      const selectedImage = document.querySelector('.template-image-container.selected');
+      if (selectedImage) {
+        const wrapper = selectedImage.closest('.image-container-wrapper');
+        if (wrapper) {
+          if (command === 'justifyLeft') {
+            wrapper.style.textAlign = 'left';
+          } else if (command === 'justifyCenter') {
+            wrapper.style.textAlign = 'center';
+          } else if (command === 'justifyRight') {
+            wrapper.style.textAlign = 'right';
+          } else if (command === 'justifyFull') {
+            wrapper.style.textAlign = 'justify';
+          }
+          this.handleContentChange();
+          return;
+        }
+      }
+    }
+    
     // Détecter si on change le niveau d'un titre existant ou si on clique sur le même niveau
     // Utiliser des classes personnalisées au lieu de h1, h2, h3 pour éviter les conflits avec les styles globaux
     if (command === 'formatBlock' && value && ['h1', 'h2', 'h3'].includes(value.toLowerCase())) {
@@ -2190,6 +2312,10 @@ export default class RichTextEditor {
         
         this.handleContentChange();
       }
+    } else if (command === 'insertImage') {
+      // Gérer l'insertion d'image
+      console.log('🖼️ Commande insertImage appelée');
+      this.insertImage();
     } else {
       // Exécuter la commande normale (seulement si on n'a pas déjà géré le cas du paragraphe)
       if (!(command === 'formatBlock' && value && value.toLowerCase() === 'p' && titleElementBefore && sectionIdBefore)) {
@@ -2197,6 +2323,1467 @@ export default class RichTextEditor {
         this.handleContentChange();
       }
     }
+  }
+
+  /**
+   * Insère une image dans un nouveau paragraphe après le paragraphe actuel
+   */
+  insertImage(imageData = null) {
+    console.log('🖼️ insertImage appelé, imageData:', imageData);
+    if (!this.editorElement) {
+      console.error('❌ editorElement non disponible');
+      return;
+    }
+
+    const selection = window.getSelection();
+    if (selection.rangeCount === 0) {
+      console.error('❌ Aucune sélection disponible');
+      return;
+    }
+
+    const range = selection.getRangeAt(0);
+    
+    // Trouver le paragraphe actuel
+    let currentParagraph = range.commonAncestorContainer;
+    if (currentParagraph.nodeType === Node.TEXT_NODE) {
+      currentParagraph = currentParagraph.parentElement;
+    }
+    
+    // Remonter jusqu'à trouver un paragraphe ou un titre
+    while (currentParagraph && currentParagraph !== this.editorElement) {
+      const tagName = currentParagraph.tagName ? currentParagraph.tagName.toLowerCase() : '';
+      if (tagName === 'p' || tagName === 'div' || ['h1', 'h2', 'h3'].includes(tagName)) {
+        break;
+      }
+      currentParagraph = currentParagraph.parentElement;
+    }
+
+    // Créer un nouveau div pour l'image (pas un <p> car il contient des <div>)
+    const imageWrapper = document.createElement('div');
+    imageWrapper.className = 'image-container-wrapper';
+    
+    // Créer le conteneur d'image redimensionnable
+    const imageContainer = document.createElement('div');
+    imageContainer.className = 'template-image-container';
+    imageContainer.contentEditable = false;
+    
+    // Si on a des données d'image, les utiliser, sinon créer un placeholder
+    if (imageData) {
+      this.createImageElement(imageContainer, imageData);
+      imageWrapper.appendChild(imageContainer);
+    } else {
+      // Créer un placeholder redimensionnable
+      const placeholder = this.createImagePlaceholder(imageContainer);
+      imageContainer.appendChild(placeholder);
+      imageWrapper.appendChild(imageContainer);
+      
+      // Ajouter le bouton de suppression DANS le placeholder (position absolute)
+      const deleteButton = document.createElement('button');
+      deleteButton.className = 'image-delete-button';
+      deleteButton.innerHTML = '×';
+      deleteButton.title = 'Supprimer l\'image';
+      deleteButton.onclick = (e) => {
+        e.stopPropagation();
+        if (confirm('Supprimer cette image ?')) {
+          imageContainer.closest('.image-container-wrapper')?.remove();
+          this.handleContentChange();
+        }
+      };
+      placeholder.appendChild(deleteButton);
+      
+      // Au clic sur le placeholder : sélectionner avec poignées (pas de modal)
+      // Le modal s'ouvrira via le groupe "Image" dans FormatTab
+      imageContainer.onclick = (e) => {
+        e.stopPropagation();
+        this.selectImage(imageContainer);
+      };
+      
+      // Rendre le conteneur redimensionnable même sans image
+      this.makeImageResizable(imageContainer);
+    }
+    
+    // Insérer le wrapper après le paragraphe actuel
+    if (currentParagraph && currentParagraph.nextSibling) {
+      currentParagraph.parentNode.insertBefore(imageWrapper, currentParagraph.nextSibling);
+    } else if (currentParagraph) {
+      currentParagraph.parentNode.appendChild(imageWrapper);
+    } else {
+      this.editorElement.appendChild(imageWrapper);
+    }
+    
+    // Mettre le focus après l'image
+    const newRange = document.createRange();
+    newRange.setStartAfter(imageWrapper);
+    newRange.collapse(true);
+    selection.removeAllRanges();
+    selection.addRange(newRange);
+    
+    this.handleContentChange();
+  }
+
+  /**
+   * Crée un placeholder pour l'image (zone cliquable redimensionnable)
+   */
+  createImagePlaceholder(container) {
+    const placeholder = document.createElement('div');
+    placeholder.className = 'image-placeholder';
+    placeholder.style.width = '300px';
+    placeholder.style.height = '200px';
+    placeholder.style.border = '2px dashed var(--color-light, #ddd)';
+    placeholder.style.borderRadius = 'var(--border-radius, 4px)';
+    placeholder.style.display = 'flex';
+    placeholder.style.alignItems = 'center';
+    placeholder.style.justifyContent = 'center';
+    placeholder.style.background = 'var(--color-primary-light, #f0f7ff)';
+    placeholder.style.cursor = 'pointer';
+    placeholder.style.position = 'relative';
+    placeholder.style.margin = '0 auto';
+    
+    const icon = document.createElement('div');
+    icon.innerHTML = '🖼️';
+    icon.style.fontSize = '48px';
+    icon.style.opacity = '0.5';
+    
+    const text = document.createElement('div');
+    text.textContent = 'Cliquez pour insérer une image';
+    text.style.marginTop = 'var(--spacing-sm, 8px)';
+    text.style.fontSize = 'var(--font-size-small, 14px)';
+    text.style.color = 'var(--color-gray, #666)';
+    
+    const content = document.createElement('div');
+    content.style.display = 'flex';
+    content.style.flexDirection = 'column';
+    content.style.alignItems = 'center';
+    content.appendChild(icon);
+    content.appendChild(text);
+    
+    placeholder.appendChild(content);
+    
+    // Rendre le placeholder redimensionnable
+    container.style.position = 'relative';
+    container.style.display = 'inline-block';
+    container.style.minWidth = '100px';
+    container.style.minHeight = '100px';
+    
+    return placeholder;
+  }
+
+  /**
+   * Crée l'élément image dans le conteneur
+   */
+  createImageElement(container, imageData) {
+    container.innerHTML = '';
+    
+    // Image
+    const img = document.createElement('img');
+    img.className = 'template-image';
+    img.draggable = false;
+    
+    container.appendChild(img);
+    
+    // Bouton supprimer DANS le conteneur (position absolute)
+    const deleteButton = document.createElement('button');
+    deleteButton.className = 'image-delete-button';
+    deleteButton.innerHTML = '×';
+    deleteButton.title = 'Supprimer l\'image';
+    deleteButton.onclick = (e) => {
+      e.stopPropagation();
+      if (confirm('Supprimer cette image ?')) {
+        container.closest('.image-container-wrapper')?.remove();
+        this.handleContentChange();
+      }
+    };
+    container.appendChild(deleteButton);
+    
+    // Définir la source de l'image
+    if (imageData.type === 'variable') {
+      // Variable de collection ou template
+      img.dataset.imageType = 'variable';
+      img.dataset.variablePath = imageData.variablePath;
+      img.src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjAwIiBoZWlnaHQ9IjEwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMjAwIiBoZWlnaHQ9IjEwMCIgZmlsbD0iI2YwZjBmMCIvPjx0ZXh0IHg9IjUwJSIgeT0iNTAlIiBmb250LWZhbWlseT0iQXJpYWwiIGZvbnQtc2l6ZT0iMTQiIGZpbGw9IiM5OTkiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGR5PSIuM2VtIj57e3t2YXJpYWJsZX19fTwvdGV4dD48L3N2Zz4=';
+      img.alt = `{{${imageData.variablePath}}}`;
+    } else if (imageData.type === 'upload') {
+      // Image uploadée
+      img.dataset.imageType = 'upload';
+      img.dataset.imageId = imageData.imageId;
+      img.src = imageData.url || imageData.src;
+      img.alt = imageData.alt || 'Image';
+    }
+    
+    // Appliquer les dimensions si fournies
+    if (imageData.width) {
+      img.style.width = imageData.width;
+      container.dataset.imageWidth = imageData.width;
+    }
+    if (imageData.height) {
+      img.style.height = imageData.height;
+      container.dataset.imageHeight = imageData.height;
+    }
+    
+    // Appliquer le style d'image si fourni
+    if (imageData.styleName) {
+      container.dataset.imageStyle = imageData.styleName;
+      this.applyImageStyle(container, imageData.styleName);
+    }
+    
+    // Gérer le crop si fourni
+    if (imageData.crop) {
+      container.dataset.crop = JSON.stringify(imageData.crop);
+    }
+    
+    // Stocker les données de l'image dans le conteneur
+    container._imageData = imageData;
+    
+    // Double-clic pour éditer (seulement si l'image est chargée)
+    container.ondblclick = (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      // Vérifier que l'image est chargée (pas un placeholder)
+      const imgElement = container.querySelector('img.template-image');
+      if (imgElement && imgElement.src && !imgElement.src.includes('data:image/svg+xml')) {
+        this.showImageEditModal(container, imageData);
+      }
+    };
+    
+    // Rendre l'image redimensionnable
+    this.makeImageResizable(container);
+  }
+
+  /**
+   * Affiche le modal de sélection de source d'image
+   */
+  showImageSourceModal(onSelect) {
+    console.log('🖼️ showImageSourceModal appelé');
+    // Créer le modal
+    const modal = document.createElement('div');
+    modal.className = 'image-source-modal';
+    // Forcer les styles inline pour garantir l'affichage
+    modal.style.cssText = 'position: fixed !important; top: 0 !important; left: 0 !important; right: 0 !important; bottom: 0 !important; background: rgba(0, 0, 0, 0.5) !important; display: flex !important; align-items: center !important; justify-content: center !important; z-index: 999999 !important; width: 100vw !important; height: 100vh !important;';
+    
+    const modalContent = document.createElement('div');
+    modalContent.className = 'image-source-modal-content';
+    
+    const title = document.createElement('h3');
+    title.textContent = 'Sélectionner la source de l\'image';
+    modalContent.appendChild(title);
+
+    // Onglets pour les différents types de sources
+    const tabsContainer = document.createElement('div');
+    tabsContainer.className = 'image-source-tabs';
+    
+    const uploadTab = document.createElement('button');
+    uploadTab.className = 'image-source-tab active';
+    uploadTab.textContent = 'Upload';
+    uploadTab.onclick = () => this.switchImageSourceTab(modalContent, 'upload', onSelect);
+    
+    const variableTab = document.createElement('button');
+    variableTab.className = 'image-source-tab';
+    variableTab.textContent = 'Variable';
+    variableTab.onclick = () => this.switchImageSourceTab(modalContent, 'variable', onSelect);
+    
+    tabsContainer.appendChild(uploadTab);
+    tabsContainer.appendChild(variableTab);
+    modalContent.appendChild(tabsContainer);
+
+    // Contenu des onglets
+    const contentArea = document.createElement('div');
+    contentArea.className = 'image-source-content';
+    modalContent.appendChild(contentArea);
+
+    // Afficher l'onglet upload par défaut
+    this.switchImageSourceTab(modalContent, 'upload', onSelect);
+
+    // Boutons
+    const buttons = document.createElement('div');
+    buttons.className = 'image-source-modal-buttons';
+    
+    const cancelButton = document.createElement('button');
+    cancelButton.textContent = 'Annuler';
+    cancelButton.onclick = () => document.body.removeChild(modal);
+    buttons.appendChild(cancelButton);
+    
+    modalContent.appendChild(buttons);
+    modal.appendChild(modalContent);
+    document.body.appendChild(modal);
+    console.log('✅ Modal ajouté au DOM');
+
+    // Fermer le modal en cliquant à l'extérieur
+    modal.onclick = (e) => {
+      if (e.target === modal) {
+        document.body.removeChild(modal);
+      }
+    };
+  }
+
+  switchImageSourceTab(modalContent, tabName, onSelect) {
+    const tabs = modalContent.querySelectorAll('.image-source-tab');
+    tabs.forEach(tab => tab.classList.remove('active'));
+    
+    const contentArea = modalContent.querySelector('.image-source-content');
+    contentArea.innerHTML = '';
+
+    if (tabName === 'upload') {
+      tabs[0].classList.add('active');
+      
+      const uploadArea = document.createElement('div');
+      uploadArea.className = 'image-source-upload-area';
+      
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.accept = 'image/*';
+      input.style.display = 'none';
+      input.id = 'image-upload-input';
+      
+      const uploadButton = document.createElement('button');
+      uploadButton.className = 'image-source-upload-button';
+      uploadButton.textContent = 'Choisir un fichier';
+      uploadButton.onclick = () => input.click();
+      
+      const dragArea = document.createElement('div');
+      dragArea.className = 'image-source-drag-area';
+      dragArea.innerHTML = '<p>Glissez-déposez une image ici</p><p>ou</p>';
+      dragArea.appendChild(uploadButton);
+      
+      input.onchange = async (e) => {
+        const file = e.target.files[0];
+        if (file) {
+          const imageData = await this.uploadImage(file);
+          if (imageData) {
+            const modal = modalContent.closest('.image-source-modal');
+            if (modal) document.body.removeChild(modal);
+            onSelect(imageData);
+          }
+        }
+      };
+
+      // Drag & drop
+      dragArea.ondragover = (e) => {
+        e.preventDefault();
+        dragArea.classList.add('dragover');
+      };
+      dragArea.ondragleave = () => {
+        dragArea.classList.remove('dragover');
+      };
+      dragArea.ondrop = async (e) => {
+        e.preventDefault();
+        dragArea.classList.remove('dragover');
+        const file = e.dataTransfer.files[0];
+        if (file && file.type.startsWith('image/')) {
+          const imageData = await this.uploadImage(file);
+          if (imageData) {
+            const modal = modalContent.closest('.image-source-modal');
+            if (modal) document.body.removeChild(modal);
+            onSelect(imageData);
+          }
+        }
+      };
+
+      uploadArea.appendChild(input);
+      uploadArea.appendChild(dragArea);
+      contentArea.appendChild(uploadArea);
+      
+    } else if (tabName === 'variable') {
+      tabs[1].classList.add('active');
+      
+      // Variables de collection
+      const collectionsGroup = document.createElement('div');
+      collectionsGroup.className = 'image-source-variables-group';
+      
+      const collectionsLabel = document.createElement('label');
+      collectionsLabel.textContent = 'Variable de collection';
+      collectionsLabel.className = 'image-source-label';
+      collectionsGroup.appendChild(collectionsLabel);
+      
+      const collectionsSelect = document.createElement('select');
+      collectionsSelect.className = 'image-source-select';
+      collectionsSelect.innerHTML = '<option value="">-- Sélectionner --</option>';
+      
+      // Récupérer les collections du template
+      const collections = [];
+      if (this.template?.defaultCollection) {
+        collections.push({
+          alias: this.template.defaultCollection.alias,
+          collectionId: this.template.defaultCollection.collectionId,
+          fields: this.template.defaultCollection.fields || []
+        });
+      }
+      if (this.template?.additionalCollections) {
+        this.template.additionalCollections.forEach(col => {
+          collections.push({
+            alias: col.alias,
+            collectionId: col.collectionId,
+            fields: col.fields || []
+          });
+        });
+      }
+      
+      // Récupérer les champs de type image
+      collections.forEach(collection => {
+        const imageFields = collection.fields.filter(f => f.type === 'image' || f.uiType === 'Image');
+        if (imageFields.length > 0) {
+          const optgroup = document.createElement('optgroup');
+          optgroup.label = collection.alias;
+          imageFields.forEach(field => {
+            const option = document.createElement('option');
+            option.value = `${collection.alias}.${field.name}`;
+            option.textContent = `${collection.alias}.${field.name}`;
+            optgroup.appendChild(option);
+          });
+          collectionsSelect.appendChild(optgroup);
+        }
+      });
+      
+      collectionsGroup.appendChild(collectionsSelect);
+      contentArea.appendChild(collectionsGroup);
+
+      // Variables de template (images fixes)
+      const templateGroup = document.createElement('div');
+      templateGroup.className = 'image-source-variables-group';
+      
+      const templateLabel = document.createElement('label');
+      templateLabel.textContent = 'Image du template';
+      templateLabel.className = 'image-source-label';
+      templateGroup.appendChild(templateLabel);
+      
+      const templateSelect = document.createElement('select');
+      templateSelect.className = 'image-source-select';
+      templateSelect.innerHTML = '<option value="">-- Sélectionner --</option>';
+      
+      // Récupérer les images du template
+      if (this.template?.images && this.template.images.length > 0) {
+        this.template.images.forEach((img, index) => {
+          const option = document.createElement('option');
+          option.value = `template.image_${index}`;
+          option.textContent = img.originalName || img.fileName || `Image ${index + 1}`;
+          templateSelect.appendChild(option);
+        });
+      }
+      
+      templateGroup.appendChild(templateSelect);
+      contentArea.appendChild(templateGroup);
+
+      // Bouton valider
+      const validateButton = document.createElement('button');
+      validateButton.className = 'image-source-validate-button';
+      validateButton.textContent = 'Utiliser cette variable';
+      validateButton.onclick = () => {
+        const selectedCollection = collectionsSelect.value;
+        const selectedTemplate = templateSelect.value;
+        
+        if (selectedCollection) {
+          const modal = modalContent.closest('.image-source-modal');
+          if (modal) document.body.removeChild(modal);
+          onSelect({
+            type: 'variable',
+            variablePath: selectedCollection
+          });
+        } else if (selectedTemplate) {
+          const imageIndex = parseInt(selectedTemplate.match(/\d+/)?.[0] || '0');
+          const image = this.template.images[imageIndex];
+          if (image) {
+            const modal = modalContent.closest('.image-source-modal');
+            if (modal) document.body.removeChild(modal);
+            onSelect({
+              type: 'template',
+              imageId: image.id,
+              url: image.url,
+              fileName: image.fileName
+            });
+          }
+        } else {
+          alert('Veuillez sélectionner une variable');
+        }
+      };
+      
+      contentArea.appendChild(validateButton);
+    }
+  }
+
+  /**
+   * Prépare une image pour l'upload (stocke le fichier et retourne une URL temporaire)
+   */
+  prepareImageUpload(file) {
+    // Créer une URL temporaire pour afficher l'image immédiatement
+    const tempUrl = URL.createObjectURL(file);
+    
+    return {
+      type: 'upload',
+      tempUrl: tempUrl,
+      file: file,
+      fileName: file.name,
+      width: null,
+      height: null,
+      pendingUpload: true // Flag pour indiquer que l'upload est en attente
+    };
+  }
+
+  /**
+   * Upload une image vers le backend (appelé lors de la sauvegarde)
+   */
+  async uploadImage(file) {
+    if (!this.template || !this.template._id) {
+      throw new Error('Template non sauvegardé. Veuillez d\'abord sauvegarder le template.');
+    }
+
+    const formData = new FormData();
+    formData.append('image', file);
+
+    try {
+      const apiBase = window.API_BASE_URL || '/api';
+      const response = await fetch(`${apiBase}/doc-template/templates/${this.template._id}/images`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('token') || ''}`
+        },
+        body: formData
+      });
+
+      // Vérifier si la réponse est OK
+      if (!response.ok) {
+        const contentType = response.headers.get('content-type');
+        let errorMessage = `Erreur ${response.status}: ${response.statusText}`;
+        
+        // Essayer de parser le JSON si possible
+        if (contentType && contentType.includes('application/json')) {
+          try {
+            const errorData = await response.json();
+            errorMessage = errorData.error || errorData.message || errorMessage;
+          } catch (e) {
+            // Si le parsing JSON échoue, on garde le message d'erreur par défaut
+          }
+        } else {
+          // Si ce n'est pas du JSON, essayer de lire le texte
+          try {
+            const text = await response.text();
+            if (text) {
+              errorMessage = text.substring(0, 200); // Limiter la longueur
+            }
+          } catch (e) {
+            // Ignorer les erreurs de lecture
+          }
+        }
+        
+        throw new Error(errorMessage);
+      }
+
+      // Parser la réponse JSON
+      let result;
+      try {
+        result = await response.json();
+      } catch (e) {
+        throw new Error('Réponse invalide du serveur (pas de JSON)');
+      }
+
+      if (result.success) {
+        return {
+          type: 'upload',
+          imageId: result.data.id,
+          url: result.data.url,
+          fileName: result.data.fileName,
+          width: null,
+          height: null
+        };
+      } else {
+        throw new Error(result.error || 'Erreur inconnue');
+      }
+    } catch (error) {
+      console.error('Erreur upload image:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Collecte toutes les images en attente d'upload dans l'éditeur
+   */
+  getPendingImageUploads() {
+    const pending = [];
+    const images = this.editorElement.querySelectorAll('img[data-pending-upload="true"]');
+    
+    images.forEach(img => {
+      const uploadData = this.pendingImageUploads.get(img);
+      if (uploadData && uploadData.file) {
+        pending.push({
+          img: img,
+          file: uploadData.file
+        });
+      }
+    });
+    
+    return pending;
+  }
+
+  /**
+   * Met à jour une image après l'upload réussi
+   */
+  updateImageAfterUpload(img, imageData) {
+    // Remplacer l'URL temporaire par l'URL réelle via l'API
+    const apiBase = window.API_BASE_URL || '';
+    const imageUrl = imageData.url.startsWith('/') ? imageData.url : `${apiBase}${imageData.url}`;
+    img.src = imageUrl;
+    img.dataset.imageType = 'upload';
+    img.dataset.imageId = imageData.imageId;
+    img.removeAttribute('data-pending-upload');
+    
+    // Nettoyer l'URL temporaire
+    const uploadData = this.pendingImageUploads.get(img);
+    if (uploadData && uploadData.tempUrl) {
+      URL.revokeObjectURL(uploadData.tempUrl);
+    }
+    
+    // Retirer de la liste des uploads en attente
+    this.pendingImageUploads.delete(img);
+    
+    // Déclencher un changement de contenu pour sauvegarder la nouvelle URL
+    this.handleContentChange();
+  }
+
+  /**
+   * Applique un style d'image au conteneur
+   */
+  applyImageStyle(container, styleName) {
+    // Récupérer les styles depuis le template
+    const imageStyles = this.template?.imageStyles || [];
+    const style = imageStyles.find(s => s.name === styleName);
+    
+    const img = container.querySelector('img');
+    const placeholder = container.querySelector('.image-placeholder');
+    const targetElement = img || placeholder;
+    
+    if (style && targetElement) {
+      // Réinitialiser les styles d'abord
+      targetElement.style.borderRadius = '';
+      targetElement.style.boxShadow = '';
+      targetElement.style.border = '';
+      targetElement.style.opacity = '';
+      
+      if (style.borderRadius && style.borderRadius !== '0' && style.borderRadius !== 'none') {
+        targetElement.style.borderRadius = style.borderRadius;
+      }
+      if (style.boxShadow && style.boxShadow !== 'none') {
+        targetElement.style.boxShadow = style.boxShadow;
+      }
+      if (style.border && style.border !== 'none') {
+        targetElement.style.border = style.border;
+      }
+      if (style.opacity !== undefined) {
+        targetElement.style.opacity = style.opacity;
+      }
+      
+      // Sauvegarder le nom du style dans le dataset
+      container.dataset.imageStyle = styleName;
+    } else if (!styleName) {
+      // Si aucun style, réinitialiser
+      if (targetElement) {
+        targetElement.style.borderRadius = '';
+        targetElement.style.boxShadow = '';
+        targetElement.style.border = '';
+        targetElement.style.opacity = '';
+        delete container.dataset.imageStyle;
+      }
+    }
+  }
+
+  /**
+   * Applique un style d'image à l'image sélectionnée
+   */
+  applyImageStyleToSelected(styleName) {
+    const selection = window.getSelection();
+    if (selection.rangeCount === 0) return;
+    
+    const range = selection.getRangeAt(0);
+    let element = range.commonAncestorContainer;
+    if (element.nodeType === Node.TEXT_NODE) {
+      element = element.parentElement;
+    }
+    
+    const imageContainer = element.closest('.template-image-container');
+    if (imageContainer) {
+      this.applyImageStyle(imageContainer, styleName);
+      this.handleContentChange();
+    }
+  }
+
+  /**
+   * Rend une image redimensionnable
+   */
+  makeImageResizable(container) {
+    container.style.position = 'relative';
+    container.style.display = 'inline-block';
+    
+    // Stocker l'état des cadenas
+    container.dataset.lockWidth = 'false';
+    container.dataset.lockHeight = 'false';
+    
+    // Gérer le clic sur le conteneur (image ou placeholder)
+    const img = container.querySelector('img');
+    const placeholder = container.querySelector('.image-placeholder');
+    
+    // Si c'est une image, gérer le clic sur l'image
+    if (img) {
+      img.onclick = (e) => {
+        e.stopPropagation();
+        // Sélectionner l'image
+        this.selectImage(container);
+      };
+    }
+    
+    // Si c'est un placeholder, le clic est déjà géré dans insertImage
+    // Mais on s'assure qu'il n'y a pas de modal qui s'ouvre
+    if (placeholder) {
+      placeholder.onclick = (e) => {
+        e.stopPropagation();
+        // Sélectionner le conteneur (pas ouvrir de modal)
+        this.selectImage(container);
+      };
+    }
+  }
+
+  /**
+   * Sélectionne une image (pour afficher les contrôles)
+   */
+  selectImage(container) {
+    // Retirer la sélection précédente
+    document.querySelectorAll('.template-image-container.selected').forEach(el => {
+      el.classList.remove('selected');
+      this.removeResizeHandles(el);
+      this.removeLockButtons(el);
+    });
+    
+    // Sélectionner cette image
+    container.classList.add('selected');
+    
+    // Ajouter les poignées de redimensionnement
+    this.addResizeHandles(container);
+    
+    // Ajouter les cadenas
+    this.addLockButtons(container);
+    
+    // Notifier FormatTab qu'une image est sélectionnée
+    if (this.onImageSelected) {
+      this.onImageSelected(container);
+    }
+  }
+
+  /**
+   * Retire la sélection d'une image
+   */
+  deselectImage(container) {
+    container.classList.remove('selected');
+    this.removeResizeHandles(container);
+    this.removeLockButtons(container);
+    
+    // Notifier FormatTab qu'aucune image n'est sélectionnée
+    if (this.onImageDeselected) {
+      this.onImageDeselected();
+    }
+  }
+
+  /**
+   * Ajoute les poignées de redimensionnement (8 poignées)
+   */
+  addResizeHandles(container) {
+    // Vérifier si les poignées existent déjà
+    if (container.querySelector('.resize-handle')) return;
+    
+    // Vérifier qu'il y a soit une image soit un placeholder
+    const img = container.querySelector('img');
+    const placeholder = container.querySelector('.image-placeholder');
+    if (!img && !placeholder) return;
+    
+    const positions = [
+      { name: 'nw', top: '0%', left: '0%', cursor: 'nw-resize' }, // Nord-ouest
+      { name: 'n', top: '0%', left: '50%', cursor: 'n-resize' },  // Nord
+      { name: 'ne', top: '0%', left: '100%', cursor: 'ne-resize' }, // Nord-est
+      { name: 'e', top: '50%', left: '100%', cursor: 'e-resize' },  // Est
+      { name: 'se', top: '100%', left: '100%', cursor: 'se-resize' }, // Sud-est
+      { name: 's', top: '100%', left: '50%', cursor: 's-resize' },  // Sud
+      { name: 'sw', top: '100%', left: '0%', cursor: 'sw-resize' }, // Sud-ouest
+      { name: 'w', top: '50%', left: '0%', cursor: 'w-resize' }    // Ouest
+    ];
+    
+    positions.forEach(pos => {
+      const handle = document.createElement('div');
+      handle.className = 'resize-handle';
+      handle.dataset.position = pos.name;
+      handle.style.cssText = `
+        position: absolute;
+        top: ${pos.top};
+        left: ${pos.left};
+        transform: translate(-50%, -50%);
+        width: 12px;
+        height: 12px;
+        background: var(--color-primary, #0055AA);
+        border: 2px solid var(--color-white, #fff);
+        border-radius: 50%;
+        cursor: ${pos.cursor};
+        z-index: 1000;
+        pointer-events: all;
+      `;
+      
+      // Gestion du redimensionnement
+      handle.onmousedown = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        this.startResize(container, pos.name, e);
+      };
+      
+      container.appendChild(handle);
+    });
+  }
+
+  /**
+   * Retire les poignées de redimensionnement
+   */
+  removeResizeHandles(container) {
+    container.querySelectorAll('.resize-handle').forEach(handle => {
+      handle.remove();
+    });
+  }
+
+  /**
+   * Ajoute les boutons de verrouillage (cadenas)
+   */
+  addLockButtons(container) {
+    // Vérifier si les cadenas existent déjà
+    if (container.querySelector('.lock-button')) return;
+    
+    // Trouver l'élément cible (image ou placeholder)
+    const img = container.querySelector('img');
+    const placeholder = container.querySelector('.image-placeholder');
+    const targetElement = img || placeholder;
+    
+    if (!targetElement) return;
+    
+    // S'assurer que l'élément cible a position relative
+    const computedStyle = window.getComputedStyle(targetElement);
+    if (computedStyle.position === 'static') {
+      targetElement.style.position = 'relative';
+    }
+    
+    // Cadenas largeur (sur le côté gauche, au milieu verticalement)
+    const lockWidthBtn = document.createElement('button');
+    lockWidthBtn.className = 'lock-button lock-width';
+    lockWidthBtn.innerHTML = '🔓';
+    lockWidthBtn.title = 'Verrouiller la largeur';
+    lockWidthBtn.style.cssText = `
+      position: absolute;
+      left: 0;
+      top: 50%;
+      transform: translateY(-50%);
+      z-index: 1001;
+      background: rgba(255, 255, 255, 0.9);
+      border: 1px solid var(--color-light, #ddd);
+      cursor: pointer;
+      font-size: 16px;
+      padding: 4px 6px;
+      border-radius: 4px;
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+      transition: all var(--transition-fast);
+    `;
+    lockWidthBtn.onclick = (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      this.toggleLock(container, 'width');
+    };
+    lockWidthBtn.onmouseenter = () => {
+      lockWidthBtn.style.transform = 'translateY(-50%) scale(1.15)';
+      lockWidthBtn.style.background = 'rgba(255, 255, 255, 1)';
+    };
+    lockWidthBtn.onmouseleave = () => {
+      lockWidthBtn.style.transform = 'translateY(-50%) scale(1)';
+      lockWidthBtn.style.background = 'rgba(255, 255, 255, 0.9)';
+    };
+    
+    // Cadenas hauteur (en haut, au milieu horizontalement)
+    const lockHeightBtn = document.createElement('button');
+    lockHeightBtn.className = 'lock-button lock-height';
+    lockHeightBtn.innerHTML = '🔓';
+    lockHeightBtn.title = 'Verrouiller la hauteur';
+    lockHeightBtn.style.cssText = `
+      position: absolute;
+      left: 50%;
+      top: 0;
+      transform: translateX(-50%);
+      z-index: 1001;
+      background: rgba(255, 255, 255, 0.9);
+      border: 1px solid var(--color-light, #ddd);
+      cursor: pointer;
+      font-size: 16px;
+      padding: 4px 6px;
+      border-radius: 4px;
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+      transition: all var(--transition-fast);
+    `;
+    lockHeightBtn.onclick = (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      this.toggleLock(container, 'height');
+    };
+    lockHeightBtn.onmouseenter = () => {
+      lockHeightBtn.style.transform = 'translateX(-50%) scale(1.15)';
+      lockHeightBtn.style.background = 'rgba(255, 255, 255, 1)';
+    };
+    lockHeightBtn.onmouseleave = () => {
+      lockHeightBtn.style.transform = 'translateX(-50%) scale(1)';
+      lockHeightBtn.style.background = 'rgba(255, 255, 255, 0.9)';
+    };
+    
+    // Ajouter les cadenas à l'élément cible (image ou placeholder)
+    targetElement.appendChild(lockWidthBtn);
+    targetElement.appendChild(lockHeightBtn);
+    
+    // Stocker les références
+    container._lockWidthBtn = lockWidthBtn;
+    container._lockHeightBtn = lockHeightBtn;
+    container._lockTargetElement = targetElement;
+  }
+
+  /**
+   * Retire les boutons de verrouillage
+   */
+  removeLockButtons(container) {
+    // Retirer depuis l'élément cible (image ou placeholder) ou depuis le container
+    const targetElement = container._lockTargetElement || container;
+    const lockWidthBtn = targetElement.querySelector('.lock-button.lock-width') || container.querySelector('.lock-button.lock-width');
+    const lockHeightBtn = targetElement.querySelector('.lock-button.lock-height') || container.querySelector('.lock-button.lock-height');
+    if (lockWidthBtn) lockWidthBtn.remove();
+    if (lockHeightBtn) lockHeightBtn.remove();
+    container._lockWidthBtn = null;
+    container._lockHeightBtn = null;
+    container._lockTargetElement = null;
+  }
+
+  /**
+   * Bascule le verrouillage (largeur ou hauteur)
+   */
+  toggleLock(container, type) {
+    const lockWidth = container.dataset.lockWidth === 'true';
+    const lockHeight = container.dataset.lockHeight === 'true';
+    
+    if (type === 'width') {
+      // Si on verrouille la largeur, déverrouiller la hauteur
+      if (lockWidth) {
+        container.dataset.lockWidth = 'false';
+        container._lockWidthBtn.innerHTML = '🔓';
+        container._lockWidthBtn.title = 'Verrouiller la largeur';
+      } else {
+        container.dataset.lockWidth = 'true';
+        container.dataset.lockHeight = 'false';
+        container._lockWidthBtn.innerHTML = '🔒';
+        container._lockWidthBtn.title = 'Déverrouiller la largeur';
+        // Déverrouiller l'autre
+        container._lockHeightBtn.innerHTML = '🔓';
+        container._lockHeightBtn.title = 'Verrouiller la hauteur';
+      }
+    } else if (type === 'height') {
+      // Si on verrouille la hauteur, déverrouiller la largeur
+      if (lockHeight) {
+        container.dataset.lockHeight = 'false';
+        container._lockHeightBtn.innerHTML = '🔓';
+        container._lockHeightBtn.title = 'Verrouiller la hauteur';
+      } else {
+        container.dataset.lockHeight = 'true';
+        container.dataset.lockWidth = 'false';
+        container._lockHeightBtn.innerHTML = '🔒';
+        container._lockHeightBtn.title = 'Déverrouiller la hauteur';
+        // Déverrouiller l'autre
+        container._lockWidthBtn.innerHTML = '🔓';
+        container._lockWidthBtn.title = 'Verrouiller la largeur';
+      }
+    }
+  }
+
+  /**
+   * Démarre le redimensionnement
+   */
+  startResize(container, position, e) {
+    const img = container.querySelector('img');
+    const placeholder = container.querySelector('.image-placeholder');
+    
+    // Si ni image ni placeholder, on ne peut pas redimensionner
+    if (!img && !placeholder) return;
+    
+    const startX = e.clientX;
+    const startY = e.clientY;
+    const startWidth = container.offsetWidth;
+    const startHeight = container.offsetHeight;
+    const startRatio = startWidth / startHeight;
+    const lockWidth = container.dataset.lockWidth === 'true';
+    const lockHeight = container.dataset.lockHeight === 'true';
+    
+    // Calculer le ratio original
+    let originalRatio = startRatio;
+    if (img && img.src) {
+      const originalImg = new Image();
+      originalImg.src = img.src;
+      const originalWidth = originalImg.width || img.naturalWidth || startWidth;
+      const originalHeight = originalImg.height || img.naturalHeight || startHeight;
+      if (originalWidth > 0 && originalHeight > 0) {
+        originalRatio = originalWidth / originalHeight;
+      }
+    }
+    
+    const onMouseMove = (e) => {
+      const deltaX = e.clientX - startX;
+      const deltaY = e.clientY - startY;
+      
+      let newWidth = startWidth;
+      let newHeight = startHeight;
+      
+      // Calculer les nouvelles dimensions selon la position de la poignée
+      if (position.includes('e')) newWidth = startWidth + deltaX;
+      if (position.includes('w')) newWidth = startWidth - deltaX;
+      if (position.includes('s')) newHeight = startHeight + deltaY;
+      if (position.includes('n')) newHeight = startHeight - deltaY;
+      
+      // Appliquer les verrous
+      if (lockWidth) {
+        // Largeur verrouillée : garder la largeur, ajuster la hauteur proportionnellement
+        newHeight = newWidth / originalRatio;
+      } else if (lockHeight) {
+        // Hauteur verrouillée : garder la hauteur, ajuster la largeur proportionnellement
+        newWidth = newHeight * originalRatio;
+      } else {
+        // Aucun verrou : garder le ratio original
+        const currentRatio = newWidth / newHeight;
+        if (Math.abs(currentRatio - originalRatio) > 0.01) {
+          // Ajuster pour maintenir le ratio
+          if (position.includes('e') || position.includes('w')) {
+            newHeight = newWidth / originalRatio;
+          } else {
+            newWidth = newHeight * originalRatio;
+          }
+        }
+      }
+      
+      // Limites minimales
+      newWidth = Math.max(50, newWidth);
+      newHeight = Math.max(50, newHeight);
+      
+      // Appliquer les nouvelles dimensions
+      container.style.width = newWidth + 'px';
+      container.style.height = newHeight + 'px';
+      
+      // Si c'est une image, ajuster ses dimensions
+      if (img) {
+        img.style.width = '100%';
+        img.style.height = '100%';
+        img.style.objectFit = 'contain';
+      }
+      
+      // Si c'est un placeholder, ajuster ses dimensions
+      if (placeholder) {
+        placeholder.style.width = '100%';
+        placeholder.style.height = '100%';
+      }
+    };
+    
+    const onMouseUp = () => {
+      document.removeEventListener('mousemove', onMouseMove);
+      document.removeEventListener('mouseup', onMouseUp);
+      this.handleContentChange();
+    };
+    
+    document.addEventListener('mousemove', onMouseMove);
+    document.addEventListener('mouseup', onMouseUp);
+  }
+
+  /**
+   * Affiche le modal d'édition d'image (rogner, rotation, suppression de fond)
+   */
+  showImageEditModal(container, imageData) {
+    const img = container.querySelector('img');
+    if (!img) return;
+    
+    // Créer le modal
+    const modal = document.createElement('div');
+    modal.className = 'image-edit-modal';
+    modal.style.cssText = 'position: fixed !important; top: 0 !important; left: 0 !important; right: 0 !important; bottom: 0 !important; background: rgba(0, 0, 0, 0.7) !important; display: flex !important; align-items: center !important; justify-content: center !important; z-index: 999999 !important;';
+    
+    const modalContent = document.createElement('div');
+    modalContent.className = 'image-edit-modal-content';
+    modalContent.style.cssText = 'background: var(--color-white, #fff); padding: var(--spacing-lg, 24px); border-radius: var(--border-radius-lg, 8px); max-width: 90vw; max-height: 90vh; overflow: auto; position: relative;';
+    
+    const title = document.createElement('h3');
+    title.textContent = 'Éditer l\'image';
+    title.style.cssText = 'margin-top: 0; margin-bottom: var(--spacing-md, 16px);';
+    modalContent.appendChild(title);
+    
+    // Zone de prévisualisation et édition
+    const previewContainer = document.createElement('div');
+    previewContainer.className = 'image-edit-preview';
+    previewContainer.style.cssText = 'position: relative; margin-bottom: var(--spacing-md, 16px); border: 1px solid var(--color-light, #ddd); border-radius: var(--border-radius, 4px); overflow: hidden; background: #f5f5f5;';
+    
+    const canvas = document.createElement('canvas');
+    canvas.id = 'image-edit-canvas';
+    canvas.style.cssText = 'max-width: 100%; display: block;';
+    
+    // Charger l'image dans le canvas
+    const canvasImg = new Image();
+    canvasImg.crossOrigin = 'anonymous';
+    canvasImg.onload = () => {
+      canvas.width = Math.min(canvasImg.width, 800);
+      canvas.height = Math.min(canvasImg.height, 600);
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(canvasImg, 0, 0, canvas.width, canvas.height);
+      
+      // Stocker l'image originale pour les transformations
+      canvas._originalImage = canvasImg;
+      canvas._currentRotation = 0;
+      canvas._cropData = null;
+    };
+    canvasImg.src = img.src;
+    
+    previewContainer.appendChild(canvas);
+    modalContent.appendChild(previewContainer);
+    
+    // Contrôles d'édition
+    const controlsContainer = document.createElement('div');
+    controlsContainer.className = 'image-edit-controls';
+    controlsContainer.style.cssText = 'display: flex; flex-direction: column; gap: var(--spacing-md, 16px);';
+    
+    // Rotation
+    const rotationGroup = document.createElement('div');
+    rotationGroup.style.cssText = 'display: flex; align-items: center; gap: var(--spacing-sm, 8px);';
+    
+    const rotationLabel = document.createElement('label');
+    rotationLabel.textContent = 'Rotation:';
+    rotationLabel.style.cssText = 'font-weight: 500; min-width: 100px;';
+    
+    const rotateLeftBtn = document.createElement('button');
+    rotateLeftBtn.textContent = '↺ 90°';
+    rotateLeftBtn.className = 'image-edit-btn';
+    rotateLeftBtn.onclick = () => this.rotateImage(canvas, -90);
+    
+    const rotateRightBtn = document.createElement('button');
+    rotateRightBtn.textContent = '↻ 90°';
+    rotateRightBtn.className = 'image-edit-btn';
+    rotateRightBtn.onclick = () => this.rotateImage(canvas, 90);
+    
+    rotationGroup.appendChild(rotationLabel);
+    rotationGroup.appendChild(rotateLeftBtn);
+    rotationGroup.appendChild(rotateRightBtn);
+    controlsContainer.appendChild(rotationGroup);
+    
+    // Crop
+    const cropGroup = document.createElement('div');
+    cropGroup.style.cssText = 'display: flex; align-items: center; gap: var(--spacing-sm, 8px);';
+    
+    const cropLabel = document.createElement('label');
+    cropLabel.textContent = 'Rogner:';
+    cropLabel.style.cssText = 'font-weight: 500; min-width: 100px;';
+    
+    const cropBtn = document.createElement('button');
+    cropBtn.textContent = 'Sélectionner zone';
+    cropBtn.className = 'image-edit-btn';
+    cropBtn.onclick = () => this.startCrop(canvas);
+    
+    const cropApplyBtn = document.createElement('button');
+    cropApplyBtn.textContent = 'Appliquer';
+    cropApplyBtn.className = 'image-edit-btn';
+    cropApplyBtn.style.display = 'none';
+    cropApplyBtn.onclick = () => this.applyCrop(canvas);
+    
+    const cropCancelBtn = document.createElement('button');
+    cropCancelBtn.textContent = 'Annuler';
+    cropCancelBtn.className = 'image-edit-btn';
+    cropCancelBtn.style.display = 'none';
+    cropCancelBtn.onclick = () => this.cancelCrop(canvas);
+    
+    cropGroup.appendChild(cropLabel);
+    cropGroup.appendChild(cropBtn);
+    cropGroup.appendChild(cropApplyBtn);
+    cropGroup.appendChild(cropCancelBtn);
+    controlsContainer.appendChild(cropGroup);
+    
+    // Suppression de fond
+    const bgRemovalGroup = document.createElement('div');
+    bgRemovalGroup.style.cssText = 'display: flex; align-items: center; gap: var(--spacing-sm, 8px);';
+    
+    const bgRemovalLabel = document.createElement('label');
+    bgRemovalLabel.textContent = 'Fond:';
+    bgRemovalLabel.style.cssText = 'font-weight: 500; min-width: 100px;';
+    
+    const bgRemovalBtn = document.createElement('button');
+    bgRemovalBtn.textContent = 'Supprimer le fond';
+    bgRemovalBtn.className = 'image-edit-btn';
+    bgRemovalBtn.onclick = () => this.removeBackground(canvas);
+    
+    bgRemovalGroup.appendChild(bgRemovalLabel);
+    bgRemovalGroup.appendChild(bgRemovalBtn);
+    controlsContainer.appendChild(bgRemovalGroup);
+    
+    modalContent.appendChild(controlsContainer);
+    
+    // Boutons d'action
+    const buttonsContainer = document.createElement('div');
+    buttonsContainer.style.cssText = 'display: flex; justify-content: flex-end; gap: var(--spacing-sm, 8px); margin-top: var(--spacing-md, 16px);';
+    
+    const cancelButton = document.createElement('button');
+    cancelButton.textContent = 'Annuler';
+    cancelButton.className = 'image-edit-btn';
+    cancelButton.onclick = () => document.body.removeChild(modal);
+    
+    const applyButton = document.createElement('button');
+    applyButton.textContent = 'Appliquer';
+    applyButton.className = 'image-edit-btn';
+    applyButton.style.cssText = 'background: var(--color-primary, #0055AA); color: var(--color-white, #fff);';
+    applyButton.onclick = () => {
+      // Appliquer les modifications à l'image dans l'éditeur
+      canvas.toBlob((blob) => {
+        const url = URL.createObjectURL(blob);
+        img.src = url;
+        this.handleContentChange();
+        document.body.removeChild(modal);
+      }, 'image/png');
+    };
+    
+    buttonsContainer.appendChild(cancelButton);
+    buttonsContainer.appendChild(applyButton);
+    modalContent.appendChild(buttonsContainer);
+    
+    modal.appendChild(modalContent);
+    document.body.appendChild(modal);
+    
+    // Fermer en cliquant à l'extérieur
+    modal.onclick = (e) => {
+      if (e.target === modal) {
+        document.body.removeChild(modal);
+      }
+    };
+    
+    // Stocker les références pour le crop
+    canvas._cropBtn = cropBtn;
+    canvas._cropApplyBtn = cropApplyBtn;
+    canvas._cropCancelBtn = cropCancelBtn;
+  }
+
+  /**
+   * Fait tourner l'image
+   */
+  rotateImage(canvas, angle) {
+    if (!canvas._originalImage) return;
+    
+    canvas._currentRotation = (canvas._currentRotation + angle) % 360;
+    if (canvas._currentRotation < 0) canvas._currentRotation += 360;
+    
+    const ctx = canvas.getContext('2d');
+    const img = canvas._originalImage;
+    
+    // Calculer les nouvelles dimensions
+    const is90or270 = Math.abs(canvas._currentRotation % 180) === 90;
+    const newWidth = is90or270 ? img.height : img.width;
+    const newHeight = is90or270 ? img.width : img.height;
+    
+    canvas.width = Math.min(newWidth, 800);
+    canvas.height = Math.min(newHeight, 600);
+    
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.save();
+    ctx.translate(canvas.width / 2, canvas.height / 2);
+    ctx.rotate((canvas._currentRotation * Math.PI) / 180);
+    ctx.drawImage(img, -img.width / 2, -img.height / 2, img.width, img.height);
+    ctx.restore();
+  }
+
+  /**
+   * Démarre le mode crop
+   */
+  startCrop(canvas) {
+    canvas.style.cursor = 'crosshair';
+    canvas._isCropping = true;
+    canvas._cropBtn.style.display = 'none';
+    canvas._cropApplyBtn.style.display = 'inline-block';
+    canvas._cropCancelBtn.style.display = 'inline-block';
+    
+    let startX, startY, cropRect;
+    
+    const onMouseDown = (e) => {
+      const rect = canvas.getBoundingClientRect();
+      startX = e.clientX - rect.left;
+      startY = e.clientY - rect.top;
+      cropRect = { x: startX, y: startY, width: 0, height: 0 };
+    };
+    
+    const onMouseMove = (e) => {
+      if (!cropRect) return;
+      const rect = canvas.getBoundingClientRect();
+      const currentX = e.clientX - rect.left;
+      const currentY = e.clientY - rect.top;
+      
+      cropRect.width = currentX - startX;
+      cropRect.height = currentY - startY;
+      
+      // Redessiner avec le rectangle de sélection
+      this.drawCanvasWithCrop(canvas, cropRect);
+    };
+    
+    const onMouseUp = () => {
+      if (cropRect && cropRect.width !== 0 && cropRect.height !== 0) {
+        canvas._cropData = cropRect;
+      }
+      canvas.removeEventListener('mousedown', onMouseDown);
+      canvas.removeEventListener('mousemove', onMouseMove);
+      canvas.removeEventListener('mouseup', onMouseUp);
+    };
+    
+    canvas.addEventListener('mousedown', onMouseDown);
+    canvas.addEventListener('mousemove', onMouseMove);
+    canvas.addEventListener('mouseup', onMouseUp);
+  }
+
+  /**
+   * Dessine le canvas avec le rectangle de crop
+   */
+  drawCanvasWithCrop(canvas, cropRect) {
+    const ctx = canvas.getContext('2d');
+    const img = canvas._originalImage;
+    
+    // Redessiner l'image
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.save();
+    if (canvas._currentRotation !== 0) {
+      ctx.translate(canvas.width / 2, canvas.height / 2);
+      ctx.rotate((canvas._currentRotation * Math.PI) / 180);
+      ctx.drawImage(img, -img.width / 2, -img.height / 2, img.width, img.height);
+    } else {
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+    }
+    ctx.restore();
+    
+    // Dessiner le rectangle de sélection
+    if (cropRect) {
+      ctx.strokeStyle = '#0055AA';
+      ctx.lineWidth = 2;
+      ctx.setLineDash([5, 5]);
+      ctx.strokeRect(cropRect.x, cropRect.y, cropRect.width, cropRect.height);
+      
+      // Zone assombrie
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.clearRect(cropRect.x, cropRect.y, cropRect.width, cropRect.height);
+    }
+  }
+
+  /**
+   * Applique le crop
+   */
+  applyCrop(canvas) {
+    if (!canvas._cropData) return;
+    
+    const crop = canvas._cropData;
+    const ctx = canvas.getContext('2d');
+    const img = canvas._originalImage;
+    
+    // Créer un nouveau canvas pour le résultat
+    const croppedCanvas = document.createElement('canvas');
+    croppedCanvas.width = Math.abs(crop.width);
+    croppedCanvas.height = Math.abs(crop.height);
+    const croppedCtx = croppedCanvas.getContext('2d');
+    
+    // Extraire la zone
+    const sx = Math.min(crop.x, crop.x + crop.width);
+    const sy = Math.min(crop.y, crop.y + crop.height);
+    const sw = Math.abs(crop.width);
+    const sh = Math.abs(crop.height);
+    
+    croppedCtx.drawImage(canvas, sx, sy, sw, sh, 0, 0, croppedCanvas.width, croppedCanvas.height);
+    
+    // Remplacer le canvas
+    canvas.width = croppedCanvas.width;
+    canvas.height = croppedCanvas.height;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(croppedCanvas, 0, 0);
+    
+    // Réinitialiser
+    canvas._cropData = null;
+    canvas._isCropping = false;
+    canvas.style.cursor = 'default';
+    canvas._cropBtn.style.display = 'inline-block';
+    canvas._cropApplyBtn.style.display = 'none';
+    canvas._cropCancelBtn.style.display = 'none';
+  }
+
+  /**
+   * Annule le crop
+   */
+  cancelCrop(canvas) {
+    canvas._cropData = null;
+    canvas._isCropping = false;
+    canvas.style.cursor = 'default';
+    canvas._cropBtn.style.display = 'inline-block';
+    canvas._cropApplyBtn.style.display = 'none';
+    canvas._cropCancelBtn.style.display = 'none';
+    
+    // Redessiner sans crop
+    this.drawCanvasWithCrop(canvas, null);
+  }
+
+  /**
+   * Supprime le fond de l'image (algorithme simple basé sur la couleur)
+   */
+  removeBackground(canvas) {
+    const ctx = canvas.getContext('2d');
+    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const data = imageData.data;
+    
+    // Détecter la couleur de fond (couleur la plus présente aux bords)
+    const edgeColors = [];
+    const edgeSize = 10;
+    
+    for (let y = 0; y < edgeSize; y++) {
+      for (let x = 0; x < canvas.width; x++) {
+        const idx = (y * canvas.width + x) * 4;
+        edgeColors.push([data[idx], data[idx + 1], data[idx + 2]]);
+      }
+    }
+    for (let y = canvas.height - edgeSize; y < canvas.height; y++) {
+      for (let x = 0; x < canvas.width; x++) {
+        const idx = (y * canvas.width + x) * 4;
+        edgeColors.push([data[idx], data[idx + 1], data[idx + 2]]);
+      }
+    }
+    for (let y = 0; y < canvas.height; y++) {
+      for (let x = 0; x < edgeSize; x++) {
+        const idx = (y * canvas.width + x) * 4;
+        edgeColors.push([data[idx], data[idx + 1], data[idx + 2]]);
+      }
+      for (let x = canvas.width - edgeSize; x < canvas.width; x++) {
+        const idx = (y * canvas.width + x) * 4;
+        edgeColors.push([data[idx], data[idx + 1], data[idx + 2]]);
+      }
+    }
+    
+    // Calculer la couleur moyenne des bords
+    let avgR = 0, avgG = 0, avgB = 0;
+    edgeColors.forEach(color => {
+      avgR += color[0];
+      avgG += color[1];
+      avgB += color[2];
+    });
+    avgR = Math.round(avgR / edgeColors.length);
+    avgG = Math.round(avgG / edgeColors.length);
+    avgB = Math.round(avgB / edgeColors.length);
+    
+    // Seuil de tolérance
+    const tolerance = 30;
+    
+    // Rendre transparent les pixels similaires au fond
+    for (let i = 0; i < data.length; i += 4) {
+      const r = data[i];
+      const g = data[i + 1];
+      const b = data[i + 2];
+      
+      const distance = Math.sqrt(
+        Math.pow(r - avgR, 2) + Math.pow(g - avgG, 2) + Math.pow(b - avgB, 2)
+      );
+      
+      if (distance < tolerance) {
+        data[i + 3] = 0; // Alpha = 0 (transparent)
+      }
+    }
+    
+    ctx.putImageData(imageData, 0, 0);
   }
 
   handleEnterKey(e) {
@@ -2272,8 +3859,21 @@ export default class RichTextEditor {
 
   setContent(html) {
     if (this.editorElement) {
+      console.log('📝 setContent appelé, longueur HTML:', html.length);
+      console.log('📝 Images dans le HTML:', html.match(/<img[^>]*data-image-id[^>]*>/g)?.length || 0);
+      
+      // Corriger le HTML invalide : convertir <p class="image-container-wrapper"> en <div class="image-container-wrapper">
+      // Car un <div> ne peut pas être un enfant direct d'un <p> en HTML
+      // Utiliser une regex pour remplacer les balises ouvrantes et fermantes
+      html = html.replace(/<p\s+class="image-container-wrapper"[^>]*>/gi, '<div class="image-container-wrapper">');
+      // Remplacer les </p> qui suivent directement un </div> de image-container-wrapper
+      // On doit utiliser une approche plus robuste avec un parser, mais pour l'instant on fait une regex simple
+      html = html.replace(/<\/div>\s*<\/p>(?=\s*(?:<[^>]+>|$))/g, '</div></div>');
+      
       this.editorElement.innerHTML = html;
       
+      // Restaurer toutes les images (ajouter les fonctionnalités de redimensionnement, etc.)
+      this.restoreImages();
       
       // Rendre les variables draggables après le changement de contenu
       this.makeVariablesDraggable();
@@ -2282,6 +3882,145 @@ export default class RichTextEditor {
       setTimeout(() => {
       }, 100);
     }
+  }
+
+  /**
+   * Restaure toutes les images dans l'éditeur après le chargement du contenu
+   */
+  restoreImages() {
+    if (!this.editorElement) return;
+    
+    // Chercher tous les conteneurs d'images (avec ou sans image)
+    const imageContainers = this.editorElement.querySelectorAll('.template-image-container');
+    console.log(`🖼️ Restauration de ${imageContainers.length} conteneur(s) d'image...`);
+    
+    if (imageContainers.length === 0) {
+      console.log('⚠️ Aucun conteneur d\'image trouvé dans le HTML');
+      return;
+    }
+    
+    imageContainers.forEach((container, index) => {
+      const img = container.querySelector('img.template-image');
+      const placeholderEl = container.querySelector('.image-placeholder');
+      
+      console.log(`🖼️ Conteneur ${index + 1}:`, {
+        hasImage: !!img,
+        hasPlaceholder: !!placeholderEl,
+        containerHTML: container.outerHTML.substring(0, 200)
+      });
+      
+      if (img) {
+        console.log(`🖼️ Image ${index + 1}:`, {
+          src: img.src,
+          imageType: img.dataset.imageType,
+          imageId: img.dataset.imageId
+        });
+        // Vérifier si le bouton de suppression existe, sinon le créer
+        if (!container.querySelector('.image-delete-button')) {
+          const deleteButton = document.createElement('button');
+          deleteButton.className = 'image-delete-button';
+          deleteButton.innerHTML = '×';
+          deleteButton.title = 'Supprimer l\'image';
+          deleteButton.onclick = (e) => {
+            e.stopPropagation();
+            if (confirm('Supprimer cette image ?')) {
+              container.closest('.image-container-wrapper')?.remove();
+              this.handleContentChange();
+            }
+          };
+          container.appendChild(deleteButton);
+        }
+        
+        // Rendre l'image redimensionnable si ce n'est pas déjà fait
+        if (!container.hasAttribute('data-resizable')) {
+          this.makeImageResizable(container);
+          container.setAttribute('data-resizable', 'true');
+        }
+        
+        // Ajouter le gestionnaire de clic pour la sélection
+        container.onclick = (e) => {
+          if (e.target.closest('.resize-handle') || e.target.closest('.lock-button') || e.target.closest('.image-delete-button')) {
+            return; // Ne pas sélectionner si on clique sur les contrôles
+          }
+          e.stopPropagation();
+          this.selectImage(container);
+        };
+        
+        // Vérifier si l'URL de l'image est une URL API et la convertir si nécessaire
+        if (img.dataset.imageType === 'upload' && img.dataset.imageId) {
+          // L'URL devrait être via l'API
+          const imageId = img.dataset.imageId;
+          const templateId = this.template?._id;
+          
+          // Toujours reconstruire l'URL API pour s'assurer qu'elle est correcte
+          if (templateId) {
+            // Construire l'URL API (relatif ou absolu selon la configuration)
+            const currentSrc = img.src || '';
+            const isAbsolute = currentSrc.startsWith('http://') || currentSrc.startsWith('https://');
+            const apiBase = (window.API_BASE_URL && !isAbsolute) ? window.API_BASE_URL : '';
+            const imageUrl = `${apiBase}/api/doc-template/templates/${templateId}/images/${imageId}`;
+            
+            // Mettre à jour l'URL seulement si elle est différente ou invalide
+            if (!currentSrc || currentSrc.startsWith('blob:') || !currentSrc.includes('/api/doc-template/') || !currentSrc.includes(imageId)) {
+              img.src = imageUrl;
+              console.log(`🖼️ URL de l'image ${index + 1} mise à jour:`, imageUrl);
+            }
+          }
+        } else if (img.src && img.src.startsWith('blob:') && !img.dataset.pendingUpload) {
+          // Si l'image a une URL blob mais n'est pas marquée comme en attente, elle a été perdue
+          // Essayer de récupérer l'image depuis le template si on a un imageId
+          const imageId = img.dataset.imageId;
+          const templateId = this.template?._id;
+          if (imageId && templateId) {
+            const apiBase = window.API_BASE_URL || '';
+            img.src = `${apiBase}/api/doc-template/templates/${templateId}/images/${imageId}`;
+            img.dataset.imageType = 'upload';
+            console.log(`🖼️ Image blob restaurée:`, img.src);
+          }
+        }
+      }
+      
+      // Vérifier si c'est un placeholder et restaurer ses fonctionnalités
+      if (placeholderEl) {
+        // S'assurer que le placeholder a position relative pour le bouton de suppression
+        placeholderEl.style.position = 'relative';
+        
+        // Vérifier si le bouton de suppression existe, sinon le créer
+        if (!placeholderEl.querySelector('.image-delete-button')) {
+          const deleteButton = document.createElement('button');
+          deleteButton.className = 'image-delete-button';
+          deleteButton.innerHTML = '×';
+          deleteButton.title = 'Supprimer l\'image';
+          deleteButton.onclick = (e) => {
+            e.stopPropagation();
+            if (confirm('Supprimer cette image ?')) {
+              container.closest('.image-container-wrapper')?.remove();
+              this.handleContentChange();
+            }
+          };
+          placeholderEl.appendChild(deleteButton);
+        }
+        
+        // Ajouter le gestionnaire de clic pour la sélection du placeholder
+        placeholderEl.onclick = (e) => {
+          if (e.target.closest('.image-delete-button')) {
+            return; // Ne pas sélectionner si on clique sur le bouton de suppression
+          }
+          e.stopPropagation();
+          this.selectImage(container);
+        };
+        
+        // Rendre le placeholder redimensionnable si ce n'est pas déjà fait
+        if (!container.hasAttribute('data-resizable')) {
+          this.makeImageResizable(container);
+          container.setAttribute('data-resizable', 'true');
+        }
+        
+        console.log(`🖼️ Placeholder ${index + 1} restauré`);
+      }
+    });
+    
+    console.log(`✅ Restauration terminée: ${imageContainers.length} conteneur(s) traité(s)`);
   }
 
   setTemplate(template) {
