@@ -1,0 +1,211 @@
+/* RichTextEditor.css - Styles pour l'éditeur WYSIWYG */
+/* Utilise les variables CSS de front/styles/styles.css */
+
+.rich-text-editor-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 100%;
+  height: 100%;
+  background: var(--color-light);
+  padding: 0;
+  overflow: hidden;
+  border-radius: var(--border-radius-lg);
+}
+
+.page-wrapper {
+  position: relative;
+  background: var(--color-white);
+  box-shadow: var(--shadow-lg);
+  margin: 0 auto;
+  box-sizing: border-box;
+  /* Les dimensions sont calculées en JS avec un ratio pour l'affichage */
+  /* Les dimensions réelles sont stockées dans dataset pour l'export PDF */
+  /* Ombre sur l'ensemble du container pour simuler une page */
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15), 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+
+/* Spacers de marge (non-éditables, dans le flux) */
+.margin-spacer-footer,
+.margin-spacer-header {
+  pointer-events: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+  background: transparent;
+  border: none;
+  padding: 0;
+  display: block;
+  visibility: visible;
+}
+
+/* Footer : ombrage en bas pour simuler la fin de page */
+.margin-spacer-footer {
+  margin: 0;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+/* Header : ombrage en haut et margin pour simuler le début de page */
+.margin-spacer-header {
+  margin: 0;
+  width: 100%;
+  box-shadow: 0 -4px 6px rgba(0, 0, 0, 0.1);
+}
+
+.rich-text-editor {
+  position: relative;
+  width: 100%;
+  min-height: 100%;
+  font-family: var(--font-primary);
+  font-size: calc((var(--base-font-size, var(--font-size-base))) * var(--scale-ratio, 1));
+  line-height: calc(1.12 * var(--scale-ratio, 1)); /* Réduit de 30% : 1.6 * 0.7 = 1.12 */
+  color: var(--color-dark);
+  outline: none;
+  box-sizing: border-box;
+  caret-color: auto; /* S'assurer que le caret est visible */
+  overflow-y: auto;
+  overflow-x: hidden; /* Pas de scroll horizontal */
+  height: 100%;
+  word-wrap: break-word; /* Retour à la ligne pour les mots longs */
+  overflow-wrap: break-word; /* Alternative moderne */
+  hyphens: auto; /* Césure automatique si supportée */
+  --page-margin: 5px; /* Marge entre les pages (customisable) */
+}
+
+.rich-text-editor:focus {
+  outline: none;
+}
+
+/* Utilisation de classes personnalisées au lieu de h1, h2, h3 pour éviter les conflits avec les styles globaux */
+.rich-text-editor .doc-title-level-1,
+.rich-text-editor .doc-title-level-2,
+.rich-text-editor .doc-title-level-3 {
+  display: block;
+  margin-top: calc(var(--spacing-md) * var(--scale-ratio, 1) * 0.7); /* Réduit de 30% */
+  margin-bottom: calc(var(--spacing-sm) * var(--scale-ratio, 1) * 0.7); /* Réduit de 30% */
+  font-weight: 600;
+  font-family: inherit;
+  line-height: inherit;
+  color: inherit;
+  text-align: inherit;
+  text-transform: none;
+  letter-spacing: normal;
+}
+
+.rich-text-editor .doc-title-level-1 {
+  font-size: calc(var(--doc-font-size-h1, 24px) * var(--scale-ratio, 1));
+}
+
+.rich-text-editor .doc-title-level-2 {
+  font-size: calc(var(--doc-font-size-h2, 20px) * var(--scale-ratio, 1));
+}
+
+.rich-text-editor .doc-title-level-3 {
+  font-size: calc(var(--doc-font-size-h3, 18px) * var(--scale-ratio, 1));
+}
+
+/* Support rétrocompatibilité : si des h1, h2, h3 existent encore, les styler aussi */
+.rich-text-editor h1,
+.rich-text-editor h2,
+.rich-text-editor h3 {
+  margin-top: calc(var(--spacing-md) * var(--scale-ratio, 1)) !important;
+  margin-bottom: calc(var(--spacing-sm) * var(--scale-ratio, 1)) !important;
+  font-weight: 600 !important;
+  font-family: inherit !important;
+  line-height: inherit !important;
+  color: inherit !important;
+  text-align: inherit !important;
+  text-transform: none !important;
+  letter-spacing: normal !important;
+}
+
+.rich-text-editor h1 {
+  font-size: calc(var(--doc-font-size-h1, 24px) * var(--scale-ratio, 1)) !important;
+}
+
+.rich-text-editor h2 {
+  font-size: calc(var(--doc-font-size-h2, 20px) * var(--scale-ratio, 1)) !important;
+}
+
+.rich-text-editor h3 {
+  font-size: calc(var(--doc-font-size-h3, 18px) * var(--scale-ratio, 1)) !important;
+}
+
+.rich-text-editor p {
+  margin-bottom: calc(var(--spacing-sm) * var(--scale-ratio, 1) * 0.7); /* Réduit de 30% */
+  min-height: calc(1.5em * var(--scale-ratio, 1)); /* Hauteur minimale pour permettre le drop sur les lignes vides */
+}
+
+.rich-text-editor ul,
+.rich-text-editor ol {
+  margin-left: calc(var(--spacing-lg) * var(--scale-ratio, 1));
+  margin-bottom: calc(var(--spacing-sm) * var(--scale-ratio, 1));
+}
+
+.rich-text-editor table {
+  width: 100%;
+  max-width: 100%;
+  border-collapse: collapse;
+  margin-bottom: calc(var(--spacing-sm) * var(--scale-ratio, 1));
+  table-layout: fixed; /* Force les colonnes à respecter la largeur */
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+}
+
+.rich-text-editor table td,
+.rich-text-editor table th {
+  border: calc(1px * var(--scale-ratio, 1)) solid var(--color-light);
+  padding: calc(var(--spacing-xs) * var(--scale-ratio, 1));
+}
+
+.rich-text-editor img {
+  max-width: 100%;
+  height: auto;
+  display: block; /* Évite les problèmes de retour à la ligne avec les images inline */
+}
+
+.template-variable {
+  display: inline-block;
+  user-select: none;
+  cursor: default;
+  max-width: 100%;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+}
+
+/* Indicateur de caret pendant le drag */
+.drag-caret-indicator {
+  position: fixed;
+  pointer-events: none;
+  z-index: 10000;
+  color: #0055AA;
+  font-size: 16px;
+  font-weight: bold;
+  line-height: 1.2;
+  animation: blink 1s infinite;
+}
+
+/* Caret permanent dans l'éditeur */
+.permanent-caret {
+  position: fixed;
+  pointer-events: none;
+  z-index: 9999;
+  color: #0055AA;
+  font-size: 16px;
+  font-weight: bold;
+  line-height: 1.2;
+  animation: blink-slow 1.5s infinite;
+}
+
+@keyframes blink {
+  0%, 50% { opacity: 1; }
+  51%, 100% { opacity: 0.3; }
+}
+
+@keyframes blink-slow {
+  0%, 60% { opacity: 1; }
+  61%, 100% { opacity: 0.4; }
+}
+

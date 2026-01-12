@@ -29,6 +29,9 @@ export default class RichTextEditor {
     this.dropRange = null;
     this.draggedVariableElement = null; // Variable en cours de déplacement
     this.resizeObserver = null; // Observer pour les changements de taille
+    this.pageBreakObserver = null; // Observer pour gérer les sauts de page
+    this.pageBreakCheckTimeout = null; // Timeout pour debounce des vérifications de saut de page
+    this.recalculateSpacersTimeout = null; // Timeout pour debounce du recalcul des spacers
   }
 
   render(container) {
@@ -58,6 +61,42 @@ export default class RichTextEditor {
       this.makeVariablesDraggable();
     };
     this.editorElement.onpaste = (e) => this.handlePaste(e);
+    
+    // Gérer la touche Entrée dans un titre : créer un paragraphe et mettre à jour la numérotation
+    this.editorElement.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        // Vérifier si on est dans un titre avant de gérer
+        const selection = window.getSelection();
+        if (selection.rangeCount > 0) {
+          const range = selection.getRangeAt(0);
+          let element = range.startContainer;
+          if (element.nodeType === Node.TEXT_NODE) {
+            element = element.parentElement;
+          }
+          
+          // Trouver le paragraphe parent
+          while (element && element !== this.editorElement) {
+            if (element.classList.contains('doc-title-level-1') ||
+                element.classList.contains('doc-title-level-2') ||
+                element.classList.contains('doc-title-level-3')) {
+              this.handleEnterKey(e);
+              break;
+            }
+            element = element.parentElement;
+          }
+        }
+        
+        // Recalculer tous les spacers après la création de la ligne (Enter crée toujours une nouvelle ligne)
+        setTimeout(() => {
+          this.recalculateAllSpacers();
+        }, 100);
+      } else if (e.key === 'Backspace' || e.key === 'Delete') {
+        // Recalculer tous les spacers après suppression (peut supprimer une ligne)
+        setTimeout(() => {
+          this.recalculateAllSpacers();
+        }, 100);
+      }
+    });
     
     // Gestion du drag & drop pour les variables
     this.dragCaretIndicator = null;
@@ -698,6 +737,9 @@ export default class RichTextEditor {
     
     // Observer les changements de taille pour recalculer le scaling
     this.setupResizeObserver();
+    
+    // Observer pour gérer les sauts de page avec des spacers dans le flux
+    this.setupPageBreakObserver();
 
     // Rendre tout le contenu du document (toutes les sections)
     this.renderAllSections();
@@ -733,11 +775,24 @@ export default class RichTextEditor {
 
     // Dimensions réelles en cm (pour export PDF)
     const PAGE_SIZES = {
+      A0: { width: 84.1, height: 118.9 },
+      A1: { width: 59.4, height: 84.1 },
+      A2: { width: 42, height: 59.4 },
+      A3: { width: 29.7, height: 42 },
       A4: { width: 21, height: 29.7 },
-      A3: { width: 29.7, height: 42 }
+      A5: { width: 14.8, height: 21 },
+      A6: { width: 10.5, height: 14.8 }
     };
 
-    const size = PAGE_SIZES[pageSize] || PAGE_SIZES.A4;
+    let size;
+    if (pageSize === 'custom') {
+      // Format personnalisé : utiliser les dimensions du template
+      const customWidth = this.template?.generalStyles?.default?.pagination?.customWidth || 21;
+      const customHeight = this.template?.generalStyles?.default?.pagination?.customHeight || 29.7;
+      size = { width: customWidth, height: customHeight };
+    } else {
+      size = PAGE_SIZES[pageSize] || PAGE_SIZES.A4;
+    }
     
     // Conversion cm en px (1cm = 37.795275591px à 96 DPI)
     const pxPerCm = 37.795275591;
@@ -768,18 +823,10 @@ export default class RichTextEditor {
       const editorRect = this.editorElement.getBoundingClientRect();
       const editorWidth = editorRect.width || 800; // fallback en pixels
       
-      // Calculer le ratio de base : largeur réelle rich-text-editor / largeur format
-      let scaleRatio = editorWidth / realWidth;
-      
-      // CORRECTION : Word utilise des points (pt) et HTML des pixels (px)
-      // Conversion : 1 pt = 96/72 px = 1.333... px
-      // Mais il y a aussi une différence de rendu observée :
-      // Avec font-size 24, il faut 2.5× "introduction" dans l'éditeur mais 4.5× dans Word
-      // Ratio observé : 2.5/4.5 = 0.556 (le texte dans l'éditeur est 1.8× plus grand)
-      // Facteur de correction pour aligner avec Word : 2.5/4.5 ≈ 0.556
-      // On applique ce facteur pour que le texte corresponde à Word
-      const wordCorrectionFactor = 2.5 / 4.5; // ≈ 0.556
-      scaleRatio = scaleRatio * wordCorrectionFactor;
+      // Calculer le ratio : largeur réelle rich-text-editor / largeur format
+      // Si l'éditeur est plus large que le format, le ratio sera > 1 (agrandit le texte)
+      // Si l'éditeur est plus petit que le format, le ratio sera < 1 (réduit le texte)
+      const scaleRatio = editorWidth / realWidth;
       
       // Définir la variable CSS --scale-ratio sur l'éditeur
       this.editorElement.style.setProperty('--scale-ratio', scaleRatio);
@@ -796,8 +843,6 @@ export default class RichTextEditor {
       console.log('📐 Ratio calculé:', {
         editorWidth,
         realWidth,
-        scaleRatioBase: editorWidth / realWidth,
-        wordCorrectionFactor: 2.5 / 4.5,
         scaleRatio,
         pageSize,
         orientation
@@ -872,6 +917,604 @@ export default class RichTextEditor {
     
     this.resizeObserver.observe(this.editorElement);
   }
+  
+  
+  setupPageBreakObserver() {
+    // Observer pour détecter les changements de contenu et gérer les sauts de page
+    if (!this.editorElement) return;
+    
+    if (this.pageBreakObserver) {
+      this.pageBreakObserver.disconnect();
+    }
+    
+    this.isUpdatingPageBreaks = false; // Flag pour éviter les boucles infinies
+    
+    this.pageBreakObserver = new MutationObserver((mutations) => {
+      // Ignorer si on est déjà en train de mettre à jour les sauts de page
+      if (this.isUpdatingPageBreaks) return;
+      
+      // Ignorer les mutations sur les spacers eux-mêmes
+      const hasNonSpacerMutation = mutations.some(mutation => {
+        const target = mutation.target;
+        return !target.classList || !target.classList.contains('page-break-spacer');
+      });
+      
+      if (!hasNonSpacerMutation) return;
+      
+      // Ne pas vérifier automatiquement à chaque mutation
+      // On vérifie seulement sur Enter ou fin de ligne
+      // (désactivé pour éviter les appels trop fréquents)
+    });
+    
+    this.pageBreakObserver.observe(this.editorElement, {
+      childList: true,
+      subtree: true,
+      characterData: true
+    });
+  }
+  
+  // Fonction principale pour recalculer tous les spacers
+  recalculateAllSpacers() {
+    if (!this.editorElement || this.isUpdatingPageBreaks) {
+      return;
+    }
+    
+    this.isUpdatingPageBreaks = true;
+    
+    // Supprimer tous les spacers existants
+    const existingSpacers = this.editorElement.querySelectorAll('.margin-spacer-footer, .margin-spacer-header');
+    existingSpacers.forEach(spacer => spacer.remove());
+    
+    // Récupérer les dimensions de la page
+    const pageSize = this.editorElement.getAttribute('data-format') || 'A4';
+    const orientation = this.editorElement.getAttribute('data-orientation') || 'portrait';
+    const scaleRatio = parseFloat(this.editorElement.dataset.scaleRatio) || 1;
+    
+    const PAGE_SIZES = {
+      A0: { width: 84.1, height: 118.9 },
+      A1: { width: 59.4, height: 84.1 },
+      A2: { width: 42, height: 59.4 },
+      A3: { width: 29.7, height: 42 },
+      A4: { width: 21, height: 29.7 },
+      A5: { width: 14.8, height: 21 },
+      A6: { width: 10.5, height: 14.8 }
+    };
+    
+    let size;
+    if (pageSize === 'custom') {
+      const customWidth = this.template?.generalStyles?.default?.pagination?.customWidth || 21;
+      const customHeight = this.template?.generalStyles?.default?.pagination?.customHeight || 29.7;
+      size = { width: customWidth, height: customHeight };
+    } else {
+      size = PAGE_SIZES[pageSize] || PAGE_SIZES.A4;
+    }
+    
+    const pxPerCm = 37.795275591;
+    const pageHeightCm = orientation === 'portrait' ? size.height : size.width;
+    const pageWidthCm = orientation === 'portrait' ? size.width : size.height;
+    
+    // Calculer la hauteur de page
+    const editorRect = this.editorElement.getBoundingClientRect();
+    const editorWidth = editorRect.width;
+    const realWidthPx = pageWidthCm * pxPerCm;
+    const realHeightPx = pageHeightCm * pxPerCm;
+    const pageHeightPx = (editorWidth / realWidthPx) * realHeightPx;
+    
+    const margins = this.template?.generalStyles?.default?.margin || {};
+    const marginTop = this.parseMargin(margins.top || '2.5cm', scaleRatio);
+    const marginBottom = this.parseMargin(margins.bottom || '2.5cm', scaleRatio);
+    const marginLeft = this.parseMargin(margins.left || '2.5cm', scaleRatio);
+    const marginRight = this.parseMargin(margins.right || '2.5cm', scaleRatio);
+    
+    const pageMargin = parseFloat(getComputedStyle(this.editorElement).getPropertyValue('--page-margin')) || 5;
+    const totalPageHeight = pageHeightPx + pageMargin;
+    const editableHeight = pageHeightPx - marginTop - marginBottom;
+    const pageLimit = editableHeight;
+    
+    // Parcourir tous les éléments éditable (p, div avec doc-title-level-X)
+    const allElements = Array.from(this.editorElement.querySelectorAll('p, div.doc-title-level-1, div.doc-title-level-2, div.doc-title-level-3'))
+      .filter(el => !el.classList.contains('margin-spacer-footer') && !el.classList.contains('margin-spacer-header'));
+    
+    // Calculer la position cumulative de chaque élément (basé sur les hauteurs précédentes)
+    // Commencer après la marge du haut de la première page
+    let cumulativeTop = marginTop;
+    
+    allElements.forEach((element, index) => {
+      // Calculer la hauteur de l'élément (incluant les marges)
+      const elementRect = element.getBoundingClientRect();
+      const elementHeight = elementRect.height;
+      
+      // Récupérer les marges CSS de l'élément pour les inclure dans le calcul
+      const computedStyle = window.getComputedStyle(element);
+      const marginTopEl = parseFloat(computedStyle.marginTop) || 0;
+      const marginBottomEl = parseFloat(computedStyle.marginBottom) || 0;
+      
+      // Pour le premier élément, on commence à marginTop
+      // Pour les suivants, on ajoute la marge du haut de l'élément
+      if (index > 0) {
+        cumulativeTop += marginTopEl;
+      }
+      
+      // Calculer la position dans la page actuelle
+      // On utilise le reste de la division euclidienne pour trouver la position dans la page
+      const positionInTotalPage = cumulativeTop % totalPageHeight;
+      let positionInCurrentPage;
+      
+      if (positionInTotalPage < pageMargin) {
+        // On est dans la marge entre les pages
+        positionInCurrentPage = marginTop;
+      } else {
+        // On soustrait la marge entre les pages et on ajoute marginTop
+        positionInCurrentPage = (positionInTotalPage - pageMargin) + marginTop;
+      }
+      
+      // Si positionInCurrentPage dépasse déjà pageLimit, on est sur une nouvelle page
+      if (positionInCurrentPage > pageLimit) {
+        const excess = positionInCurrentPage - pageLimit;
+        positionInCurrentPage = marginTop + excess;
+      }
+      
+      // Position du bas de l'élément dans la zone éditable (incluant la marge du bas)
+      const elementBottom = positionInCurrentPage + elementHeight + marginBottomEl;
+      
+      if (elementBottom > pageLimit) {
+        // Calculer la hauteur disponible
+        const availableHeight = Math.max(0, pageLimit - positionInCurrentPage);
+        const footerHeight = marginBottom + availableHeight;
+        
+        // Créer le footer spacer
+        const footerSpacer = document.createElement('p');
+        footerSpacer.className = 'margin-spacer-footer';
+        footerSpacer.contentEditable = 'false';
+        footerSpacer.style.height = `${footerHeight}px`;
+        footerSpacer.style.margin = '0';
+        footerSpacer.style.marginLeft = `-${marginLeft}px`;
+        footerSpacer.style.marginRight = `-${marginRight}px`;
+        footerSpacer.style.padding = '0';
+        footerSpacer.style.pointerEvents = 'none';
+        footerSpacer.style.userSelect = 'none';
+        footerSpacer.style.display = 'block';
+        footerSpacer.style.visibility = 'visible';
+        footerSpacer.style.boxShadow = '0 4px 6px rgba(0, 0, 0, 0.1)';
+        footerSpacer.style.marginBottom = `${pageMargin}px`;
+        
+        // Insérer avant l'élément
+        element.parentNode.insertBefore(footerSpacer, element);
+        
+        // Créer le header spacer
+        const headerSpacer = document.createElement('p');
+        headerSpacer.className = 'margin-spacer-header';
+        headerSpacer.contentEditable = 'false';
+        headerSpacer.style.height = `${marginTop}px`;
+        headerSpacer.style.margin = '0';
+        headerSpacer.style.marginLeft = `-${marginLeft}px`;
+        headerSpacer.style.marginRight = `-${marginRight}px`;
+        headerSpacer.style.padding = '0';
+        headerSpacer.style.pointerEvents = 'none';
+        headerSpacer.style.userSelect = 'none';
+        headerSpacer.style.display = 'block';
+        headerSpacer.style.visibility = 'visible';
+        headerSpacer.style.boxShadow = '0 -4px 6px rgba(0, 0, 0, 0.1)';
+        headerSpacer.style.width = '100%';
+        
+        // Insérer après le footer
+        footerSpacer.parentNode.insertBefore(headerSpacer, footerSpacer.nextSibling);
+        
+        // Mettre à jour cumulativeTop pour les éléments suivants
+        // On passe à la page suivante : on calcule la position après le saut de page
+        const currentPageIndex = Math.floor(cumulativeTop / totalPageHeight);
+        // Position après le footer + header = début de la nouvelle page
+        cumulativeTop = (currentPageIndex + 1) * totalPageHeight + pageMargin + marginTop;
+        // Ajouter la hauteur de l'élément sur la nouvelle page (incluant la marge du bas)
+        cumulativeTop += elementHeight + marginBottomEl;
+      } else {
+        // L'élément tient dans la page actuelle, mettre à jour cumulativeTop
+        // Inclure la hauteur de l'élément et sa marge du bas
+        cumulativeTop += elementHeight + marginBottomEl;
+      }
+    });
+    
+    this.isUpdatingPageBreaks = false;
+  }
+  
+  checkAndInsertMarginSpacers() {
+    if (!this.editorElement) {
+      return;
+    }
+    
+    // Récupérer les dimensions de la page
+    const pageSize = this.editorElement.getAttribute('data-format') || 'A4';
+    const orientation = this.editorElement.getAttribute('data-orientation') || 'portrait';
+    const scaleRatio = parseFloat(this.editorElement.dataset.scaleRatio) || 1;
+    
+    const PAGE_SIZES = {
+      A0: { width: 84.1, height: 118.9 },
+      A1: { width: 59.4, height: 84.1 },
+      A2: { width: 42, height: 59.4 },
+      A3: { width: 29.7, height: 42 },
+      A4: { width: 21, height: 29.7 },
+      A5: { width: 14.8, height: 21 },
+      A6: { width: 10.5, height: 14.8 }
+    };
+    
+    let size;
+    if (pageSize === 'custom') {
+      const customWidth = this.template?.generalStyles?.default?.pagination?.customWidth || 21;
+      const customHeight = this.template?.generalStyles?.default?.pagination?.customHeight || 29.7;
+      size = { width: customWidth, height: customHeight };
+    } else {
+      size = PAGE_SIZES[pageSize] || PAGE_SIZES.A4;
+    }
+    
+    const pxPerCm = 37.795275591;
+    const pageHeightCm = orientation === 'portrait' ? size.height : size.width;
+    const pageWidthCm = orientation === 'portrait' ? size.width : size.height;
+    
+    // Calculer la hauteur de page
+    const editorRect = this.editorElement.getBoundingClientRect();
+    const editorWidth = editorRect.width;
+    const realWidthPx = pageWidthCm * pxPerCm;
+    const realHeightPx = pageHeightCm * pxPerCm;
+    const pageHeightPx = (editorWidth / realWidthPx) * realHeightPx;
+    
+    const margins = this.template?.generalStyles?.default?.margin || {};
+    const marginTop = this.parseMargin(margins.top || '2.5cm', scaleRatio);
+    const marginBottom = this.parseMargin(margins.bottom || '2.5cm', scaleRatio);
+    const marginLeft = this.parseMargin(margins.left || '2.5cm', scaleRatio);
+    const marginRight = this.parseMargin(margins.right || '2.5cm', scaleRatio);
+    
+    // Obtenir la position du caret
+    const selection = window.getSelection();
+    if (selection.rangeCount === 0) {
+      return;
+    }
+    
+    const range = selection.getRangeAt(0);
+    
+    // Trouver l'élément contenant le caret (paragraphe)
+    let caretElement = range.startContainer;
+    if (caretElement.nodeType === Node.TEXT_NODE) {
+      caretElement = caretElement.parentElement;
+    }
+    
+    // Trouver le paragraphe parent
+    while (caretElement && caretElement !== this.editorElement) {
+      if (caretElement.tagName === 'P' || 
+          caretElement.classList.contains('doc-title-level-1') ||
+          caretElement.classList.contains('doc-title-level-2') ||
+          caretElement.classList.contains('doc-title-level-3')) {
+        break;
+      }
+      caretElement = caretElement.parentElement;
+    }
+    
+    if (!caretElement || caretElement === this.editorElement) {
+      return;
+    }
+    
+    // Calculer la position du paragraphe par rapport au début de l'éditeur
+    // Utiliser offsetTop qui donne la position relative au parent
+    let paragraphTop = 0;
+    let currentElement = caretElement;
+    while (currentElement && currentElement !== this.editorElement) {
+      paragraphTop += currentElement.offsetTop;
+      currentElement = currentElement.offsetParent;
+    }
+    
+    // Si offsetTop ne fonctionne pas bien, utiliser getBoundingClientRect
+    if (paragraphTop === 0 || paragraphTop < 0) {
+      const elementRect = caretElement.getBoundingClientRect();
+      const editorRectForCaret = this.editorElement.getBoundingClientRect();
+      paragraphTop = elementRect.top - editorRectForCaret.top + this.editorElement.scrollTop;
+    }
+    
+    // Position du caret : utiliser la position du haut du paragraphe
+    // (on vérifie si le bas du paragraphe dépasse, donc on a besoin du haut)
+    const caretY = paragraphTop;
+    
+    // Obtenir la hauteur du texte
+    const textHeight = caretElement.getBoundingClientRect().height;
+    
+    // Position du bas du texte = position du caret + hauteur du texte
+    const textBottom = caretY + textHeight;
+    
+    // Marge entre les pages (variable CSS pour customiser plus tard)
+    const pageMargin = parseFloat(getComputedStyle(this.editorElement).getPropertyValue('--page-margin')) || 5; // px
+    
+    // Hauteur totale d'une page (hauteur + marge entre pages)
+    const totalPageHeight = pageHeightPx + pageMargin;
+    
+    // Calculer l'index de la page actuelle (combien de pages complètes on a déjà)
+    const currentPageIndex = Math.floor(caretY / totalPageHeight);
+    
+    // Calculer la position relative dans la page actuelle (reste de la division euclidienne)
+    const positionInTotalPage = caretY % totalPageHeight;
+    
+    // Si on est dans la marge entre les pages (les premiers pixels), on est sur la page suivante
+    // La zone éditable commence après marginTop de chaque page
+    let positionInCurrentPage;
+    if (positionInTotalPage < pageMargin) {
+      // On est dans la marge entre les pages, donc on est au début de la page suivante
+      // La position dans la zone éditable commence après marginTop
+      positionInCurrentPage = marginTop;
+    } else {
+      // On soustrait la marge entre les pages pour avoir la position dans la page
+      // Puis on ajoute marginTop car la zone éditable commence après la marge du haut
+      positionInCurrentPage = (positionInTotalPage - pageMargin) + marginTop;
+    }
+    
+    // Limite de la zone éditable dans la page = hauteur de page - marge haut - marge bas
+    const editableHeight = pageHeightPx - marginTop - marginBottom;
+    
+    // La limite est la hauteur éditable (sans les marges)
+    const pageLimit = editableHeight;
+    
+    // Si positionInCurrentPage dépasse déjà pageLimit, on est déjà sur une nouvelle page
+    // Dans ce cas, on doit recalculer pour la page suivante
+    if (positionInCurrentPage > pageLimit) {
+      // On est déjà sur une nouvelle page, recalculer la position
+      const excess = positionInCurrentPage - pageLimit;
+      positionInCurrentPage = marginTop + excess;
+    }
+    
+    // Position du bas dans la zone éditable de la page actuelle
+    const textBottomInPage = positionInCurrentPage + textHeight;
+    
+    console.log('📊 Calcul simple:', {
+      caretY,
+      textHeight,
+      textBottom,
+      pageHeightPx,
+      marginBottom,
+      pageLimit,
+      totalPageHeight,
+      positionInCurrentPage,
+      textBottomInPage,
+      depasse: textBottomInPage > pageLimit
+    });
+    
+    // Si la position du bas du texte dépasse la limite de la page, on est sur une nouvelle page
+    if (textBottomInPage > pageLimit) {
+      console.log('🆕 Nouvelle page détectée !');
+      
+      // Calculer la hauteur disponible dans la page actuelle
+      // S'assurer que availableHeight n'est jamais négatif
+      const availableHeight = Math.max(0, pageLimit - positionInCurrentPage);
+      
+      // Hauteur du footer = marge bottom + hauteur disponible
+      const footerHeight = marginBottom + availableHeight;
+      
+      // Créer le P footer
+      const footerSpacer = document.createElement('p');
+      footerSpacer.className = 'margin-spacer-footer';
+      footerSpacer.contentEditable = 'false';
+      footerSpacer.style.height = `${footerHeight}px`;
+      footerSpacer.style.margin = '0';
+      footerSpacer.style.marginLeft = `-${marginLeft}px`;
+      footerSpacer.style.marginRight = `-${marginRight}px`;
+      footerSpacer.style.padding = '0';
+      footerSpacer.style.pointerEvents = 'none';
+      footerSpacer.style.userSelect = 'none';
+      footerSpacer.style.display = 'block';
+      footerSpacer.style.visibility = 'visible';
+      footerSpacer.style.boxShadow = '0 4px 6px rgba(0, 0, 0, 0.1)'; // Ombrage en bas
+      
+      // Insérer après l'élément du caret
+      caretElement.parentNode.insertBefore(footerSpacer, caretElement.nextSibling);
+      
+      // Créer le P header pour la page suivante
+      const headerSpacer = document.createElement('p');
+      headerSpacer.className = 'margin-spacer-header';
+      headerSpacer.contentEditable = 'false';
+      headerSpacer.style.height = `${marginTop}px`;
+      headerSpacer.style.margin = '0';
+      headerSpacer.style.marginLeft = `-${marginLeft}px`;
+      headerSpacer.style.marginRight = `-${marginRight}px`;
+      headerSpacer.style.padding = '0';
+      headerSpacer.style.pointerEvents = 'none';
+      headerSpacer.style.userSelect = 'none';
+      headerSpacer.style.display = 'block';
+      headerSpacer.style.visibility = 'visible';
+      headerSpacer.style.boxShadow = '0 -4px 6px rgba(0, 0, 0, 0.1)'; // Ombrage en haut
+      headerSpacer.style.width = '100%';
+      
+      // Ajouter le margin entre les pages sur le footer au lieu du header
+      footerSpacer.style.marginBottom = `${pageMargin}px`;
+      
+      console.log('✅ Ajout du P footer de hauteur:', footerHeight, {
+        marginBottom,
+        availableHeight,
+        positionInCurrentPage,
+        pageLimit
+      });
+      console.log('✅ Ajout du P header de hauteur:', marginTop);
+      
+      // Insérer après le footer
+      footerSpacer.parentNode.insertBefore(headerSpacer, footerSpacer.nextSibling);
+      
+      // Créer un paragraphe vide après le header et placer le caret dedans
+      const newParagraph = document.createElement('p');
+      newParagraph.textContent = '\u200B'; // Caractère invisible pour que le paragraphe ne soit pas vide
+      newParagraph.style.margin = '0';
+      newParagraph.style.padding = '0';
+      
+      // Insérer après le header
+      headerSpacer.parentNode.insertBefore(newParagraph, headerSpacer.nextSibling);
+      
+      // Placer le caret dans le nouveau paragraphe
+      setTimeout(() => {
+        const range = document.createRange();
+        const selection = window.getSelection();
+        range.setStart(newParagraph, 0);
+        range.collapse(true);
+        selection.removeAllRanges();
+        selection.addRange(range);
+        
+        // Focus sur l'éditeur pour que le caret soit visible
+        this.editorElement.focus();
+        
+        // Scroller pour que le nouveau paragraphe soit visible
+        newParagraph.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      }, 10);
+    }
+  }
+  
+  recalculateSpacersAfterElement(startElement) {
+    // Recalculer les spacers pour tous les éléments après startElement
+    // (logique simplifiée pour l'instant, peut être améliorée)
+    const allElements = this.editorElement.querySelectorAll('p, div.doc-title-level-1, div.doc-title-level-2, div.doc-title-level-3');
+    let foundStart = false;
+    
+    allElements.forEach((el) => {
+      if (el === startElement) {
+        foundStart = true;
+        return;
+      }
+      
+      if (foundStart && !el.classList.contains('margin-spacer-footer') && !el.classList.contains('margin-spacer-header')) {
+        // Vérifier si cet élément a besoin d'un spacer
+        // (logique à implémenter si nécessaire)
+      }
+    });
+  }
+  
+  moveCursorToEditableZone(yPosition) {
+    // Trouver le premier élément éditable (p ou div avec doc-title-level-X) proche de la position Y
+    const paragraphs = this.editorElement.querySelectorAll('p, div.doc-title-level-1, div.doc-title-level-2, div.doc-title-level-3');
+    
+    let bestPara = null;
+    let bestDistance = Infinity;
+    
+    paragraphs.forEach((para) => {
+      // Ignorer les spacers
+      if (para.classList.contains('page-break-spacer')) return;
+      
+      try {
+        const rect = para.getBoundingClientRect();
+        const editorRect = this.editorElement.getBoundingClientRect();
+        const relativeY = rect.top - editorRect.top + this.editorElement.scrollTop;
+        
+        const distance = Math.abs(relativeY - yPosition);
+        if (distance < bestDistance) {
+          bestDistance = distance;
+          bestPara = para;
+        }
+      } catch (e) {
+        // Ignorer les erreurs
+      }
+    });
+    
+    if (bestPara) {
+      try {
+        const selection = window.getSelection();
+        const range = document.createRange();
+        range.selectNodeContents(bestPara);
+        range.collapse(true); // Placer au début de l'élément
+        selection.removeAllRanges();
+        selection.addRange(range);
+      } catch (e) {
+        // Ignorer les erreurs de sélection
+      }
+    }
+  }
+  
+  moveCursorToPosition(yPosition) {
+    // Trouver l'élément le plus proche de la position Y
+    const range = document.createRange();
+    const selection = window.getSelection();
+    
+    // Parcourir tous les éléments de l'éditeur (seulement les éléments, pas les nœuds de texte)
+    const walker = document.createTreeWalker(
+      this.editorElement,
+      NodeFilter.SHOW_ELEMENT,
+      {
+        acceptNode: (node) => {
+          // Ignorer les spacers de saut de page
+          if (node.classList && node.classList.contains('page-break-spacer')) {
+            return NodeFilter.FILTER_REJECT;
+          }
+          return NodeFilter.FILTER_ACCEPT;
+        }
+      }
+    );
+    
+    let node;
+    let bestNode = null;
+    let bestDistance = Infinity;
+    
+    while (node = walker.nextNode()) {
+      // Vérifier que c'est un élément (pas un nœud de texte)
+      if (node.nodeType === Node.ELEMENT_NODE && node.getBoundingClientRect) {
+        try {
+          const rect = node.getBoundingClientRect();
+          const editorRect = this.editorElement.getBoundingClientRect();
+          const relativeY = rect.top - editorRect.top + this.editorElement.scrollTop;
+          
+          const distance = Math.abs(relativeY - yPosition);
+          if (distance < bestDistance) {
+            bestDistance = distance;
+            bestNode = node;
+          }
+        } catch (e) {
+          // Ignorer les erreurs de getBoundingClientRect
+          continue;
+        }
+      }
+    }
+    
+    if (bestNode) {
+      try {
+        // Si c'est un élément éditable (p, div avec doc-title-level-X), placer le curseur au début
+        if (bestNode.tagName === 'P' || bestNode.classList.contains('doc-title-level-1') || 
+            bestNode.classList.contains('doc-title-level-2') || bestNode.classList.contains('doc-title-level-3')) {
+          range.selectNodeContents(bestNode);
+          range.collapse(true);
+        } else {
+          // Pour les autres éléments, essayer de trouver le premier nœud de texte
+          const textNode = bestNode.firstChild;
+          if (textNode && textNode.nodeType === Node.TEXT_NODE) {
+            range.setStart(textNode, 0);
+            range.setEnd(textNode, 0);
+          } else {
+            range.selectNodeContents(bestNode);
+            range.collapse(true);
+          }
+        }
+        selection.removeAllRanges();
+        selection.addRange(range);
+      } catch (e) {
+        // Ignorer les erreurs de sélection
+      }
+    }
+  }
+  
+  parseMargin(marginValue, scaleRatio) {
+    // Parser une valeur de marge (ex: "2.5cm", "20px")
+    if (!marginValue) return 0;
+    
+    const match = marginValue.match(/^([\d.]+)(cm|px|pt|em)$/);
+    if (!match) return 0;
+    
+    const value = parseFloat(match[1]);
+    const unit = match[2];
+    
+    // Conversion en pixels
+    const pxPerCm = 37.795275591;
+    let pixels = 0;
+    
+    if (unit === 'cm') {
+      pixels = value * pxPerCm;
+    } else if (unit === 'px') {
+      pixels = value;
+    } else if (unit === 'pt') {
+      pixels = value * (pxPerCm / 28.35); // 1pt = 1/72 inch, 1cm = 28.35pt
+    } else if (unit === 'em') {
+      // Approximation : 1em = 16px par défaut
+      pixels = value * 16;
+    }
+    
+    return pixels * scaleRatio;
+  }
 
   renderAllSections() {
     if (!this.editorElement || !this.template || !this.template.structure) return;
@@ -879,6 +1522,8 @@ export default class RichTextEditor {
     const sections = this.template.structure.sections || [];
     if (sections.length === 0) {
       this.editorElement.innerHTML = '';
+      
+      
       return;
     }
     
@@ -889,12 +1534,13 @@ export default class RichTextEditor {
     const numberingType = this.template?.generalStyles?.numbering?.type || 'numeric';
     const numberingCustom = this.template?.generalStyles?.numbering?.custom || '{n}.';  
     const html = flatList.map(({ section, path }) => {
-      const headingTag = section.level === 1 ? 'h1' : section.level === 2 ? 'h2' : 'h3';
+      // Utiliser des div avec classes personnalisées au lieu de h1/h2/h3
+      const titleClass = section.level === 1 ? 'doc-title-level-1' : section.level === 2 ? 'doc-title-level-2' : 'doc-title-level-3';
       const title = section.title || 'Sans titre';
       const number = formatHierarchicalNumbering(path, numberingType, numberingCustom);
       
       // Rendre le titre avec la numérotation hiérarchique
-      let sectionHTML = `<${headingTag} data-section-id="${section.id}">${number} ${title}</${headingTag}>`;
+      let sectionHTML = `<div class="${titleClass}" data-section-id="${section.id}">${number} ${title}</div>`;
       
       // Ajouter les paragraphes de la section
       const paragraphs = section.paragraphs || [];
@@ -910,6 +1556,7 @@ export default class RichTextEditor {
     
     this.editorElement.innerHTML = html;
     
+    
     // Charger la première section par défaut
     if (flatList.length > 0) {
       this.currentSectionId = flatList[0].section.id;
@@ -917,6 +1564,7 @@ export default class RichTextEditor {
     
     // Appliquer les styles de mise en page après le rendu
     this.applyLayoutStyles();
+    
     
     // Rendre les variables draggables après le rendu
     this.makeVariablesDraggable();
@@ -1275,12 +1923,22 @@ export default class RichTextEditor {
         element = element.parentElement;
       }
       
-      // Remonter dans la hiérarchie jusqu'à trouver un titre
+      // Remonter dans la hiérarchie jusqu'à trouver un titre (h1/h2/h3 ou div avec classe doc-title-level-X)
       while (element && element !== this.editorElement) {
-        if (element.tagName && /^H[1-3]$/i.test(element.tagName)) {
+        const tagName = element.tagName ? element.tagName.toLowerCase() : '';
+        const className = element.className || '';
+        
+        // Vérifier si c'est un h1/h2/h3 ou un div avec classe doc-title-level-X
+        if (tagName && /^h[1-3]$/i.test(tagName)) {
           titleElementBefore = element;
           sectionIdBefore = element.dataset.sectionId;
-          currentTitleLevel = parseInt(element.tagName.charAt(1));
+          currentTitleLevel = parseInt(tagName.charAt(1));
+          break;
+        } else if (tagName === 'div' && /doc-title-level-[1-3]/.test(className)) {
+          titleElementBefore = element;
+          sectionIdBefore = element.dataset.sectionId;
+          const match = className.match(/doc-title-level-([1-3])/);
+          currentTitleLevel = match ? parseInt(match[1]) : 1;
           break;
         }
         element = element.parentElement;
@@ -1288,6 +1946,7 @@ export default class RichTextEditor {
     }
     
     // Détecter si on change le niveau d'un titre existant ou si on clique sur le même niveau
+    // Utiliser des classes personnalisées au lieu de h1, h2, h3 pour éviter les conflits avec les styles globaux
     if (command === 'formatBlock' && value && ['h1', 'h2', 'h3'].includes(value.toLowerCase())) {
       if (titleElementBefore && sectionIdBefore) {
         // C'est un titre existant
@@ -1452,7 +2111,10 @@ export default class RichTextEditor {
             const currentTag = titleElementBefore.tagName ? titleElementBefore.tagName.toLowerCase() : '';
             
             // Si ce n'est plus un titre (transformé en autre chose)
-            if (!['h1', 'h2', 'h3'].includes(currentTag)) {
+            // Vérifier h1/h2/h3 ou div avec classe doc-title-level-X
+            const isTitle = ['h1', 'h2', 'h3'].includes(currentTag) || 
+                           (currentTag === 'div' && /doc-title-level-[1-3]/.test(titleElementBefore.className || ''));
+            if (!isTitle) {
               // Notifier la suppression du titre
               if (this.onTitleDeleted && sectionIdBefore) {
                 this.onTitleDeleted(sectionIdBefore);
@@ -1464,24 +2126,142 @@ export default class RichTextEditor {
       }
     }
     
-    // Exécuter la commande (seulement si on n'a pas déjà géré le cas du paragraphe)
-    if (!(command === 'formatBlock' && value && value.toLowerCase() === 'p' && titleElementBefore && sectionIdBefore)) {
-      document.execCommand(command, false, value);
-      this.handleContentChange();
+    // Intercepter formatBlock pour h1/h2/h3 et utiliser des div avec classes personnalisées
+    if (command === 'formatBlock' && value && ['h1', 'h2', 'h3'].includes(value.toLowerCase())) {
+      const level = parseInt(value.charAt(1));
+      const className = `doc-title-level-${level}`;
+      
+      // Si on a une sélection
+      if (selection.rangeCount > 0) {
+        const range = selection.getRangeAt(0);
+        
+        // Si c'est un titre existant, le convertir
+        if (titleElementBefore) {
+          // Récupérer le contenu et les attributs
+          const content = titleElementBefore.innerHTML;
+          const sectionId = titleElementBefore.dataset.sectionId;
+          
+          // Créer un nouveau div avec la classe
+          const newTitle = document.createElement('div');
+          newTitle.className = className;
+          newTitle.innerHTML = content;
+          if (sectionId) {
+            newTitle.dataset.sectionId = sectionId;
+          }
+          
+          // Remplacer l'ancien titre
+          titleElementBefore.parentNode.replaceChild(newTitle, titleElementBefore);
+          
+          // Mettre à jour la sélection
+          const newRange = document.createRange();
+          newRange.selectNodeContents(newTitle);
+          newRange.collapse(false);
+          selection.removeAllRanges();
+          selection.addRange(newRange);
+        } else {
+          // Créer un nouveau titre
+          const newTitle = document.createElement('div');
+          newTitle.className = className;
+          
+          // Si la sélection contient du texte, l'utiliser
+          if (!range.collapsed) {
+            newTitle.innerHTML = range.toString();
+            range.deleteContents();
+          } else {
+            newTitle.innerHTML = '<br>';
+          }
+          
+          range.insertNode(newTitle);
+          
+          // Mettre à jour la sélection
+          const newRange = document.createRange();
+          newRange.selectNodeContents(newTitle);
+          newRange.collapse(false);
+          selection.removeAllRanges();
+          selection.addRange(newRange);
+          
+          // Notifier la création d'un nouveau titre
+          if (this.onTitleCreated) {
+            setTimeout(() => {
+              this.onTitleCreated(value.toLowerCase());
+            }, 10);
+          }
+        }
+        
+        this.handleContentChange();
+      }
+    } else {
+      // Exécuter la commande normale (seulement si on n'a pas déjà géré le cas du paragraphe)
+      if (!(command === 'formatBlock' && value && value.toLowerCase() === 'p' && titleElementBefore && sectionIdBefore)) {
+        document.execCommand(command, false, value);
+        this.handleContentChange();
+      }
+    }
+  }
+
+  handleEnterKey(e) {
+    const selection = window.getSelection();
+    if (selection.rangeCount === 0) return;
+    
+    const range = selection.getRangeAt(0);
+    let element = range.commonAncestorContainer;
+    
+    // Si c'est un nœud texte, remonter au parent
+    if (element.nodeType === Node.TEXT_NODE) {
+      element = element.parentElement;
     }
     
-    // Si pas de titre avant, le changement de contenu a déjà été notifié par execCommand
+    // Remonter dans la hiérarchie jusqu'à trouver un titre
+    let titleElement = null;
+    let titleLevel = null;
+    while (element && element !== this.editorElement) {
+      const tagName = element.tagName ? element.tagName.toLowerCase() : '';
+      const className = element.className || '';
+      
+      // Vérifier si c'est un h1/h2/h3 ou un div avec classe doc-title-level-X
+      if (['h1', 'h2', 'h3'].includes(tagName)) {
+        titleElement = element;
+        titleLevel = parseInt(tagName.charAt(1));
+        break;
+      } else if (tagName === 'div' && /doc-title-level-[1-3]/.test(className)) {
+        titleElement = element;
+        const match = className.match(/doc-title-level-([1-3])/);
+        titleLevel = match ? parseInt(match[1]) : 1;
+        break;
+      }
+      element = element.parentElement;
+    }
     
-    // Détecter si on vient de créer un titre (h1, h2, h3)
-    if (command === 'formatBlock' && value && ['h1', 'h2', 'h3'].includes(value.toLowerCase())) {
-      // Ne créer une section que si ce n'était pas déjà un titre
-      if (!titleElementBefore || !sectionIdBefore) {
-        // Notifier le parent pour créer une nouvelle section
-        if (this.onTitleCreated) {
-          setTimeout(() => {
-            this.onTitleCreated(value.toLowerCase());
-          }, 10);
-        }
+    // Si on est dans un titre, créer un paragraphe après
+    if (titleElement) {
+      e.preventDefault();
+      
+      // Créer un nouveau paragraphe
+      const newParagraph = document.createElement('p');
+      newParagraph.innerHTML = '<br>';
+      
+      // Insérer le paragraphe après le titre
+      if (titleElement.nextSibling) {
+        titleElement.parentNode.insertBefore(newParagraph, titleElement.nextSibling);
+      } else {
+        titleElement.parentNode.appendChild(newParagraph);
+      }
+      
+      // Mettre le curseur dans le nouveau paragraphe
+      const newRange = document.createRange();
+      newRange.selectNodeContents(newParagraph);
+      newRange.collapse(true);
+      selection.removeAllRanges();
+      selection.addRange(newRange);
+      
+      // Mettre à jour la numérotation si nécessaire
+      // Notifier le changement de contenu pour que la numérotation soit mise à jour
+      if (this.onContentChange) {
+        setTimeout(() => {
+          this.handleContentChange();
+          // Si on a un callback pour mettre à jour la numérotation, l'appeler
+          // (sera géré par TemplateBuilderPage qui écoute onContentChange)
+        }, 10);
       }
     }
   }
@@ -1493,8 +2273,14 @@ export default class RichTextEditor {
   setContent(html) {
     if (this.editorElement) {
       this.editorElement.innerHTML = html;
+      
+      
       // Rendre les variables draggables après le changement de contenu
       this.makeVariablesDraggable();
+      
+      // Mettre à jour les indicateurs de pages
+      setTimeout(() => {
+      }, 100);
     }
   }
 
@@ -1536,11 +2322,25 @@ export default class RichTextEditor {
       this.editorElement.style.color = defaultStyles.color;
     }
     
-    // Appliquer les styles aux titres h1, h2, h3
+    // Définir les variables CSS pour les tailles de titres personnalisées
+    if (headingsStyles.h1?.fontSize) {
+      this.editorElement.style.setProperty('--doc-font-size-h1', `${headingsStyles.h1.fontSize}px`);
+    }
+    if (headingsStyles.h2?.fontSize) {
+      this.editorElement.style.setProperty('--doc-font-size-h2', `${headingsStyles.h2.fontSize}px`);
+    }
+    if (headingsStyles.h3?.fontSize) {
+      this.editorElement.style.setProperty('--doc-font-size-h3', `${headingsStyles.h3.fontSize}px`);
+    }
+    
+    // Appliquer les styles aux titres (h1/h2/h3 ou div avec classes doc-title-level-X)
     // IMPORTANT : Ne pas appliquer de styles aux éléments qui n'ont pas data-section-id
     // (car ils ont été transformés en paragraphes et doivent rester sans styles)
     ['h1', 'h2', 'h3'].forEach(heading => {
-      const headingElements = this.editorElement.querySelectorAll(heading);
+      // Chercher à la fois les balises h1/h2/h3 et les div avec classes doc-title-level-X
+      const headingElements = this.editorElement.querySelectorAll(
+        `${heading}[data-section-id], .doc-title-level-${heading.charAt(1)}[data-section-id]`
+      );
       const headingStyle = headingsStyles[heading] || {};
       
       headingElements.forEach(element => {
