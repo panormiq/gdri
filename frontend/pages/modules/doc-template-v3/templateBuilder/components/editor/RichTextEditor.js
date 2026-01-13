@@ -2506,7 +2506,12 @@ export default class RichTextEditor {
       // Image uploadée
       img.dataset.imageType = 'upload';
       img.dataset.imageId = imageData.imageId;
-      img.src = imageData.url || imageData.src;
+      const imageUrl = imageData.url || imageData.src;
+      img.src = imageUrl;
+      // Stocker l'URL originale si pas déjà définie
+      if (!img.dataset.originalSrc) {
+        img.dataset.originalSrc = imageUrl;
+      }
       img.alt = imageData.alt || 'Image';
     }
     
@@ -3395,6 +3400,12 @@ export default class RichTextEditor {
     const img = container.querySelector('img');
     if (!img) return;
     
+    // S'assurer que data-original-src est défini si ce n'est pas déjà fait
+    // (pour les images restaurées depuis le HTML ou modifiées précédemment)
+    if (!img.dataset.originalSrc && img.src && !img.src.startsWith('data:image/svg+xml')) {
+      img.dataset.originalSrc = img.src;
+    }
+    
     // Créer le modal
     const modal = document.createElement('div');
     modal.className = 'image-edit-modal';
@@ -3412,18 +3423,26 @@ export default class RichTextEditor {
     // Zone de prévisualisation et édition
     const previewContainer = document.createElement('div');
     previewContainer.className = 'image-edit-preview';
-    previewContainer.style.cssText = 'position: relative; margin-bottom: var(--spacing-md, 16px); border: 1px solid var(--color-light, #ddd); border-radius: var(--border-radius, 4px); overflow: hidden; background: #f5f5f5;';
+    previewContainer.style.cssText = 'position: relative; margin-bottom: var(--spacing-md, 16px); border: 1px solid var(--color-light, #ddd); border-radius: var(--border-radius, 4px); overflow: visible; background: #f5f5f5; display: flex; justify-content: center; align-items: center; min-height: 400px;';
     
     const canvas = document.createElement('canvas');
     canvas.id = 'image-edit-canvas';
     canvas.style.cssText = 'max-width: 100%; display: block;';
     
+    // Overlay pour le crop (sera créé dynamiquement)
+    const cropOverlay = document.createElement('div');
+    cropOverlay.className = 'image-crop-overlay';
+    cropOverlay.style.cssText = 'position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; display: none; z-index: 10;';
+    previewContainer.appendChild(cropOverlay);
+    
     // Charger l'image dans le canvas
+    // Toujours utiliser l'image originale si disponible (data-original-src)
+    const originalSrc = img.dataset.originalSrc || img.src;
     const canvasImg = new Image();
     canvasImg.crossOrigin = 'anonymous';
     canvasImg.onload = () => {
-      canvas.width = Math.min(canvasImg.width, 800);
-      canvas.height = Math.min(canvasImg.height, 600);
+      canvas.width = canvasImg.width;
+      canvas.height = canvasImg.height;
       const ctx = canvas.getContext('2d');
       ctx.drawImage(canvasImg, 0, 0, canvas.width, canvas.height);
       
@@ -3431,8 +3450,29 @@ export default class RichTextEditor {
       canvas._originalImage = canvasImg;
       canvas._currentRotation = 0;
       canvas._cropData = null;
+      canvas._previewContainer = previewContainer;
+      canvas._cropOverlay = cropOverlay;
+      
+      // Restaurer le crop précédent si disponible
+      let savedCrop = null;
+      if (img.dataset.crop) {
+        try {
+          savedCrop = JSON.parse(img.dataset.crop);
+        } catch (e) {
+          console.warn('Erreur lors de la restauration du crop:', e);
+        }
+      }
+      
+      // Ajuster la taille du preview container
+      previewContainer.style.width = canvas.width + 'px';
+      previewContainer.style.height = canvas.height + 'px';
+      
+      // Activer le mode crop après le chargement de l'image
+      requestAnimationFrame(() => {
+        this.startInteractiveCrop(canvas, savedCrop);
+      });
     };
-    canvasImg.src = img.src;
+    canvasImg.src = originalSrc;
     
     previewContainer.appendChild(canvas);
     modalContent.appendChild(previewContainer);
@@ -3451,49 +3491,99 @@ export default class RichTextEditor {
     rotationLabel.style.cssText = 'font-weight: 500; min-width: 100px;';
     
     const rotateLeftBtn = document.createElement('button');
-    rotateLeftBtn.textContent = '↺ 90°';
+    rotateLeftBtn.textContent = '↺ -90°';
     rotateLeftBtn.className = 'image-edit-btn';
     rotateLeftBtn.onclick = () => this.rotateImage(canvas, -90);
     
     const rotateRightBtn = document.createElement('button');
-    rotateRightBtn.textContent = '↻ 90°';
+    rotateRightBtn.textContent = '↻ +90°';
     rotateRightBtn.className = 'image-edit-btn';
     rotateRightBtn.onclick = () => this.rotateImage(canvas, 90);
+    
+    const rotate180Btn = document.createElement('button');
+    rotate180Btn.textContent = '⟲ +180°';
+    rotate180Btn.className = 'image-edit-btn';
+    rotate180Btn.onclick = () => this.rotateImage(canvas, 180);
     
     rotationGroup.appendChild(rotationLabel);
     rotationGroup.appendChild(rotateLeftBtn);
     rotationGroup.appendChild(rotateRightBtn);
+    rotationGroup.appendChild(rotate180Btn);
     controlsContainer.appendChild(rotationGroup);
     
     // Crop
     const cropGroup = document.createElement('div');
-    cropGroup.style.cssText = 'display: flex; align-items: center; gap: var(--spacing-sm, 8px);';
+    cropGroup.style.cssText = 'display: flex; flex-direction: column; gap: var(--spacing-sm, 8px);';
     
     const cropLabel = document.createElement('label');
     cropLabel.textContent = 'Rogner:';
-    cropLabel.style.cssText = 'font-weight: 500; min-width: 100px;';
+    cropLabel.style.cssText = 'font-weight: 500;';
     
-    const cropBtn = document.createElement('button');
-    cropBtn.textContent = 'Sélectionner zone';
-    cropBtn.className = 'image-edit-btn';
-    cropBtn.onclick = () => this.startCrop(canvas);
+    const cropFieldsContainer = document.createElement('div');
+    cropFieldsContainer.style.cssText = 'display: grid; grid-template-columns: 1fr 1fr; gap: var(--spacing-sm, 8px);';
     
-    const cropApplyBtn = document.createElement('button');
-    cropApplyBtn.textContent = 'Appliquer';
-    cropApplyBtn.className = 'image-edit-btn';
-    cropApplyBtn.style.display = 'none';
-    cropApplyBtn.onclick = () => this.applyCrop(canvas);
+    // Champ X
+    const cropXContainer = document.createElement('div');
+    const cropXLabel = document.createElement('label');
+    cropXLabel.textContent = 'X:';
+    cropXLabel.style.cssText = 'font-size: var(--font-size-sm, 14px); margin-right: 4px; display: block;';
+    const cropXInput = document.createElement('input');
+    cropXInput.type = 'number';
+    cropXInput.value = '0';
+    cropXInput.style.cssText = 'width: 100%; padding: 4px; border: 1px solid var(--color-light, #ddd); border-radius: 4px;';
+    cropXContainer.appendChild(cropXLabel);
+    cropXContainer.appendChild(cropXInput);
+    cropFieldsContainer.appendChild(cropXContainer);
     
-    const cropCancelBtn = document.createElement('button');
-    cropCancelBtn.textContent = 'Annuler';
-    cropCancelBtn.className = 'image-edit-btn';
-    cropCancelBtn.style.display = 'none';
-    cropCancelBtn.onclick = () => this.cancelCrop(canvas);
+    // Champ Y
+    const cropYContainer = document.createElement('div');
+    const cropYLabel = document.createElement('label');
+    cropYLabel.textContent = 'Y:';
+    cropYLabel.style.cssText = 'font-size: var(--font-size-sm, 14px); margin-right: 4px; display: block;';
+    const cropYInput = document.createElement('input');
+    cropYInput.type = 'number';
+    cropYInput.value = '0';
+    cropYInput.style.cssText = 'width: 100%; padding: 4px; border: 1px solid var(--color-light, #ddd); border-radius: 4px;';
+    cropYContainer.appendChild(cropYLabel);
+    cropYContainer.appendChild(cropYInput);
+    cropFieldsContainer.appendChild(cropYContainer);
+    
+    // Champ Width
+    const cropWContainer = document.createElement('div');
+    const cropWLabel = document.createElement('label');
+    cropWLabel.textContent = 'Width:';
+    cropWLabel.style.cssText = 'font-size: var(--font-size-sm, 14px); margin-right: 4px; display: block;';
+    const cropWInput = document.createElement('input');
+    cropWInput.type = 'number';
+    cropWInput.value = '0';
+    cropWInput.style.cssText = 'width: 100%; padding: 4px; border: 1px solid var(--color-light, #ddd); border-radius: 4px;';
+    cropWContainer.appendChild(cropWLabel);
+    cropWContainer.appendChild(cropWInput);
+    cropFieldsContainer.appendChild(cropWContainer);
+    
+    // Champ Height
+    const cropHContainer = document.createElement('div');
+    const cropHLabel = document.createElement('label');
+    cropHLabel.textContent = 'Height:';
+    cropHLabel.style.cssText = 'font-size: var(--font-size-sm, 14px); margin-right: 4px; display: block;';
+    const cropHInput = document.createElement('input');
+    cropHInput.type = 'number';
+    cropHInput.value = '0';
+    cropHInput.style.cssText = 'width: 100%; padding: 4px; border: 1px solid var(--color-light, #ddd); border-radius: 4px;';
+    cropHContainer.appendChild(cropHLabel);
+    cropHContainer.appendChild(cropHInput);
+    cropFieldsContainer.appendChild(cropHContainer);
+    
+    // Supprimer le bouton "Appliquer le crop" - le crop sera appliqué avec le bouton "Appliquer" principal
+    
+    // Stocker les références des champs sur le canvas
+    canvas._cropXInput = cropXInput;
+    canvas._cropYInput = cropYInput;
+    canvas._cropWInput = cropWInput;
+    canvas._cropHInput = cropHInput;
     
     cropGroup.appendChild(cropLabel);
-    cropGroup.appendChild(cropBtn);
-    cropGroup.appendChild(cropApplyBtn);
-    cropGroup.appendChild(cropCancelBtn);
+    cropGroup.appendChild(cropFieldsContainer);
     controlsContainer.appendChild(cropGroup);
     
     // Suppression de fond
@@ -3529,13 +3619,39 @@ export default class RichTextEditor {
     applyButton.className = 'image-edit-btn';
     applyButton.style.cssText = 'background: var(--color-primary, #0055AA); color: var(--color-white, #fff);';
     applyButton.onclick = () => {
-      // Appliquer les modifications à l'image dans l'éditeur
-      canvas.toBlob((blob) => {
-        const url = URL.createObjectURL(blob);
-        img.src = url;
+      // S'assurer que data-original-src est défini AVANT d'appliquer les transformations
+      // Utiliser l'image originale du canvas (qui vient de data-original-src ou img.src initial)
+      if (!img.dataset.originalSrc) {
+        // Stocker l'image originale (celle qui a été chargée dans le modal)
+        const originalSrc = canvas._originalImage?.src || img.src;
+        img.dataset.originalSrc = originalSrc;
+      }
+      
+      // Sauvegarder le crop actuel dans data-crop
+      if (canvas._cropRect && canvas._cropRect.width > 0 && canvas._cropRect.height > 0) {
+        img.dataset.crop = JSON.stringify(canvas._cropRect);
+      } else {
+        // Pas de crop, supprimer data-crop
+        delete img.dataset.crop;
+      }
+      
+      // Appliquer les transformations (rotation + crop) à l'image
+      const transformedCanvas = this.applyImageTransformations(canvas);
+      if (transformedCanvas) {
+        transformedCanvas.toBlob((blob) => {
+          const url = URL.createObjectURL(blob);
+          // Mettre à jour img.src avec l'image transformée
+          // data-original-src reste intact pour pouvoir recharger l'originale
+          img.src = url;
+          this.handleContentChange();
+          document.body.removeChild(modal);
+        }, 'image/png');
+      } else {
+        // Pas de transformations, mais on garde quand même data-original-src
+        // L'image src ne change pas, mais on a sauvegardé l'originale
         this.handleContentChange();
         document.body.removeChild(modal);
-      }, 'image/png');
+      }
     };
     
     buttonsContainer.appendChild(cancelButton);
@@ -3552,10 +3668,6 @@ export default class RichTextEditor {
       }
     };
     
-    // Stocker les références pour le crop
-    canvas._cropBtn = cropBtn;
-    canvas._cropApplyBtn = cropApplyBtn;
-    canvas._cropCancelBtn = cropCancelBtn;
   }
 
   /**
@@ -3569,32 +3681,578 @@ export default class RichTextEditor {
     
     const ctx = canvas.getContext('2d');
     const img = canvas._originalImage;
+    const previewContainer = canvas._previewContainer || canvas.parentElement;
     
     // Calculer les nouvelles dimensions
     const is90or270 = Math.abs(canvas._currentRotation % 180) === 90;
     const newWidth = is90or270 ? img.height : img.width;
     const newHeight = is90or270 ? img.width : img.height;
     
-    canvas.width = Math.min(newWidth, 800);
-    canvas.height = Math.min(newHeight, 600);
+    // Utiliser les dimensions réelles (sans limitation)
+    canvas.width = newWidth;
+    canvas.height = newHeight;
     
+    // Redessiner l'image originale avec rotation
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     ctx.save();
     ctx.translate(canvas.width / 2, canvas.height / 2);
     ctx.rotate((canvas._currentRotation * Math.PI) / 180);
     ctx.drawImage(img, -img.width / 2, -img.height / 2, img.width, img.height);
     ctx.restore();
+    
+    // Mettre à jour la taille du preview container pour qu'il s'adapte
+    if (previewContainer) {
+      previewContainer.style.width = canvas.width + 'px';
+      previewContainer.style.height = canvas.height + 'px';
+    }
+    
+    // Réinitialiser le crop si défini (car les dimensions ont changé)
+    if (canvas._cropRect) {
+      canvas._cropRect = null;
+      if (canvas._cropXInput) canvas._cropXInput.value = '0';
+      if (canvas._cropYInput) canvas._cropYInput.value = '0';
+      if (canvas._cropWInput) canvas._cropWInput.value = '0';
+      if (canvas._cropHInput) canvas._cropHInput.value = '0';
+      const cropOverlay = canvas._cropOverlay;
+      if (cropOverlay) {
+        cropOverlay.innerHTML = '';
+      }
+    }
   }
 
   /**
-   * Démarre le mode crop
+   * Démarre le mode crop interactif avec drag-to-select
+   */
+  startInteractiveCrop(canvas, savedCrop = null) {
+    const previewContainer = canvas._previewContainer || canvas.parentElement;
+    const cropOverlay = canvas._cropOverlay;
+    
+    if (!previewContainer || !cropOverlay) return;
+    
+    // Activer le mode crop
+    canvas._isCropping = true;
+    
+    // Restaurer le crop précédent ou réinitialiser
+    if (savedCrop && savedCrop.width > 0 && savedCrop.height > 0) {
+      canvas._cropRect = savedCrop;
+      // Mettre à jour les champs
+      if (canvas._cropXInput) canvas._cropXInput.value = Math.round(savedCrop.x);
+      if (canvas._cropYInput) canvas._cropYInput.value = Math.round(savedCrop.y);
+      if (canvas._cropWInput) canvas._cropWInput.value = Math.round(savedCrop.width);
+      if (canvas._cropHInput) canvas._cropHInput.value = Math.round(savedCrop.height);
+    } else {
+      canvas._cropRect = null;
+      // Réinitialiser les champs
+      if (canvas._cropXInput) canvas._cropXInput.value = '0';
+      if (canvas._cropYInput) canvas._cropYInput.value = '0';
+      if (canvas._cropWInput) canvas._cropWInput.value = '0';
+      if (canvas._cropHInput) canvas._cropHInput.value = '0';
+    }
+    
+    // Positionner l'overlay exactement sur le canvas
+    const canvasRect = canvas.getBoundingClientRect();
+    const containerRect = previewContainer.getBoundingClientRect();
+    cropOverlay.style.position = 'absolute';
+    cropOverlay.style.left = (canvasRect.left - containerRect.left) + 'px';
+    cropOverlay.style.top = (canvasRect.top - containerRect.top) + 'px';
+    cropOverlay.style.width = canvasRect.width + 'px';
+    cropOverlay.style.height = canvasRect.height + 'px';
+    
+    // Changer le curseur du canvas
+    canvas.style.cursor = 'crosshair';
+    cropOverlay.style.display = 'block';
+    cropOverlay.style.pointerEvents = 'all';
+    cropOverlay.innerHTML = ''; // Vider l'overlay
+    
+    // Afficher le crop sauvegardé si disponible
+    if (canvas._cropRect) {
+      this.updateCropOverlay(canvas, canvas._cropRect);
+    }
+    
+    // Activer les interactions de sélection
+    this.setupCropSelection(canvas);
+  }
+  
+  /**
+   * Met à jour l'overlay de crop pour afficher le rectangle de sélection
+   */
+  updateCropOverlay(canvas, cropRect) {
+    const cropOverlay = canvas._cropOverlay;
+    const previewContainer = canvas._previewContainer || canvas.parentElement;
+    if (!cropOverlay || !cropRect || !previewContainer) return;
+    
+    // Repositionner l'overlay exactement sur le canvas
+    const canvasRect = canvas.getBoundingClientRect();
+    const containerRect = previewContainer.getBoundingClientRect();
+    cropOverlay.style.position = 'absolute';
+    cropOverlay.style.left = (canvasRect.left - containerRect.left) + 'px';
+    cropOverlay.style.top = (canvasRect.top - containerRect.top) + 'px';
+    cropOverlay.style.width = canvasRect.width + 'px';
+    cropOverlay.style.height = canvasRect.height + 'px';
+    
+    const scaleX = canvasRect.width / canvas.width;
+    const scaleY = canvasRect.height / canvas.height;
+    
+    cropOverlay.innerHTML = '';
+    
+    const x = cropRect.x * scaleX;
+    const y = cropRect.y * scaleY;
+    const w = cropRect.width * scaleX;
+    const h = cropRect.height * scaleY;
+    
+    // Masque sombre (4 zones autour du rectangle)
+    const maskStyle = `position: absolute; background: rgba(0,0,0,0.5); pointer-events: none;`;
+    
+    // Haut
+    const maskTop = document.createElement('div');
+    maskTop.style.cssText = maskStyle + `left: 0; top: 0; width: 100%; height: ${y}px;`;
+    cropOverlay.appendChild(maskTop);
+    
+    // Bas
+    const maskBottom = document.createElement('div');
+    maskBottom.style.cssText = maskStyle + `left: 0; top: ${y + h}px; width: 100%; height: ${canvasRect.height - y - h}px;`;
+    cropOverlay.appendChild(maskBottom);
+    
+    // Gauche
+    const maskLeft = document.createElement('div');
+    maskLeft.style.cssText = maskStyle + `left: 0; top: ${y}px; width: ${x}px; height: ${h}px;`;
+    cropOverlay.appendChild(maskLeft);
+    
+    // Droite
+    const maskRight = document.createElement('div');
+    maskRight.style.cssText = maskStyle + `left: ${x + w}px; top: ${y}px; width: ${canvasRect.width - x - w}px; height: ${h}px;`;
+    cropOverlay.appendChild(maskRight);
+    
+    // Rectangle de crop
+    const cropBox = document.createElement('div');
+    cropBox.className = 'image-crop-box';
+    cropBox.style.cssText = `position: absolute; left: ${x}px; top: ${y}px; width: ${w}px; height: ${h}px; border: 2px solid #0055AA; background: transparent; pointer-events: none; z-index: 10;`;
+    cropOverlay.appendChild(cropBox);
+    
+    // Ajouter 8 poignées de redimensionnement
+    const positions = [
+      { name: 'nw', top: 0, left: 0, cursor: 'nw-resize' }, // Nord-ouest
+      { name: 'n', top: 0, left: w / 2, cursor: 'n-resize' },  // Nord
+      { name: 'ne', top: 0, left: w, cursor: 'ne-resize' }, // Nord-est
+      { name: 'e', top: h / 2, left: w, cursor: 'e-resize' },  // Est
+      { name: 'se', top: h, left: w, cursor: 'se-resize' }, // Sud-est
+      { name: 's', top: h, left: w / 2, cursor: 's-resize' },  // Sud
+      { name: 'sw', top: h, left: 0, cursor: 'sw-resize' }, // Sud-ouest
+      { name: 'w', top: h / 2, left: 0, cursor: 'w-resize' }    // Ouest
+    ];
+    
+    positions.forEach(pos => {
+      const handle = document.createElement('div');
+      handle.className = 'crop-handle';
+      handle.dataset.position = pos.name;
+      handle.style.cssText = `
+        position: absolute;
+        left: ${x + pos.left}px;
+        top: ${y + pos.top}px;
+        transform: translate(-50%, -50%);
+        width: 12px;
+        height: 12px;
+        background: #0055AA;
+        border: 2px solid #fff;
+        border-radius: 50%;
+        cursor: ${pos.cursor};
+        z-index: 11;
+        pointer-events: all;
+      `;
+      
+      // Gestion du redimensionnement du crop
+      handle.onmousedown = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        this.startCropResize(canvas, pos.name, e);
+      };
+      
+      cropOverlay.appendChild(handle);
+    });
+  }
+  
+  /**
+   * Démarre le redimensionnement du crop via une poignée
+   */
+  startCropResize(canvas, position, e) {
+    if (!canvas._cropRect) return;
+    
+    const cropRect = { ...canvas._cropRect };
+    const startX = e.clientX;
+    const startY = e.clientY;
+    const startCropX = cropRect.x;
+    const startCropY = cropRect.y;
+    const startCropW = cropRect.width;
+    const startCropH = cropRect.height;
+    
+    const canvasRect = canvas.getBoundingClientRect();
+    const scaleX = canvas.width / canvasRect.width;
+    const scaleY = canvas.height / canvasRect.height;
+    
+    const onMouseMove = (e) => {
+      const deltaX = (e.clientX - startX) * scaleX;
+      const deltaY = (e.clientY - startY) * scaleY;
+      
+      let newX = startCropX;
+      let newY = startCropY;
+      let newW = startCropW;
+      let newH = startCropH;
+      
+      // Calculer les nouvelles dimensions selon la position de la poignée
+      if (position.includes('e')) {
+        newW = startCropW + deltaX;
+      }
+      if (position.includes('w')) {
+        newW = startCropW - deltaX;
+        newX = startCropX + deltaX;
+      }
+      if (position.includes('s')) {
+        newH = startCropH + deltaY;
+      }
+      if (position.includes('n')) {
+        newH = startCropH - deltaY;
+        newY = startCropY + deltaY;
+      }
+      
+      // Limites minimales
+      const MIN_SIZE = 10;
+      if (newW < MIN_SIZE) {
+        if (position.includes('w')) {
+          newX = startCropX + startCropW - MIN_SIZE;
+        }
+        newW = MIN_SIZE;
+      }
+      if (newH < MIN_SIZE) {
+        if (position.includes('n')) {
+          newY = startCropY + startCropH - MIN_SIZE;
+        }
+        newH = MIN_SIZE;
+      }
+      
+      // Limiter aux dimensions du canvas
+      newX = Math.max(0, Math.min(canvas.width - newW, newX));
+      newY = Math.max(0, Math.min(canvas.height - newH, newY));
+      newW = Math.min(canvas.width - newX, newW);
+      newH = Math.min(canvas.height - newY, newH);
+      
+      // Mettre à jour le crop
+      canvas._cropRect = { x: newX, y: newY, width: newW, height: newH };
+      
+      // Mettre à jour les champs
+      if (canvas._cropXInput) canvas._cropXInput.value = Math.round(newX);
+      if (canvas._cropYInput) canvas._cropYInput.value = Math.round(newY);
+      if (canvas._cropWInput) canvas._cropWInput.value = Math.round(newW);
+      if (canvas._cropHInput) canvas._cropHInput.value = Math.round(newH);
+      
+      // Mettre à jour l'overlay
+      this.updateCropOverlay(canvas, canvas._cropRect);
+    };
+    
+    const onMouseUp = () => {
+      document.removeEventListener('mousemove', onMouseMove);
+      document.removeEventListener('mouseup', onMouseUp);
+    };
+    
+    document.addEventListener('mousemove', onMouseMove);
+    document.addEventListener('mouseup', onMouseUp);
+  }
+  
+  /**
+   * Configure les interactions de sélection (drag-to-select)
+   */
+  setupCropSelection(canvas) {
+    const cropOverlay = canvas._cropOverlay;
+    if (!cropOverlay) return;
+    
+    let isSelecting = false;
+    let startX = 0, startY = 0;
+    const MIN_SIZE = 5; // Taille minimale du rectangle pour être valide
+    
+    // Nettoyer les event listeners précédents
+    if (canvas._cropMouseMove) {
+      document.removeEventListener('mousemove', canvas._cropMouseMove);
+    }
+    if (canvas._cropMouseUp) {
+      document.removeEventListener('mouseup', canvas._cropMouseUp);
+    }
+    
+    // MouseDown sur l'overlay (qui couvre le canvas)
+    const onMouseDown = (e) => {
+      if (!canvas._isCropping) return;
+      
+      // Ne pas démarrer une nouvelle sélection si on clique sur une poignée
+      if (e.target.classList.contains('crop-handle')) {
+        return;
+      }
+      
+      const rect = canvas.getBoundingClientRect();
+      const scaleX = canvas.width / rect.width;
+      const scaleY = canvas.height / rect.height;
+      
+      // Convertir les coordonnées de la souris en coordonnées du canvas
+      startX = (e.clientX - rect.left) * scaleX;
+      startY = (e.clientY - rect.top) * scaleY;
+      
+      // Limiter aux dimensions du canvas
+      startX = Math.max(0, Math.min(canvas.width, startX));
+      startY = Math.max(0, Math.min(canvas.height, startY));
+      
+      isSelecting = true;
+      canvas._cropRect = null; // Réinitialiser le rectangle précédent
+      cropOverlay.innerHTML = ''; // Vider l'overlay
+      
+      e.preventDefault();
+      e.stopPropagation();
+    };
+    
+    // MouseMove pour dessiner le rectangle en temps réel
+    const onMouseMove = (e) => {
+      if (!isSelecting || !canvas._isCropping) return;
+      
+      const rect = canvas.getBoundingClientRect();
+      const scaleX = canvas.width / rect.width;
+      const scaleY = canvas.height / rect.height;
+      
+      // Coordonnées actuelles de la souris
+      let currentX = (e.clientX - rect.left) * scaleX;
+      let currentY = (e.clientY - rect.top) * scaleY;
+      
+      // Limiter aux dimensions du canvas
+      currentX = Math.max(0, Math.min(canvas.width, currentX));
+      currentY = Math.max(0, Math.min(canvas.height, currentY));
+      
+      // Calculer le rectangle de sélection
+      const x = Math.min(startX, currentX);
+      const y = Math.min(startY, currentY);
+      const width = Math.abs(currentX - startX);
+      const height = Math.abs(currentY - startY);
+      
+      // Créer le rectangle de crop
+      const cropRect = { x, y, width, height };
+      canvas._cropRect = cropRect;
+      
+      // Mettre à jour les champs
+      if (canvas._cropXInput) canvas._cropXInput.value = Math.round(x);
+      if (canvas._cropYInput) canvas._cropYInput.value = Math.round(y);
+      if (canvas._cropWInput) canvas._cropWInput.value = Math.round(width);
+      if (canvas._cropHInput) canvas._cropHInput.value = Math.round(height);
+      
+      // Mettre à jour l'overlay
+      this.updateCropOverlay(canvas, cropRect);
+    };
+    
+    // MouseUp pour finaliser la sélection
+    const onMouseUp = (e) => {
+      if (!isSelecting) return;
+      
+      isSelecting = false;
+      
+      const cropRect = canvas._cropRect;
+      if (cropRect && cropRect.width >= MIN_SIZE && cropRect.height >= MIN_SIZE) {
+        // Le rectangle est valide, on le garde
+        this.updateCropOverlay(canvas, cropRect);
+      } else {
+        // Rectangle trop petit, on l'annule
+        canvas._cropRect = null;
+        cropOverlay.innerHTML = '';
+      }
+    };
+    
+    // Attacher les event listeners
+    cropOverlay.addEventListener('mousedown', onMouseDown);
+    document.addEventListener('mousemove', onMouseMove);
+    document.addEventListener('mouseup', onMouseUp);
+    
+    // Stocker les références pour pouvoir les nettoyer
+    canvas._cropMouseDown = onMouseDown;
+    canvas._cropMouseMove = onMouseMove;
+    canvas._cropMouseUp = onMouseUp;
+  }
+  
+  
+  /**
+   * Applique les transformations (rotation + crop) à l'image et retourne un canvas temporaire
+   * Le canvas original reste intact avec l'image originale
+   */
+  applyImageTransformations(canvas) {
+    const img = canvas._originalImage;
+    if (!img) return null;
+    
+    const cropRect = canvas._cropRect;
+    const rotation = canvas._currentRotation || 0;
+    
+    // Créer un canvas temporaire pour appliquer la rotation
+    const tempCanvas = document.createElement('canvas');
+    let tempWidth = img.width;
+    let tempHeight = img.height;
+    
+    // Calculer les dimensions après rotation
+    if (rotation === 90 || rotation === 270) {
+      tempWidth = img.height;
+      tempHeight = img.width;
+    }
+    
+    tempCanvas.width = tempWidth;
+    tempCanvas.height = tempHeight;
+    const tempCtx = tempCanvas.getContext('2d');
+    
+    // Appliquer la rotation
+    if (rotation !== 0) {
+      tempCtx.translate(tempCanvas.width / 2, tempCanvas.height / 2);
+      tempCtx.rotate((rotation * Math.PI) / 180);
+      tempCtx.drawImage(img, -img.width / 2, -img.height / 2, img.width, img.height);
+    } else {
+      tempCtx.drawImage(img, 0, 0, tempWidth, tempHeight);
+    }
+    
+    // Appliquer le crop si défini
+    if (cropRect && cropRect.width > 0 && cropRect.height > 0) {
+      const croppedCanvas = document.createElement('canvas');
+      croppedCanvas.width = cropRect.width;
+      croppedCanvas.height = cropRect.height;
+      const croppedCtx = croppedCanvas.getContext('2d');
+      
+      // Extraire la zone
+      croppedCtx.drawImage(tempCanvas, cropRect.x, cropRect.y, cropRect.width, cropRect.height, 0, 0, croppedCanvas.width, croppedCanvas.height);
+      
+      return croppedCanvas;
+    }
+    
+    return tempCanvas;
+  }
+  
+  /**
+   * Applique le crop sauvegardé à une image lors de la restauration depuis le HTML
+   */
+  applySavedCropToImage(img) {
+    console.log(`🖼️ [applySavedCropToImage] Début, img:`, img, 'crop:', img?.dataset?.crop);
+    if (!img || !img.dataset.crop) {
+      console.warn(`🖼️ [applySavedCropToImage] Pas d'image ou pas de crop`);
+      return;
+    }
+    
+    try {
+      const cropRect = JSON.parse(img.dataset.crop);
+      console.log(`🖼️ [applySavedCropToImage] Crop parsé:`, cropRect);
+      if (!cropRect || !cropRect.width || !cropRect.height) {
+        console.warn(`🖼️ [applySavedCropToImage] Crop invalide`);
+        return;
+      }
+      
+      // Obtenir l'URL de l'image originale
+      const originalSrc = img.dataset.originalSrc || img.src;
+      console.log(`🖼️ [applySavedCropToImage] Original src:`, originalSrc);
+      if (!originalSrc) {
+        console.warn(`🖼️ [applySavedCropToImage] Pas d'URL originale`);
+        return;
+      }
+      
+      // Charger l'image originale
+      const originalImg = new Image();
+      originalImg.crossOrigin = 'anonymous';
+      originalImg.onload = () => {
+        console.log(`🖼️ [applySavedCropToImage] Image originale chargée, dimensions:`, originalImg.width, 'x', originalImg.height);
+        // Créer un canvas temporaire pour appliquer le crop
+        const tempCanvas = document.createElement('canvas');
+        tempCanvas.width = originalImg.width;
+        tempCanvas.height = originalImg.height;
+        const tempCtx = tempCanvas.getContext('2d');
+        tempCtx.drawImage(originalImg, 0, 0);
+        
+        // Vérifier que le crop est valide
+        if (cropRect.x < 0) cropRect.x = 0;
+        if (cropRect.y < 0) cropRect.y = 0;
+        if (cropRect.x + cropRect.width > tempCanvas.width) cropRect.width = tempCanvas.width - cropRect.x;
+        if (cropRect.y + cropRect.height > tempCanvas.height) cropRect.height = tempCanvas.height - cropRect.y;
+        
+        if (cropRect.width <= 0 || cropRect.height <= 0) return;
+        
+        // Créer le canvas cropé
+        const croppedCanvas = document.createElement('canvas');
+        croppedCanvas.width = cropRect.width;
+        croppedCanvas.height = cropRect.height;
+        const croppedCtx = croppedCanvas.getContext('2d');
+        
+        // Extraire la zone cropée
+        croppedCtx.drawImage(
+          tempCanvas,
+          cropRect.x, cropRect.y, cropRect.width, cropRect.height,
+          0, 0, croppedCanvas.width, croppedCanvas.height
+        );
+        
+        // Convertir en blob et mettre à jour img.src
+        croppedCanvas.toBlob((blob) => {
+          if (blob) {
+            console.log(`🖼️ [applySavedCropToImage] Blob créé, taille:`, blob.size);
+            const url = URL.createObjectURL(blob);
+            img.src = url;
+            console.log(`🖼️ [applySavedCropToImage] Image src mise à jour avec blob URL:`, url);
+            // S'assurer que data-original-src est défini
+            if (!img.dataset.originalSrc) {
+              img.dataset.originalSrc = originalSrc;
+            }
+          } else {
+            console.error(`🖼️ [applySavedCropToImage] Échec de la création du blob`);
+          }
+        }, 'image/png');
+      };
+      
+      originalImg.onerror = (e) => {
+        console.error('🖼️ [applySavedCropToImage] Erreur lors du chargement de l\'image originale pour le crop:', originalSrc, e);
+      };
+      
+      console.log(`🖼️ [applySavedCropToImage] Chargement de l'image originale:`, originalSrc);
+      originalImg.src = originalSrc;
+    } catch (e) {
+      console.warn('Erreur lors de l\'application du crop sauvegardé:', e);
+    }
+  }
+  
+  /**
+   * Annule le crop interactif
+   */
+  cancelInteractiveCrop(canvas) {
+    canvas._cropRect = null;
+    canvas._isCropping = false;
+    canvas.style.cursor = 'default';
+    
+    const cropOverlay = canvas._cropOverlay;
+    if (cropOverlay) {
+      cropOverlay.style.display = 'none';
+      cropOverlay.style.pointerEvents = 'none';
+      cropOverlay.innerHTML = '';
+      
+      // Nettoyer les event listeners de l'overlay
+      if (canvas._cropMouseDown) {
+        cropOverlay.removeEventListener('mousedown', canvas._cropMouseDown);
+        canvas._cropMouseDown = null;
+      }
+    }
+    
+    // Réinitialiser les champs
+    if (canvas._cropXInput) canvas._cropXInput.value = '0';
+    if (canvas._cropYInput) canvas._cropYInput.value = '0';
+    if (canvas._cropWInput) canvas._cropWInput.value = '0';
+    if (canvas._cropHInput) canvas._cropHInput.value = '0';
+    
+    // Nettoyer les event listeners globaux
+    if (canvas._cropMouseMove) {
+      document.removeEventListener('mousemove', canvas._cropMouseMove);
+      canvas._cropMouseMove = null;
+    }
+    if (canvas._cropMouseUp) {
+      document.removeEventListener('mouseup', canvas._cropMouseUp);
+      canvas._cropMouseUp = null;
+    }
+  }
+
+  /**
+   * Démarre le mode crop (ancienne fonction - gardée pour compatibilité, non utilisée)
    */
   startCrop(canvas) {
-    canvas.style.cursor = 'crosshair';
-    canvas._isCropping = true;
-    canvas._cropBtn.style.display = 'none';
-    canvas._cropApplyBtn.style.display = 'inline-block';
-    canvas._cropCancelBtn.style.display = 'inline-block';
+    // Ancienne fonction - utiliser startInteractiveCrop à la place
+    this.startInteractiveCrop(canvas);
+    return;
     
     let startX, startY, cropRect;
     
@@ -3946,25 +4604,110 @@ export default class RichTextEditor {
           this.selectImage(container);
         };
         
-        // Vérifier si l'URL de l'image est une URL API et la convertir si nécessaire
-        if (img.dataset.imageType === 'upload' && img.dataset.imageId) {
-          // L'URL devrait être via l'API
+        // Double-clic pour éditer (seulement si l'image est chargée)
+        container.ondblclick = (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          // Vérifier que l'image est chargée (pas un placeholder)
+          const imgElement = container.querySelector('img.template-image');
+          if (imgElement && imgElement.src && !imgElement.src.includes('data:image/svg+xml')) {
+            // Récupérer imageData depuis le container ou créer un objet minimal
+            const imageData = container._imageData || {
+              type: imgElement.dataset.imageType || 'upload',
+              url: imgElement.src,
+              imageId: imgElement.dataset.imageId,
+              variablePath: imgElement.dataset.variablePath,
+              width: container.dataset.imageWidth,
+              height: container.dataset.imageHeight,
+              styleName: container.dataset.imageStyle
+            };
+            this.showImageEditModal(container, imageData);
+          }
+        };
+        
+        // Vérifier si l'image a un imageId (upload) et reconstruire l'URL si nécessaire
+        if (img.dataset.imageId) {
+          console.log(`🖼️ [restoreImages] Image ${index + 1} a un imageId:`, img.dataset.imageId);
+          // L'image a un ID, elle devrait être chargée via l'API
           const imageId = img.dataset.imageId;
           const templateId = this.template?._id;
+          console.log(`🖼️ [restoreImages] Template ID:`, templateId);
           
           // Toujours reconstruire l'URL API pour s'assurer qu'elle est correcte
           if (templateId) {
             // Construire l'URL API (relatif ou absolu selon la configuration)
             const currentSrc = img.src || '';
-            const isAbsolute = currentSrc.startsWith('http://') || currentSrc.startsWith('https://');
-            const apiBase = (window.API_BASE_URL && !isAbsolute) ? window.API_BASE_URL : '';
-            const imageUrl = `${apiBase}/api/doc-template/templates/${templateId}/images/${imageId}`;
+            console.log(`🖼️ [restoreImages] Image ${index + 1} currentSrc:`, currentSrc);
+            // Utiliser le même format que uploadImage : apiBase + /doc-template/...
+            const apiBase = window.API_BASE_URL || '/api';
+            const imageUrl = `${apiBase}/doc-template/templates/${templateId}/images/${imageId}`;
+            console.log(`🖼️ [restoreImages] Image ${index + 1} imageUrl construite:`, imageUrl);
+            console.log(`🖼️ [restoreImages] Image ${index + 1} API_BASE_URL:`, window.API_BASE_URL);
+            
+            // Définir data-imageType si pas déjà défini
+            if (!img.dataset.imageType) {
+              img.dataset.imageType = 'upload';
+            }
             
             // Mettre à jour l'URL seulement si elle est différente ou invalide
-            if (!currentSrc || currentSrc.startsWith('blob:') || !currentSrc.includes('/api/doc-template/') || !currentSrc.includes(imageId)) {
+            if (!currentSrc || currentSrc.startsWith('blob:') || currentSrc.startsWith('data:image/svg+xml') || !currentSrc.includes('/api/doc-template/') || !currentSrc.includes(imageId)) {
+              console.log(`🖼️ [restoreImages] Image ${index + 1} URL doit être mise à jour`);
+              // S'assurer que data-original-src est défini avant de modifier img.src
+              if (!img.dataset.originalSrc) {
+                img.dataset.originalSrc = imageUrl;
+              }
               img.src = imageUrl;
-              console.log(`🖼️ URL de l'image ${index + 1} mise à jour:`, imageUrl);
+              console.log(`🖼️ [restoreImages] Image ${index + 1} URL mise à jour:`, imageUrl);
+              console.log(`🖼️ [restoreImages] Image ${index + 1} complete:`, img.complete);
+              console.log(`🖼️ [restoreImages] Image ${index + 1} has crop:`, !!img.dataset.crop);
+              
+              // Appliquer le crop sauvegardé si présent
+              if (img.dataset.crop) {
+                console.log(`🖼️ [restoreImages] Image ${index + 1} crop trouvé:`, img.dataset.crop);
+                // Appliquer le crop après le chargement de l'image
+                const applyCrop = () => {
+                  console.log(`🖼️ [restoreImages] Image ${index + 1} onload appelé - application du crop`);
+                  this.applySavedCropToImage(img);
+                };
+                if (img.complete) {
+                  console.log(`🖼️ [restoreImages] Image ${index + 1} déjà chargée - application directe du crop`);
+                  // L'image est déjà chargée, appliquer directement
+                  applyCrop();
+                } else {
+                  console.log(`🖼️ [restoreImages] Image ${index + 1} en attente de chargement - ajout eventListener load`);
+                  // Attendre le chargement de l'image
+                  img.addEventListener('load', applyCrop, { once: true });
+                  img.addEventListener('error', (e) => {
+                    console.error(`🖼️ [restoreImages] Image ${index + 1} erreur de chargement:`, e, imageUrl);
+                  }, { once: true });
+                }
+              } else {
+                console.log(`🖼️ [restoreImages] Image ${index + 1} pas de crop - ajout eventListener load simple`);
+                img.addEventListener('load', () => {
+                  console.log(`🖼️ [restoreImages] Image ${index + 1} onload appelé - image chargée sans crop`);
+                }, { once: true });
+                img.addEventListener('error', (e) => {
+                  console.error(`🖼️ [restoreImages] Image ${index + 1} erreur de chargement:`, e, imageUrl);
+                }, { once: true });
+              }
+            } else if (img.dataset.crop) {
+              console.log(`🖼️ [restoreImages] Image ${index + 1} URL déjà correcte mais crop présent`);
+              // L'URL n'a pas changé, mais il faut appliquer le crop si présent
+              if (img.complete) {
+                console.log(`🖼️ [restoreImages] Image ${index + 1} déjà chargée - application directe du crop`);
+                this.applySavedCropToImage(img);
+              } else {
+                console.log(`🖼️ [restoreImages] Image ${index + 1} en attente - ajout eventListener load pour crop`);
+                img.addEventListener('load', () => {
+                  console.log(`🖼️ [restoreImages] Image ${index + 1} onload appelé - application du crop`);
+                  this.applySavedCropToImage(img);
+                }, { once: true });
+              }
+            } else {
+              console.log(`🖼️ [restoreImages] Image ${index + 1} URL déjà correcte, pas de crop`);
             }
+          } else {
+            console.warn(`🖼️ [restoreImages] Image ${index + 1} pas de templateId, impossible de restaurer`);
           }
         } else if (img.src && img.src.startsWith('blob:') && !img.dataset.pendingUpload) {
           // Si l'image a une URL blob mais n'est pas marquée comme en attente, elle a été perdue
@@ -3973,9 +4716,51 @@ export default class RichTextEditor {
           const templateId = this.template?._id;
           if (imageId && templateId) {
             const apiBase = window.API_BASE_URL || '';
-            img.src = `${apiBase}/api/doc-template/templates/${templateId}/images/${imageId}`;
+            const imageUrl = `${apiBase}/api/doc-template/templates/${templateId}/images/${imageId}`;
+            // Stocker l'URL originale avant de la modifier (si pas déjà fait)
+            if (!img.dataset.originalSrc) {
+              img.dataset.originalSrc = imageUrl;
+            }
+            img.src = imageUrl;
             img.dataset.imageType = 'upload';
             console.log(`🖼️ Image blob restaurée:`, img.src);
+            
+            // Appliquer le crop sauvegardé si présent
+            if (img.dataset.crop) {
+              // S'assurer que data-original-src est défini
+              if (!img.dataset.originalSrc) {
+                img.dataset.originalSrc = imageUrl;
+              }
+              // Appliquer le crop après le chargement de l'image
+              const applyCrop = () => {
+                this.applySavedCropToImage(img);
+              };
+              if (img.complete) {
+                // L'image est déjà chargée, appliquer directement
+                applyCrop();
+              } else {
+                // Attendre le chargement de l'image
+                img.addEventListener('load', applyCrop, { once: true });
+              }
+            }
+          }
+        } else if (img.src && !img.src.startsWith('blob:') && !img.src.startsWith('data:')) {
+          // Si l'image est chargée, stocker l'URL originale si pas déjà fait
+          if (!img.dataset.originalSrc) {
+            img.dataset.originalSrc = img.src;
+          }
+          // Appliquer le crop sauvegardé si présent
+          if (img.dataset.crop) {
+            // Appliquer le crop après le chargement de l'image
+            if (img.complete) {
+              // L'image est déjà chargée, appliquer directement
+              this.applySavedCropToImage(img);
+            } else {
+              // Attendre le chargement de l'image
+              img.addEventListener('load', () => {
+                this.applySavedCropToImage(img);
+              }, { once: true });
+            }
           }
         }
       }
