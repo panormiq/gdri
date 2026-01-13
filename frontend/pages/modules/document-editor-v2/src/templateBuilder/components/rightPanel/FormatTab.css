@@ -1,0 +1,74 @@
+/* FormatTab.css - Styles pour l'onglet Format */
+/* Utilise les variables CSS de front/styles/styles.css */
+
+.format-tab {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
+  padding: var(--spacing-sm);
+}
+
+.format-tab h3 {
+  font-size: var(--font-size-large);
+  font-weight: 600;
+  color: var(--color-dark);
+  margin: 0 0 var(--spacing-sm);
+  padding-bottom: var(--spacing-xs);
+  border-bottom: 2px solid var(--color-primary-light);
+}
+
+.format-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+}
+
+.format-group h4 {
+  font-size: var(--font-size-base);
+  font-weight: 600;
+  color: var(--color-dark);
+  margin: 0;
+}
+
+.format-buttons {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: var(--spacing-xs);
+}
+
+.format-button {
+  padding: var(--spacing-sm);
+  background: var(--color-white);
+  border: 1px solid var(--color-light);
+  border-radius: var(--border-radius-sm);
+  cursor: pointer;
+  font-size: var(--font-size-base);
+  font-weight: 500;
+  transition: all var(--transition-fast);
+  min-height: 40px;
+}
+
+.format-button:hover {
+  background: var(--color-primary-light);
+  border-color: var(--color-primary);
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-sm);
+}
+
+.format-button:active {
+  transform: translateY(0);
+  box-shadow: none;
+}
+
+.format-button.active {
+  background: var(--color-primary);
+  color: var(--color-white);
+  border-color: var(--color-primary-dark);
+  font-weight: 600;
+}
+
+.format-button.active:hover {
+  background: var(--color-primary-dark);
+  border-color: var(--color-primary-dark);
+}
+

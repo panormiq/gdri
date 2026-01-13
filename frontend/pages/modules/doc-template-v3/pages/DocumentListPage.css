@@ -1,0 +1,41 @@
+/* DocumentListPage.css - Styles pour la page de gestion des documents */
+
+.document-list-page {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: var(--spacing-md);
+}
+
+.document-list-page h1 {
+  margin-bottom: var(--spacing-md);
+  color: var(--color-dark);
+  font-size: var(--font-size-h2);
+}
+
+.document-list-page .placeholder-message {
+  background: var(--color-light);
+  padding: var(--spacing-md);
+  border-radius: var(--border-radius-md);
+  text-align: center;
+  color: var(--color-gray);
+}
+
+.document-list-page .placeholder-message p {
+  margin-bottom: var(--spacing-sm);
+}
+
+.document-list-page .placeholder-message p:first-child {
+  font-size: var(--font-size-large);
+  margin-bottom: var(--spacing-sm);
+}
+
+.document-list-page .placeholder-message p:last-child {
+  margin-top: var(--spacing-sm);
+  font-size: var(--font-size-small);
+  color: var(--color-gray);
+  opacity: 0.8;
+}
+
+
+
+

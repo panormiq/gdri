@@ -33,9 +33,13 @@ function generateJWT() {
  * @return string Token JWT
  */
 function generateJWTWithLibrary() {
+    // ✅ Format multi-entreprises : utiliser currentEntrepriseId
+    $currentEntrepriseId = $_SESSION['currentEntrepriseId'] ?? $_SESSION['entrepriseId'] ?? null;
+    
     $payload = [
         'user_id' => $_SESSION['user_id'],
-        'entity_id' => $_SESSION['entity_id'] ?? null,
+        'currentEntrepriseId' => $currentEntrepriseId, // Format doc-template
+        'entrepriseId' => $currentEntrepriseId, // Gardé pour compatibilité
         'role' => $_SESSION['user_role'] ?? 'USER_ENTITY',
         'email' => $_SESSION['user_email'] ?? '',
         'iat' => time(),
@@ -51,9 +55,13 @@ function generateJWTWithLibrary() {
  * @return string Token JWT
  */
 function generateJWTManual() {
+    // ✅ Format multi-entreprises : utiliser currentEntrepriseId
+    $currentEntrepriseId = $_SESSION['currentEntrepriseId'] ?? $_SESSION['entrepriseId'] ?? null;
+    
     $payload = [
         'user_id' => $_SESSION['user_id'],
-        'entity_id' => $_SESSION['entity_id'] ?? null,
+        'currentEntrepriseId' => $currentEntrepriseId, // Format doc-template
+        'entrepriseId' => $currentEntrepriseId, // Gardé pour compatibilité
         'role' => $_SESSION['user_role'] ?? 'USER_ENTITY',
         'email' => $_SESSION['user_email'] ?? '',
         'iat' => time(),

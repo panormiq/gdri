@@ -1,0 +1,208 @@
+# ============================================
+# Configuration Apache pour GDRI
+# Version sécurisée avec protection DDoS
+# ============================================
+
+# Activer le moteur de réécriture
+RewriteEngine On
+
+# ============================================
+# PROTECTION ANTI-DDOS & ANTI-BOTS
+# ============================================
+
+# IMPORTANT : Les règles de sécurité NE S'APPLIQUENT PAS aux routes /api/
+# car elles sont gérées par le reverse proxy Apache vers le backend Node.js
+
+# Bloquer les User-Agent suspects et bots malveillants (version moins restrictive)
+# Exclure /api/ et /frontend/ des vérifications User-Agent
+RewriteCond %{REQUEST_URI} !^/api/ [NC]
+RewriteCond %{REQUEST_URI} !^/frontend/ [NC]
+RewriteCond %{HTTP_USER_AGENT} (nikto|acunetix|sqlmap|havij|zmeu|masscan|nmap|netcat|nc|sqlsus) [NC,OR]
+RewriteCond %{HTTP_USER_AGENT} (;|<|>|'|"|\)|%0A|%0D|%27|%3C|%3E|%00) [NC]
+RewriteRule ^(.*)$ - [F,L]
+
+# Bloquer les tentatives d'injection SQL et XSS (version moins restrictive)
+# Exclure /api/ et /frontend/ pour permettre les requêtes API avec paramètres
+RewriteCond %{REQUEST_URI} !^/api/ [NC]
+RewriteCond %{REQUEST_URI} !^/frontend/ [NC]
+RewriteCond %{QUERY_STRING} (<|%3C)([^s]*s)+cript.*(>|%3E) [NC,OR]
+RewriteCond %{QUERY_STRING} (<|%3C)([^e]*e)+mbed.*(>|%3E) [NC,OR]
+RewriteCond %{QUERY_STRING} (<|%3C)([^o]*o)+bject.*(>|%3E) [NC,OR]
+RewriteCond %{QUERY_STRING} (<|%3C)([^i]*i)+frame.*(>|%3E) [NC,OR]
+RewriteCond %{QUERY_STRING} union([^a]*a)+ll([^s]*s)+elect.*-- [NC,OR]
+RewriteCond %{QUERY_STRING} (exec|execute)\( [NC,OR]
+RewriteCond %{QUERY_STRING} (\.\./|\.\.\\) [NC]
+RewriteRule ^(.*)$ - [F,L]
+
+# Bloquer les tentatives d'accès aux fichiers sensibles (mais permettre /api/)
+RewriteCond %{REQUEST_URI} !^/api/ [NC]
+RewriteCond %{REQUEST_URI} (\.env|\.git|\.sql|\.zip|\.tar|\.gz|\.bak|backup|dump) [NC]
+RewriteRule ^(.*)$ - [F,L]
+
+# Bloquer les tentatives de traversée de répertoires
+RewriteCond %{THE_REQUEST} \.\./
+RewriteRule ^(.*)$ - [F,L]
+
+# Bloquer les méthodes HTTP non autorisées (mais autoriser OPTIONS pour CORS)
+# Exclure /api/ et /frontend/ pour permettre toutes les méthodes nécessaires
+RewriteCond %{REQUEST_URI} !^/api/ [NC]
+RewriteCond %{REQUEST_URI} !^/frontend/ [NC]
+RewriteCond %{REQUEST_METHOD} ^(TRACE|TRACK|DEBUG) [NC]
+RewriteRule ^(.*)$ - [F,L]
+
+# ============================================
+# REDIRECTIONS
+# ============================================
+
+# Rediriger le www vers non-www (optionnel - décommentez si besoin)
+# RewriteCond %{HTTP_HOST} ^www\.(.*)$ [NC]
+# RewriteRule ^(.*)$ http://%1/$1 [R=301,L]
+
+# ============================================
+# PROTECTION DES FICHIERS SENSIBLES
+# ============================================
+
+<FilesMatch "(\.env|\.git|\.gitignore|composer\.json|composer\.lock|package\.json|\.md|\.sql|\.zip|\.tar|\.gz|\.bak|\.log|\.ini|\.conf)$">
+    Require all denied
+</FilesMatch>
+
+# Protéger les fichiers de configuration PHP
+<FilesMatch "^(config|settings|database)\.php$">
+    Require all denied
+</FilesMatch>
+
+# Empêcher l'affichage du contenu des dossiers
+Options -Indexes
+
+# ============================================
+# GESTION DES ERREURS
+# ============================================
+
+# Erreurs personnalisées (décommentez et adaptez si besoin)
+# ErrorDocument 400 /errors/400.php
+# ErrorDocument 401 /errors/401.php
+# ErrorDocument 403 /errors/403.php
+# ErrorDocument 404 /errors/404.php
+# ErrorDocument 500 /errors/500.php
+# ErrorDocument 503 /errors/503.php
+
+# ============================================
+# OPTIMISATION DES PERFORMANCES
+# ============================================
+
+# Compression Gzip
+<IfModule mod_deflate.c>
+    AddOutputFilterByType DEFLATE text/html text/plain text/xml text/css text/javascript application/javascript application/json application/xml application/rss+xml
+    AddOutputFilterByType DEFLATE image/svg+xml
+</IfModule>
+
+# Cache des fichiers statiques
+<IfModule mod_expires.c>
+    ExpiresActive On
+    
+    # Images
+    ExpiresByType image/jpg "access plus 1 year"
+    ExpiresByType image/jpeg "access plus 1 year"
+    ExpiresByType image/gif "access plus 1 year"
+    ExpiresByType image/png "access plus 1 year"
+    ExpiresByType image/webp "access plus 1 year"
+    ExpiresByType image/svg+xml "access plus 1 year"
+    ExpiresByType image/x-icon "access plus 1 year"
+    
+    # CSS et JavaScript
+    ExpiresByType text/css "access plus 1 month"
+    ExpiresByType application/javascript "access plus 1 month"
+    ExpiresByType application/x-javascript "access plus 1 month"
+    
+    # Polices
+    ExpiresByType font/woff "access plus 1 year"
+    ExpiresByType font/woff2 "access plus 1 year"
+    ExpiresByType application/font-woff "access plus 1 year"
+    ExpiresByType application/font-woff2 "access plus 1 year"
+    
+    # Documents
+    ExpiresByType application/pdf "access plus 1 month"
+    
+    # HTML
+    ExpiresByType text/html "access plus 0 seconds"
+</IfModule>
+
+# ============================================
+# EN-TÊTES DE SÉCURITÉ HTTP
+# ============================================
+
+<IfModule mod_headers.c>
+    # Empêcher le clickjacking
+    Header always set X-Frame-Options "SAMEORIGIN"
+    
+    # Empêcher le MIME sniffing
+    Header always set X-Content-Type-Options "nosniff"
+    
+    # Activer le filtre XSS
+    Header always set X-XSS-Protection "1; mode=block"
+    
+    # Référer policy
+    Header always set Referrer-Policy "strict-origin-when-cross-origin"
+    
+    # Content Security Policy (à adapter selon vos besoins)
+    # Header always set Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline';"
+    
+    # Permissions Policy (anciennement Feature Policy)
+    Header always set Permissions-Policy "geolocation=(), microphone=(), camera=()"
+    
+    # Supprimer les informations de version du serveur
+    Header always unset X-Powered-By
+    Header unset X-Powered-By
+</IfModule>
+
+# ============================================
+# CONFIGURATION PHP
+# ============================================
+
+# ⚠️ ATTENTION : Les directives php_value et php_flag nécessitent mod_php
+# Sur XAMPP avec PHP-FPM ou certaines configurations, ces directives peuvent causer des erreurs
+# Si vous utilisez PHP-FPM, configurez ces valeurs dans php.ini ou php-fpm.conf
+# Ces directives sont commentées pour éviter les conflits - configurez-les dans php.ini si nécessaire
+
+# <IfModule mod_php.c>
+#     # Limites d'upload
+#     php_value upload_max_filesize 10M
+#     php_value post_max_size 10M
+#     
+#     # Timeouts
+#     php_value max_execution_time 300
+#     php_value max_input_time 300
+#     
+#     # Mémoire
+#     php_value memory_limit 256M
+#     
+#     # Sécurité PHP
+#     php_flag display_errors Off
+#     php_flag log_errors On
+#     
+#     # ⚠️ ATTENTION : allow_url_fopen et allow_url_include sont nécessaires pour certaines fonctionnalités
+#     # Ne pas les désactiver complètement, mais plutôt contrôler leur utilisation dans le code
+#     # php_flag allow_url_fopen Off
+#     # php_flag allow_url_include Off
+# </IfModule>
+
+# ============================================
+# PROTECTION CONTRE LE HOTLINKING
+# ============================================
+
+# Empêcher d'autres sites d'utiliser vos images (optionnel - désactivé pour éviter les conflits)
+# Désactivé car cela peut bloquer des ressources légitimes (favicon, images locales, etc.)
+# <IfModule mod_rewrite.c>
+#     RewriteCond %{HTTP_REFERER} !^$
+#     RewriteCond %{HTTP_REFERER} !^https?://(www\.)?gdr-innovation\.fr [NC]
+#     RewriteCond %{HTTP_REFERER} !^https?://(www\.)?gdri\.fr [NC]
+#     RewriteCond %{REQUEST_URI} !^/favicon\.ico$ [NC]
+#     RewriteRule \.(jpg|jpeg|png|gif|svg|webp)$ - [F,L]
+# </IfModule>
+
+# ============================================
+# LIMITE DE TAILLE DES REQUÊTES
+# ============================================
+
+# Limiter la taille du corps de la requête (10 Mo)
+LimitRequestBody 10485760

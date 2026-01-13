@@ -1,0 +1,97 @@
+/* LeftPanel.css - Styles pour le panneau gauche */
+/* Utilise les variables CSS de front/styles/styles.css */
+
+.left-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--color-white);
+}
+
+.left-panel-toggle {
+  padding: var(--spacing-xs);
+  background: var(--color-primary);
+  color: var(--color-white);
+  border: none;
+  border-radius: var(--border-radius-sm);
+  cursor: pointer;
+  margin: var(--spacing-xs);
+  align-self: flex-start;
+  transition: background var(--transition-fast);
+}
+
+.left-panel-toggle:hover {
+  background: var(--color-primary-dark);
+}
+
+.left-panel-title {
+  font-size: var(--font-size-large);
+  font-weight: 600;
+  color: var(--color-dark);
+  margin: var(--spacing-sm) var(--spacing-sm) var(--spacing-xs);
+  padding-bottom: var(--spacing-xs);
+  border-bottom: 2px solid var(--color-primary-light);
+}
+
+.left-panel-sections,
+.left-panel-annexes {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--spacing-xs);
+}
+
+.left-panel-section {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  padding: var(--spacing-xs) var(--spacing-sm);
+  margin-bottom: var(--spacing-xs);
+  border-radius: var(--border-radius-sm);
+  cursor: move;
+  transition: background var(--transition-fast), transform var(--transition-fast);
+  border: 1px solid transparent;
+  user-select: none;
+}
+
+.left-panel-section:hover {
+  background: var(--color-primary-light);
+  border-color: var(--color-primary);
+}
+
+.left-panel-section.active {
+  background: var(--color-primary);
+  color: var(--color-white);
+  border-color: var(--color-primary-dark);
+}
+
+.left-panel-section.dragging {
+  opacity: 0.5;
+  transform: scale(0.95);
+}
+
+.left-panel-section.drag-over {
+  border-top: 2px solid var(--color-primary);
+  margin-top: calc(-1 * var(--spacing-xs) - 1px);
+  padding-top: calc(var(--spacing-xs) - 1px);
+}
+
+.left-panel-section .section-number {
+  font-size: var(--font-size-small);
+  font-weight: 600;
+  color: var(--color-gray);
+  flex-shrink: 0;
+  min-width: 1.5em;
+}
+
+.left-panel-section.active .section-number {
+  color: var(--color-white);
+}
+
+.left-panel-section .section-title {
+  flex: 1;
+  font-size: var(--font-size-base);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+

@@ -17,3 +17,4 @@
 - Le menu contextuel s'affichera à la position du clic droit
 - Les options du menu permettront d'ajouter une colonne (après celle cliquée) ou de supprimer la colonne cliquée
 
+

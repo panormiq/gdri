@@ -1,0 +1,60 @@
+# Configuration corrigée pour le VirtualHost GDRI HTTPS
+# À copier dans C:\xampp\apache\conf\extra\httpd-vhosts.conf
+
+# ============================================
+# GDRI - HTTPS
+# ============================================
+<VirtualHost *:443>
+    ServerName www.gdr-innovation.fr
+    ServerAlias gdr-innovation.fr www.gdri.fr gdri.fr
+    DocumentRoot "C:/xampp/htdocs/gdri"
+
+    SSLEngine on
+    SSLCertificateFile "C:/xampp/htdocs/gdri/ssl-certs/cert.pem"
+    SSLCertificateKeyFile "C:/xampp/htdocs/gdri/ssl-certs/privkey.pem"
+    SSLCertificateChainFile "C:/xampp/htdocs/gdri/ssl-certs/chain.pem"
+
+    # ⚠️ IMPORTANT : Les directives ProxyPass DOIVENT être AVANT les directives Directory
+    # Reverse proxy pour les requêtes API vers le backend Node.js
+    ProxyPreserveHost On
+    ProxyPass /api/ http://127.0.0.1:3000/api/
+    ProxyPassReverse /api/ http://127.0.0.1:3000/api/
+    RequestHeader set X-Forwarded-Proto "https"
+    
+    # Alternative avec LocationMatch (si ProxyPass direct ne fonctionne pas)
+    # <LocationMatch "^/api/">
+    #     ProxyPass http://127.0.0.1:3000/api/
+    #     ProxyPassReverse http://127.0.0.1:3000/api/
+    #     ProxyPreserveHost On
+    #     RequestHeader set X-Forwarded-Proto "https"
+    # </LocationMatch>
+    
+    # Reverse proxy pour doc-template
+    ProxyPass /doc-template/api http://127.0.0.1:5005/api
+    ProxyPassReverse /doc-template/api http://127.0.0.1:5005/api
+
+    # Redirections
+    RewriteEngine On
+    RewriteCond %{HTTP_HOST} !^www\. [NC]
+    RewriteRule ^(.*)$ https://www.gdr-innovation.fr$1 [R=301,L]
+
+    # Configuration du répertoire (APRÈS les directives ProxyPass)
+    <Directory "C:/xampp/htdocs/gdri">
+        Options Indexes FollowSymLinks
+        AllowOverride All
+        Require all granted
+    </Directory>
+
+    # Alias pour doc-template
+    Alias /doc-template "C:/xampp/htdocs/continue/doc_template/front"
+    <Directory "C:/xampp/htdocs/continue/doc_template/front">
+        Options Indexes FollowSymLinks
+        AllowOverride All
+        Require all granted
+    </Directory>
+
+    ErrorLog "logs/gdri-ssl-error.log"
+    CustomLog "logs/gdri-ssl-access.log" common
+</VirtualHost>
+
+

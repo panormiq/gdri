@@ -20,18 +20,18 @@ class ServiceConfigService {
   }
 
   /**
-   * Trouve les services non configurés pour une entité
-   * @param {string} entityId - ID de l'entité
+   * Trouve les services non configurés pour une entreprise
+   * @param {string} entrepriseId - ID de l'entreprise
    * @returns {Promise<Array>} Liste des services nécessitant une configuration
    */
-  async getUnconfiguredServices(entityId) {
+  async getUnconfiguredServices(entrepriseId) {
     try {
       const servicesCollection = this.database.getCollection('services');
       const serviceConfigsCollection = this.database.getCollection('service_configs');
       const entitiesCollection = this.database.getCollection('entities');
 
-      // Récupérer l'entité et ses services autorisés
-      const entity = await entitiesCollection.findOne({ _id: require('mongodb').ObjectId(entityId) });
+      // Récupérer l'entreprise et ses services autorisés
+      const entity = await entitiesCollection.findOne({ _id: require('mongodb').ObjectId(entrepriseId) });
       if (!entity || !entity.services_authorized || entity.services_authorized.length === 0) {
         return [];
       }
@@ -46,7 +46,7 @@ class ServiceConfigService {
 
       // Récupérer les configurations existantes
       const existingConfigs = await serviceConfigsCollection.find({
-        entity_id: entityId
+        entrepriseId: entrepriseId
       }).toArray();
 
       const configuredServiceIds = new Set(
@@ -103,12 +103,12 @@ class ServiceConfigService {
 
   /**
    * Sauvegarde la configuration par défaut d'un service
-   * @param {string} entityId - ID de l'entité
+   * @param {string} entrepriseId - ID de l'entreprise
    * @param {string} serviceId - ID du service
    * @param {Object} config - Configuration à sauvegarder
    * @returns {Promise<Object>} Résultat de la sauvegarde
    */
-  async saveServiceConfig(entityId, serviceId, config) {
+  async saveServiceConfig(entrepriseId, serviceId, config) {
     try {
       const serviceConfigsCollection = this.database.getCollection('service_configs');
       const servicesCollection = this.database.getCollection('services');
@@ -125,12 +125,12 @@ class ServiceConfigService {
 
       // Vérifier si une configuration existe déjà
       const existingConfig = await serviceConfigsCollection.findOne({
-        entity_id: entityId,
+        entrepriseId: entrepriseId,
         service_id: serviceId
       });
 
       const configDoc = {
-        entity_id: entityId,
+        entrepriseId: entrepriseId,
         service_id: serviceId,
         service_name: serviceName,
         configured: true,
@@ -167,22 +167,22 @@ class ServiceConfigService {
 
   /**
    * Marque un service comme "configuré plus tard" (sans sauvegarder de config)
-   * @param {string} entityId - ID de l'entité
+   * @param {string} entrepriseId - ID de l'entreprise
    * @param {string} serviceId - ID du service
    * @returns {Promise<Object>} Résultat
    */
-  async markAsConfiguredLater(entityId, serviceId) {
+  async markAsConfiguredLater(entrepriseId, serviceId) {
     try {
       const serviceConfigsCollection = this.database.getCollection('service_configs');
 
       // Créer un document minimal pour marquer qu'on a "vu" cette configuration
       const existingConfig = await serviceConfigsCollection.findOne({
-        entity_id: entityId,
+        entrepriseId: entrepriseId,
         service_id: serviceId
       });
 
       const configDoc = {
-        entity_id: entityId,
+        entrepriseId: entrepriseId,
         service_id: serviceId,
         configured: false, // Toujours false car pas configuré
         config: null,

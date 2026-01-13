@@ -1,0 +1,134 @@
+/* TemplateBuilderPage.css - Styles pour le builder de templates */
+/* Utilise les variables CSS de front/styles/styles.css */
+
+.template-builder-header {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-md);
+  padding: var(--spacing-md);
+  background: var(--color-white);
+  border-bottom: 1px solid var(--color-light);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+}
+
+.template-title-input {
+  flex: 1;
+  padding: var(--spacing-sm) var(--spacing-md);
+  font-size: var(--font-size-lg);
+  font-weight: 600;
+  border: 2px solid var(--color-light);
+  border-radius: var(--radius-md);
+  outline: none;
+  transition: border-color var(--transition-normal);
+}
+
+.template-title-input:focus {
+  border-color: var(--color-primary);
+}
+
+.template-save-button {
+  padding: var(--spacing-sm) var(--spacing-lg);
+  background: var(--color-primary);
+  color: var(--color-white);
+  border: none;
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-base);
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color var(--transition-normal);
+}
+
+.template-save-button:hover {
+  background: var(--color-primary-dark);
+}
+
+.template-save-button:active {
+  transform: scale(0.98);
+}
+
+.template-builder-container {
+  display: flex;
+  height: calc(100vh - var(--header-height) - var(--footer-height) - 70px);
+  gap: var(--spacing-xs);
+  background: var(--color-light);
+  overflow: hidden;
+}
+
+/* Colonne gauche */
+.template-builder-left {
+  width: 250px;
+  min-width: 200px;
+  max-width: 400px;
+  flex-shrink: 0;
+  flex-grow: 0;
+  background: var(--color-white);
+  border-right: 1px solid var(--color-light);
+  overflow-y: auto;
+  transition: width var(--transition-normal);
+}
+
+.template-builder-left.collapsed {
+  width: 50px;
+  min-width: 50px;
+}
+
+/* Colonne centrale (éditeur) */
+.template-builder-center {
+  flex: 1 1 auto;
+  min-width: 0;
+  width: 100%;
+  background: var(--color-white);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Colonne droite */
+.template-builder-right {
+  width: 500px;
+  min-width: 450px;
+  max-width: 600px;
+  flex-shrink: 0;
+  flex-grow: 0;
+  background: var(--color-white);
+  border-left: 1px solid var(--color-light);
+  overflow: hidden;
+  box-sizing: border-box;
+  margin-right: 0;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+/* Responsive */
+@media (max-width: 1024px) {
+  .template-builder-left {
+    width: 200px;
+  }
+  
+  .template-builder-right {
+    width: 500px;
+    min-width: 450px;
+    max-width: 600px;
+  }
+}
+
+@media (max-width: 768px) {
+  .template-builder-container {
+    flex-direction: column;
+  }
+  
+  .template-builder-left,
+  .template-builder-right {
+    width: 100%;
+    max-width: none;
+    border: none;
+    border-bottom: 1px solid var(--color-light);
+  }
+  
+  .template-builder-center {
+    flex: 1;
+    min-height: 400px;
+  }
+}
+

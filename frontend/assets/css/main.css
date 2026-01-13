@@ -174,6 +174,162 @@ a:hover {
     width: 100%;
 }
 
+/* Logo Entreprise Active */
+.entreprise-logo {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    margin-left: var(--spacing-lg);
+    padding: var(--spacing-xs) var(--spacing-sm);
+    background-color: transparent;
+    border-radius: var(--border-radius);
+}
+
+.entreprise-logo-img {
+    height: 80px;
+    width: 80px;
+    object-fit: contain;
+    border-radius: var(--border-radius-sm);
+}
+
+.entreprise-logo-placeholder {
+    height: 80px;
+    width: 80px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background-color: var(--color-primary);
+    color: var(--color-white);
+    border-radius: var(--border-radius-sm);
+    font-weight: 700;
+    font-size: 36px;
+}
+
+.entreprise-name {
+    font-weight: 600;
+    color: var(--color-dark);
+    font-size: 14px;
+}
+
+/* Menu déroulant pour sélectionner l'entreprise */
+.nav-item-dropdown {
+    position: relative;
+}
+
+.dropdown {
+    position: relative;
+}
+
+.dropdown-toggle {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-xs);
+    padding: var(--spacing-xs) var(--spacing-sm);
+    background-color: var(--color-light);
+    border: 1px solid var(--color-border);
+    border-radius: var(--border-radius);
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--color-dark);
+    transition: all var(--transition-fast);
+}
+
+.dropdown-toggle:hover {
+    background-color: var(--color-primary-light);
+    border-color: var(--color-primary);
+}
+
+.dropdown-text {
+    max-width: 150px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.dropdown-arrow {
+    font-size: 10px;
+    transition: transform var(--transition-fast);
+}
+
+.dropdown-menu {
+    position: absolute;
+    top: calc(100% + 5px);
+    right: 0;
+    min-width: 200px;
+    background-color: var(--color-white);
+    border: 1px solid var(--color-border);
+    border-radius: var(--border-radius);
+    box-shadow: var(--shadow-md);
+    list-style: none;
+    padding: var(--spacing-xs);
+    margin: 0;
+    z-index: 1000;
+    display: none;
+    max-height: 300px;
+    overflow-y: auto;
+}
+
+.dropdown-menu.show {
+    display: block;
+}
+
+.dropdown-item {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    padding: var(--spacing-sm);
+    text-decoration: none;
+    color: var(--color-dark);
+    border-radius: var(--border-radius-sm);
+    transition: background-color var(--transition-fast);
+    cursor: pointer;
+}
+
+.dropdown-item:hover {
+    background-color: var(--color-light);
+}
+
+.dropdown-item.active {
+    background-color: var(--color-primary-light);
+    color: var(--color-primary-dark);
+}
+
+.dropdown-item-logo {
+    width: 30px;
+    height: 30px;
+    object-fit: contain;
+    border-radius: var(--border-radius-sm);
+}
+
+.dropdown-item-check {
+    margin-left: auto;
+    color: var(--color-primary);
+    font-weight: 700;
+}
+
+/* Responsive : Logo entreprise et menu déroulant */
+@media (max-width: 768px) {
+    .entreprise-logo {
+        margin-left: var(--spacing-sm);
+        padding: var(--spacing-xs);
+    }
+    
+    .entreprise-name {
+        display: none; /* Cacher le nom sur mobile, garder juste le logo */
+    }
+    
+    .dropdown-text {
+        max-width: 100px;
+    }
+    
+    .dropdown-menu {
+        right: 0;
+        left: auto;
+        min-width: 180px;
+    }
+}
+
 .btn-login {
     padding: var(--spacing-xs) var(--spacing-md);
     background: linear-gradient(135deg, var(--color-primary), var(--color-primary-dark));

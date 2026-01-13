@@ -53,17 +53,37 @@ $api_base_url = getApiBaseUrl();
                             id="basePrompt" 
                             name="basePrompt" 
                             class="form-control" 
-                            rows="8" 
-                            placeholder="Analysez le message suivant et déterminez son intention parmi : {liste des intention}
-
-Pour chaque intention détectée, indiquez :
-- La catégorie d'intention
-- Le niveau de certitude (0-100%)
-- Si une action urgente est requise"
+                            rows="15" 
                             required
-                        ></textarea>
+                        >Tu es un spécialiste expert en analyse d'intention de messages. Ton rôle est d'analyser précisément les messages reçus et d'identifier leur(s) intention(s) parmi les catégories suivantes :
+
+{{Liste des intentions}}
+
+Pour chaque message analysé, tu dois :
+
+1. IDENTIFIER toutes les intentions possibles présentes dans le message
+   - Un message peut contenir PLUSIEURS intentions simultanées (ex: SAV + Commercial, Technique + Information)
+   - Pour chaque intention détectée, indique :
+     * La catégorie d'intention
+     * Le niveau de probabilité (de 0 à 100%)
+     * Une brève explication de pourquoi cette intention a été détectée
+
+2. ÉVALUER le niveau de certitude global de ton analyse (de 0 à 100%)
+
+3. DÉTERMINER si une action urgente est requise (notamment pour les messages critiques, réclamations importantes, ou demandes nécessitant une réponse immédiate)
+
+Instructions importantes :
+- Sois précis et objectif dans ton analyse
+- Prends en compte le contexte, le ton et le contenu du message
+- Si plusieurs intentions sont possibles, liste-les toutes avec leur probabilité respective
+- Pour les messages ambigus, indique un niveau de certitude plus faible
+- Les messages urgents nécessitent une attention immédiate et doivent être traités en priorité
+
+Réponds au format JSON avec un tableau d'intentions détectées, chacune avec sa probabilité.
+
+Analyse maintenant le(s) message(s) suivant(s) :</textarea>
                         <small class="form-text text-muted">
-                            Utilisez <code>{liste des intention}</code> dans votre prompt pour insérer automatiquement la liste des intentions configurées ci-dessous
+                            Utilisez <code>{{Liste des intentions}}</code> dans votre prompt pour insérer automatiquement la liste des intentions configurées ci-dessous
                         </small>
                     </div>
 
@@ -91,17 +111,31 @@ Pour chaque intention détectée, indiquez :
                     <!-- Liste des intentions -->
                     <div class="form-group">
                         <label>Liste des intentions</label>
-                        <div id="customIntentionsContainer" class="intentions-badges-container">
-                            <!-- Les intentions ajoutées seront affichées ici sous forme de badges -->
-                            <div class="empty-state" id="intentionsEmptyState">
-                                <p>Aucune intention configurée. Cliquez sur "Ajouter une intention" pour commencer.</p>
+                        
+                        <!-- Intentions par défaut -->
+                        <div class="default-intentions-section">
+                            <h4 style="margin-bottom: 12px; font-size: 1rem; color: var(--color-primary);">Intentions par défaut</h4>
+                            <div id="defaultIntentionsContainer" class="default-intentions-checkboxes">
+                                <!-- Les checkboxes seront générées par JavaScript -->
                             </div>
                         </div>
-                        <button type="button" class="btn btn-outline btn-sm" id="addIntentionBtn">
-                            + Ajouter une intention
-                        </button>
-                        <small class="form-text text-muted">
-                            Ajoutez les intentions que l'agent doit détecter. Elles seront automatiquement insérées dans le prompt via {liste des intention}
+                        
+                        <!-- Intentions personnalisées -->
+                        <div class="custom-intentions-section" style="margin-top: 24px;">
+                            <h4 style="margin-bottom: 12px; font-size: 1rem; color: var(--color-primary);">Intentions personnalisées</h4>
+                            <div id="customIntentionsContainer" class="intentions-badges-container">
+                                <!-- Les intentions personnalisées ajoutées seront affichées ici sous forme de badges -->
+                                <div class="empty-state" id="intentionsEmptyState">
+                                    <p>Aucune intention personnalisée. Cliquez sur "Ajouter une intention personnalisée" pour en créer une.</p>
+                                </div>
+                            </div>
+                            <button type="button" class="btn btn-outline btn-sm" id="addIntentionBtn">
+                                + Ajouter une intention personnalisée
+                            </button>
+                        </div>
+                        
+                        <small class="form-text text-muted" style="margin-top: 12px; display: block;">
+                            Les intentions sélectionnées seront automatiquement insérées dans le prompt via {{Liste des intentions}}
                         </small>
                     </div>
 
@@ -309,7 +343,19 @@ const JWT_TOKEN = '<?= $jwt_token ?>';
 console.log('🌐 Configuration Agent Facebook - API_BASE_URL:', API_BASE_URL);
 console.log('🔑 JWT_TOKEN présent:', JWT_TOKEN ? 'Oui (' + JWT_TOKEN.substring(0, 20) + '...)' : 'Non');
 
-let intentions = []; // Tableau pour stocker les intentions
+// Intentions par défaut disponibles
+const DEFAULT_INTENTIONS = [
+    { name: 'commercial', label: 'Commercial', description: 'Demandes de produits, prix, devis, informations commerciales' },
+    { name: 'sav', label: 'SAV', description: 'Problèmes techniques, bugs, dysfonctionnements' },
+    { name: 'technique', label: 'Technique', description: 'Questions d\'utilisation, configuration, installation' },
+    { name: 'critique', label: 'Critique', description: 'Signalements d\'erreurs, corrections d\'informations' },
+    { name: 'positif', label: 'Positif', description: 'Commentaires positifs, remerciements' },
+    { name: 'spam', label: 'Spam', description: 'Messages publicitaires, indésirables' },
+    { name: 'generic', label: 'Générique', description: 'Si aucune autre catégorie ne s\'applique' }
+];
+
+let defaultIntentionsEnabled = {}; // Objet pour stocker l'état des intentions par défaut {name: true/false}
+let intentions = []; // Tableau pour stocker les intentions personnalisées uniquement
 let smtpProfiles = []; // Tableau pour stocker les profils SMTP
 let editingIntentionIndex = null;
 let editingSmtpIndex = null;
@@ -323,9 +369,67 @@ document.getElementById('addIntentionBtn').addEventListener('click', () => {
 document.getElementById('closeIntentionModal').addEventListener('click', closeIntentionModal);
 document.getElementById('cancelIntentionBtn').addEventListener('click', closeIntentionModal);
 
-// Obtenir toutes les options d'intentions disponibles
+// Initialiser les intentions par défaut (toutes activées par défaut)
+function initDefaultIntentions() {
+    DEFAULT_INTENTIONS.forEach(intention => {
+        defaultIntentionsEnabled[intention.name] = true;
+    });
+    renderDefaultIntentions();
+}
+
+// Afficher les checkboxes des intentions par défaut
+function renderDefaultIntentions() {
+    const container = document.getElementById('defaultIntentionsContainer');
+    if (!container) return;
+    
+    container.innerHTML = '';
+    
+    DEFAULT_INTENTIONS.forEach(intention => {
+        const checkboxWrapper = document.createElement('div');
+        checkboxWrapper.className = 'default-intention-item';
+        checkboxWrapper.style.cssText = 'display: flex; align-items: flex-start; gap: 8px; padding: 8px; margin-bottom: 8px; background: #f9f9f9; border-radius: 4px;';
+        
+        const checkbox = document.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.id = `default-intention-${intention.name}`;
+        checkbox.checked = defaultIntentionsEnabled[intention.name] || false;
+        checkbox.style.cssText = 'margin-top: 2px; cursor: pointer;';
+        checkbox.addEventListener('change', (e) => {
+            defaultIntentionsEnabled[intention.name] = e.target.checked;
+        });
+        
+        const label = document.createElement('label');
+        label.htmlFor = `default-intention-${intention.name}`;
+        label.style.cssText = 'flex: 1; cursor: pointer; margin: 0;';
+        label.innerHTML = `
+            <strong style="color: var(--color-primary);">${escapeHtml(intention.label)}</strong>
+            <br>
+            <small style="color: var(--color-gray); font-size: 0.85em;">${escapeHtml(intention.description)}</small>
+        `;
+        
+        checkboxWrapper.appendChild(checkbox);
+        checkboxWrapper.appendChild(label);
+        container.appendChild(checkboxWrapper);
+    });
+}
+
+// Obtenir toutes les intentions actives (par défaut activées + personnalisées)
+function getAllActiveIntentions() {
+    const activeDefault = DEFAULT_INTENTIONS
+        .filter(intention => defaultIntentionsEnabled[intention.name])
+        .map(intention => ({
+            name: intention.name,
+            email: '', // Sera rempli par l'email par défaut
+            urgent: false,
+            isDefault: true
+        }));
+    
+    return [...activeDefault, ...intentions];
+}
+
+// Obtenir toutes les options d'intentions disponibles pour l'auto-complétion
 function getIntentionOptions() {
-    const predefined = ['commercial', 'sav', 'technique', 'critique', 'positif', 'spam', 'generic'];
+    const predefined = DEFAULT_INTENTIONS.map(i => i.name);
     const custom = intentions.map(i => i.name).filter(name => !predefined.includes(name));
     return [...predefined, ...custom];
 }
@@ -567,7 +671,7 @@ document.getElementById('defaultEmail').addEventListener('input', (e) => {
     }
 });
 
-// Afficher les intentions sous forme de badges
+// Afficher les intentions personnalisées sous forme de badges
 function renderIntentions() {
     const container = document.getElementById('customIntentionsContainer');
     const emptyState = document.getElementById('intentionsEmptyState');
@@ -911,11 +1015,26 @@ document.getElementById('loadConfigBtn').addEventListener('click', async () => {
             
             // Remplir les intentions
             const loadedIntentions = data.data.customIntentions || data.data.intentions || [];
+            const loadedDefaultIntentions = data.data.defaultIntentionsEnabled || {};
+            
+            // Restaurer l'état des intentions par défaut
+            DEFAULT_INTENTIONS.forEach(intention => {
+                defaultIntentionsEnabled[intention.name] = loadedDefaultIntentions[intention.name] !== undefined 
+                    ? loadedDefaultIntentions[intention.name] 
+                    : true; // Par défaut, toutes activées
+            });
+            renderDefaultIntentions();
+            
+            // Charger les intentions personnalisées (exclure les intentions par défaut)
             intentions = [];
+            const defaultNames = DEFAULT_INTENTIONS.map(i => i.name);
             
             if (loadedIntentions.length > 0) {
                 loadedIntentions.forEach(intention => {
-                    addIntentionFromData(intention);
+                    // Ne charger que les intentions personnalisées (pas les intentions par défaut)
+                    if (!defaultNames.includes(intention.name)) {
+                        addIntentionFromData(intention);
+                    }
                 });
             }
             
@@ -961,7 +1080,13 @@ document.getElementById('loadConfigBtn').addEventListener('click', async () => {
             
             alert('✅ Configuration chargée avec succès !');
         } else {
-            // Si pas de config, charger le SMTP par défaut
+            // Si pas de config, initialiser avec toutes les intentions par défaut activées
+            DEFAULT_INTENTIONS.forEach(intention => {
+                defaultIntentionsEnabled[intention.name] = true;
+            });
+            renderDefaultIntentions();
+            
+            // Charger le SMTP par défaut
             await loadDefaultMailSmtp();
             // Vérifier l'email (sera vide, donc warning affiché)
             checkDefaultEmail();
@@ -969,6 +1094,12 @@ document.getElementById('loadConfigBtn').addEventListener('click', async () => {
         }
     } catch (error) {
         console.error('Erreur:', error);
+        // Si erreur, initialiser avec toutes les intentions par défaut activées
+        DEFAULT_INTENTIONS.forEach(intention => {
+            defaultIntentionsEnabled[intention.name] = true;
+        });
+        renderDefaultIntentions();
+        
         // Charger le SMTP par défaut même en cas d'erreur
         await loadDefaultMailSmtp();
         // Vérifier l'email (sera vide, donc warning affiché)
@@ -1014,10 +1145,14 @@ document.getElementById('agentConfigForm').addEventListener('submit', async (e) 
     });
     
     // Préparer les données
+    // Inclure toutes les intentions actives (par défaut activées + personnalisées)
+    const allActiveIntentions = getAllActiveIntentions();
+    
     const configData = {
         base_prompt: document.getElementById('basePrompt').value,
         default_email: document.getElementById('defaultEmail').value,
-        intentions: intentions,
+        intentions: allActiveIntentions,
+        defaultIntentionsEnabled: defaultIntentionsEnabled, // Sauvegarder l'état des intentions par défaut
         smtp_profiles: smtpProfilesObj
     };
     
@@ -1068,6 +1203,9 @@ document.getElementById('testConnectionBtn').addEventListener('click', async () 
 
 // Charger la configuration au chargement de la page
 window.addEventListener('load', () => {
+    // Initialiser les intentions par défaut (toutes activées)
+    initDefaultIntentions();
+    
     // Initialiser l'affichage vide
     renderIntentions();
     renderSmtpProfiles();
@@ -1335,6 +1473,34 @@ code {
 
 .autocomplete-item:last-child {
     border-radius: 0 0 4px 4px;
+}
+
+/* Styles pour les intentions par défaut */
+.default-intentions-section {
+    margin-bottom: 24px;
+    padding: 16px;
+    background: #f9f9f9;
+    border-radius: 6px;
+    border: 1px solid #e0e0e0;
+}
+
+.default-intentions-checkboxes {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.default-intention-item {
+    transition: background-color 0.2s;
+}
+
+.default-intention-item:hover {
+    background: #f0f0f0 !important;
+}
+
+.custom-intentions-section {
+    padding-top: 16px;
+    border-top: 2px solid #e0e0e0;
 }
 </style>
 

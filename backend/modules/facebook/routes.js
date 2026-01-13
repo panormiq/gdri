@@ -56,28 +56,35 @@ router.post('/webhook', async (req, res) => {
  */
 async function processWebhookEvent(webhookData) {
   try {
+    console.log('\n📨 ===== WEBHOOK FACEBOOK RECU =====');
+    
     if (!webhookService) {
+      console.log('  🔧 Initialisation du WebhookService...');
       webhookService = new WebhookService(database);
       await webhookService.init();
+      console.log('  ✅ WebhookService initialisé');
     }
 
     // En mode développement, afficher dans la console
     if (process.env.NODE_ENV === 'development') {
-      console.log('\n📨 ===== WEBHOOK FACEBOOK RECU =====');
+      console.log('  📦 Données reçues:');
       console.log(JSON.stringify(webhookData, null, 2));
-      console.log('=====================================\n');
     }
 
     // Traiter et sauvegarder
+    console.log('  🔄 Traitement du webhook...');
     const result = await webhookService.processWebhook(webhookData);
 
     if (result.success) {
-      console.log(`✅ Webhook traité: ${result.entryCount} entry(s), ${result.eventsCount} event(s)`);
+      console.log(`  ✅ Webhook traité: ${result.entryCount} entry(s), ${result.eventsCount} event(s)`);
     } else {
-      console.error(`❌ Erreur traitement webhook: ${result.error}`);
+      console.error(`  ❌ Erreur traitement webhook: ${result.error}`);
     }
+    
+    console.log('=====================================\n');
   } catch (error) {
     console.error('❌ Erreur processWebhookEvent:', error);
+    console.error('Stack:', error.stack);
   }
 }
 

@@ -185,8 +185,14 @@ router.get('/document/:documentId/image/:imageId', async (req, res) => {
     const imagePath = await documentService.getImagePath(documentId, imageId);
     res.sendFile(imagePath);
   } catch (error) {
-    console.error('Erreur récupération image:', error);
-    res.status(500).json({ success: false, error: error.message });
+    // Si l'image n'existe pas, retourner 404 au lieu de 500
+    if (error.code === 'ENOENT' || error.statusCode === 404) {
+      console.warn(`Image non trouvée: ${req.params.imageId} pour document ${req.params.documentId}`);
+      res.status(404).json({ success: false, error: 'Image non trouvée' });
+    } else {
+      console.error('Erreur récupération image:', error);
+      res.status(500).json({ success: false, error: error.message });
+    }
   }
 });
 

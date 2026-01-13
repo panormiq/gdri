@@ -1,0 +1,74 @@
+/* RightPanel.css - Styles pour le panneau droit */
+/* Utilise les variables CSS de front/styles/styles.css */
+
+.right-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  max-height: 100%;
+  overflow: hidden;
+  background: var(--color-white);
+}
+
+.right-panel-main {
+  display: flex;
+  flex-direction: row;
+  height: 100%;
+  max-height: 100%;
+  width: 100%;
+  overflow: hidden;
+  flex: 1;
+  min-height: 0;
+}
+
+/* Onglets verticaux (style classeur) */
+.right-panel-tabs {
+  display: flex;
+  flex-direction: column;
+  width: 120px;
+  min-width: 120px;
+  background: var(--color-secondary);
+  border-right: 2px solid var(--color-light);
+  padding: var(--spacing-xs);
+  flex-shrink: 0;
+  gap: var(--spacing-xs);
+}
+
+.right-panel-tab {
+  width: 100%;
+  padding: var(--spacing-sm);
+  background: var(--color-secondary);
+  border: none;
+  border-right: 3px solid transparent;
+  cursor: pointer;
+  font-size: var(--font-size-base);
+  font-weight: 500;
+  color: var(--color-white);
+  transition: all var(--transition-fast);
+  text-align: center;
+  border-radius: var(--border-radius-sm) 0 0 var(--border-radius-sm);
+}
+
+.right-panel-tab:hover {
+  background: var(--color-secondary-dark);
+}
+
+.right-panel-tab.active {
+  background: var(--color-white);
+  border-right-color: var(--color-primary);
+  color: var(--color-primary-dark);
+  font-weight: 600;
+}
+
+/* Contenu des onglets (à droite des onglets) */
+.right-panel-content {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: visible;
+  padding: var(--spacing-md);
+  background: var(--color-white);
+  min-height: 0;
+  width: 100%;
+  box-sizing: border-box;
+}
+

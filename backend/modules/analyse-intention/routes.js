@@ -38,7 +38,9 @@ function getIntentionService() {
  */
 router.post('/', async (req, res) => {
   try {
-    const { messages, customRules } = req.body;
+    const { messages, customRules, entrepriseId } = req.body;
+    // Compatibilité: accepter aussi entity_id pour transition
+    const entityId = entrepriseId || req.body.entity_id;
 
     if (!messages) {
       return res.status(400).json({
@@ -47,8 +49,27 @@ router.post('/', async (req, res) => {
       });
     }
 
+    // Charger la configuration si entrepriseId est fourni
+    let basePrompt = null;
+    let customIntentions = [];
+    
+    if (entityId) {
+      try {
+        const configCollection = database.getCollection('analyse_intention_configs');
+        const config = await configCollection.findOne({ entrepriseId: entityId });
+        
+        if (config && config.config) {
+          basePrompt = config.config.basePrompt || config.config.base_prompt || null;
+          customIntentions = config.config.customIntentions || config.config.intentions || [];
+        }
+      } catch (configError) {
+        console.warn('⚠️  Erreur lors du chargement de la configuration:', configError);
+        // Continuer sans la config personnalisée
+      }
+    }
+
     const service = getIntentionService();
-    const result = await service.analyzeIntentions(messages, customRules);
+    const result = await service.analyzeIntentions(messages, basePrompt, customIntentions, customRules);
 
     if (result.success) {
       res.json({
@@ -138,17 +159,18 @@ router.get('/test', async (req, res) => {
 router.get('/agent-config', authenticateJWT, async (req, res) => {
   try {
     console.log('📥 GET /api/analyse/agent-config - Requête reçue');
-    console.log('👤 User:', req.user ? { entity_id: req.user.entity_id, role: req.user.role } : 'Non authentifié');
+    console.log('👤 User:', req.user ? { entrepriseId: req.user.entrepriseId, role: req.user.role } : 'Non authentifié');
     
-    const { entity_id } = req.user;
+    const entrepriseId = req.user.entrepriseId;
 
-    if (!entity_id) {
+    if (!entrepriseId) {
       return res.json({
         success: true,
         data: {
           basePrompt: '',
           defaultEmail: '',
           customIntentions: [],
+          defaultIntentionsEnabled: {},
           smtp_profiles: {}
         }
       });
@@ -158,7 +180,7 @@ router.get('/agent-config', authenticateJWT, async (req, res) => {
     const configCollection = database.getCollection('analyse_intention_configs');
     
     const config = await configCollection.findOne({
-      entity_id: entity_id
+      entrepriseId: entrepriseId
     });
 
     if (!config || !config.config) {
@@ -169,6 +191,7 @@ router.get('/agent-config', authenticateJWT, async (req, res) => {
           basePrompt: '',
           defaultEmail: '',
           customIntentions: [],
+          defaultIntentionsEnabled: {},
           smtp_profiles: {}
         }
       });
@@ -181,6 +204,7 @@ router.get('/agent-config', authenticateJWT, async (req, res) => {
         basePrompt: config.config.basePrompt || config.config.base_prompt || '',
         defaultEmail: config.config.defaultEmail || config.config.default_email || '',
         customIntentions: config.config.customIntentions || config.config.intentions || [],
+        defaultIntentionsEnabled: config.config.defaultIntentionsEnabled || {},
         smtp_profiles: config.config.smtp_profiles || config.config.smtpSettings || {}
       }
     });
@@ -198,17 +222,19 @@ router.get('/agent-config', authenticateJWT, async (req, res) => {
  */
 router.post('/agent-config', authenticateJWT, async (req, res) => {
   try {
-    const { entity_id, user_id } = req.user;
+    const entrepriseId = req.user.entrepriseId;
+    const user_id = req.user.user_id;
     // Accepter les deux formats (snake_case et camelCase)
     const basePrompt = req.body.basePrompt || req.body.base_prompt || '';
     const defaultEmail = req.body.defaultEmail || req.body.default_email || '';
     const customIntentions = req.body.customIntentions || req.body.intentions || [];
+    const defaultIntentionsEnabled = req.body.defaultIntentionsEnabled || {};
     const smtp_profiles = req.body.smtp_profiles || req.body.smtpSettings || {};
 
-    if (!entity_id) {
+    if (!entrepriseId) {
       return res.status(400).json({
         success: false,
-        message: 'entity_id requis. Veuillez d\'abord créer/associer une entité à votre compte.'
+        message: 'entrepriseId requis. Veuillez d\'abord créer/associer une entreprise à votre compte.'
       });
     }
 
@@ -219,17 +245,18 @@ router.post('/agent-config', authenticateJWT, async (req, res) => {
       basePrompt: basePrompt,
       defaultEmail: defaultEmail,
       customIntentions: customIntentions,
+      defaultIntentionsEnabled: defaultIntentionsEnabled,
       smtp_profiles: smtp_profiles
     };
 
     // Sauvegarder/mettre à jour la config
     await configCollection.updateOne(
       {
-        entity_id: entity_id
+        entrepriseId: entrepriseId
       },
       {
         $set: {
-          entity_id: entity_id,
+          entrepriseId: entrepriseId,
           config: configToSave,
           updated_at: new Date(),
           updated_by: user_id

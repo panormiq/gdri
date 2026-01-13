@@ -1,0 +1,44 @@
+{
+  "title": "Dossier Technique Zeppelin Boat",
+  "sections": [
+    {
+      "title": "Présentation générale",
+      "fields": [
+        { "label": "Nom du bateau", "value": "Zeppelin 3000" },
+        { "label": "Marque", "value": "Zeppelin" },
+        { "label": "Type", "value": "Voilier" }
+      ]
+    },
+    {
+      "title": "Moteur",
+      "fields": [
+        { "label": "Marque", "value": "Zeppin Motor" },
+        { "label": "Puissance", "value": "300 CV" },
+        { "label": "Consommation", "value": "25 L/h" }
+      ],
+      "subSections": [
+        {
+          "title": "Cylindres",
+          "fields": [
+            { "label": "Nombre de cylindres", "value": 6 },
+            { "label": "Position des cylindres", "value": "V" }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "Coque",
+      "fields": [
+        { "label": "Matériau", "value": "Aluminium" },
+        { "label": "Longueur", "value": "12 m" },
+        { "label": "Largeur", "value": "3.5 m" }
+      ]
+    },
+    {
+      "title": "Anexes",
+      "fields": [
+        { "label": "Document technique supplémentaire", "value": "Annexe moteur.pdf" }
+      ]
+    }
+  ]
+}

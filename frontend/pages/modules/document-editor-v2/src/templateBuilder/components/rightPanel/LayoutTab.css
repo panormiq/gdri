@@ -1,0 +1,161 @@
+/* LayoutTab.css - Styles pour l'onglet Mise en page */
+/* Utilise les variables CSS de front/styles/styles.css */
+
+.layout-tab {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
+  padding: var(--spacing-sm);
+  overflow-y: auto;
+}
+
+.layout-tab h3 {
+  font-size: var(--font-size-large);
+  font-weight: 600;
+  color: var(--color-dark);
+  margin: 0 0 var(--spacing-sm);
+  padding-bottom: var(--spacing-xs);
+  border-bottom: 2px solid var(--color-primary-light);
+}
+
+.layout-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-sm);
+  border: 1px solid var(--color-light);
+  border-radius: var(--border-radius-sm);
+  background: var(--color-white);
+}
+
+.layout-section h4 {
+  font-size: var(--font-size-base);
+  font-weight: 600;
+  color: var(--color-dark);
+  margin: 0;
+  padding-bottom: var(--spacing-xs);
+  border-bottom: 1px solid var(--color-light);
+}
+
+.layout-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+}
+
+.layout-field label {
+  font-size: var(--font-size-small);
+  font-weight: 500;
+  color: var(--color-dark);
+}
+
+.layout-field-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+}
+
+.layout-inputs-row {
+  display: flex;
+  gap: var(--spacing-xs);
+  flex-wrap: wrap;
+}
+
+.layout-field-inline {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--spacing-xs) / 2);
+  flex: 1;
+  min-width: 80px;
+}
+
+.layout-input,
+.layout-select {
+  padding: var(--spacing-xs);
+  border: 1px solid var(--color-light);
+  border-radius: var(--border-radius-sm);
+  font-size: var(--font-size-base);
+  font-family: var(--font-primary);
+  transition: border-color var(--transition-fast);
+}
+
+.layout-input:focus,
+.layout-select:focus {
+  outline: none;
+  border-color: var(--color-primary);
+}
+
+.layout-input-small {
+  padding: calc(var(--spacing-xs) / 2);
+  border: 1px solid var(--color-light);
+  border-radius: var(--border-radius-sm);
+  font-size: var(--font-size-small);
+  font-family: var(--font-primary);
+  transition: border-color var(--transition-fast);
+}
+
+.layout-input-small:focus {
+  outline: none;
+  border-color: var(--color-primary);
+}
+
+.layout-input-color {
+  width: 100%;
+  height: 40px;
+  padding: var(--spacing-xs);
+  border: 1px solid var(--color-light);
+  border-radius: var(--border-radius-sm);
+  cursor: pointer;
+  transition: border-color var(--transition-fast);
+}
+
+.layout-input-color:focus {
+  outline: none;
+  border-color: var(--color-primary);
+}
+
+.layout-heading-group {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--color-light);
+  border-radius: var(--border-radius-sm);
+  overflow: hidden;
+  margin-bottom: var(--spacing-xs);
+}
+
+.layout-heading-toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  padding: var(--spacing-sm);
+  background: var(--color-light);
+  border: none;
+  border-radius: 0;
+  cursor: pointer;
+  font-size: var(--font-size-base);
+  font-weight: 600;
+  color: var(--color-dark);
+  text-align: left;
+  transition: background var(--transition-fast);
+  width: 100%;
+}
+
+.layout-heading-toggle:hover {
+  background: var(--color-primary-light);
+}
+
+.layout-heading-toggle .toggle-icon {
+  font-size: var(--font-size-small);
+  width: 1em;
+  display: inline-block;
+}
+
+.layout-heading-submenu {
+  padding: var(--spacing-sm);
+  background: var(--color-white);
+  border-top: 1px solid var(--color-light);
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+}
+

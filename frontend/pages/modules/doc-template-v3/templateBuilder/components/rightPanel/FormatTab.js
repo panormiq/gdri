@@ -541,36 +541,125 @@ export default class FormatTab {
     variableSelect.innerHTML = '<option value="">-- Sélectionner --</option>';
     variableSelect.style.cssText = 'width: 100%; padding: var(--spacing-xs, 4px); border: 1px solid var(--color-light, #ddd); border-radius: var(--border-radius, 4px); box-sizing: border-box;';
     
-    // Récupérer les collections
-    const collections = [];
-    if (this.template?.defaultCollection) {
-      collections.push({
-        alias: this.template.defaultCollection.alias,
-        fields: this.template.defaultCollection.fields || []
-      });
-    }
-    if (this.template?.additionalCollections) {
-      this.template.additionalCollections.forEach(col => {
-        collections.push({
-          alias: col.alias,
-          fields: col.fields || []
-        });
-      });
-    }
-    
-    collections.forEach(collection => {
-      const imageFields = collection.fields.filter(f => f.type === 'image' || f.uiType === 'Image');
-      if (imageFields.length > 0) {
-        const optgroup = document.createElement('optgroup');
-        optgroup.label = collection.alias;
-        imageFields.forEach(field => {
-          const option = document.createElement('option');
-          option.value = `${collection.alias}.${field.name}`;
-          option.textContent = `${collection.alias}.${field.name}`;
-          optgroup.appendChild(option);
-        });
-        variableSelect.appendChild(optgroup);
+    // Charger les collections depuis l'API pour avoir les champs complets
+    const loadCollectionsWithFields = async () => {
+      const collections = [];
+      
+      // Charger les types pour normaliser les champs
+      let fieldTypesData = null;
+      try {
+        const { collectionApi } = await import('../../../shared/api/CollectionApi.js');
+        const typesRes = await collectionApi.getFieldTypes();
+        if (typesRes.success) {
+          fieldTypesData = typesRes.data;
+        }
+      } catch (error) {
+        console.error('❌ Erreur chargement fieldTypes:', error);
       }
+      
+      // Fonction pour normaliser les champs
+      const normalizeFields = (fields) => {
+        if (!fieldTypesData || !fieldTypesData.baseTypes) return fields;
+        return fields.map(field => ({
+          ...field,
+          uiType: fieldTypesData.baseTypes[field.typeRef]?.uiType || field.uiType || 'Texte'
+        }));
+      };
+      
+      // Charger defaultCollection si elle existe
+      if (this.template?.defaultCollection) {
+        const collData = {
+          alias: this.template.defaultCollection.alias,
+          fields: []
+        };
+        
+        // Si c'est une collection virtuelle (avec fields directement)
+        if (this.template.defaultCollection.fields) {
+          collData.fields = normalizeFields(this.template.defaultCollection.fields);
+        } 
+        // Sinon charger depuis l'API
+        else if (this.template.defaultCollection.collectionId) {
+          try {
+            const { collectionApi } = await import('../../../shared/api/CollectionApi.js');
+            const response = await collectionApi.getById(this.template.defaultCollection.collectionId);
+            if (response.success && response.data) {
+              collData.fields = normalizeFields(response.data.fields || []);
+            }
+          } catch (error) {
+            console.error('❌ Erreur chargement defaultCollection:', error);
+          }
+        }
+        
+        collections.push(collData);
+      }
+      
+      // Charger additionalCollections
+      if (this.template?.additionalCollections) {
+        for (const colRef of this.template.additionalCollections) {
+          const collData = {
+            alias: colRef.alias,
+            fields: []
+          };
+          
+          // Charger depuis l'API
+          if (colRef.collectionId) {
+            try {
+              const { collectionApi } = await import('../../../shared/api/CollectionApi.js');
+              const response = await collectionApi.getById(colRef.collectionId);
+              if (response.success && response.data) {
+                collData.fields = normalizeFields(response.data.fields || []);
+              }
+            } catch (error) {
+              console.error('❌ Erreur chargement collection:', error);
+            }
+          }
+          
+          collections.push(collData);
+        }
+      }
+      
+      return collections;
+    };
+    
+    // Fonction pour détecter si un champ est de type image
+    const isImageField = (field) => {
+      // Vérifier le type ou uiType directement
+      if (field.type === 'image' || field.uiType === 'Image') {
+        return true;
+      }
+      // Vérifier le typeRef (Image utilise typeRef: "file")
+      if (field.typeRef === 'file') {
+        // Vérifier le label
+        const label = (field.label || '').toLowerCase();
+        if (label.includes('image')) {
+          return true;
+        }
+        // Vérifier les extensions autorisées
+        const extensions = field.validation?.extensions || [];
+        const imageExtensions = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'bmp'];
+        if (Array.isArray(extensions) && extensions.some(ext => imageExtensions.includes(ext.toLowerCase()))) {
+          return true;
+        }
+      }
+      return false;
+    };
+    
+    // Charger et afficher les collections
+    loadCollectionsWithFields().then(collections => {
+      collections.forEach(collection => {
+        const imageFields = collection.fields.filter(isImageField);
+        if (imageFields.length > 0) {
+          const optgroup = document.createElement('optgroup');
+          optgroup.label = collection.alias;
+          imageFields.forEach(field => {
+            const option = document.createElement('option');
+            option.value = `${collection.alias}.${field.name}`;
+            option.textContent = `${field.label || field.name} (${collection.alias}.${field.name})`;
+            optgroup.appendChild(option);
+          });
+          variableSelect.appendChild(optgroup);
+        }
+      });
     });
     
     variableGroup.appendChild(variableLabel);
@@ -695,10 +784,24 @@ export default class FormatTab {
     delete img.dataset.imageId; // Pas d'ID encore
     img.alt = imageData.fileName || 'Image';
     
+    // Mettre à jour les données de l'image dans le container
+    this.selectedImageContainer._imageData = {
+      type: 'upload',
+      url: imageData.tempUrl,
+      tempUrl: imageData.tempUrl,
+      fileName: imageData.fileName,
+      alt: imageData.fileName || 'Image'
+    };
+    
     // Appliquer le style si un style était sélectionné
     const currentStyle = this.selectedImageContainer.dataset.imageStyle;
     if (currentStyle && this.editor) {
       this.editor.applyImageStyle(this.selectedImageContainer, currentStyle);
+    }
+    
+    // Réattacher les event listeners pour le double-clic
+    if (this.editor && this.editor.reattachImageListeners) {
+      this.editor.reattachImageListeners(this.selectedImageContainer);
     }
     
     this.editor.handleContentChange();
@@ -742,13 +845,33 @@ export default class FormatTab {
     // Charger la variable
     img.dataset.imageType = 'variable';
     img.dataset.variablePath = variablePath;
-    img.src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjAwIiBoZWlnaHQ9IjEwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMjAwIiBoZWlnaHQ9IjEwMCIgZmlsbD0iI2YwZjBmMCIvPjx0ZXh0IHg9IjUwJSIgeT0iNTAlIiBmb250LWZhbWlseT0iQXJpYWwiIGZvbnQtc2l6ZT0iMTQiIGZpbGw9IiM5OTkiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGR5PSIuM2VtIj57e3t2YXJpYWJsZX19fTwvdGV4dD48L3N2Zz4=';
+    // Utiliser la fonction de l'éditeur pour générer le placeholder
+    if (this.editor && this.editor.generateVariableImagePlaceholder) {
+      img.src = this.editor.generateVariableImagePlaceholder(variablePath);
+    } else {
+      // Fallback si la fonction n'est pas disponible
+      const svgContent = `<svg width="200" height="100" xmlns="http://www.w3.org/2000/svg"><rect width="200" height="100" fill="#f0f0f0"/><text x="50%" y="50%" font-family="Arial" font-size="14" fill="#999" text-anchor="middle" dy=".3em">{{${variablePath}}}</text></svg>`;
+      const base64 = btoa(unescape(encodeURIComponent(svgContent)));
+      img.src = `data:image/svg+xml;base64,${base64}`;
+    }
     img.alt = `{{${variablePath}}}`;
+    
+    // Mettre à jour les données de l'image dans le container
+    this.selectedImageContainer._imageData = {
+      type: 'variable',
+      variablePath: variablePath,
+      alt: `{{${variablePath}}}`
+    };
     
     // Appliquer le style si un style était sélectionné
     const currentStyle = this.selectedImageContainer.dataset.imageStyle;
     if (currentStyle && this.editor) {
       this.editor.applyImageStyle(this.selectedImageContainer, currentStyle);
+    }
+    
+    // Réattacher les event listeners pour le double-clic
+    if (this.editor && this.editor.reattachImageListeners) {
+      this.editor.reattachImageListeners(this.selectedImageContainer);
     }
     
     this.editor.handleContentChange();

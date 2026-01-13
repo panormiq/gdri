@@ -122,5 +122,7 @@ require_once '../includes/header.php';
     </div>
 </section>
 
+<script src="<?php echo BASE_URL; ?>assets/js/contact-form.js"></script>
+
 <?php require_once '../includes/footer.php'; ?>
 

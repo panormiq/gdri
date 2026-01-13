@@ -1,0 +1,10 @@
+{
+  "name": "doc-template",
+  "displayName": "Doc Template",
+  "description": "Module de gestion de documents et templates",
+  "version": "3.0.0",
+  "enabled": true,
+  "routes": [
+    "/api/doc-template"
+  ]
+}

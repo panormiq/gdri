@@ -1,0 +1,422 @@
+/* CollectionsTab.css - Styles pour l'onglet Collections */
+/* Utilise les variables CSS de front/styles/styles.css */
+
+.collections-tab {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
+  padding: var(--spacing-sm);
+  width: 100%;
+  height: 100%;
+  max-height: 100%;
+  box-sizing: border-box;
+  overflow-y: scroll; /* Toujours afficher la scrollbar */
+  overflow-x: hidden;
+  /* Forcer l'affichage de la scrollbar à droite */
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-primary, #0055AA) var(--color-light, #f0f0f0);
+  direction: ltr; /* Assurer que la scrollbar est à droite */
+}
+
+/* Style de la scrollbar pour WebKit (Chrome, Safari, Edge) */
+.collections-tab::-webkit-scrollbar {
+  width: 8px;
+}
+
+.collections-tab::-webkit-scrollbar-track {
+  background: var(--color-light, #f0f0f0);
+  border-radius: 4px;
+}
+
+.collections-tab::-webkit-scrollbar-thumb {
+  background: var(--color-primary, #0055AA);
+  border-radius: 4px;
+}
+
+.collections-tab::-webkit-scrollbar-thumb:hover {
+  background: var(--color-primary-dark, #004488);
+}
+
+.collections-tab h3 {
+  font-size: var(--font-size-large);
+  font-weight: 600;
+  color: var(--color-dark);
+  margin: 0 0 var(--spacing-sm);
+  padding-bottom: var(--spacing-xs);
+  border-bottom: 2px solid var(--color-primary-light);
+  flex-shrink: 0;
+}
+
+.add-collection-btn {
+  padding: var(--spacing-sm) var(--spacing-md);
+  background: var(--color-primary);
+  color: var(--color-white);
+  border: none;
+  border-radius: var(--border-radius-sm);
+  font-size: var(--font-size-base);
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  flex-shrink: 0;
+}
+
+.add-collection-btn:hover {
+  background: var(--color-primary-dark);
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-sm);
+}
+
+.add-collection-btn:active {
+  transform: translateY(0);
+}
+
+.collections-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+  flex: 1;
+  min-height: 0;
+  overflow: visible; /* Le scroll est géré par le parent .collections-tab */
+}
+
+.attached-collection {
+  background: var(--color-white);
+  border: 1px solid var(--color-light);
+  border-radius: var(--border-radius-sm);
+  overflow: hidden;
+}
+
+.collection-header {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  padding: var(--spacing-sm);
+  background: var(--color-secondary);
+  color: var(--color-white);
+  cursor: pointer;
+  transition: background var(--transition-fast);
+  user-select: none;
+}
+
+.collection-header:hover {
+  background: var(--color-secondary-dark);
+}
+
+.collection-chevron {
+  font-size: var(--font-size-small);
+  width: 16px;
+  text-align: center;
+  transition: transform var(--transition-fast);
+}
+
+.collection-title {
+  flex: 1;
+  font-weight: 600;
+  font-size: var(--font-size-base);
+}
+
+/* Alias retiré de l'affichage, maintenant en tooltip uniquement */
+
+.add-field-btn,
+.delete-collection-btn {
+  padding: var(--spacing-xs) var(--spacing-sm);
+  background: rgba(255, 255, 255, 0.2);
+  color: var(--color-white);
+  border: none;
+  border-radius: var(--border-radius-sm);
+  font-size: var(--font-size-small);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.add-field-btn:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+.delete-collection-btn {
+  background: rgba(255, 0, 0, 0.3);
+  font-size: var(--font-size-large);
+  padding: 0 var(--spacing-xs);
+  min-width: 24px;
+  height: 24px;
+  line-height: 1;
+}
+
+.delete-collection-btn:hover {
+  background: rgba(255, 0, 0, 0.5);
+}
+
+.collection-content {
+  padding: var(--spacing-sm);
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+  max-height: 400px; /* Limiter la hauteur pour permettre le scroll */
+  overflow-y: auto;
+  overflow-x: hidden;
+  /* Style de la scrollbar pour WebKit */
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-primary, #0055AA) var(--color-light, #f0f0f0);
+}
+
+.collection-content::-webkit-scrollbar {
+  width: 6px;
+}
+
+.collection-content::-webkit-scrollbar-track {
+  background: var(--color-light, #f0f0f0);
+  border-radius: 4px;
+}
+
+.collection-content::-webkit-scrollbar-thumb {
+  background: var(--color-primary, #0055AA);
+  border-radius: 4px;
+}
+
+.collection-content::-webkit-scrollbar-thumb:hover {
+  background: var(--color-primary-dark, #004488);
+}
+
+.collection-field {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  padding: var(--spacing-sm);
+  background: var(--color-white);
+  border: 1px solid var(--color-light);
+  border-radius: var(--border-radius-sm);
+  cursor: move;
+  transition: all var(--transition-fast);
+}
+
+.collection-field:hover {
+  background: var(--color-primary-light);
+  border-color: var(--color-primary);
+  transform: translateX(4px);
+}
+
+.collection-field.dragging {
+  opacity: 0.5;
+  transform: scale(0.95);
+}
+
+.field-drag-icon {
+  font-size: var(--font-size-large);
+  color: var(--color-gray);
+  cursor: grab;
+  user-select: none;
+}
+
+.field-drag-icon:active {
+  cursor: grabbing;
+}
+
+.field-label {
+  flex: 1;
+  font-size: var(--font-size-base);
+  font-weight: 500;
+  color: var(--color-dark);
+}
+
+.field-variable {
+  font-size: var(--font-size-small);
+  font-family: monospace;
+  color: var(--color-primary-dark);
+  background: var(--color-primary-light);
+  padding: 2px 6px;
+  border-radius: var(--border-radius-sm);
+}
+
+.empty-message,
+.empty-fields-message {
+  padding: var(--spacing-md);
+  text-align: center;
+  color: var(--color-gray);
+  font-style: italic;
+}
+
+/* Modal styles */
+.collection-modal {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 9999;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.3s ease;
+}
+
+.collection-modal.show {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.modal-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(2px);
+}
+
+.modal-content {
+  position: relative;
+  background: var(--color-white);
+  border-radius: var(--border-radius-md);
+  padding: var(--spacing-md);
+  max-width: 500px;
+  width: 90%;
+  max-height: 80vh;
+  overflow-y: auto;
+  z-index: 10;
+  box-shadow: var(--shadow-lg);
+  transform: translateY(-20px);
+  transition: transform 0.3s ease;
+  display: flex;
+  flex-direction: column;
+}
+
+.collection-modal.show .modal-content {
+  transform: translateY(0);
+}
+
+.modal-content-large {
+  max-width: 700px;
+}
+
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: var(--spacing-md);
+  padding-bottom: var(--spacing-sm);
+  border-bottom: 2px solid var(--color-light);
+}
+
+.modal-header h3 {
+  margin: 0;
+  font-size: var(--font-size-large);
+  font-weight: 600;
+  color: var(--color-dark);
+}
+
+.modal-close {
+  background: transparent;
+  border: none;
+  font-size: var(--font-size-xlarge);
+  cursor: pointer;
+  color: var(--color-gray);
+  padding: 0;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--border-radius-sm);
+  transition: all var(--transition-fast);
+}
+
+.modal-close:hover {
+  background: var(--color-light);
+  color: var(--color-dark);
+}
+
+.modal-search {
+  margin-bottom: var(--spacing-md);
+}
+
+.search-input {
+  width: 100%;
+  padding: var(--spacing-sm);
+  border: 1px solid var(--color-light);
+  border-radius: var(--border-radius-sm);
+  font-size: var(--font-size-base);
+  font-family: var(--font-primary);
+}
+
+.search-input:focus {
+  outline: none;
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px var(--color-primary-light);
+}
+
+.modal-collections-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+  max-height: 400px;
+  overflow-y: auto;
+  margin-bottom: var(--spacing-md);
+}
+
+.modal-collection-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--spacing-sm);
+  background: var(--color-white);
+  border: 1px solid var(--color-light);
+  border-radius: var(--border-radius-sm);
+  transition: all var(--transition-fast);
+}
+
+.modal-collection-item:hover {
+  background: var(--color-primary-light);
+  border-color: var(--color-primary);
+}
+
+.modal-collection-item span {
+  flex: 1;
+  font-weight: 500;
+  color: var(--color-dark);
+}
+
+.modal-add-btn {
+  padding: var(--spacing-xs) var(--spacing-sm);
+  background: var(--color-primary);
+  color: var(--color-white);
+  border: none;
+  border-radius: var(--border-radius-sm);
+  font-size: var(--font-size-small);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.modal-add-btn:hover {
+  background: var(--color-primary-dark);
+}
+
+.modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--spacing-sm);
+  margin-top: var(--spacing-md);
+  padding-top: var(--spacing-sm);
+  border-top: 1px solid var(--color-light);
+}
+
+.btn-cancel {
+  padding: var(--spacing-sm) var(--spacing-md);
+  background: var(--color-gray);
+  color: var(--color-white);
+  border: none;
+  border-radius: var(--border-radius-sm);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.btn-cancel:hover {
+  background: var(--color-dark);
+}
+
+.field-builder-container {
+  max-height: 500px;
+  overflow-y: auto;
+}

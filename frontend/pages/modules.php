@@ -118,9 +118,16 @@ $services = array_values($uniqueServices);
                                     </a>
                                 </div>
                             <?php elseif (stripos($service['name'], 'document') !== false): ?>
-                                <div class="module-links">
-                                    <a href="<?= url('pages/modules/document-agent/index.php') ?>" class="btn btn-primary">
-                                        📄 Utiliser le module
+                                <!-- Liens pour le module Document : V1 (ancien), V2 (externe) et V3 (intégré) -->
+                                <div class="module-links" style="display: flex; gap: 0.5rem; flex-wrap: wrap; justify-content: center;">
+                                    <a href="<?= url('pages/modules/document-agent/index.php') ?>" class="btn btn-outline">
+                                        📄 V1 (Ancien)
+                                    </a>
+                                    <a href="https://www.gdri.fr/doc-template/" target="_blank" class="btn btn-outline">
+                                        🚀 V2 (Externe)
+                                    </a>
+                                    <a href="<?= url('pages/modules/doc-template-v3/index.php') ?>" class="btn btn-primary">
+                                        ✨ V3 (Intégré)
                                     </a>
                                 </div>
                             <?php else: ?>

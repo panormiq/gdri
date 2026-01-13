@@ -1,0 +1,74 @@
+/* Card.css - Styles pour les cartes génériques */
+/* Utilise les variables CSS de front/styles/styles.css */
+
+.cards-container {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-sm);
+  margin-top: var(--spacing-sm);
+}
+
+.card {
+  position: relative;
+  border: 1px solid var(--color-light);
+  border-radius: var(--border-radius-md);
+  padding: var(--spacing-md);
+  width: 250px;
+  box-shadow: var(--shadow-md);
+  background: var(--color-white);
+  transition: transform var(--transition-fast), box-shadow var(--transition-fast);
+  cursor: pointer;
+}
+
+.card:hover {
+  transform: translateY(-4px);
+  box-shadow: var(--shadow-lg);
+}
+
+.card-title {
+  margin-top: 0;
+  margin-bottom: var(--spacing-xs);
+  font-size: var(--font-size-large);
+  color: var(--color-dark);
+  font-weight: 600;
+}
+
+.card-subtitle {
+  font-size: var(--font-size-small);
+  color: var(--color-gray);
+  margin-bottom: var(--spacing-xs);
+  line-height: 1.5;
+}
+
+.card-content {
+  font-size: var(--font-size-small);
+  color: var(--color-dark);
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  margin-top: var(--spacing-xs);
+}
+
+.card-actions {
+  position: absolute;
+  top: var(--spacing-xs);
+  right: var(--spacing-xs);
+  display: flex;
+  gap: var(--spacing-xs);
+  flex-wrap: wrap;
+}
+
+.card-actions button {
+  padding: var(--spacing-xs) var(--spacing-sm);
+  font-size: var(--font-size-small);
+  border-radius: var(--border-radius-sm);
+  border: none;
+  cursor: pointer;
+  background: var(--color-secondary);
+  color: var(--color-white);
+  transition: background var(--transition-fast);
+  font-weight: 500;
+}
+
+.card-actions button:hover {
+  background: var(--color-secondary-dark);
+}

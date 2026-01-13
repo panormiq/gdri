@@ -53,7 +53,11 @@
 <script src="<?php echo url('assets/js/form-validation.js'); ?>"></script>
 <?php if (!empty($extra_scripts) && is_array($extra_scripts)): ?>
     <?php foreach ($extra_scripts as $scriptPath): ?>
-        <script src="<?php echo htmlspecialchars($scriptPath); ?>"></script>
+        <?php 
+        // Détecter si c'est un module ES6 (fichiers .js dans modules/)
+        $isModule = strpos($scriptPath, '/modules/') !== false || strpos($scriptPath, 'app.js') !== false;
+        ?>
+        <script <?php echo $isModule ? 'type="module"' : ''; ?> src="<?php echo htmlspecialchars($scriptPath); ?>"></script>
     <?php endforeach; ?>
 <?php endif; ?>
 

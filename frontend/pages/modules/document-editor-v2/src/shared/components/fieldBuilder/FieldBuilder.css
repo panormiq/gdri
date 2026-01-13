@@ -1,0 +1,152 @@
+/* FieldBuilder.css - Styles pour le builder de champs */
+/* Utilise les variables CSS de front/styles/styles.css */
+
+.field-builder {
+  background: var(--color-white);
+  border: 2px solid var(--color-primary);
+  border-radius: var(--border-radius-md);
+  padding: var(--spacing-md);
+  margin-bottom: var(--spacing-md);
+  box-shadow: var(--shadow-lg);
+}
+
+.field-builder h3 {
+  font-size: var(--font-size-h3);
+  margin-bottom: var(--spacing-md);
+  color: var(--color-dark);
+  border-bottom: 2px solid var(--color-primary-light);
+  padding-bottom: var(--spacing-xs);
+}
+
+/* Sélecteur de type */
+.field-builder .type-selector {
+  margin-bottom: var(--spacing-md);
+}
+
+.field-builder .type-selector label {
+  display: block;
+  font-size: var(--font-size-base);
+  font-weight: 500;
+  color: var(--color-dark);
+  margin-bottom: var(--spacing-xs);
+}
+
+.field-builder .type-selector select {
+  width: 100%;
+  padding: var(--spacing-xs) var(--spacing-sm);
+  border: 1px solid var(--color-light);
+  border-radius: var(--border-radius-sm);
+  font-size: var(--font-size-base);
+  font-family: var(--font-primary);
+  color: var(--color-dark);
+  background: var(--color-white);
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.field-builder .type-selector select:focus {
+  outline: none;
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px var(--color-primary-light);
+}
+
+/* Containers pour validation, options et settings */
+.field-builder .validation-container,
+.field-builder .options-container,
+.field-builder .field-settings {
+  margin-bottom: var(--spacing-md);
+  padding: var(--spacing-sm);
+  background: var(--color-primary-light);
+  border-radius: var(--border-radius-sm);
+  border: 1px solid var(--color-primary);
+}
+
+.field-builder .field-settings {
+  background: var(--color-secondary-light);
+  border-color: var(--color-secondary);
+}
+
+.field-builder .validation-container h4,
+.field-builder .options-container h4,
+.field-builder .field-settings h4 {
+  font-size: var(--font-size-large);
+  font-weight: 600;
+  color: var(--color-dark);
+  margin-bottom: var(--spacing-sm);
+  margin-top: 0;
+}
+
+/* Styles pour les champs de settings */
+.field-builder .field-settings .setting-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+  margin-bottom: var(--spacing-sm);
+}
+
+.field-builder .field-settings .setting-field label {
+  font-size: var(--font-size-base);
+  font-weight: 500;
+  color: var(--color-dark);
+}
+
+.field-builder .field-settings .setting-field input {
+  padding: var(--spacing-xs) var(--spacing-sm);
+  border: 1px solid var(--color-light);
+  border-radius: var(--border-radius-sm);
+  font-size: var(--font-size-base);
+  font-family: var(--font-primary);
+  color: var(--color-dark);
+  background: var(--color-white);
+}
+
+.field-builder .field-settings .setting-field input:focus {
+  outline: none;
+  border-color: var(--color-secondary);
+  box-shadow: 0 0 0 3px var(--color-secondary-light);
+}
+
+/* Styles pour les options (fieldsets) */
+.field-builder .options-container fieldset {
+  border: 1px solid var(--color-primary);
+  border-radius: var(--border-radius-sm);
+  padding: var(--spacing-sm);
+  margin-bottom: var(--spacing-sm);
+  background: var(--color-white);
+}
+
+.field-builder .options-container fieldset legend {
+  font-size: var(--font-size-base);
+  font-weight: 500;
+  color: var(--color-dark);
+  padding: 0 var(--spacing-xs);
+}
+
+.field-builder .options-container fieldset input[type="checkbox"] {
+  width: 20px;
+  height: 20px;
+  cursor: pointer;
+  accent-color: var(--color-primary);
+  margin-right: var(--spacing-xs);
+}
+
+/* Bouton d'ajout */
+.field-builder > button {
+  width: 100%;
+  padding: var(--spacing-sm) var(--spacing-md);
+  font-size: var(--font-size-base);
+  font-weight: 600;
+  background: var(--color-secondary);
+  color: var(--color-white);
+  border: none;
+  border-radius: var(--border-radius-sm);
+  cursor: pointer;
+  transition: background var(--transition-fast), transform var(--transition-fast);
+  box-shadow: var(--shadow-sm);
+}
+
+.field-builder > button:hover {
+  background: var(--color-secondary-dark);
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+}
+

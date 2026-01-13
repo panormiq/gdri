@@ -1,0 +1,128 @@
+/* RichTextEditor.css - Styles pour l'éditeur WYSIWYG */
+/* Utilise les variables CSS de front/styles/styles.css */
+
+.rich-text-editor-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 100%;
+  height: 100%;
+  background: var(--color-light);
+  padding: var(--spacing-md);
+  overflow-y: auto;
+}
+
+.page-wrapper {
+  background: var(--color-white);
+  box-shadow: var(--shadow-lg);
+  margin: var(--spacing-md) auto;
+  box-sizing: border-box;
+  /* Les dimensions sont calculées en JS avec un ratio pour l'affichage */
+  /* Les dimensions réelles sont stockées dans dataset pour l'export PDF */
+}
+
+.rich-text-editor {
+  width: 100%;
+  min-height: 100%;
+  font-family: var(--font-primary);
+  font-size: var(--font-size-base);
+  line-height: 1.6;
+  color: var(--color-dark);
+  outline: none;
+  box-sizing: border-box;
+  caret-color: auto; /* S'assurer que le caret est visible */
+}
+
+.rich-text-editor:focus {
+  outline: none;
+}
+
+.rich-text-editor h1,
+.rich-text-editor h2,
+.rich-text-editor h3,
+.rich-text-editor h4 {
+  margin-top: var(--spacing-md);
+  margin-bottom: var(--spacing-sm);
+  font-weight: 600;
+}
+
+.rich-text-editor h1 {
+  font-size: var(--font-size-h1);
+}
+
+.rich-text-editor h2 {
+  font-size: var(--font-size-h2);
+}
+
+.rich-text-editor h3 {
+  font-size: var(--font-size-h3);
+}
+
+.rich-text-editor p {
+  margin-bottom: var(--spacing-sm);
+  min-height: 1.5em; /* Hauteur minimale pour permettre le drop sur les lignes vides */
+}
+
+.rich-text-editor ul,
+.rich-text-editor ol {
+  margin-left: var(--spacing-lg);
+  margin-bottom: var(--spacing-sm);
+}
+
+.rich-text-editor table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: var(--spacing-sm);
+}
+
+.rich-text-editor table td,
+.rich-text-editor table th {
+  border: 1px solid var(--color-light);
+  padding: var(--spacing-xs);
+}
+
+.rich-text-editor img {
+  max-width: 100%;
+  height: auto;
+}
+
+.template-variable {
+  display: inline-block;
+  user-select: none;
+  cursor: default;
+}
+
+/* Indicateur de caret pendant le drag */
+.drag-caret-indicator {
+  position: fixed;
+  pointer-events: none;
+  z-index: 10000;
+  color: #0055AA;
+  font-size: 16px;
+  font-weight: bold;
+  line-height: 1.2;
+  animation: blink 1s infinite;
+}
+
+/* Caret permanent dans l'éditeur */
+.permanent-caret {
+  position: fixed;
+  pointer-events: none;
+  z-index: 9999;
+  color: #0055AA;
+  font-size: 16px;
+  font-weight: bold;
+  line-height: 1.2;
+  animation: blink-slow 1.5s infinite;
+}
+
+@keyframes blink {
+  0%, 50% { opacity: 1; }
+  51%, 100% { opacity: 0.3; }
+}
+
+@keyframes blink-slow {
+  0%, 60% { opacity: 1; }
+  61%, 100% { opacity: 0.4; }
+}
+

@@ -33,7 +33,7 @@ async function init(app, db) {
  * @returns {Express.Router} Routeur Express avec routes API
  */
 function getRoutes() {
-  return require('./routes');
+  return routes;
 }
 
 module.exports = {

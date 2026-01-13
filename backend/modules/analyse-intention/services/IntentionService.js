@@ -23,21 +23,53 @@ class IntentionService {
   /**
    * Générer le prompt pour l'analyse multi-intentions
    * @param {Array} messages - Liste des messages à analyser
+   * @param {string} basePrompt - Prompt de base configuré par l'utilisateur
+   * @param {Array} customIntentions - Liste des intentions personnalisées configurées
    * @param {Array} customRules - Règles personnalisées à ajouter
    * @returns {string} Prompt formaté
    */
-  generateMultiIntentionPrompt(messages, customRules = null) {
-    const customRulesSection = customRules && customRules.length > 0 ?
-      `RÈGLES PERSONNALISÉES :\n${customRules.join('\n')}\n\n` :
-      '[Aucune règle personnalisée configurée]\n\n';
+  generateMultiIntentionPrompt(messages, basePrompt = null, customIntentions = [], customRules = null) {
+    // Formater la liste des intentions
+    let intentionsList = '';
+    if (customIntentions && customIntentions.length > 0) {
+      intentionsList = customIntentions.map((intention, index) => {
+        const name = intention.name || intention;
+        return `${index + 1}. ${name}`;
+      }).join('\n');
+    } else {
+      // Liste par défaut si aucune intention configurée
+      const defaultIntentions = ['commercial', 'sav', 'technique', 'critique', 'positif', 'spam', 'generic'];
+      intentionsList = defaultIntentions.map((intention, index) => {
+        return `${index + 1}. ${intention}`;
+      }).join('\n');
+    }
 
+    // Formater les messages
     const messagesSection = messages.map((message, index) => {
       const author = message.author?.name || message.from?.name || 'Utilisateur';
       const date = message.created_time || message.timestamp || new Date().toISOString();
       const text = message.message || message.text || '';
 
       return `${index + 1}. "${text}" (Auteur: ${author}, Date: ${date})`;
-    }).join('\n');
+    }).join('\n\n');
+
+    // Si un basePrompt est fourni, l'utiliser et remplacer {{Liste des intentions}}
+    if (basePrompt && basePrompt.trim()) {
+      let finalPrompt = basePrompt;
+      
+      // Remplacer {{Liste des intentions}} par la liste formatée
+      finalPrompt = finalPrompt.replace(/\{\{Liste des intentions\}\}/g, intentionsList);
+      
+      // Ajouter les messages à la fin
+      finalPrompt += `\n\n${messagesSection}`;
+      
+      return finalPrompt;
+    }
+
+    // Sinon, utiliser le prompt par défaut (comportement de fallback)
+    const customRulesSection = customRules && customRules.length > 0 ?
+      `RÈGLES PERSONNALISÉES :\n${customRules.join('\n')}\n\n` :
+      '[Aucune règle personnalisée configurée]\n\n';
 
     return `Tu es un expert en analyse de messages et commentaires. Tu dois analyser les messages en 2 étapes :
 
@@ -49,16 +81,10 @@ Si une réponse est nécessaire, analyse TOUTES les intentions présentes dans l
 Un message peut avoir PLUSIEURS intentions simultanées (ex: SAV + Commercial, Technique + Information).
 Pour chaque intention détectée, indique la catégorie et le pourcentage de certitude.
 
-CATÉGORIES AUTORISÉES UNIQUEMENT :
-- commercial (demandes de produits, prix, devis, informations commerciales)
-- sav (problèmes techniques, bugs, dysfonctionnements)
-- technique (questions d'utilisation, configuration, installation)
-- critique (signalements d'erreurs, corrections d'informations)
-- positif (commentaires positifs, remerciements)
-- spam (messages publicitaires, indésirables)
-- generic (si aucune autre catégorie ne s'applique)
+CATÉGORIES AUTORISÉES :
+${intentionsList}
 
-IMPORTANT: Utilise UNIQUEMENT ces 7 catégories. Si aucune règle spécifique ne s'applique, utilise "generic". N'invente pas de nouvelles catégories.
+IMPORTANT: Utilise UNIQUEMENT ces catégories. Si aucune règle spécifique ne s'applique, utilise "generic". N'invente pas de nouvelles catégories.
 
 RÈGLES DE CONTEXTE :
 ${customRulesSection}
@@ -105,10 +131,12 @@ Réponds au format JSON pour chaque message :
   /**
    * Analyser les intentions d'un ou plusieurs messages
    * @param {Array|Object} messages - Message(s) à analyser
+   * @param {string} basePrompt - Prompt de base configuré par l'utilisateur
+   * @param {Array} customIntentions - Liste des intentions personnalisées configurées
    * @param {Array} customRules - Règles personnalisées
    * @returns {Promise<object>} Résultat de l'analyse
    */
-  async analyzeIntentions(messages, customRules = null) {
+  async analyzeIntentions(messages, basePrompt = null, customIntentions = [], customRules = null) {
     try {
       // Normaliser les messages en tableau
       const messagesArray = Array.isArray(messages) ? messages : [messages];
@@ -119,7 +147,7 @@ Réponds au format JSON pour chaque message :
       }
 
       // Générer le prompt
-      const prompt = this.generateMultiIntentionPrompt(messagesArray, customRules);
+      const prompt = this.generateMultiIntentionPrompt(messagesArray, basePrompt, customIntentions, customRules);
 
       // Envoyer au backendIA
       const aiResponse = await this.aiService.sendAnalysisPrompt(prompt, {

@@ -31,21 +31,26 @@ class ModuleRegistry {
       const packagePath = path.join(modulePath, 'package.json');
 
       // Vérifier que c'est un dossier et qu'il contient un package.json
-      if (fs.statSync(modulePath).isDirectory() && fs.existsSync(packagePath)) {
-        try {
-          const config = require(packagePath);
-          
-          this.modules.set(moduleName, {
-            name: moduleName,
-            ...config,
-            path: modulePath,
-            enabled: true, // Par défaut activé
-            loaded: false
-          });
-          
-          console.log(`📦 Module découvert : ${config.displayName || moduleName}`);
-        } catch (error) {
-          console.error(`❌ Erreur lors du chargement du module ${moduleName} :`, error.message);
+      if (fs.statSync(modulePath).isDirectory()) {
+        if (fs.existsSync(packagePath)) {
+          try {
+            const config = require(packagePath);
+            
+            this.modules.set(moduleName, {
+              name: moduleName,
+              ...config,
+              path: modulePath,
+              enabled: config.enabled !== false, // Respecter la config enabled
+              loaded: false
+            });
+            
+            console.log(`📦 Module découvert : ${config.displayName || moduleName}`);
+          } catch (error) {
+            console.error(`❌ Erreur lors du chargement du module ${moduleName} :`, error.message);
+            console.error(`   Chemin du package.json : ${packagePath}`);
+          }
+        } else {
+          console.log(`⚠️  Module ${moduleName} ignoré (pas de package.json)`);
         }
       }
     }

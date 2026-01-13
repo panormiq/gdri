@@ -1,0 +1,14 @@
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    
+    # Si le fichier ou dossier demandé existe réellement, servir directement
+    # Cela permet d'accéder aux fichiers statiques (CSS, JS, images, etc.)
+    RewriteCond %{REQUEST_FILENAME} !-f
+    RewriteCond %{REQUEST_FILENAME} !-d
+    
+    # Rediriger toutes les autres requêtes vers index.php
+    # Cela permet au router JavaScript de gérer les routes virtuelles
+    # QSA = Query String Append (préserve les paramètres ?key=value)
+    # L = Last (arrête le traitement des règles suivantes)
+    RewriteRule ^(.*)$ index.php [QSA,L]
+</IfModule>

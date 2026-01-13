@@ -51,6 +51,70 @@
   }
 
   /**
+   * Parse une réponse JSON de manière sécurisée
+   * Vérifie que la réponse est OK et contient du JSON valide
+   * @param {Response} response - Réponse fetch
+   * @returns {Promise<Object>} Données JSON parsées
+   * @throws {Error} Si la réponse n'est pas valide ou n'est pas du JSON
+   */
+  async function parseJsonResponse(response) {
+    const contentType = response.headers.get('content-type');
+    
+    // Vérifier que la réponse est OK
+    if (!response.ok) {
+      let errorMessage = `Erreur HTTP ${response.status}: ${response.statusText}`;
+      
+      // Essayer de lire le message d'erreur
+      try {
+        // Si le Content-Type indique du JSON, essayer de parser
+        if (contentType && contentType.includes('application/json')) {
+          const errorData = await response.json();
+          errorMessage = errorData.error || errorData.message || errorMessage;
+        } else {
+          // Sinon, lire le texte
+          const text = await response.text();
+          if (text && text.trim()) {
+            errorMessage = text.substring(0, 200);
+          }
+        }
+      } catch (e) {
+        // Si la lecture échoue, utiliser le message par défaut
+        console.warn('Impossible de lire le message d\'erreur:', e);
+      }
+      
+      throw new Error(errorMessage);
+    }
+
+    // Vérifier le Content-Type pour les réponses OK
+    if (!contentType || !contentType.includes('application/json')) {
+      // Lire le texte pour voir ce qui a été reçu
+      try {
+        const text = await response.text();
+        throw new Error(`Réponse non-JSON reçue (Content-Type: ${contentType || 'non spécifié'}). Contenu: ${text.substring(0, 200)}`);
+      } catch (e) {
+        // Si on ne peut pas lire le texte, lancer l'erreur avec le Content-Type
+        throw new Error(`Réponse non-JSON reçue (Content-Type: ${contentType || 'non spécifié'})`);
+      }
+    }
+
+    // Cloner la réponse AVANT de la lire pour pouvoir la relire en cas d'erreur
+    const clonedResponse = response.clone();
+    
+    // Parser le JSON
+    try {
+      return await response.json();
+    } catch (error) {
+      // Si le parsing échoue, lire le texte depuis la réponse clonée pour debug
+      try {
+        const text = await clonedResponse.text();
+        throw new Error(`Erreur parsing JSON: ${error.message}. Réponse reçue: ${text.substring(0, 200)}`);
+      } catch (cloneError) {
+        throw new Error(`Erreur parsing JSON: ${error.message}`);
+      }
+    }
+  }
+
+  /**
    * Charge le document depuis l'API
    */
   async function loadDocument() {
@@ -69,7 +133,7 @@
     try {
       const response = await fetch(url);
 
-      const payload = await response.json();
+      const payload = await parseJsonResponse(response);
       
       if (!payload.success) {
         throw new Error(payload.error || 'Erreur API');
@@ -115,7 +179,7 @@
         await initializeCanvasIfNeeded();
         // Recharger le document pour avoir le canevas
         const reloadResponse = await fetch(url);
-        const reloadPayload = await reloadResponse.json();
+        const reloadPayload = await parseJsonResponse(reloadResponse);
         if (reloadPayload.success) {
           documentJson = reloadPayload.data.json_content;
         }
@@ -2174,7 +2238,7 @@
       method: 'POST',
       body: formData
     });
-    const payload = await response.json();
+    const payload = await parseJsonResponse(response);
     if (!payload.success) {
       throw new Error(payload.error || 'Import impossible.');
     }
@@ -2591,7 +2655,7 @@
         images: tempImageMappings
       })
     });
-    const payload = await response.json();
+    const payload = await parseJsonResponse(response);
     if (!payload.success) {
       throw new Error(payload.error || 'Promotion des images impossible.');
     }
@@ -2662,7 +2726,7 @@
     let documentTitle = null;
     try {
       const docResponse = await fetch(`${apiBase}/agent-documentaire/document/${documentId}`);
-      const docPayload = await docResponse.json();
+      const docPayload = await parseJsonResponse(docResponse);
       if (docPayload.success && docPayload.data && docPayload.data.title) {
         documentTitle = docPayload.data.title;
       }
@@ -2681,7 +2745,7 @@
       })
     });
 
-    const payload = await response.json();
+    const payload = await parseJsonResponse(response);
     if (!payload.success) {
       throw new Error(payload.error || 'Sauvegarde impossible.');
     }
@@ -3586,7 +3650,7 @@
         throw new Error(`Erreur HTTP: ${response.status}`);
       }
 
-      const payload = await response.json();
+      const payload = await parseJsonResponse(response);
       
       if (!payload.success) {
         throw new Error(payload.error || 'Erreur lors du chargement des templates');
@@ -3674,7 +3738,7 @@
         throw new Error(`Template non trouvé: ${templateResponse.status}`);
       }
 
-      const templatePayload = await templateResponse.json();
+      const templatePayload = await parseJsonResponse(templateResponse);
       
       if (!templatePayload.success || !templatePayload.data) {
         throw new Error(templatePayload.error || 'Template non trouvé');
@@ -4456,7 +4520,7 @@
           headers: { 'Content-Type': 'application/json' }
         });
 
-        const payload = await response.json();
+        const payload = await parseJsonResponse(response);
         
         if (payload.success) {
           const recoveredCount = payload.recoveredCount || 0;
@@ -4937,7 +5001,7 @@
       // Vérifier si le canevas existe
       const url = `${apiBase}/agent-documentaire/document/${documentId}/canvas`;
       const response = await fetch(url);
-      const payload = await response.json();
+      const payload = await parseJsonResponse(response);
 
       if (payload.success && payload.data) {
         // Canevas existe déjà
@@ -4949,7 +5013,7 @@
       console.log('📐 Initialisation automatique du canevas...');
       const initUrl = `${apiBase}/agent-documentaire/document/${documentId}/canvas/initialize`;
       const initResponse = await fetch(initUrl, { method: 'POST' });
-      const initPayload = await initResponse.json();
+      const initPayload = await parseJsonResponse(initResponse);
 
       if (initPayload.success) {
         canvasData = initPayload.data;
@@ -4969,7 +5033,7 @@
     try {
       const url = `${apiBase}/agent-documentaire/document/${documentId}/canvas`;
       const response = await fetch(url);
-      const payload = await response.json();
+      const payload = await parseJsonResponse(response);
 
       if (payload.success) {
         canvasData = payload.data;
@@ -4995,7 +5059,7 @@
         body: JSON.stringify({ canvas: canvas })
       });
 
-      const payload = await response.json();
+      const payload = await parseJsonResponse(response);
       if (payload.success) {
         canvasData = payload.data;
         return true;
@@ -5261,7 +5325,7 @@
         try {
           const url = `${apiBase}/agent-documentaire/document/${documentId}/canvas/initialize?preset=${presetName}`;
           const response = await fetch(url, { method: 'POST' });
-          const payload = await response.json();
+          const payload = await parseJsonResponse(response);
 
           if (payload.success) {
             canvasData = payload.data;
@@ -6447,7 +6511,7 @@
             })
           });
 
-          const createPayload = await createResponse.json();
+          const createPayload = await parseJsonResponse(createResponse);
           if (!createPayload.success) {
             throw new Error(createPayload.error || 'Erreur lors de la création du document');
           }
@@ -6457,7 +6521,7 @@
           
           // Récupérer le document parent
           const parentDocResponse = await fetch(`${apiBase}/agent-documentaire/document/${documentId}`);
-          const parentDocPayload = await parentDocResponse.json();
+          const parentDocPayload = await parseJsonResponse(parentDocResponse);
           
           if (!parentDocPayload.success) {
             throw new Error('Erreur lors de la récupération du document parent');
@@ -6496,7 +6560,7 @@
             body: JSON.stringify({ json_content: parentDoc.json_content })
           });
 
-          const updatePayload = await updateResponse.json();
+          const updatePayload = await parseJsonResponse(updateResponse);
           if (!updatePayload.success) {
             throw new Error(updatePayload.error || 'Erreur lors de la création de la section optionnelle');
           }
@@ -7663,7 +7727,7 @@ const variableManager = (() => {
         const templateResponse = await fetch(`${apiBase}/agent-documentaire/templates/${encodeURIComponent(templateNamespace)}`);
         
         if (templateResponse.ok) {
-          const templatePayload = await templateResponse.json();
+          const templatePayload = await parseJsonResponse(templateResponse);
           
           if (templatePayload.success && templatePayload.data) {
             const template = templatePayload.data;
@@ -7674,7 +7738,7 @@ const variableManager = (() => {
               const modelResponse = await fetch(`${apiBase}/agent-documentaire/models/${encodeURIComponent(modelNamespace)}`);
               
               if (modelResponse.ok) {
-                const modelPayload = await modelResponse.json();
+                const modelPayload = await parseJsonResponse(modelResponse);
                 
                 if (modelPayload.success && modelPayload.data) {
                   const model = modelPayload.data;
@@ -11311,7 +11375,7 @@ function initPropertiesTabs() {
 
         // Charger le document réintégré
         const response = await fetch(`${apiBase}/agent-documentaire/document/${docId}`);
-        const payload = await response.json();
+        const payload = await parseJsonResponse(response);
 
         if (!payload.success || !payload.data) {
           placeholder.innerHTML = '<p class="text-danger">Erreur : Document non trouvé</p>';
@@ -11446,7 +11510,7 @@ function initPropertiesTabs() {
 
     try {
       const response = await fetch(`${apiBase}/agent-documentaire/templates`);
-      const payload = await response.json();
+      const payload = await parseJsonResponse(response);
       
       if (!payload.success) {
         throw new Error(payload.error || 'Erreur lors du chargement');
@@ -11538,7 +11602,7 @@ function initPropertiesTabs() {
         })
       });
 
-      const payload = await response.json();
+      const payload = await parseJsonResponse(response);
 
       if (!payload.success) {
         throw new Error(payload.error || 'Erreur lors de l\'import');
@@ -11557,7 +11621,7 @@ function initPropertiesTabs() {
 
       // Charger le document actuel
       const currentDocResponse = await fetch(`${apiBase}/agent-documentaire/document/${encodeURIComponent(documentId)}`);
-      const currentDocPayload = await currentDocResponse.json();
+      const currentDocPayload = await parseJsonResponse(currentDocResponse);
       
       if (!currentDocPayload.success) {
         throw new Error('Erreur lors du chargement du document actuel');
@@ -11676,7 +11740,7 @@ function initPropertiesTabs() {
         })
       });
 
-      const updatePayload = await updateResponse.json();
+      const updatePayload = await parseJsonResponse(updateResponse);
 
       if (!updatePayload.success) {
         throw new Error(updatePayload.error || 'Erreur lors de la mise à jour');
@@ -11858,7 +11922,7 @@ function initPropertiesTabs() {
       // Si jsonContent n'est pas fourni, récupérer le document
       if (!jsonContentToUse) {
         const docResponse = await fetch(`${apiBase}/agent-documentaire/document/${documentId}`);
-        const docPayload = await docResponse.json();
+        const docPayload = await parseJsonResponse(docResponse);
         
         if (!docPayload.success || !docPayload.data) {
           console.error('Erreur récupération document:', docPayload.error);
@@ -11882,7 +11946,7 @@ function initPropertiesTabs() {
           const templatesResponse = await fetch(`${apiBase}/agent-documentaire/templates`);
           
           if (templatesResponse.status === 200) {
-            const templatesPayload = await templatesResponse.json();
+            const templatesPayload = await parseJsonResponse(templatesResponse);
             
             if (templatesPayload.success && Array.isArray(templatesPayload.data)) {
               // Chercher le template dans la liste
@@ -11914,7 +11978,7 @@ function initPropertiesTabs() {
       // Si on n'a pas encore documentData avec original_filename, le récupérer
       if (!documentData || documentData.original_filename === undefined) {
         const docResponse = await fetch(`${apiBase}/agent-documentaire/document/${documentId}`);
-        const docPayload = await docResponse.json();
+        const docPayload = await parseJsonResponse(docResponse);
         if (docPayload.success && docPayload.data) {
           documentData = docPayload.data;
           if (!jsonContentToUse) {
@@ -11951,7 +12015,7 @@ function initPropertiesTabs() {
         const templatesResponse = await fetch(`${apiBase}/agent-documentaire/templates`);
         
         if (templatesResponse.status === 200) {
-          const templatesPayload = await templatesResponse.json();
+          const templatesPayload = await parseJsonResponse(templatesResponse);
           
           if (templatesPayload.success && Array.isArray(templatesPayload.data)) {
             // Filtrer les templates de documents (pas de `:` dans le namespace)
@@ -12062,7 +12126,7 @@ function initPropertiesTabs() {
       let extractedTitle = 'Nouveau document depuis Word';
       
       if (extractResponse.ok) {
-        const extractPayload = await extractResponse.json();
+        const extractPayload = await parseJsonResponse(extractResponse);
         if (extractPayload.success && extractPayload.data) {
           // Récupérer le titre depuis les métadonnées du JSON extrait
           extractedTitle = extractPayload.data.json_content?.metadata?.title 
@@ -12123,7 +12187,7 @@ function initPropertiesTabs() {
           })
         });
 
-        const payload = await response.json();
+        const payload = await parseJsonResponse(response);
         
         if (!payload.success) {
           throw new Error(payload.error || 'Erreur lors de l\'extraction');
@@ -12148,7 +12212,7 @@ function initPropertiesTabs() {
           try {
             // D'abord, mettre à jour le document pour ajouter le nom du template dans le canvas
             const docResponse = await fetch(`${apiBase}/agent-documentaire/document/${newDocumentId}`);
-            const docPayload = await docResponse.json();
+            const docPayload = await parseJsonResponse(docResponse);
             
             if (docPayload.success && docPayload.data) {
               const currentJsonContent = docPayload.data.json_content || {};
@@ -12182,7 +12246,7 @@ function initPropertiesTabs() {
               })
             });
 
-            const templatePayload = await templateResponse.json();
+            const templatePayload = await parseJsonResponse(templateResponse);
             
             if (templatePayload.success) {
               console.log('✅ Template document créé automatiquement:', normalizedName);
@@ -12273,7 +12337,7 @@ function initPropertiesTabs() {
       try {
         // Récupérer le document pour créer le template avec son contenu
         const docResponse = await fetch(`${apiBase}/agent-documentaire/document/${documentId}`);
-        const docPayload = await docResponse.json();
+        const docPayload = await parseJsonResponse(docResponse);
         
         if (!docPayload.success) {
           throw new Error(docPayload.error || 'Erreur récupération document');
@@ -12290,7 +12354,7 @@ function initPropertiesTabs() {
           })
         });
 
-        const createPayload = await createResponse.json();
+        const createPayload = await parseJsonResponse(createResponse);
         
         if (!createPayload.success) {
           // Si le template existe déjà (409), c'est OK, on continue

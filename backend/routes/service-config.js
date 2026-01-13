@@ -25,19 +25,19 @@ function getServiceConfigService() {
  */
 router.get('/unconfigured', authenticateJWT, async (req, res) => {
   try {
-    const entityId = req.user.entity_id;
+    const entrepriseId = req.user.entrepriseId;
     
-    if (!entityId) {
+    if (!entrepriseId) {
       return res.status(400).json({
         success: false,
-        message: 'Aucune entité associée à cet utilisateur'
+        message: 'Aucune entreprise associée à cet utilisateur'
       });
     }
 
     const service = getServiceConfigService();
     await service.init();
     
-    const unconfiguredServices = await service.getUnconfiguredServices(entityId);
+    const unconfiguredServices = await service.getUnconfiguredServices(entrepriseId);
 
     res.json({
       success: true,
@@ -58,21 +58,21 @@ router.get('/unconfigured', authenticateJWT, async (req, res) => {
  */
 router.post('/:serviceId/config', authenticateJWT, async (req, res) => {
   try {
-    const entityId = req.user.entity_id;
+    const entrepriseId = req.user.entrepriseId;
     const { serviceId } = req.params;
     const config = req.body;
 
-    if (!entityId) {
+    if (!entrepriseId) {
       return res.status(400).json({
         success: false,
-        message: 'Aucune entité associée à cet utilisateur'
+        message: 'Aucune entreprise associée à cet utilisateur'
       });
     }
 
     const service = getServiceConfigService();
     await service.init();
     
-    const result = await service.saveServiceConfig(entityId, serviceId, config);
+    const result = await service.saveServiceConfig(entrepriseId, serviceId, config);
 
     if (result.success) {
       res.json(result);
@@ -94,20 +94,20 @@ router.post('/:serviceId/config', authenticateJWT, async (req, res) => {
  */
 router.post('/:serviceId/config/later', authenticateJWT, async (req, res) => {
   try {
-    const entityId = req.user.entity_id;
+    const entrepriseId = req.user.entrepriseId;
     const { serviceId } = req.params;
 
-    if (!entityId) {
+    if (!entrepriseId) {
       return res.status(400).json({
         success: false,
-        message: 'Aucune entité associée à cet utilisateur'
+        message: 'Aucune entreprise associée à cet utilisateur'
       });
     }
 
     const service = getServiceConfigService();
     await service.init();
     
-    const result = await service.markAsConfiguredLater(entityId, serviceId);
+    const result = await service.markAsConfiguredLater(entrepriseId, serviceId);
 
     if (result.success) {
       res.json(result);

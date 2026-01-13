@@ -1,0 +1,103 @@
+/* SchemaForm.css - Styles pour les formulaires basés sur schéma */
+/* Utilise les variables CSS de front/styles/styles.css */
+
+.schema-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
+}
+
+/* Groupes de champs (fieldsets) */
+.schema-form .schema-group {
+  border: 1px solid var(--color-light);
+  border-radius: var(--border-radius-md);
+  padding: var(--spacing-md);
+  margin-bottom: var(--spacing-md);
+  background: var(--color-white);
+}
+
+.schema-form .schema-group legend {
+  font-size: var(--font-size-large);
+  font-weight: 600;
+  color: var(--color-dark);
+  padding: 0 var(--spacing-xs);
+}
+
+/* Champs individuels */
+.schema-form .form-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+  margin-bottom: var(--spacing-sm);
+}
+
+.schema-form .form-field label {
+  font-size: var(--font-size-base);
+  font-weight: 500;
+  color: var(--color-dark);
+}
+
+.schema-form .form-field input[type="text"],
+.schema-form .form-field input[type="number"],
+.schema-form .form-field input[type="email"],
+.schema-form .form-field input[type="url"],
+.schema-form .form-field input[type="date"],
+.schema-form .form-field input[type="time"],
+.schema-form .form-field input[type="color"],
+.schema-form .form-field textarea,
+.schema-form .form-field select {
+  padding: var(--spacing-xs) var(--spacing-sm);
+  border: 1px solid var(--color-light);
+  border-radius: var(--border-radius-sm);
+  font-size: var(--font-size-base);
+  font-family: var(--font-primary);
+  color: var(--color-dark);
+  background: var(--color-white);
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.schema-form .form-field input:focus,
+.schema-form .form-field textarea:focus,
+.schema-form .form-field select:focus {
+  outline: none;
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px var(--color-primary-light);
+}
+
+.schema-form .form-field textarea {
+  min-height: 100px;
+  resize: vertical;
+}
+
+.schema-form .form-field input[type="checkbox"] {
+  width: 20px;
+  height: 20px;
+  cursor: pointer;
+  accent-color: var(--color-primary);
+}
+
+/* Checkbox avec label */
+.schema-form .form-field.checkbox-field {
+  flex-direction: row;
+  align-items: center;
+  gap: var(--spacing-sm);
+}
+
+.schema-form .form-field.checkbox-field label {
+  order: 2;
+  cursor: pointer;
+}
+
+/* Messages d'erreur */
+.schema-form .form-field .error-message {
+  color: var(--color-error);
+  font-size: var(--font-size-small);
+  margin-top: var(--spacing-xs);
+}
+
+/* Champs requis */
+.schema-form .form-field label.required::after {
+  content: ' *';
+  color: var(--color-error);
+}
+

@@ -1,7 +1,10 @@
 {
   "scripts": {
     "start": "node backend/server.js",
-    "dev": "nodemon backend/server.js"
+    "dev": "nodemon backend/server.js",
+    "security-monitor": "node backend/security-monitor.js",
+    "test-security-email": "node backend/test-security-monitor-email.js",
+    "start-all": "powershell.exe -ExecutionPolicy Bypass -File install\\Start-All-Backends-Auto.ps1 -ShowWindows"
   },
   "dependencies": {
     "acme-client": "^5.4.0",
@@ -9,6 +12,7 @@
     "cors": "^2.8.5",
     "dotenv": "^17.2.3",
     "express": "^5.1.0",
+    "express-rate-limit": "^7.4.1",
     "express-validator": "^7.3.0",
     "jsonwebtoken": "^9.0.2",
     "mongodb": "^6.20.0",

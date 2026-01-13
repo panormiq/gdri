@@ -35,15 +35,78 @@ $usersCollection = $db->users;
 $allUsers = $usersCollection->find([])->toArray();
 
 // Mapper les utilisateurs par entité pour l'affichage
+// Lecture directe depuis la base d'entreprise (source de vérité)
 $usersByEntity = [];
-foreach ($allUsers as $user) {
-    if ($user['entity_id']) {
-        $entityId = (string) $user['entity_id'];
-        if (!isset($usersByEntity[$entityId])) {
-            $usersByEntity[$entityId] = [];
+error_log('🔍 Début du chargement des utilisateurs depuis les bases d\'entreprise. Total entités: ' . count($entities));
+
+// Pour chaque entité, lire les utilisateurs depuis sa base d'entreprise
+foreach ($entities as $entity) {
+    $entityId = (string) $entity['_id'];
+    $entityName = $entity['name'] ?? 'N/A';
+    
+    error_log("🏢 Traitement entité: $entityName (ID: $entityId)");
+    
+    // Normaliser l'ID pour la recherche (en minuscules pour cohérence)
+    $entityIdNormalized = trim(strtolower($entityId));
+    
+    // Initialiser le tableau pour cette entité
+    $usersByEntity[$entityIdNormalized] = [];
+    
+    // Récupérer depuis la base d'entreprise
+    error_log("  🔌 Tentative de connexion à la base GDR-ENTREPRISE-{$entityId}");
+    $entrepriseDb = getEntrepriseDatabase($entityId);
+    
+    if ($entrepriseDb) {
+        try {
+            $entrepriseUsersCollection = $entrepriseDb->users;
+            $entrepriseUsers = $entrepriseUsersCollection->find([])->toArray();
+            
+            error_log("  ✅ " . count($entrepriseUsers) . " référence(s) trouvée(s) dans la base d'entreprise GDR-ENTREPRISE-{$entityId}");
+            
+            // Récupérer les détails complets depuis la base principale
+            foreach ($entrepriseUsers as $enterpriseUserRef) {
+                $userIdObj = $enterpriseUserRef['userId'] ?? null;
+                if (!$userIdObj) {
+                    error_log("    ⚠️ Référence utilisateur sans userId");
+                    continue;
+                }
+                
+                // Convertir l'ObjectId en string
+                $userIdStr = $userIdObj instanceof MongoDB\BSON\ObjectId 
+                    ? (string) $userIdObj 
+                    : (string) $userIdObj;
+                
+                error_log("    🔍 Recherche utilisateur {$userIdStr} dans la base principale...");
+                
+                // Récupérer l'utilisateur complet depuis la base principale
+                $fullUser = $usersCollection->findOne(['_id' => new MongoDB\BSON\ObjectId($userIdStr)]);
+                
+                if ($fullUser) {
+                    // Utiliser le rôle depuis la base d'entreprise (source de vérité pour cette entreprise)
+                    $entrepriseRole = $enterpriseUserRef['role'] ?? 'user';
+                    
+                    $userForEntity = $fullUser;
+                    $userForEntity['role_in_entity'] = $entrepriseRole;
+                    $usersByEntity[$entityIdNormalized][] = $userForEntity;
+                    
+                    error_log("    ✅ Utilisateur ajouté: " . ($fullUser['email'] ?? 'N/A') . " (role: $entrepriseRole)");
+                } else {
+                    error_log("    ❌ Utilisateur $userIdStr non trouvé dans la base principale");
+                }
+            }
+        } catch (Exception $e) {
+            error_log("  ❌ Erreur lors de la lecture de la base d'entreprise: " . $e->getMessage());
+            error_log("  ❌ Stack trace: " . $e->getTraceAsString());
         }
-        $usersByEntity[$entityId][] = $user;
+    } else {
+        error_log("  ❌ Base d'entreprise non accessible pour $entityName (ID: $entityId)");
     }
+}
+
+// Résumé du chargement
+error_log('📊 Résultat du chargement des utilisateurs: ' . count($usersByEntity) . ' entité(s) avec utilisateurs');
+foreach ($usersByEntity as $entityIdKey => $users) {
+    error_log("  Entité $entityIdKey: " . count($users) . " utilisateur(s)");
 }
 ?>
 
@@ -134,25 +197,11 @@ foreach ($allUsers as $user) {
                         </div>
                         
                         <!-- Utilisateurs de l'entité -->
-                        <div class="entity-users">
+                        <div class="entity-users" data-entity-id="<?= htmlspecialchars((string) $entity['_id']) ?>">
                             <h4>Utilisateurs :</h4>
-                            <?php 
-                            $entityUsers = $usersByEntity[(string) $entity['_id']] ?? [];
-                            ?>
-                            <?php if (empty($entityUsers)): ?>
-                                <p class="text-muted">Aucun utilisateur</p>
-                            <?php else: ?>
-                                <ul class="users-list">
-                                    <?php foreach ($entityUsers as $user): ?>
-                                        <li>
-                                            <?= htmlspecialchars($user['email']) ?>
-                                            <span class="badge badge-info">
-                                                <?= htmlspecialchars($user['role']) ?>
-                                            </span>
-                                        </li>
-                                    <?php endforeach; ?>
-                                </ul>
-                            <?php endif; ?>
+                            <div class="users-container">
+                                <p class="text-muted">Chargement...</p>
+                            </div>
                             <button class="btn btn-sm btn-outline add-user" data-entity-id="<?= htmlspecialchars((string) $entity['_id']) ?>">
                                 + Ajouter un utilisateur
                             </button>
@@ -199,16 +248,36 @@ foreach ($allUsers as $user) {
                                         <?= $user['status'] === 'active' ? 'Actif' : 'Inactif' ?>
                                     </span>
                                 </p>
-                                <?php if ($user['entity_id']): ?>
-                                    <?php 
+                                <?php 
+                                // Format multi-entreprises : afficher toutes les entités de l'utilisateur
+                                $userEntities = [];
+                                if (isset($user['entreprises']) && is_array($user['entreprises'])) {
+                                    foreach ($user['entreprises'] as $entreprise) {
+                                        if (isset($entreprise['entrepriseId'])) {
+                                            $entityId = (string) $entreprise['entrepriseId'];
+                                            $userEntity = array_filter($entities, function($e) use ($entityId) {
+                                                return (string) $e['_id'] === $entityId;
+                                            });
+                                            $userEntity = reset($userEntity);
+                                            if ($userEntity) {
+                                                $userEntities[] = $userEntity['name'] . ' (' . ($entreprise['role'] ?? 'user') . ')';
+                                            }
+                                        }
+                                    }
+                                }
+                                // Migration : si l'utilisateur a encore entity_id (ancien format)
+                                if (empty($userEntities) && isset($user['entity_id']) && $user['entity_id']) {
                                     $userEntity = array_filter($entities, function($e) use ($user) {
                                         return (string) $e['_id'] === (string) $user['entity_id'];
                                     });
                                     $userEntity = reset($userEntity);
-                                    ?>
-                                    <?php if ($userEntity): ?>
-                                        <p><strong>Entité :</strong> <?= htmlspecialchars($userEntity['name']) ?></p>
-                                    <?php endif; ?>
+                                    if ($userEntity) {
+                                        $userEntities[] = $userEntity['name'];
+                                    }
+                                }
+                                ?>
+                                <?php if (!empty($userEntities)): ?>
+                                    <p><strong>Entité(s) :</strong> <?= htmlspecialchars(implode(', ', $userEntities)) ?></p>
                                 <?php endif; ?>
                             </div>
                         </div>
@@ -245,6 +314,21 @@ foreach ($allUsers as $user) {
                 <div class="form-group">
                     <label for="entityAddress">Adresse *</label>
                     <textarea id="entityAddress" name="address" rows="3" required></textarea>
+                </div>
+                
+                <div class="form-group">
+                    <label for="entityLogo">Logo de l'entreprise</label>
+                    <div class="logo-upload-container">
+                        <div class="logo-preview" id="logoPreview" style="display: none;">
+                            <img id="logoPreviewImg" src="" alt="Aperçu du logo" style="max-width: 150px; max-height: 150px; border-radius: 4px; margin-bottom: 10px;">
+                            <button type="button" class="btn btn-sm btn-outline" id="removeLogoBtn" style="display: none;">Supprimer le logo</button>
+                        </div>
+                        <input type="file" id="entityLogo" name="logo" accept="image/*" style="display: none;">
+                        <button type="button" class="btn btn-outline" id="selectLogoBtn">
+                            <span id="selectLogoText">📷 Sélectionner un logo</span>
+                        </button>
+                        <small class="form-text text-muted">Formats acceptés : JPG, PNG, GIF, WebP (max 2MB)</small>
+                    </div>
                 </div>
                 
                 <div class="form-group">
@@ -307,20 +391,18 @@ foreach ($allUsers as $user) {
                 </div>
                 
                 <div class="form-group">
-                    <label for="userEmail">Email *</label>
-                    <input type="email" id="userEmail" name="email" required>
+                    <label for="userId">Utilisateur *</label>
+                    <select id="userId" name="userId" required>
+                        <option value="">Chargement des utilisateurs...</option>
+                    </select>
+                    <small class="form-text text-muted">Sélectionnez un utilisateur existant à ajouter à l'entité</small>
                 </div>
                 
                 <div class="form-group">
-                    <label for="userPassword">Mot de passe *</label>
-                    <input type="password" id="userPassword" name="password" required minlength="6">
-                </div>
-                
-                <div class="form-group">
-                    <label for="userRole">Rôle *</label>
+                    <label for="userRole">Rôle dans l'entité *</label>
                     <select id="userRole" name="role" required>
-                        <option value="ADMIN_ENTITY">Administrateur d'Entité</option>
-                        <option value="USER_ENTITY">Utilisateur</option>
+                        <option value="user">Utilisateur</option>
+                        <option value="admin">Administrateur</option>
                     </select>
                 </div>
                 
@@ -329,7 +411,7 @@ foreach ($allUsers as $user) {
                 
                 <div class="modal-actions">
                     <button type="button" class="btn btn-secondary" id="cancelUserForm">Annuler</button>
-                    <button type="submit" class="btn btn-primary">Créer</button>
+                    <button type="submit" class="btn btn-primary">Ajouter</button>
                 </div>
             </form>
         </div>
@@ -454,6 +536,25 @@ foreach ($allUsers as $user) {
     display: flex;
     justify-content: space-between;
     align-items: center;
+    gap: var(--spacing-sm);
+    position: relative;
+}
+
+.users-list li .remove-user {
+    margin-left: auto;
+    padding: 4px 8px;
+    background-color: transparent;
+    border: none;
+    cursor: pointer;
+    font-size: 16px;
+    opacity: 0.6;
+    transition: opacity var(--transition-fast), background-color var(--transition-fast);
+    border-radius: var(--border-radius-sm);
+}
+
+.users-list li .remove-user:hover {
+    opacity: 1;
+    background-color: rgba(220, 53, 69, 0.1);
 }
 
 .text-muted {
@@ -700,11 +801,98 @@ foreach ($allUsers as $user) {
     margin: var(--spacing-sm) 0;
     color: var(--color-gray);
 }
+
+/* Styles pour l'upload de logo */
+.logo-upload-container {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-sm);
+}
+
+.logo-preview {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--spacing-xs);
+    padding: var(--spacing-sm);
+    background-color: var(--color-light);
+    border-radius: var(--border-radius);
+}
+
+.logo-preview img {
+    border: 1px solid var(--color-border);
+}
 </style>
 
 <script>
 // Scripts de gestion des entités
+// Fonction pour charger les utilisateurs d'une entité via l'API
+async function loadEntityUsers(entityId, container) {
+    try {
+        const apiBaseUrl = '<?php echo getApiBaseUrl(); ?>';
+        const jwtToken = '<?php echo getJWTToken(); ?>';
+        
+        const response = await fetch(`${apiBaseUrl}/entities/${entityId}/users`, {
+            method: 'GET',
+            headers: {
+                'Authorization': 'Bearer ' + jwtToken,
+                'Content-Type': 'application/json'
+            },
+            credentials: 'include'
+        });
+        
+        const data = await response.json();
+        
+        if (!response.ok) {
+            throw new Error(data.message || 'Erreur lors du chargement des utilisateurs');
+        }
+        
+        // Afficher les utilisateurs
+        if (data.success && data.data && data.data.length > 0) {
+            let html = '<ul class="users-list">';
+            data.data.forEach(user => {
+                html += `
+                    <li class="user-item">
+                        <span class="user-email">${escapeHtml(user.email)}</span>
+                        <span class="badge badge-info">${escapeHtml(user.role_in_entity || user.role || 'user')}</span>
+                        <button class="btn-icon remove-user" 
+                                data-entity-id="${escapeHtml(entityId)}" 
+                                data-user-id="${escapeHtml(user._id)}"
+                                data-user-email="${escapeHtml(user.email || 'N/A')}"
+                                title="Retirer l'utilisateur">
+                            🗑️
+                        </button>
+                    </li>
+                `;
+            });
+            html += '</ul>';
+            container.innerHTML = html;
+        } else {
+            container.innerHTML = '<p class="text-muted">Aucun utilisateur</p>';
+        }
+    } catch (error) {
+        console.error('❌ Erreur lors du chargement des utilisateurs:', error);
+        container.innerHTML = '<p class="text-muted">Erreur lors du chargement</p>';
+    }
+}
+
+// Fonction utilitaire pour échapper le HTML
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
 document.addEventListener('DOMContentLoaded', function() {
+    // Charger les utilisateurs pour chaque entité
+    const entityUsersContainers = document.querySelectorAll('.entity-users[data-entity-id]');
+    entityUsersContainers.forEach(container => {
+        const entityId = container.getAttribute('data-entity-id');
+        const usersContainer = container.querySelector('.users-container');
+        if (entityId && usersContainer) {
+            loadEntityUsers(entityId, usersContainer);
+        }
+    });
     console.log('Page entités chargée');
     
     // Gestion des tabs
@@ -734,12 +922,150 @@ document.addEventListener('DOMContentLoaded', function() {
         document.getElementById(modalId).style.display = 'none';
     };
     
+    // Gestion de l'upload de logo
+    let logoBase64 = null;
+    
+    // Fonction pour initialiser les event listeners du logo
+    function initLogoUpload() {
+        const entityLogoInput = document.getElementById('entityLogo');
+        const selectLogoBtn = document.getElementById('selectLogoBtn');
+        const logoPreview = document.getElementById('logoPreview');
+        const logoPreviewImg = document.getElementById('logoPreviewImg');
+        const removeLogoBtn = document.getElementById('removeLogoBtn');
+        
+        console.log('🔍 Initialisation upload logo:', {
+            entityLogoInput: !!entityLogoInput,
+            selectLogoBtn: !!selectLogoBtn,
+            logoPreview: !!logoPreview,
+            logoPreviewImg: !!logoPreviewImg,
+            removeLogoBtn: !!removeLogoBtn
+        });
+        
+        // Ouvrir le sélecteur de fichier - utiliser délégation d'événements
+        if (selectLogoBtn) {
+            // Supprimer tous les anciens listeners en clonant le bouton
+            const newSelectBtn = selectLogoBtn.cloneNode(true);
+            selectLogoBtn.parentNode.replaceChild(newSelectBtn, selectLogoBtn);
+            
+            // Réattacher l'ID
+            newSelectBtn.id = 'selectLogoBtn';
+            
+            newSelectBtn.addEventListener('click', function(e) {
+                e.preventDefault();
+                e.stopPropagation();
+                console.log('🖱️ Clic sur bouton sélectionner logo');
+                const input = document.getElementById('entityLogo');
+                if (input) {
+                    console.log('✅ Ouverture du sélecteur de fichier');
+                    input.click();
+                } else {
+                    console.error('❌ Input logo non trouvé');
+                }
+            });
+        } else {
+            console.error('❌ Bouton selectLogoBtn non trouvé');
+        }
+        
+        // Gérer la sélection d'un fichier
+        const currentInput = document.getElementById('entityLogo');
+        if (currentInput) {
+            // Supprimer les anciens listeners en clonant l'input
+            const newInput = currentInput.cloneNode(true);
+            currentInput.parentNode.replaceChild(newInput, currentInput);
+            
+            // Réattacher l'ID
+            newInput.id = 'entityLogo';
+            
+            newInput.addEventListener('change', function(e) {
+                console.log('📁 Fichier sélectionné');
+                const file = e.target.files[0];
+                if (!file) {
+                    console.log('⚠️ Aucun fichier sélectionné');
+                    return;
+                }
+                
+                console.log('📄 Fichier:', file.name, file.size, file.type);
+                
+                // Vérifier la taille (max 2MB)
+                if (file.size > 2 * 1024 * 1024) {
+                    alert('Le fichier est trop volumineux. Taille maximale : 2MB');
+                    this.value = '';
+                    return;
+                }
+                
+                // Vérifier le type
+                if (!file.type.startsWith('image/')) {
+                    alert('Veuillez sélectionner une image');
+                    this.value = '';
+                    return;
+                }
+                
+                // Convertir en base64
+                const reader = new FileReader();
+                reader.onload = function(event) {
+                    console.log('✅ Fichier converti en base64');
+                    logoBase64 = event.target.result;
+                    const previewImg = document.getElementById('logoPreviewImg');
+                    const preview = document.getElementById('logoPreview');
+                    const removeBtn = document.getElementById('removeLogoBtn');
+                    const selectText = document.getElementById('selectLogoText');
+                    
+                    if (previewImg) previewImg.src = logoBase64;
+                    if (preview) preview.style.display = 'flex';
+                    if (removeBtn) removeBtn.style.display = 'block';
+                    if (selectText) selectText.textContent = '📷 Changer le logo';
+                };
+                reader.onerror = function() {
+                    console.error('❌ Erreur lors de la lecture du fichier');
+                    alert('Erreur lors de la lecture du fichier');
+                };
+                reader.readAsDataURL(file);
+            });
+        }
+        
+        // Supprimer le logo
+        if (removeLogoBtn) {
+            removeLogoBtn.addEventListener('click', function(e) {
+                e.preventDefault();
+                e.stopPropagation();
+                console.log('🗑️ Suppression du logo');
+                logoBase64 = null;
+                const input = document.getElementById('entityLogo');
+                const preview = document.getElementById('logoPreview');
+                const selectText = document.getElementById('selectLogoText');
+                
+                if (input) input.value = '';
+                if (preview) preview.style.display = 'none';
+                this.style.display = 'none';
+                if (selectText) selectText.textContent = '📷 Sélectionner un logo';
+            });
+        }
+    }
+    
+    // Initialiser immédiatement
+    initLogoUpload();
+    
     // Ouvrir modal entité (nouvelle entité)
     document.getElementById('addEntityBtn').addEventListener('click', () => {
         // Réinitialiser le formulaire
         document.getElementById('entityForm').reset();
         document.getElementById('entityId').value = '';
         document.getElementById('modalTitle').textContent = 'Ajouter une entité';
+        
+        // Réinitialiser le logo
+        logoBase64 = null;
+        const logoPreview = document.getElementById('logoPreview');
+        const removeLogoBtn = document.getElementById('removeLogoBtn');
+        const selectLogoText = document.getElementById('selectLogoText');
+        
+        if (logoPreview) logoPreview.style.display = 'none';
+        if (removeLogoBtn) removeLogoBtn.style.display = 'none';
+        if (selectLogoText) selectLogoText.textContent = '📷 Sélectionner un logo';
+        
+        // Réinitialiser les listeners après ouverture du modal
+        setTimeout(() => {
+            initLogoUpload();
+        }, 100);
         
         // Afficher tous les champs
         const fieldsToShow = ['entityName', 'entitySiret', 'entityAddress'];
@@ -788,6 +1114,77 @@ document.addEventListener('DOMContentLoaded', function() {
     document.getElementById('addUserBtn').addEventListener('click', () => openModal('userModal'));
     document.getElementById('closeUserModal').addEventListener('click', () => closeModal('userModal'));
     document.getElementById('cancelUserForm').addEventListener('click', () => closeModal('userModal'));
+    
+    // Gérer l'édition d'une entité
+    document.querySelectorAll('.edit-entity').forEach(btn => {
+        btn.addEventListener('click', async function() {
+            const entityId = this.getAttribute('data-entity-id');
+            if (!entityId) return;
+            
+            try {
+                // Charger les données de l'entité
+                const apiUrl = '<?php echo getApiBaseUrl(); ?>/entities/' + entityId;
+                const jwtToken = '<?php echo getJWTToken(); ?>';
+                
+                const response = await fetch(apiUrl, {
+                    method: 'GET',
+                    headers: {
+                        'Authorization': 'Bearer ' + jwtToken
+                    },
+                    credentials: 'include'
+                });
+                
+                const data = await response.json();
+                
+                if (!response.ok || !data.success) {
+                    throw new Error(data.message || 'Erreur lors du chargement de l\'entité');
+                }
+                
+                const entity = data.data;
+                
+                // Remplir le formulaire
+                document.getElementById('entityId').value = entityId;
+                document.getElementById('entityName').value = entity.name || '';
+                document.getElementById('entitySiret').value = entity.siret || '';
+                document.getElementById('entityAddress').value = entity.address || '';
+                document.getElementById('modalTitle').textContent = 'Modifier l\'entité';
+                
+                // Afficher tous les champs
+                const fieldsToShow = ['entityName', 'entitySiret', 'entityAddress'];
+                fieldsToShow.forEach(fieldId => {
+                    const field = document.getElementById(fieldId);
+                    if (field) {
+                        field.closest('.form-group').style.display = 'block';
+                        field.setAttribute('required', 'required');
+                    }
+                });
+                
+                // Charger le logo existant
+                if (entity.logo) {
+                    logoBase64 = entity.logo;
+                    logoPreviewImg.src = entity.logo;
+                    logoPreview.style.display = 'flex';
+                    removeLogoBtn.style.display = 'block';
+                    selectLogoBtn.querySelector('#selectLogoText').textContent = '📷 Changer le logo';
+                } else {
+                    logoBase64 = null;
+                    logoPreview.style.display = 'none';
+                    removeLogoBtn.style.display = 'none';
+                    selectLogoBtn.querySelector('#selectLogoText').textContent = '📷 Sélectionner un logo';
+                }
+                
+                // Charger les modules autorisés
+                loadEntityModules(entityId);
+                
+                // Ouvrir le modal
+                openModal('entityModal');
+                
+            } catch (error) {
+                console.error('Erreur lors du chargement de l\'entité:', error);
+                alert('Erreur lors du chargement de l\'entité: ' + error.message);
+            }
+        });
+    });
     
     // Gérer les modules d'une entité
     document.querySelectorAll('.manage-modules').forEach(btn => {
@@ -999,6 +1396,41 @@ document.addEventListener('DOMContentLoaded', function() {
                         services_authorized: servicesAuthorized
                     })
                 });
+            } else if (entityId) {
+                // Mise à jour d'une entité existante
+                const name = document.getElementById('entityName').value;
+                const siret = document.getElementById('entitySiret').value;
+                const address = document.getElementById('entityAddress').value;
+                
+                if (!name || !siret || !address) {
+                    formError.textContent = 'Veuillez remplir tous les champs requis';
+                    formError.style.display = 'block';
+                    return;
+                }
+                
+                const apiUrl = '<?php echo getApiBaseUrl(); ?>/entities/' + entityId;
+                const jwtToken = '<?php echo getJWTToken(); ?>';
+                
+                const payload = {
+                    name,
+                    siret,
+                    address
+                };
+                
+                // Ajouter le logo si présent (ou null pour le supprimer)
+                if (logoBase64 !== null) {
+                    payload.logo = logoBase64 || null; // null si supprimé
+                }
+                
+                response = await fetch(apiUrl, {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': 'Bearer ' + jwtToken
+                    },
+                    credentials: 'include',
+                    body: JSON.stringify(payload)
+                });
             } else {
                 // Création d'une nouvelle entité
                 const name = document.getElementById('entityName').value;
@@ -1014,18 +1446,26 @@ document.addEventListener('DOMContentLoaded', function() {
                 const apiUrl = '<?php echo getApiBaseUrl(); ?>/entities';
                 const jwtToken = '<?php echo getJWTToken(); ?>';
                 
+                const payload = {
+                    name,
+                    siret,
+                    address,
+                    services_authorized: servicesAuthorized
+                };
+                
+                // Ajouter le logo si présent
+                if (logoBase64) {
+                    payload.logo = logoBase64;
+                }
+                
                 response = await fetch(apiUrl, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
                         'Authorization': 'Bearer ' + jwtToken
                     },
-                    body: JSON.stringify({
-                        name,
-                        siret,
-                        address,
-                        services_authorized: servicesAuthorized
-                    })
+                    credentials: 'include',
+                    body: JSON.stringify(payload)
                 });
             }
             
@@ -1050,6 +1490,231 @@ document.addEventListener('DOMContentLoaded', function() {
             formError.style.display = 'block';
         }
     });
+    
+    // Charger la liste des utilisateurs disponibles
+    async function loadAvailableUsers(entityId) {
+        const userIdSelect = document.getElementById('userId');
+        if (!userIdSelect) {
+            console.error('❌ Element userIdSelect non trouvé');
+            return;
+        }
+        
+        try {
+            console.log('📤 Chargement des utilisateurs disponibles pour entityId:', entityId);
+            userIdSelect.innerHTML = '<option value="">Chargement...</option>';
+            
+            const apiUrl = '<?php echo getApiBaseUrl(); ?>/users/available?entityId=' + encodeURIComponent(entityId);
+            const jwtToken = '<?php echo getJWTToken(); ?>';
+            
+            console.log('🔗 URL:', apiUrl);
+            
+            const response = await fetch(apiUrl, {
+                method: 'GET',
+                headers: {
+                    'Authorization': 'Bearer ' + jwtToken
+                },
+                credentials: 'include'
+            });
+            
+            console.log('📥 Réponse status:', response.status);
+            
+            const data = await response.json();
+            console.log('📦 Données reçues:', data);
+            
+            if (!response.ok) {
+                throw new Error(data.message || data.error || 'Erreur lors du chargement des utilisateurs');
+            }
+            
+            userIdSelect.innerHTML = '<option value="">Sélectionner un utilisateur</option>';
+            
+            if (data.success && data.data && Array.isArray(data.data) && data.data.length > 0) {
+                console.log('✅ Utilisateurs disponibles:', data.data.length);
+                data.data.forEach(user => {
+                    const option = document.createElement('option');
+                    option.value = user._id;
+                    option.textContent = user.email + (user.username ? ' (' + user.username + ')' : '');
+                    userIdSelect.appendChild(option);
+                });
+            } else {
+                console.warn('⚠️ Aucun utilisateur disponible ou données invalides');
+                userIdSelect.innerHTML = '<option value="">Aucun utilisateur disponible</option>';
+            }
+        } catch (error) {
+            console.error('❌ Erreur lors du chargement des utilisateurs:', error);
+            userIdSelect.innerHTML = '<option value="">Erreur lors du chargement: ' + error.message + '</option>';
+        }
+    }
+    
+    // Le listener change est maintenant géré plus haut avec les logs
+    
+    // Gestion de la suppression d'utilisateur d'une entité
+    document.addEventListener('click', async function(e) {
+        if (e.target.closest('.remove-user')) {
+            const button = e.target.closest('.remove-user');
+            const entityId = button.getAttribute('data-entity-id');
+            const userId = button.getAttribute('data-user-id');
+            const userEmail = button.getAttribute('data-user-email');
+            
+            if (!confirm(`Voulez-vous vraiment retirer l'utilisateur "${userEmail}" de cette entité ?`)) {
+                return;
+            }
+            
+            try {
+                const apiBaseUrl = '<?php echo getApiBaseUrl(); ?>';
+                const response = await fetch(apiBaseUrl + '/entities/' + entityId + '/users/' + userId, {
+                    method: 'DELETE',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': 'Bearer <?php echo getJWTToken(); ?>'
+                    },
+                    credentials: 'include'
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok && data.success) {
+                    console.log('✅ Utilisateur retiré avec succès');
+                    // Recharger la page pour mettre à jour l'affichage
+                    window.location.reload();
+                } else {
+                    console.error('❌ Erreur lors de la suppression:', data.message);
+                    alert('Erreur lors de la suppression: ' + (data.message || 'Erreur inconnue'));
+                }
+            } catch (error) {
+                console.error('❌ Erreur réseau lors de la suppression:', error);
+                alert('Erreur réseau lors de la suppression.');
+            }
+        }
+    });
+    
+    // Gestion de la soumission du formulaire utilisateur
+    const userForm = document.getElementById('userForm');
+    if (userForm) {
+        userForm.addEventListener('submit', async function(e) {
+            e.preventDefault();
+            
+            const formError = document.getElementById('userFormError');
+            const formSuccess = document.getElementById('userFormSuccess');
+            
+            // Cacher les messages précédents
+            if (formError) formError.style.display = 'none';
+            if (formSuccess) formSuccess.style.display = 'none';
+            
+            try {
+                const entityId = document.getElementById('userEntity').value;
+                const userId = document.getElementById('userId').value;
+                const role = document.getElementById('userRole')?.value || 'user';
+                
+                if (!entityId || !userId) {
+                    if (formError) {
+                        formError.textContent = 'Veuillez sélectionner une entité et un utilisateur';
+                        formError.style.display = 'block';
+                    }
+                    return;
+                }
+                
+                const apiUrl = '<?php echo getApiBaseUrl(); ?>/entities/' + entityId + '/users';
+                const jwtToken = '<?php echo getJWTToken(); ?>';
+                
+                const response = await fetch(apiUrl, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': 'Bearer ' + jwtToken
+                    },
+                    credentials: 'include',
+                    body: JSON.stringify({
+                        userId: userId,
+                        role: role
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (!response.ok) {
+                    throw new Error(data.message || data.error || 'Erreur lors de l\'ajout de l\'utilisateur');
+                }
+                
+                // Succès
+                if (formSuccess) {
+                    formSuccess.textContent = data.message || 'Utilisateur ajouté avec succès';
+                    formSuccess.style.display = 'block';
+                }
+                
+                // Recharger la page après 1 seconde
+                setTimeout(() => {
+                    window.location.reload();
+                }, 1000);
+                
+            } catch (error) {
+                console.error('Erreur:', error);
+                if (formError) {
+                    formError.textContent = error.message || 'Une erreur est survenue';
+                    formError.style.display = 'block';
+                }
+            }
+        });
+    }
+    
+    // Gestion des boutons "Ajouter un utilisateur" sur les cartes d'entité
+    const addUserButtons = document.querySelectorAll('.add-user');
+    console.log('🔍 Boutons .add-user trouvés:', addUserButtons.length);
+    
+    addUserButtons.forEach((btn, index) => {
+        console.log('🔘 Bouton', index, ':', btn, 'data-entity-id:', btn.getAttribute('data-entity-id'));
+        btn.addEventListener('click', function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            
+            console.log('🖱️ Clic sur bouton .add-user');
+            const entityId = this.getAttribute('data-entity-id');
+            console.log('📍 entityId récupéré:', entityId);
+            
+            if (!entityId) {
+                console.error('❌ entityId manquant');
+                return;
+            }
+            
+            // Ouvrir le modal utilisateur
+            console.log('📂 Ouverture du modal userModal');
+            openModal('userModal');
+            
+            // Pré-remplir l'entité
+            const userEntitySelect = document.getElementById('userEntity');
+            console.log('📋 userEntitySelect trouvé:', !!userEntitySelect);
+            
+            if (userEntitySelect) {
+                userEntitySelect.value = entityId;
+                console.log('✅ entityId défini dans le select:', entityId);
+                // Charger les utilisateurs disponibles pour cette entité
+                console.log('📤 Appel de loadAvailableUsers avec entityId:', entityId);
+                loadAvailableUsers(entityId);
+            } else {
+                console.error('❌ userEntitySelect non trouvé');
+            }
+        });
+    });
+    
+    // Aussi appeler loadAvailableUsers quand le select change
+    const userEntitySelect = document.getElementById('userEntity');
+    if (userEntitySelect) {
+        console.log('📋 Ajout du listener change sur userEntitySelect');
+        userEntitySelect.addEventListener('change', function() {
+            const entityId = this.value;
+            console.log('🔄 Change sur userEntitySelect, nouvelle valeur:', entityId);
+            if (entityId) {
+                console.log('📤 Appel de loadAvailableUsers depuis change event');
+                loadAvailableUsers(entityId);
+            } else {
+                const userIdSelect = document.getElementById('userId');
+                if (userIdSelect) {
+                    userIdSelect.innerHTML = '<option value="">Sélectionner d\'abord une entité</option>';
+                }
+            }
+        });
+    } else {
+        console.error('❌ userEntitySelect non trouvé pour le listener change');
+    }
 });
 </script>
 

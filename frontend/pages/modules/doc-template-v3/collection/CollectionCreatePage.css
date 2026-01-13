@@ -1,0 +1,82 @@
+/* CollectionCreatePage.css - Styles pour la page de création/modification de collection */
+/* Utilise les variables CSS de front/styles/styles.css */
+
+.collection-create-page {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: var(--spacing-md);
+  font-family: var(--font-primary);
+}
+
+.collection-create-page h1 {
+  font-size: var(--font-size-h2);
+  margin-bottom: var(--spacing-lg);
+  color: var(--color-dark);
+  text-align: center;
+}
+
+.collection-create-page section {
+  background: var(--color-white);
+  border-radius: var(--border-radius-md);
+  padding: var(--spacing-md);
+  margin-bottom: var(--spacing-md);
+  box-shadow: var(--shadow-md);
+}
+
+.collection-create-page section h2 {
+  font-size: var(--font-size-h3);
+  margin-bottom: var(--spacing-md);
+  color: var(--color-dark);
+  border-bottom: 2px solid var(--color-light);
+  padding-bottom: var(--spacing-xs);
+}
+
+.collection-create-page section button {
+  padding: var(--spacing-xs) var(--spacing-md);
+  border-radius: var(--border-radius-sm);
+  border: none;
+  cursor: pointer;
+  background: var(--color-primary);
+  color: var(--color-white);
+  font-size: var(--font-size-base);
+  font-weight: 500;
+  transition: background var(--transition-fast);
+  margin-bottom: var(--spacing-md);
+}
+
+.collection-create-page section button:hover {
+  background: var(--color-primary-dark);
+}
+
+/* Bouton de soumission principal */
+.collection-create-page > button:last-child {
+  display: block;
+  width: 100%;
+  max-width: 400px;
+  margin: var(--spacing-lg) auto 0;
+  padding: var(--spacing-sm) var(--spacing-md);
+  font-size: var(--font-size-large);
+  font-weight: 600;
+  background: var(--color-secondary);
+  color: var(--color-white);
+  border: none;
+  border-radius: var(--border-radius-md);
+  cursor: pointer;
+  transition: background var(--transition-fast), transform var(--transition-fast);
+  box-shadow: var(--shadow-md);
+}
+
+.collection-create-page > button:last-child:hover {
+  background: var(--color-secondary-dark);
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-lg);
+}
+
+/* Container pour les champs */
+.collection-create-page .fields-container {
+  margin-top: var(--spacing-md);
+}
+
+
+
+

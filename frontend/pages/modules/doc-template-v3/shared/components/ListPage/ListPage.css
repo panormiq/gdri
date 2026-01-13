@@ -1,0 +1,124 @@
+/* Container principal de la liste */
+.listpage-container {
+  max-width: 1200px;
+  width: 100%;
+  margin: 0 auto;
+  padding: var(--spacing-md);
+  box-sizing: border-box;
+  font-family: var(--font-primary);
+}
+
+/* Titre de la page */
+.listpage-container h1 {
+  font-size: var(--font-size-h2);
+  margin-bottom: var(--spacing-md);
+  color: var(--color-dark);
+  text-align: center;
+}
+
+/* Formulaire / actions en haut */
+.listpage-form {
+  margin-bottom: var(--spacing-lg);
+  display: flex;
+  gap: var(--spacing-sm);
+  flex-wrap: wrap;
+}
+
+.listpage-form input {
+  padding: var(--spacing-xs);
+  border-radius: var(--border-radius-sm);
+  border: 1px solid var(--color-gray);
+  font-size: var(--font-size-small);
+}
+
+.listpage-form button {
+  padding: var(--spacing-xs) var(--spacing-sm);
+  border-radius: var(--border-radius-sm);
+  border: none;
+  cursor: pointer;
+  background: var(--color-primary);
+  color: var(--color-white);
+  transition: background var(--transition-normal);
+}
+
+.listpage-form button:hover {
+  background: var(--color-primary-dark);
+}
+
+/* Grille des cartes */
+.listpage-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: var(--spacing-md);
+}
+
+/* Carte individuelle */
+.listpage-card {
+  position: relative;
+  background: var(--color-white);
+  border-radius: var(--border-radius-md);
+  box-shadow: var(--shadow-md);
+  padding: var(--spacing-md);
+  cursor: pointer;
+  transition: transform var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.listpage-card:hover {
+  transform: translateY(-4px);
+  box-shadow: var(--shadow-lg);
+}
+
+.listpage-card strong {
+  display: block;
+  margin-bottom: var(--spacing-xs);
+  font-size: var(--font-size-large);
+  color: var(--color-dark);
+}
+
+.listpage-card div {
+  margin-bottom: var(--spacing-xs);
+  font-size: var(--font-size-small);
+  color: var(--color-dark);
+}
+
+.listpage-card pre {
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  margin-top: var(--spacing-xs);
+  font-size: var(--font-size-small);
+  color: var(--color-dark);
+}
+
+/* Actions sur les cartes */
+.listpage-card-actions {
+  position: absolute;
+  top: var(--spacing-xs);
+  right: var(--spacing-xs);
+  display: flex;
+  gap: var(--spacing-xs);
+  flex-wrap: wrap;
+}
+
+.listpage-card-actions button {
+  padding: var(--spacing-xs) var(--spacing-sm);
+  font-size: var(--font-size-small);
+  border-radius: var(--border-radius-sm);
+  border: none;
+  cursor: pointer;
+  background: var(--color-secondary);
+  color: var(--color-white);
+  transition: background var(--transition-fast);
+  font-weight: 500;
+}
+
+.listpage-card-actions button:hover {
+  background: var(--color-secondary-dark);
+}
+
+/* Texte affiché si la liste est vide */
+.listpage-empty {
+  font-size: var(--font-size-base);
+  color: var(--color-gray);
+  text-align: center;
+  margin-top: var(--spacing-lg);
+}

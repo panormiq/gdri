@@ -1,0 +1,142 @@
+Plan de marche complet
+Phase 0 : Préparation et nettoyage
+
+Garder seulement ce qui est utile
+
+shared/ → API, Field.js, FieldRenderer.js, helpers.
+
+CollectionEditor.js → à renommer Editor.js pour être générique.
+
+Supprimer tous les fichiers de pages CRUD redondants (CreatePage, EditPage, CollectionHomePage, etc.).
+
+Préparer un point d’entrée SPA
+
+index.php minimal, incluant ton layout et un <div id="app"></div>.
+
+Tout le rendu des pages se fera via JS dans ce div.
+
+Phase 1 : Architecture SPA
+
+Créer app.js
+
+Point d’entrée JS.
+
+Gestion du "routing" interne (ex. URL hash ou history.pushState).
+
+Exemples de pages internes : collection/list, collection/edit, template/list, document/list.
+
+Définir une base de page JS générique (Page)
+
+Méthodes communes : init(), render(), destroy().
+
+Gestion des événements et du state local de la page.
+
+Phase 2 : Pages "list"
+
+Créer un template de liste générique (ListPage.js)
+
+Recevoir un tableau d’éléments (items) et un composant Card.
+
+Méthode render() pour afficher les cards dans le DOM.
+
+Gestion des événements : onEdit, onDelete, onView.
+
+Créer des pages spécifiques :
+
+CollectionListPage.js → instancie ListPage avec CollectionCard.
+
+TemplateListPage.js → instancie ListPage avec TemplateCard.
+
+DocumentListPage.js → instancie ListPage avec DocumentCard.
+
+Phase 3 : Pages "edit / create"
+
+Renommer CollectionEditor.js en Editor.js
+
+Devient générique pour Collection / Template / Document.
+
+Gestion des champs via Field et FieldRenderer.
+
+Méthodes principales : loadFieldTypes(), addField(), editField(), removeField(), validate(), save().
+
+Créer des pages spécifiques :
+
+CollectionEditPage.js → wrapper SPA pour éditer une collection via Editor.
+
+TemplateEditPage.js, DocumentEditPage.js → idem.
+
+Stocker uniquement les states nécessaires dans JS
+
+Ex. ID de collection / template / document en cours.
+
+Local storage optionnel pour sauvegarder un formulaire non terminé.
+
+Phase 4 : API
+
+Tout centraliser dans shared/api/
+
+CollectionApi.js, TemplateApi.js, DocumentApi.js.
+
+Méthodes CRUD (getAll, getById, create, update, delete).
+
+Encapsulation de fetch + gestion des erreurs / auth.
+
+Phase 5 : Routing
+
+SPA routing dans app.js
+
+Utiliser window.history.pushState pour changer de page sans reload.
+
+window.onpopstate pour gérer les retours arrière / avant.
+
+Exemple de routing
+
+#/collection/list
+#/collection/edit?id=...
+#/template/list
+#/document/edit?id=...
+
+
+Render dynamique dans <div id="app">
+
+Chaque page Page.render() supprime l’ancien contenu et injecte le nouveau.
+
+Phase 6 : Auth / session
+
+HTML-only cookies
+
+Pas besoin de stocker le token côté JS.
+
+Chaque appel API inclut automatiquement les credentials (cookies).
+
+Le backend gère l’expiration / éjection de l’utilisateur.
+
+Phase 7 : UI / composants
+
+Cards génériques pour list pages (CollectionCard, TemplateCard, DocumentCard).
+
+Formulaires dynamiques via FieldRenderer pour edit/create pages.
+
+Navigation et boutons : Add, Edit, Delete, Save.
+
+Phase 8 : Optimisations et extras
+
+Optionnel : Local storage
+
+Pour sauvegarder temporairement un formulaire non terminé.
+
+Rebuild de la page après refresh si besoin.
+
+Code splitting
+
+Pages / composants importés dynamiquement pour réduire le bundle initial.
+
+Gestion des erreurs / alertes uniforme.
+
+Phase 9 : Tests
+
+Vérifier que les pages list / edit / create fonctionnent pour Collection / Template / Document.
+
+Tester la SPA navigation (hash ou pushState) et la persistance des states.
+
+Vérifier que les cookies gèrent la session correctement.

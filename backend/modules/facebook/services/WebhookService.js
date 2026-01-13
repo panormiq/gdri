@@ -148,23 +148,66 @@ class WebhookService {
    */
   async processEntryEvents(entry, entityId) {
     try {
+      console.log(`  🔍 processEntryEvents appelé pour entry.id=${entry.id}, entityId=${entityId || 'null'}`);
+      
       // Extraire les messages des événements
       const messages = this.extractMessagesFromEntry(entry);
       
+      console.log(`  📋 Messages extraits: ${messages.length}`);
+      if (messages.length > 0) {
+        messages.forEach((msg, idx) => {
+          console.log(`    ${idx + 1}. Type: ${msg.type}, Auteur: ${msg.author?.name || 'N/A'}, Message: ${(msg.message || '').substring(0, 50)}...`);
+        });
+      }
+      
       if (messages.length === 0) {
         console.log('  ℹ️  Aucun message à traiter dans cette entry');
+        console.log(`  💡 Entry contient: messaging=${!!entry.messaging}, changes=${!!entry.changes}`);
         return;
       }
       
       console.log(`  📨 ${messages.length} message(s) à analyser`);
       
       // Analyser les intentions via Ollama (appel direct)
-      if (this.intentionService) {
-        console.log('  🤖 Analyse d\'intention en cours...');
-        console.log(`  📤 Envoi à Ollama (${this.aiService?.ollamaUrl || 'N/A'})...`);
+      if (!this.intentionService) {
+        console.error('  ❌ ERREUR: intentionService n\'est pas initialisé !');
+        console.error('  💡 Vérifiez que WebhookService.init() a été appelé.');
+        return;
+      }
+      
+      if (!this.aiService) {
+        console.error('  ❌ ERREUR: aiService n\'est pas initialisé !');
+        console.error('  💡 Vérifiez que WebhookService.init() a été appelé.');
+        return;
+      }
+      
+      console.log('  🤖 Analyse d\'intention en cours...');
+      console.log(`  📤 Envoi à Ollama (${this.aiService?.ollamaUrl || 'N/A'})...`);
+      console.log(`  🤖 Modèle: ${this.aiService?.model || 'N/A'}`);
+        
+        // Charger la configuration si entityId est disponible
+        let basePrompt = null;
+        let customIntentions = [];
+        
+        if (entityId) {
+          try {
+            const configCollection = this.database.getCollection('analyse_intention_configs');
+            const config = await configCollection.findOne({ entity_id: entityId });
+            
+            if (config && config.config) {
+              basePrompt = config.config.basePrompt || config.config.base_prompt || null;
+              customIntentions = config.config.customIntentions || config.config.intentions || [];
+              console.log(`  📋 Configuration chargée: ${customIntentions.length} intention(s) configurée(s)`);
+            }
+          } catch (configError) {
+            console.warn('  ⚠️  Erreur lors du chargement de la configuration:', configError);
+            // Continuer sans la config personnalisée
+          }
+        }
+        
         const startTime = Date.now();
         
-        const analysisResult = await this.intentionService.analyzeIntentions(messages);
+        const analysisResult = await this.intentionService.analyzeIntentions(messages, basePrompt, customIntentions);
         
         const duration = ((Date.now() - startTime) / 1000).toFixed(2);
         
@@ -178,9 +221,6 @@ class WebhookService {
           console.error('  ❌ Erreur lors de l\'analyse:', analysisResult.error);
           console.error(`  ⏱️  Durée avant erreur: ${duration}s`);
         }
-      } else {
-        console.warn('  ⚠️  Service d\'analyse d\'intention non initialisé');
-      }
       
     } catch (error) {
       console.error('  ❌ Erreur processEntryEvents:', error);

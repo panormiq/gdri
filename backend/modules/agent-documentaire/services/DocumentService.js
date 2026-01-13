@@ -1555,8 +1555,20 @@ class DocumentService {
    */
   async getImagePath(documentId, imageId) {
     const imagePath = path.join(this.imagesPath, documentId, imageId);
-    await fs.access(imagePath);
-    return imagePath;
+    try {
+      await fs.access(imagePath);
+      return imagePath;
+    } catch (error) {
+      // Si le fichier n'existe pas, lancer une erreur avec code ENOENT
+      if (error.code === 'ENOENT') {
+        const notFoundError = new Error(`Image non trouvée: ${imageId}`);
+        notFoundError.code = 'ENOENT';
+        notFoundError.statusCode = 404;
+        throw notFoundError;
+      }
+      // Pour les autres erreurs, relancer l'erreur originale
+      throw error;
+    }
   }
 
   /**

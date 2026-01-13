@@ -71,7 +71,51 @@ try {
     $_SESSION['user_id'] = (string) $user['_id'];
     $_SESSION['user_email'] = $user['email'];
     $_SESSION['user_role'] = $user['role'];
-    $_SESSION['entity_id'] = isset($user['entity_id']) ? (string) $user['entity_id'] : null;
+    
+    // ✅ Format multi-entreprises (doc-template) : utiliser currentEntrepriseId
+    $currentEntrepriseId = null;
+    
+    // Utiliser currentEntrepriseId si disponible
+    if (isset($user['currentEntrepriseId']) && $user['currentEntrepriseId'] !== null) {
+        $currentEntrepriseId = (string) $user['currentEntrepriseId'];
+    }
+    // Si pas de currentEntrepriseId mais des entreprises, prendre la première
+    elseif (isset($user['entreprises']) && is_array($user['entreprises']) && count($user['entreprises']) > 0) {
+        $firstEntreprise = $user['entreprises'][0];
+        if (isset($firstEntreprise['entrepriseId'])) {
+            $currentEntrepriseId = (string) $firstEntreprise['entrepriseId'];
+            // Mettre à jour currentEntrepriseId dans MongoDB
+            $usersCollection->updateOne(
+                ['_id' => $user['_id']],
+                ['$set' => ['currentEntrepriseId' => new MongoDB\BSON\ObjectId($currentEntrepriseId)]]
+            );
+        }
+    }
+    // Migration depuis format GDRI (entity_id) vers format multi-entreprises
+    elseif (isset($user['entity_id']) && $user['entity_id'] !== null) {
+        $entityId = (string) $user['entity_id'];
+        // Créer le tableau entreprises avec l'entity_id existant
+        $usersCollection->updateOne(
+            ['_id' => $user['_id']],
+            [
+                '$set' => [
+                    'currentEntrepriseId' => new MongoDB\BSON\ObjectId($entityId),
+                    'entreprises' => [[
+                        'entrepriseId' => new MongoDB\BSON\ObjectId($entityId),
+                        'role' => $user['role'] === 'ADMIN_ENTITY' ? 'admin' : 'user',
+                        'joinedAt' => new MongoDB\BSON\UTCDateTime()
+                    ]]
+                ]
+            ]
+        );
+        $currentEntrepriseId = $entityId;
+    }
+    
+    $_SESSION['entrepriseId'] = $currentEntrepriseId; // Gardé pour compatibilité
+    $_SESSION['currentEntrepriseId'] = $currentEntrepriseId;
+    
+    // Log pour debug
+    error_log('PHP Login - User currentEntrepriseId: ' . ($_SESSION['currentEntrepriseId'] ?? 'null'));
     
     // Mettre à jour la date de dernière connexion
     $usersCollection->updateOne(

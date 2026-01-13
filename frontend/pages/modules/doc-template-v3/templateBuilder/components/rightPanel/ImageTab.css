@@ -1,0 +1,283 @@
+/* ImageTab.css - Styles pour l'onglet de gestion des styles d'image */
+
+.image-tab {
+  padding: var(--spacing-md);
+  height: 100%;
+  overflow-y: scroll; /* Toujours afficher la scrollbar */
+  overflow-x: hidden;
+  box-sizing: border-box;
+  /* Forcer l'affichage de la scrollbar à droite */
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-primary, #0055AA) var(--color-light, #f0f0f0);
+  direction: ltr; /* Assurer que la scrollbar est à droite */
+}
+
+/* Style de la scrollbar pour WebKit (Chrome, Safari, Edge) */
+.image-tab::-webkit-scrollbar {
+  width: 8px;
+}
+
+.image-tab::-webkit-scrollbar-track {
+  background: var(--color-light, #f0f0f0);
+  border-radius: 4px;
+}
+
+.image-tab::-webkit-scrollbar-thumb {
+  background: var(--color-primary, #0055AA);
+  border-radius: 4px;
+}
+
+.image-tab::-webkit-scrollbar-thumb:hover {
+  background: var(--color-primary-dark, #004488);
+}
+
+.image-tab h3 {
+  margin: 0 0 var(--spacing-md) 0;
+  font-size: var(--font-size-lg);
+  color: var(--color-dark);
+}
+
+.image-styles-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+  overflow: visible;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.image-style-group {
+  border: 1px solid var(--color-light);
+  border-radius: var(--border-radius);
+  background: var(--color-white);
+  padding: var(--spacing-sm);
+  width: 100%;
+  box-sizing: border-box;
+  overflow: visible;
+}
+
+.image-style-group.new-style {
+  border: 2px dashed var(--color-primary);
+  background: var(--color-primary-light, #f0f7ff);
+}
+
+.image-style-name-input {
+  width: 100%;
+  padding: var(--spacing-sm);
+  border: 1px solid var(--color-light);
+  border-radius: var(--border-radius);
+  font-size: var(--font-size-base);
+  box-sizing: border-box;
+  margin-bottom: var(--spacing-xs);
+}
+
+.image-style-name-input:focus {
+  outline: none;
+  border-color: var(--color-primary);
+}
+
+.image-style-toggle {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: var(--font-size-base);
+  padding: var(--spacing-xs);
+  color: var(--color-dark);
+  display: flex;
+  align-items: center;
+}
+
+.image-style-toggle:hover {
+  color: var(--color-primary);
+}
+
+.image-style-delete {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: var(--font-size-lg);
+  padding: var(--spacing-xs);
+  float: right;
+  transition: transform var(--transition-fast);
+}
+
+.image-style-delete:hover {
+  transform: scale(1.1);
+}
+
+.image-style-submenu {
+  margin-top: var(--spacing-sm);
+  padding-top: var(--spacing-sm);
+  border-top: 1px solid var(--color-light);
+  width: 100%;
+  box-sizing: border-box;
+  overflow: visible;
+}
+
+.image-style-label {
+  display: block;
+  margin: var(--spacing-md) 0 var(--spacing-xs) 0;
+  font-weight: 500;
+  color: var(--color-dark);
+  font-size: var(--font-size-sm);
+}
+
+.image-style-preview {
+  width: 100px;
+  height: 100px;
+  background: var(--color-light);
+  margin: var(--spacing-md) auto;
+  border-radius: var(--border-radius);
+  transition: all var(--transition-normal);
+}
+
+.image-style-presets-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-xs);
+  margin-bottom: var(--spacing-sm);
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.image-style-preset-button {
+  padding: var(--spacing-xs) var(--spacing-sm);
+  background: var(--color-white);
+  border: 1px solid var(--color-light);
+  border-radius: var(--border-radius);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  flex: 1;
+  min-width: 80px;
+}
+
+.image-style-preset-button:hover {
+  background: var(--color-primary-light);
+  border-color: var(--color-primary);
+}
+
+.image-style-preset-button.active {
+  background: var(--color-primary);
+  color: var(--color-white);
+  border-color: var(--color-primary);
+}
+
+.image-style-preset-button.shadow-preset {
+  /* Les boutons d'ombre ont leur propre box-shadow pour prévisualisation */
+  background: var(--color-white);
+  color: var(--color-dark);
+}
+
+.image-style-preset-button.shadow-preset.active {
+  background: var(--color-primary);
+  color: var(--color-white);
+}
+
+.image-style-custom-group {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  width: 100%;
+  margin-top: var(--spacing-xs);
+  box-sizing: border-box;
+}
+
+.image-style-custom-button {
+  min-width: 60px;
+  padding: var(--spacing-xs) var(--spacing-sm);
+  background: var(--color-white);
+  border: 1px solid var(--color-light);
+  border-radius: var(--border-radius);
+  font-size: var(--font-size-sm);
+  cursor: default;
+  text-align: center;
+  font-weight: 500;
+  color: var(--color-dark);
+  /* Le border-radius sera appliqué dynamiquement pour montrer l'effet */
+  transition: all var(--transition-fast);
+}
+
+.image-style-custom-slider {
+  flex: 1;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--color-light);
+  outline: none;
+  -webkit-appearance: none;
+}
+
+.image-style-custom-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--color-primary);
+  cursor: pointer;
+}
+
+.image-style-custom-slider::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--color-primary);
+  cursor: pointer;
+  border: none;
+}
+
+.image-style-opacity-group {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  margin-bottom: var(--spacing-sm);
+}
+
+.image-style-opacity-slider {
+  flex: 1;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--color-light);
+  outline: none;
+  -webkit-appearance: none;
+}
+
+.image-style-opacity-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--color-primary);
+  cursor: pointer;
+}
+
+.image-style-opacity-slider::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--color-primary);
+  cursor: pointer;
+  border: none;
+}
+
+.image-style-opacity-value {
+  min-width: 40px;
+  text-align: right;
+  font-weight: 500;
+  color: var(--color-dark);
+  font-size: var(--font-size-sm);
+}
+
+.empty-message {
+  text-align: center;
+  color: var(--color-gray);
+  padding: var(--spacing-md);
+  font-style: italic;
+}
+
+.toggle-icon {
+  display: inline-block;
+  margin-right: var(--spacing-xs);
+  transition: transform var(--transition-fast);
+}

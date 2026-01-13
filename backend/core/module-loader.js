@@ -36,14 +36,19 @@ async function loadModules(app, db) {
 
       // Charger les routes du module
       if (typeof module.routes === 'function') {
-        const routes = module.routes();
-        
-        // Ajouter les routes au routeur selon la configuration
-        if (moduleInfo.routes && Array.isArray(moduleInfo.routes)) {
-          moduleInfo.routes.forEach(route => {
-            app.use(route, routes);
-            console.log(`🔗 Route chargée : ${route}`);
-          });
+        try {
+          const routes = module.routes();
+          
+          // Ajouter les routes au routeur selon la configuration
+          if (moduleInfo.routes && Array.isArray(moduleInfo.routes)) {
+            moduleInfo.routes.forEach(route => {
+              app.use(route, routes);
+              console.log(`🔗 Route chargée : ${route}`);
+            });
+          }
+        } catch (error) {
+          console.error(`❌ Erreur lors du chargement des routes du module ${moduleInfo.name} :`, error.message);
+          throw error;
         }
       }
 

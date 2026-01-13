@@ -32,10 +32,25 @@ function verifyToken(token) {
 function authenticateJWT(req, res, next) {
   console.log('🔐 authenticateJWT - Route:', req.path, req.method);
   
-  // Récupérer le token depuis le header Authorization
-  const authHeader = req.headers.authorization;
+  // Récupérer le token depuis le cookie HttpOnly ou le header Authorization
+  let token = null;
   
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+  // 1. Vérifier le cookie HttpOnly (priorité pour sécurité)
+  if (req.cookies && req.cookies.authToken) {
+    token = req.cookies.authToken;
+    console.log('🔐 authenticateJWT - Token trouvé dans cookie HttpOnly');
+  }
+  
+  // 2. Sinon, vérifier le header Authorization (fallback)
+  if (!token) {
+    const authHeader = req.headers.authorization;
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      token = authHeader.substring(7); // Enlever "Bearer "
+      console.log('🔐 authenticateJWT - Token trouvé dans header Authorization');
+    }
+  }
+  
+  if (!token) {
     console.log('❌ authenticateJWT - Token manquant');
     return res.status(401).json({
       success: false,
@@ -43,7 +58,6 @@ function authenticateJWT(req, res, next) {
     });
   }
 
-  const token = authHeader.substring(7); // Enlever "Bearer "
   const decoded = verifyToken(token);
 
   if (!decoded) {
@@ -55,11 +69,22 @@ function authenticateJWT(req, res, next) {
   }
   
   console.log('✅ authenticateJWT - Token valide pour:', decoded.email);
+  console.log('🔍 authenticateJWT - Données décodées:', {
+    user_id: decoded.user_id,
+    currentEntrepriseId: decoded.currentEntrepriseId,
+    entrepriseId: decoded.entrepriseId,
+    role: decoded.role,
+    email: decoded.email
+  });
+
+  // ✅ Format multi-entreprises : utiliser currentEntrepriseId
+  const currentEntrepriseId = decoded.currentEntrepriseId || decoded.entrepriseId;
 
   // Ajouter les infos utilisateur à la requête
   req.user = {
     user_id: decoded.user_id,
-    entity_id: decoded.entity_id,
+    currentEntrepriseId: currentEntrepriseId, // Format doc-template
+    entrepriseId: currentEntrepriseId, // Gardé pour compatibilité
     role: decoded.role,
     email: decoded.email
   };

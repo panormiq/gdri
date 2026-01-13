@@ -1,0 +1,26 @@
+{
+  "version": "1.0.0",
+  "coreFields": {
+    "name": {
+      "label": "Nom de la collection",
+      "type": "text",
+      "required": true,
+      "placeholder": "Entrez le nom",
+      "defaultValue": ""
+    },
+    "description": {
+      "label": "Description",
+      "type": "textarea",
+      "required": true,
+      "placeholder": "Décrivez la collection",
+      "defaultValue": ""
+    },
+    "tags": {
+      "label": "Tags",
+      "type": "array",
+      "required": true,
+      "placeholder": "Entrez des tags séparés par des virgules",
+      "defaultValue": []
+    }
+  }
+}

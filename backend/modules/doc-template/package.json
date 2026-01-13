@@ -1,0 +1,16 @@
+{
+  "name": "doc-template",
+  "displayName": "Doc Template",
+  "version": "3.0.0",
+  "description": "Module de gestion de documents et templates",
+  "author": "GDR-Innovation",
+  "routes": [
+    "/api/doc-template"
+  ],
+  "enabled": true,
+  "dependencies": {
+    "puppeteer": "^24.34.0"
+  },
+  "requiredServices": [],
+  "compatibleVersion": ">=1.0.0"
+}

@@ -1,0 +1,200 @@
+{
+  "version": "1.0.1",
+
+  "coreFields": {
+    "label": {
+      "label": "Libellé",
+      "type": "text",
+      "required": true,
+      "defaultValue": ""
+    },
+    "name": {
+      "label": "Nom technique",
+      "type": "text",
+      "required": true,
+      "defaultValue": ""
+    },
+    "placeholder": {
+      "label": "Placeholder",
+      "type": "text",
+      "required": false,
+      "defaultValue": ""
+    },
+    "required": {
+      "label": "Champ requis",
+      "type": "boolean",
+      "required": false,
+      "defaultValue": false
+    },
+    "indexed": {
+      "label": "Indexé",
+      "type": "boolean",
+      "required": false,
+      "defaultValue": false
+    }
+  },
+
+  "baseTypes": {
+    "string": {
+      "label": "Texte",
+      "description": "Chaîne de caractères générique",
+      "valueType": "string",
+      "defaultValue": "",
+      "uiType": "Texte",
+      "validation": {
+        "maxLength": { "value": 255, "fieldType": "number" },
+        "pattern": { "value": null, "fieldType": "text" }
+      }
+    },
+    "number": {
+      "label": "Nombre",
+      "description": "Nombre entier ou flottant",
+      "valueType": "number",
+      "defaultValue": 0,
+      "uiType": "Number",
+      "validation": {
+        "min": { "value": null, "fieldType": "number" },
+        "max": { "value": null, "fieldType": "number" },
+        "step": { "value": 1, "fieldType": "number" },
+        "integerOnly": { "value": false, "fieldType": "checkbox" }
+      }
+    },
+    "boolean": {
+      "label": "Booléen",
+      "description": "Valeur true/false",
+      "valueType": "boolean",
+      "uiType": "Boolean",
+      "defaultValue": false,
+      "validation": {}
+    },
+    "document": {
+      "label": "Document",
+      "description": "Référence à un document généré",
+      "valueType": "string",
+      "defaultValue": null,
+      "uiType": "DocumentGeneré",
+      "validation": {
+        "templateId": { "required": true, "fieldType": "text" },
+        "mode": { "allowedValues": ["dynamique", "statique"], "fieldType": "select" }
+      }
+    },
+    "array": {
+      "label": "Liste",
+      "description": "Liste de valeurs",
+      "valueType": "array",
+      "uiType": "Array",
+      "defaultValue": [],
+      "validation": {
+        "itemType": { "value": null, "fieldType": "text" },
+        "minItems": { "value": 0, "fieldType": "number" },
+        "maxItems": { "value": null, "fieldType": "number" }
+      }
+    },
+    "date": {
+      "label": "Date",
+      "description": "Date",
+      "valueType": "string",
+      "defaultValue": "",
+      "uiType": "Date",
+      "validation": {
+        "pattern": { "value": null, "fieldType": "text" }
+      }
+    },
+    "color": {
+      "label": "Couleur",
+      "description": "Couleur hexadécimale",
+      "valueType": "string",
+      "defaultValue": "#000000",
+      "uiType": "Color",
+      "validation": {
+        "pattern": { "value": "hex", "fieldType": "text" }
+      }
+    },
+    "file": {
+      "label": "Fichier",
+      "description": "Fichier uploadable",
+      "valueType": "string",
+      "defaultValue": "",
+      "uiType": "File",
+      "validation": {
+        "extensions": { "value": [], "fieldType": "text" },
+        "maxSizeMB": { "value": null, "fieldType": "number" }
+      }
+    }
+  
+      
+    
+  },
+
+  "types": {
+    "Texte": { "typeRef": "string", "label": "Texte", "validation": { "maxLength": 255 } },
+    "TextArea": { "typeRef": "string", "label": "Zone de texte", "validation": { "maxLength": 5000 } },
+    "Lien": { "typeRef": "string", "label": "Lien", "validation": { "pattern": "url" } },
+    "Fichier": {
+    "typeRef": "file",
+    "label": "Fichier",
+    "validation": {
+      "extensions": ["pdf","doc","docx","txt"],
+      "maxSizeMB": 10
+    }
+  },
+  "Image": {
+    "typeRef": "file",
+    "label": "Image",
+    "validation": {
+      "extensions": ["jpg","jpeg","png","gif"],
+      "maxSizeMB": 5
+    },
+    "options": {
+      "crop": {
+        "label": "Autoriser le recadrage",
+        "uiType": "checkbox",
+        "enabled": true,
+        "aspectRatio": null,
+        "x": 0,
+        "y": 0,
+        "width": "100%",
+        "height": "100%"
+      },
+      "rotation": {
+        "label": "Autoriser la rotation",
+        "enabled": true,
+        "angles": [0, 90, 180, 270]
+      },
+      "resize": {
+         "label": "Autoriser le redimensionnement",
+        "enabled": false,
+        "aspectRatio": null,
+        "width": null,
+        "height": null
+      }
+    }},
+    "Boolean": { "typeRef": "boolean", "label": "Oui / Non", "validation": {} },
+    "Enum": { "typeRef": "string", "label": "Liste de valeurs", "validation": { "allowedValues": [] } },
+    "Date": { "typeRef": "date", "label": "Date", "validation": { "pattern": "YYYY-MM-DD" } },
+    "DateTime": { "typeRef": "date", "label": "Date & Heure", "validation": { "pattern": "YYYY-MM-DDTHH:mm:ss" } },
+    "SousCollection": { "typeRef": "array", "label": "Sous-collection", "validation": { "fieldsRequired": true } },
+    "Couleur": { "typeRef": "color", "label": "Couleur", "defaultValue": "#000000", "validation": { "pattern": "hex" } },
+    "DocumentGeneré": {
+      "typeRef": "document",
+      "label": "Document généré",
+      "validation": {
+        "templateId": { "required": true },
+        "mode": { "allowedValues": ["dynamique", "statique"], "defaultValue": "dynamique" }
+      },
+      "defaultValue": {
+        "documentId": null,
+        "url": null,
+        "mode": "dynamique",
+        "generatedAt": null
+      }
+    },
+    "Number": { "typeRef": "number", "label": "Nombre", "defaultValue": 0, "validation": { "min": null, "max": null, "step": 1, "integerOnly": false }, "settings": {
+      "unit": {
+        "label": "Unité",
+         "type": "text",
+        "defaultValue": ""
+      } }}
+  
+}
+}

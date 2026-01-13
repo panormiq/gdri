@@ -74,12 +74,14 @@ export default class RichTextEditor {
     
     // Désélectionner les images quand on clique ailleurs
     this.editorElement.onclick = (e) => {
-      // Si on ne clique pas sur une image ou ses contrôles
-      if (!e.target.closest('.template-image-container')) {
-        document.querySelectorAll('.template-image-container.selected').forEach(container => {
-          this.deselectImage(container);
-        });
+      // Ignorer les clics sur les images (gérés par le container lui-même)
+      if (e.target.closest('.template-image-container')) {
+        return; // Laisser le container gérer le clic
       }
+      // Si on ne clique pas sur une image ou ses contrôles
+      document.querySelectorAll('.template-image-container.selected').forEach(container => {
+        this.deselectImage(container);
+      });
     };
     
     // Gérer la touche Entrée dans un titre : créer un paragraphe et mettre à jour la numérotation
@@ -582,8 +584,162 @@ export default class RichTextEditor {
       return null;
     };
     
+    // Fonction pour vérifier si une variable path correspond à un champ image
+    this.isVariableAnImage = async (variablePath) => {
+      console.log('🖼️ [isVariableAnImage] Vérification pour:', variablePath);
+      if (!variablePath || !this.template) {
+        console.log('🖼️ [isVariableAnImage] Pas de variablePath ou template');
+        return false;
+      }
+      
+      // Parser le variablePath (format: "alias.fieldName")
+      const parts = variablePath.split('.');
+      if (parts.length !== 2) {
+        console.log('🖼️ [isVariableAnImage] Format invalide:', variablePath);
+        return false;
+      }
+      
+      const [alias, fieldName] = parts;
+      console.log('🖼️ [isVariableAnImage] Alias:', alias, 'FieldName:', fieldName);
+      
+      // Charger les fieldTypes pour normaliser les champs
+      let fieldTypesData = null;
+      try {
+        const { collectionApi } = await import('../../../shared/api/CollectionApi.js');
+        const typesRes = await collectionApi.getFieldTypes();
+        if (typesRes.success) {
+          fieldTypesData = typesRes.data;
+        }
+      } catch (error) {
+        console.error('❌ Erreur chargement fieldTypes:', error);
+      }
+      
+      // Fonction pour normaliser les champs
+      const normalizeFields = (fields) => {
+        if (!fieldTypesData || !fieldTypesData.baseTypes) return fields;
+        return fields.map(field => ({
+          ...field,
+          uiType: fieldTypesData.baseTypes[field.typeRef]?.uiType || field.uiType || 'Texte'
+        }));
+      };
+      
+      // Fonction pour détecter si un champ est de type image
+      const isImageField = (field) => {
+        // Normaliser le champ d'abord
+        const normalizedField = normalizeFields([field])[0];
+        
+        // Vérifier le type ou uiType directement
+        if (normalizedField.type === 'image' || normalizedField.uiType === 'Image') {
+          console.log('🖼️ [isImageField] Type image détecté:', normalizedField.type, normalizedField.uiType);
+          return true;
+        }
+        // Vérifier le typeRef (Image utilise typeRef: "file")
+        if (normalizedField.typeRef === 'file') {
+          // Vérifier le label
+          const label = (normalizedField.label || '').toLowerCase();
+          if (label.includes('image')) {
+            console.log('🖼️ [isImageField] Label contient "image":', label);
+            return true;
+          }
+          // Vérifier les extensions autorisées
+          const extensions = normalizedField.validation?.extensions || [];
+          const imageExtensions = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'bmp'];
+          if (Array.isArray(extensions) && extensions.some(ext => imageExtensions.includes(ext.toLowerCase()))) {
+            console.log('🖼️ [isImageField] Extensions image détectées:', extensions);
+            return true;
+          }
+        }
+        return false;
+      };
+      
+      // Chercher dans defaultCollection
+      if (this.template.defaultCollection && this.template.defaultCollection.alias === alias) {
+        console.log('🖼️ [isVariableAnImage] Collection trouvée dans defaultCollection');
+        let fields = [];
+        
+        // Si c'est une collection virtuelle (avec fields directement)
+        if (this.template.defaultCollection.fields) {
+          fields = normalizeFields(this.template.defaultCollection.fields);
+          console.log('🖼️ [isVariableAnImage] Collection virtuelle,', fields.length, 'champs');
+        } 
+        // Sinon charger depuis l'API
+        else if (this.template.defaultCollection.collectionId) {
+          try {
+            const { collectionApi } = await import('../../../shared/api/CollectionApi.js');
+            const response = await collectionApi.getById(this.template.defaultCollection.collectionId);
+            if (response.success && response.data) {
+              fields = normalizeFields(response.data.fields || []);
+              console.log('🖼️ [isVariableAnImage] Collection chargée depuis API,', fields.length, 'champs');
+            }
+          } catch (error) {
+            console.error('❌ Erreur chargement defaultCollection:', error);
+          }
+        }
+        
+        const field = fields.find(f => f.name === fieldName);
+        console.log('🖼️ [isVariableAnImage] Champ trouvé:', field ? field.name : 'non trouvé');
+        if (field) {
+          console.log('🖼️ [isVariableAnImage] Détails du champ:', {
+            name: field.name,
+            type: field.type,
+            typeRef: field.typeRef,
+            uiType: field.uiType,
+            label: field.label
+          });
+        }
+        if (field && isImageField(field)) {
+          console.log('🖼️ [isVariableAnImage] ✅ C\'est une image !');
+          return true;
+        }
+      }
+      
+      // Chercher dans additionalCollections
+      if (this.template.additionalCollections) {
+        console.log('🖼️ [isVariableAnImage] Recherche dans additionalCollections:', this.template.additionalCollections.length);
+        for (const colRef of this.template.additionalCollections) {
+          if (colRef.alias === alias) {
+            console.log('🖼️ [isVariableAnImage] Collection trouvée dans additionalCollections');
+            let fields = [];
+            
+            // Charger depuis l'API
+            if (colRef.collectionId) {
+              try {
+                const { collectionApi } = await import('../../../shared/api/CollectionApi.js');
+                const response = await collectionApi.getById(colRef.collectionId);
+                if (response.success && response.data) {
+                  fields = normalizeFields(response.data.fields || []);
+                  console.log('🖼️ [isVariableAnImage] Collection chargée depuis API,', fields.length, 'champs');
+                }
+              } catch (error) {
+                console.error('❌ Erreur chargement collection:', error);
+              }
+            }
+            
+            const field = fields.find(f => f.name === fieldName);
+            console.log('🖼️ [isVariableAnImage] Champ trouvé:', field ? field.name : 'non trouvé');
+            if (field) {
+              console.log('🖼️ [isVariableAnImage] Détails du champ:', {
+                name: field.name,
+                type: field.type,
+                typeRef: field.typeRef,
+                uiType: field.uiType,
+                label: field.label
+              });
+            }
+            if (field && isImageField(field)) {
+              console.log('🖼️ [isVariableAnImage] ✅ C\'est une image !');
+              return true;
+            }
+          }
+        }
+      }
+      
+      console.log('🖼️ [isVariableAnImage] ❌ Ce n\'est pas une image');
+      return false;
+    };
+
     // Fonction centralisée pour gérer le drop
-    this.handleDrop = (e) => {
+    this.handleDrop = async (e) => {
       e.preventDefault();
       
       // Cacher l'indicateur de caret
@@ -596,6 +752,109 @@ export default class RichTextEditor {
       const draggedVariableElement = isMovingVariable ? this.draggedVariableElement : null;
       
       if (variablePath) {
+        console.log('🖼️ [handleDrop] Variable path:', variablePath);
+        // Vérifier si c'est une image de collection
+        const isImage = await this.isVariableAnImage(variablePath);
+        console.log('🖼️ [handleDrop] Est une image ?', isImage);
+        
+        if (isImage) {
+          console.log('🖼️ [handleDrop] ✅ Création d\'une image avec source collection');
+          // C'est une image, créer une image avec source "collection"
+          let range = null;
+          
+          // Priorité 1 : Utiliser le range stocké pendant le drag
+          if (this.dropRange) {
+            try {
+              if (this.editorElement.contains(this.dropRange.commonAncestorContainer)) {
+                const container = this.dropRange.commonAncestorContainer;
+                if (container.nodeType === Node.TEXT_NODE) {
+                  range = this.dropRange.cloneRange();
+                } else {
+                  const element = container.nodeType === Node.ELEMENT_NODE ? container : container.parentElement;
+                  if (element) {
+                    const textPos = this.findExactTextPosition(element, e.clientX, e.clientY);
+                    if (textPos) {
+                      range = document.createRange();
+                      range.setStart(textPos.node, textPos.offset);
+                      range.collapse(true);
+                    } else {
+                      range = this.dropRange.cloneRange();
+                    }
+                  }
+                }
+              }
+            } catch (err) {
+              // Le range stocké n'est plus valide
+            }
+          }
+          
+          // Priorité 2 : Utiliser findTextPositionFromPoint
+          if (!range) {
+            range = this.findTextPositionFromPoint(e.clientX, e.clientY);
+          }
+          
+          // Priorité 3 : Fallback
+          if (!range && document.caretRangeFromPoint) {
+            try {
+              const caretRange = document.caretRangeFromPoint(e.clientX, e.clientY);
+              if (caretRange && this.editorElement.contains(caretRange.commonAncestorContainer)) {
+                const container = caretRange.commonAncestorContainer;
+                if (container.nodeType === Node.TEXT_NODE) {
+                  range = caretRange;
+                }
+              }
+            } catch (err) {
+              // caretRangeFromPoint a échoué
+            }
+          }
+          
+          // Priorité 4 : Fallback - chercher l'élément sous le curseur
+          if (!range) {
+            const allElements = this.editorElement.querySelectorAll('p, div, h1, h2, h3, h4, li');
+            for (const element of allElements) {
+              const rect = element.getBoundingClientRect();
+              if (e.clientX >= rect.left && e.clientX <= rect.right &&
+                  e.clientY >= rect.top && e.clientY <= rect.bottom) {
+                range = document.createRange();
+                range.setStart(element, 0);
+                range.collapse(true);
+                break;
+              }
+            }
+          }
+          
+          // Priorité 5 : Dernier recours
+          if (!range) {
+            const newP = document.createElement('p');
+            newP.innerHTML = '<br>';
+            this.editorElement.appendChild(newP);
+            range = document.createRange();
+            range.setStart(newP, 0);
+            range.collapse(true);
+          }
+          
+          // Appliquer la sélection
+          const selection = window.getSelection();
+          selection.removeAllRanges();
+          selection.addRange(range);
+          
+          // Créer les données d'image avec source "collection"
+          const imageData = {
+            type: 'variable',
+            variablePath: variablePath,
+            alt: `{{${variablePath}}}`
+          };
+          
+          // Insérer l'image
+          this.insertImage(imageData);
+          
+          // Nettoyer
+          this.dropRange = null;
+          this.draggedVariableElement = null;
+          return;
+        }
+        
+        // Sinon, continuer avec l'insertion normale de variable
         let range = null;
         
         // Priorité 1 : Utiliser le range stocké pendant le drag (le plus précis car calculé en temps réel)
@@ -743,6 +1002,10 @@ export default class RichTextEditor {
     
     // Écouter les clics dans l'éditeur pour détecter la section active
     this.editorElement.addEventListener('click', (e) => {
+      // Ignorer les clics sur les images (gérés par le container lui-même)
+      if (e.target.closest('.template-image-container')) {
+        return; // Laisser le container gérer le clic
+      }
       // S'assurer que l'éditeur a le focus pour afficher le caret
       if (document.activeElement !== this.editorElement) {
         this.editorElement.focus();
@@ -2336,12 +2599,19 @@ export default class RichTextEditor {
     }
 
     const selection = window.getSelection();
+    let range;
+    
     if (selection.rangeCount === 0) {
-      console.error('❌ Aucune sélection disponible');
-      return;
+      console.log('⚠️ Aucune sélection disponible, création d\'une sélection à la fin de l\'éditeur');
+      // Créer une sélection à la fin de l'éditeur
+      range = document.createRange();
+      range.selectNodeContents(this.editorElement);
+      range.collapse(false); // Collapse à la fin
+      selection.removeAllRanges();
+      selection.addRange(range);
+    } else {
+      range = selection.getRangeAt(0);
     }
-
-    const range = selection.getRangeAt(0);
     
     // Trouver le paragraphe actuel
     let currentParagraph = range.commonAncestorContainer;
@@ -2469,6 +2739,17 @@ export default class RichTextEditor {
   }
 
   /**
+   * Génère un SVG placeholder pour une image variable
+   */
+  generateVariableImagePlaceholder(variablePath) {
+    // Créer le SVG avec le variablePath dynamique
+    const svgContent = `<svg width="200" height="100" xmlns="http://www.w3.org/2000/svg"><rect width="200" height="100" fill="#f0f0f0"/><text x="50%" y="50%" font-family="Arial" font-size="14" fill="#999" text-anchor="middle" dy=".3em">{{${variablePath}}}</text></svg>`;
+    // Encoder en base64
+    const base64 = btoa(unescape(encodeURIComponent(svgContent)));
+    return `data:image/svg+xml;base64,${base64}`;
+  }
+
+  /**
    * Crée l'élément image dans le conteneur
    */
   createImageElement(container, imageData) {
@@ -2500,7 +2781,7 @@ export default class RichTextEditor {
       // Variable de collection ou template
       img.dataset.imageType = 'variable';
       img.dataset.variablePath = imageData.variablePath;
-      img.src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjAwIiBoZWlnaHQ9IjEwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMjAwIiBoZWlnaHQ9IjEwMCIgZmlsbD0iI2YwZjBmMCIvPjx0ZXh0IHg9IjUwJSIgeT0iNTAlIiBmb250LWZhbWlseT0iQXJpYWwiIGZvbnQtc2l6ZT0iMTQiIGZpbGw9IiM5OTkiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGR5PSIuM2VtIj57e3t2YXJpYWJsZX19fTwvdGV4dD48L3N2Zz4=';
+      img.src = this.generateVariableImagePlaceholder(imageData.variablePath);
       img.alt = `{{${imageData.variablePath}}}`;
     } else if (imageData.type === 'upload') {
       // Image uploadée
@@ -2539,19 +2820,198 @@ export default class RichTextEditor {
     // Stocker les données de l'image dans le conteneur
     container._imageData = imageData;
     
-    // Double-clic pour éditer (seulement si l'image est chargée)
-    container.ondblclick = (e) => {
+    // Initialiser les variables de détection de double-clic sur le container
+    if (!container._clickTimeout) {
+      container._clickTimeout = null;
+      container._clickCount = 0;
+    }
+    
+    console.log('🖼️ [DEBUG createImageElement] Attachement des gestionnaires de clic sur le container');
+    
+    container.onclick = (e) => {
+      console.log('🖼️ [DEBUG] Clic détecté sur image container', {
+        target: e.target,
+        closestResize: e.target.closest('.resize-handle'),
+        closestLock: e.target.closest('.lock-button'),
+        closestDelete: e.target.closest('.image-delete-button')
+      });
+      
+      if (e.target.closest('.resize-handle') || e.target.closest('.lock-button') || e.target.closest('.image-delete-button')) {
+        console.log('🖼️ [DEBUG] Clic sur contrôle, ignoré');
+        return; // Ne pas sélectionner si on clique sur les contrôles
+      }
       e.preventDefault();
       e.stopPropagation();
-      // Vérifier que l'image est chargée (pas un placeholder)
+      
+      container._clickCount++;
+      console.log('🖼️ [DEBUG] Compteur de clics:', container._clickCount);
+      
+      if (container._clickCount === 1) {
+        // Premier clic : attendre pour voir si c'est un double-clic
+        console.log('🖼️ [DEBUG] Premier clic, attente de 300ms...');
+        container._clickTimeout = setTimeout(() => {
+          // C'est un clic simple
+          console.log('🖼️ [DEBUG] Timeout atteint, c\'est un clic simple');
+          this.selectImage(container);
+          container._clickCount = 0;
+        }, 300);
+      } else if (container._clickCount === 2) {
+        // Double-clic détecté
+        console.log('🖼️ [DEBUG] Double-clic détecté via compteur !');
+        clearTimeout(container._clickTimeout);
+        container._clickCount = 0;
+        const imgElement = container.querySelector('img.template-image');
+        if (imgElement) {
+          console.log('🖼️ [DEBUG] Image trouvée, ouverture du modal d\'édition', {
+            imageType: imgElement.dataset.imageType,
+            imageId: imgElement.dataset.imageId,
+            variablePath: imgElement.dataset.variablePath
+          });
+          this.showImageEditModal(container, imageData);
+        } else {
+          console.error('🖼️ [DEBUG] ERREUR: Image non trouvée dans le container');
+        }
+      }
+    };
+    
+    // Double-clic natif en backup
+    container.ondblclick = (e) => {
+      console.log('🖼️ [DEBUG] Double-clic NATIF détecté !');
+      e.preventDefault();
+      e.stopPropagation();
+      if (container._clickTimeout) {
+        clearTimeout(container._clickTimeout);
+        console.log('🖼️ [DEBUG] Timeout annulé');
+      }
+      container._clickCount = 0;
       const imgElement = container.querySelector('img.template-image');
-      if (imgElement && imgElement.src && !imgElement.src.includes('data:image/svg+xml')) {
+      if (imgElement) {
+        console.log('🖼️ [DEBUG] Image trouvée (double-clic natif), ouverture du modal d\'édition', {
+          imageType: imgElement.dataset.imageType,
+          imageId: imgElement.dataset.imageId,
+          variablePath: imgElement.dataset.variablePath
+        });
         this.showImageEditModal(container, imageData);
+      } else {
+        console.error('🖼️ [DEBUG] ERREUR: Image non trouvée dans le container (double-clic natif)');
       }
     };
     
     // Rendre l'image redimensionnable
     this.makeImageResizable(container);
+  }
+
+  /**
+   * Réattache les event listeners pour le double-clic sur une image existante
+   * Utile après avoir mis à jour l'image via "source"
+   */
+  reattachImageListeners(container) {
+    if (!container) {
+      console.error('🖼️ [DEBUG reattachImageListeners] Container non fourni');
+      return;
+    }
+
+    const imgElement = container.querySelector('img.template-image');
+    if (!imgElement) {
+      console.error('🖼️ [DEBUG reattachImageListeners] Image non trouvée dans le container');
+      return;
+    }
+
+    // Récupérer les données de l'image depuis le container ou les reconstruire depuis l'image
+    let imageData = container._imageData;
+    if (!imageData) {
+      // Reconstruire imageData depuis les attributs de l'image
+      imageData = {
+        type: imgElement.dataset.imageType || 'upload',
+        variablePath: imgElement.dataset.variablePath,
+        imageId: imgElement.dataset.imageId,
+        url: imgElement.src,
+        alt: imgElement.alt || 'Image'
+      };
+      container._imageData = imageData;
+    }
+
+    console.log('🖼️ [DEBUG reattachImageListeners] Réattachement des listeners', {
+      imageType: imgElement.dataset.imageType,
+      imageId: imgElement.dataset.imageId,
+      variablePath: imgElement.dataset.variablePath
+    });
+
+    // Initialiser les variables de détection de double-clic
+    if (!container._clickTimeout) {
+      container._clickTimeout = null;
+      container._clickCount = 0;
+    }
+
+    // Réattacher le gestionnaire de clic
+    container.onclick = (e) => {
+      console.log('🖼️ [DEBUG] Clic détecté sur image container', {
+        target: e.target,
+        closestResize: e.target.closest('.resize-handle'),
+        closestLock: e.target.closest('.lock-button'),
+        closestDelete: e.target.closest('.image-delete-button')
+      });
+      
+      if (e.target.closest('.resize-handle') || e.target.closest('.lock-button') || e.target.closest('.image-delete-button')) {
+        console.log('🖼️ [DEBUG] Clic sur contrôle, ignoré');
+        return; // Ne pas sélectionner si on clique sur les contrôles
+      }
+      e.preventDefault();
+      e.stopPropagation();
+      
+      container._clickCount++;
+      console.log('🖼️ [DEBUG] Compteur de clics:', container._clickCount);
+      
+      if (container._clickCount === 1) {
+        // Premier clic : attendre pour voir si c'est un double-clic
+        console.log('🖼️ [DEBUG] Premier clic, attente de 300ms...');
+        container._clickTimeout = setTimeout(() => {
+          // C'est un clic simple
+          console.log('🖼️ [DEBUG] Timeout atteint, c\'est un clic simple');
+          this.selectImage(container);
+          container._clickCount = 0;
+        }, 300);
+      } else if (container._clickCount === 2) {
+        // Double-clic détecté
+        console.log('🖼️ [DEBUG] Double-clic détecté via compteur !');
+        clearTimeout(container._clickTimeout);
+        container._clickCount = 0;
+        const img = container.querySelector('img.template-image');
+        if (img) {
+          console.log('🖼️ [DEBUG] Image trouvée, ouverture du modal d\'édition', {
+            imageType: img.dataset.imageType,
+            imageId: img.dataset.imageId,
+            variablePath: img.dataset.variablePath
+          });
+          this.showImageEditModal(container, imageData);
+        } else {
+          console.error('🖼️ [DEBUG] ERREUR: Image non trouvée dans le container');
+        }
+      }
+    };
+    
+    // Réattacher le double-clic natif en backup
+    container.ondblclick = (e) => {
+      console.log('🖼️ [DEBUG] Double-clic NATIF détecté !');
+      e.preventDefault();
+      e.stopPropagation();
+      if (container._clickTimeout) {
+        clearTimeout(container._clickTimeout);
+        console.log('🖼️ [DEBUG] Timeout annulé');
+      }
+      container._clickCount = 0;
+      const img = container.querySelector('img.template-image');
+      if (img) {
+        console.log('🖼️ [DEBUG] Image trouvée (double-clic natif), ouverture du modal d\'édition', {
+          imageType: img.dataset.imageType,
+          imageId: img.dataset.imageId,
+          variablePath: img.dataset.variablePath
+        });
+        this.showImageEditModal(container, imageData);
+      } else {
+        console.error('🖼️ [DEBUG] ERREUR: Image non trouvée dans le container (double-clic natif)');
+      }
+    };
   }
 
   /**
@@ -2703,39 +3163,127 @@ export default class RichTextEditor {
       collectionsSelect.className = 'image-source-select';
       collectionsSelect.innerHTML = '<option value="">-- Sélectionner --</option>';
       
-      // Récupérer les collections du template
-      const collections = [];
-      if (this.template?.defaultCollection) {
-        collections.push({
-          alias: this.template.defaultCollection.alias,
-          collectionId: this.template.defaultCollection.collectionId,
-          fields: this.template.defaultCollection.fields || []
-        });
-      }
-      if (this.template?.additionalCollections) {
-        this.template.additionalCollections.forEach(col => {
-          collections.push({
-            alias: col.alias,
-            collectionId: col.collectionId,
-            fields: col.fields || []
-          });
-        });
-      }
-      
-      // Récupérer les champs de type image
-      collections.forEach(collection => {
-        const imageFields = collection.fields.filter(f => f.type === 'image' || f.uiType === 'Image');
-        if (imageFields.length > 0) {
-          const optgroup = document.createElement('optgroup');
-          optgroup.label = collection.alias;
-          imageFields.forEach(field => {
-            const option = document.createElement('option');
-            option.value = `${collection.alias}.${field.name}`;
-            option.textContent = `${collection.alias}.${field.name}`;
-            optgroup.appendChild(option);
-          });
-          collectionsSelect.appendChild(optgroup);
+      // Charger les collections depuis l'API pour avoir les champs complets
+      const loadCollectionsWithFields = async () => {
+        const collections = [];
+        
+        // Charger les types pour normaliser les champs
+        let fieldTypesData = null;
+        try {
+          const { collectionApi } = await import('../../../shared/api/CollectionApi.js');
+          const typesRes = await collectionApi.getFieldTypes();
+          if (typesRes.success) {
+            fieldTypesData = typesRes.data;
+          }
+        } catch (error) {
+          console.error('❌ Erreur chargement fieldTypes:', error);
         }
+        
+        // Fonction pour normaliser les champs
+        const normalizeFields = (fields) => {
+          if (!fieldTypesData || !fieldTypesData.baseTypes) return fields;
+          return fields.map(field => ({
+            ...field,
+            uiType: fieldTypesData.baseTypes[field.typeRef]?.uiType || field.uiType || 'Texte'
+          }));
+        };
+        
+        // Charger defaultCollection si elle existe
+        if (this.template?.defaultCollection) {
+          const collData = {
+            alias: this.template.defaultCollection.alias,
+            collectionId: this.template.defaultCollection.collectionId,
+            fields: []
+          };
+          
+          // Si c'est une collection virtuelle (avec fields directement)
+          if (this.template.defaultCollection.fields) {
+            collData.fields = normalizeFields(this.template.defaultCollection.fields);
+          } 
+          // Sinon charger depuis l'API
+          else if (this.template.defaultCollection.collectionId) {
+            try {
+              const { collectionApi } = await import('../../../shared/api/CollectionApi.js');
+              const response = await collectionApi.getById(this.template.defaultCollection.collectionId);
+              if (response.success && response.data) {
+                collData.fields = normalizeFields(response.data.fields || []);
+              }
+            } catch (error) {
+              console.error('❌ Erreur chargement defaultCollection:', error);
+            }
+          }
+          
+          collections.push(collData);
+        }
+        
+        // Charger additionalCollections
+        if (this.template?.additionalCollections) {
+          for (const colRef of this.template.additionalCollections) {
+            const collData = {
+              alias: colRef.alias,
+              collectionId: colRef.collectionId,
+              fields: []
+            };
+            
+            // Charger depuis l'API
+            if (colRef.collectionId) {
+              try {
+                const { collectionApi } = await import('../../../shared/api/CollectionApi.js');
+                const response = await collectionApi.getById(colRef.collectionId);
+                if (response.success && response.data) {
+                  collData.fields = normalizeFields(response.data.fields || []);
+                }
+              } catch (error) {
+                console.error('❌ Erreur chargement collection:', error);
+              }
+            }
+            
+            collections.push(collData);
+          }
+        }
+        
+        return collections;
+      };
+      
+      // Fonction pour détecter si un champ est de type image
+      const isImageField = (field) => {
+        // Vérifier le type ou uiType directement
+        if (field.type === 'image' || field.uiType === 'Image') {
+          return true;
+        }
+        // Vérifier le typeRef (Image utilise typeRef: "file")
+        if (field.typeRef === 'file') {
+          // Vérifier le label
+          const label = (field.label || '').toLowerCase();
+          if (label.includes('image')) {
+            return true;
+          }
+          // Vérifier les extensions autorisées
+          const extensions = field.validation?.extensions || [];
+          const imageExtensions = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'bmp'];
+          if (Array.isArray(extensions) && extensions.some(ext => imageExtensions.includes(ext.toLowerCase()))) {
+            return true;
+          }
+        }
+        return false;
+      };
+      
+      // Charger et afficher les collections
+      loadCollectionsWithFields().then(collections => {
+        collections.forEach(collection => {
+          const imageFields = collection.fields.filter(isImageField);
+          if (imageFields.length > 0) {
+            const optgroup = document.createElement('optgroup');
+            optgroup.label = collection.alias;
+            imageFields.forEach(field => {
+              const option = document.createElement('option');
+              option.value = `${collection.alias}.${field.name}`;
+              option.textContent = `${field.label || field.name} (${collection.alias}.${field.name})`;
+              optgroup.appendChild(option);
+            });
+            collectionsSelect.appendChild(optgroup);
+          }
+        });
       });
       
       collectionsGroup.appendChild(collectionsSelect);
@@ -3397,8 +3945,17 @@ export default class RichTextEditor {
    * Affiche le modal d'édition d'image (rogner, rotation, suppression de fond)
    */
   showImageEditModal(container, imageData) {
+    console.log('🖼️ [DEBUG showImageEditModal] Appelé avec:', {
+      container: container,
+      imageData: imageData,
+      hasImageData: !!imageData
+    });
     const img = container.querySelector('img');
-    if (!img) return;
+    if (!img) {
+      console.error('🖼️ [DEBUG showImageEditModal] ERREUR: Image non trouvée dans le container');
+      return;
+    }
+    console.log('🖼️ [DEBUG showImageEditModal] Image trouvée, création du modal');
     
     // S'assurer que data-original-src est défini si ce n'est pas déjà fait
     // (pour les images restaurées depuis le HTML ou modifiées précédemment)
@@ -4595,22 +5152,100 @@ export default class RichTextEditor {
           container.setAttribute('data-resizable', 'true');
         }
         
-        // Ajouter le gestionnaire de clic pour la sélection
+        // Restaurer imageData depuis les attributs de l'image si pas déjà présent
+        if (!container._imageData) {
+          container._imageData = {
+            type: img.dataset.imageType || 'upload',
+            url: img.src,
+            imageId: img.dataset.imageId,
+            variablePath: img.dataset.variablePath,
+            width: container.dataset.imageWidth,
+            height: container.dataset.imageHeight,
+            styleName: container.dataset.imageStyle
+          };
+          console.log('🖼️ [DEBUG restoreImages] imageData restauré:', container._imageData);
+        }
+        
+        // Initialiser les variables de détection de double-clic sur le container
+        if (!container._clickTimeout) {
+          container._clickTimeout = null;
+          container._clickCount = 0;
+        }
+        
+        // Réattacher les gestionnaires (au cas où ils auraient été perdus)
         container.onclick = (e) => {
+          console.log('🖼️ [DEBUG restoreImages] Clic détecté sur image container', {
+            target: e.target,
+            closestResize: e.target.closest('.resize-handle'),
+            closestLock: e.target.closest('.lock-button'),
+            closestDelete: e.target.closest('.image-delete-button')
+          });
+          
           if (e.target.closest('.resize-handle') || e.target.closest('.lock-button') || e.target.closest('.image-delete-button')) {
+            console.log('🖼️ [DEBUG restoreImages] Clic sur contrôle, ignoré');
             return; // Ne pas sélectionner si on clique sur les contrôles
           }
-          e.stopPropagation();
-          this.selectImage(container);
-        };
-        
-        // Double-clic pour éditer (seulement si l'image est chargée)
-        container.ondblclick = (e) => {
           e.preventDefault();
           e.stopPropagation();
-          // Vérifier que l'image est chargée (pas un placeholder)
+          
+          container._clickCount++;
+          console.log('🖼️ [DEBUG restoreImages] Compteur de clics:', container._clickCount);
+          
+          if (container._clickCount === 1) {
+            // Premier clic : attendre pour voir si c'est un double-clic
+            console.log('🖼️ [DEBUG restoreImages] Premier clic, attente de 300ms...');
+            container._clickTimeout = setTimeout(() => {
+              // C'est un clic simple
+              console.log('🖼️ [DEBUG restoreImages] Timeout atteint, c\'est un clic simple');
+              this.selectImage(container);
+              container._clickCount = 0;
+            }, 300);
+          } else if (container._clickCount === 2) {
+            // Double-clic détecté
+            console.log('🖼️ [DEBUG restoreImages] Double-clic détecté via compteur !');
+            clearTimeout(container._clickTimeout);
+            container._clickCount = 0;
+            const imgElement = container.querySelector('img.template-image');
+            if (imgElement) {
+              console.log('🖼️ [DEBUG restoreImages] Image trouvée, ouverture du modal d\'édition', {
+                imageType: imgElement.dataset.imageType,
+                imageId: imgElement.dataset.imageId,
+                variablePath: imgElement.dataset.variablePath
+              });
+              // Récupérer imageData depuis le container ou créer un objet minimal
+              const imageData = container._imageData || {
+                type: imgElement.dataset.imageType || 'upload',
+                url: imgElement.src,
+                imageId: imgElement.dataset.imageId,
+                variablePath: imgElement.dataset.variablePath,
+                width: container.dataset.imageWidth,
+                height: container.dataset.imageHeight,
+                styleName: container.dataset.imageStyle
+              };
+              this.showImageEditModal(container, imageData);
+            } else {
+              console.error('🖼️ [DEBUG restoreImages] ERREUR: Image non trouvée dans le container');
+            }
+          }
+        };
+        
+        // Double-clic natif en backup
+        container.ondblclick = (e) => {
+          console.log('🖼️ [DEBUG restoreImages] Double-clic NATIF détecté !');
+          e.preventDefault();
+          e.stopPropagation();
+          if (container._clickTimeout) {
+            clearTimeout(container._clickTimeout);
+            console.log('🖼️ [DEBUG restoreImages] Timeout annulé');
+          }
+          container._clickCount = 0;
           const imgElement = container.querySelector('img.template-image');
-          if (imgElement && imgElement.src && !imgElement.src.includes('data:image/svg+xml')) {
+          if (imgElement) {
+            console.log('🖼️ [DEBUG restoreImages] Image trouvée (double-clic natif), ouverture du modal d\'édition', {
+              imageType: imgElement.dataset.imageType,
+              imageId: imgElement.dataset.imageId,
+              variablePath: imgElement.dataset.variablePath
+            });
             // Récupérer imageData depuis le container ou créer un objet minimal
             const imageData = container._imageData || {
               type: imgElement.dataset.imageType || 'upload',
@@ -4622,6 +5257,8 @@ export default class RichTextEditor {
               styleName: container.dataset.imageStyle
             };
             this.showImageEditModal(container, imageData);
+          } else {
+            console.error('🖼️ [DEBUG restoreImages] ERREUR: Image non trouvée dans le container (double-clic natif)');
           }
         };
         
