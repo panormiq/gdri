@@ -1,0 +1,26 @@
+Bonjour,
+
+Voici les points techniques à éclaircir pour finaliser le paramétrage du configurateur UGAP :
+
+1. **Catégories des options** :
+   Dans le fichier Excel, toutes les options sont listées les unes à la suite des autres. Comment devons-nous déterminer à quelle "Catégorie" (ex: Moteur, Flotteur, Électronique...) appartient chaque option ?
+   - Est-ce basé sur des titres de sections présents dans la colonne "Libellé" ?
+   - Devons-nous créer une liste de correspondance manuelle ?
+
+2. **Identification des "Dispositions"** :
+   Le processus demande de choisir une "Disposition" après le modèle (ex: Pont nu, Console C1100...).
+   - Comment identifier ces lignes spécifiques dans le fichier Excel ? Sont-elles toujours situées au début de la liste des options (ex: lignes 13 à 20) ?
+
+3. **Règles de compatibilité** :
+   Le fichier Excel utilise des "X" pour indiquer la compatibilité Option/Modèle.
+   - Existe-t-il des incompatibilités entre options (ex: si je choisis l'option A, je ne peux pas prendre l'option B) ? Si oui, où cette information se trouve-t-elle ?
+
+4. **Calcul des prix** :
+   - Le prix final correspond-il simplement à la somme de la colonne "Prix d'achat HT CLIENT" ?
+   - Y a-t-il des frais fixes ou des coefficients à appliquer ?
+
+5. **Génération des PDF** :
+   - Pour le "Devis" et la "Fiche Descriptive", devons-nous reproduire exactement la mise en page des PDF fournis en exemple (`P5 - FICHE DE VENTE...`, `DEVIS DOUANES...`) ?
+   - Les textes descriptifs longs (pour la fiche technique) sont-ils présents dans l'Excel ou devons-nous les récupérer ailleurs ?
+
+Merci pour ces précisions.

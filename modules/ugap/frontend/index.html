@@ -1,0 +1,829 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Configurateur UGAP</title>
+    <link rel="stylesheet" href="/frontend/assets/css/variables.css">
+    <link rel="stylesheet" href="/frontend/assets/css/main.css">
+    <style>
+        body { background-color: #f5f7fa; }
+        .ugap-container { max-width: 1400px; margin: 0 auto; padding: 20px; }
+        
+        .card { background: white; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); padding: 20px; margin-bottom: 20px; }
+        
+        .step-indicator { display: flex; justify-content: center; gap: 20px; margin-bottom: 30px; }
+        .step { display: flex; align-items: center; gap: 10px; }
+        .step-number { width: 40px; height: 40px; border-radius: 50%; background: #ddd; color: #666; display: flex; align-items: center; justify-content: center; font-weight: bold; }
+        .step.active .step-number { background: var(--primary-color, #007bff); color: white; }
+        .step.completed .step-number { background: #28a745; color: white; }
+        
+        .step-content { display: none; }
+        .step-content.active { display: block; }
+        
+        .models-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 20px; }
+        .model-card { border: 2px solid #eee; border-radius: 8px; padding: 20px; cursor: pointer; transition: all 0.2s; }
+        .model-card:hover { border-color: var(--primary-color, #007bff); transform: translateY(-2px); box-shadow: 0 4px 8px rgba(0,0,0,0.1); }
+        .model-card.selected { border-color: var(--primary-color, #007bff); background: #f0f7ff; }
+        .model-card h3 { margin: 0 0 10px 0; }
+        .model-card .price { font-size: 24px; font-weight: bold; color: var(--primary-color, #007bff); }
+        
+        .configs-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 20px; }
+        .config-card { border: 2px solid #eee; border-radius: 8px; padding: 20px; cursor: pointer; transition: all 0.2s; text-align: center; }
+        .config-card:hover { border-color: var(--primary-color, #007bff); transform: translateY(-2px); }
+        .config-card.selected { border-color: var(--primary-color, #007bff); background: #f0f7ff; }
+        .config-card h3 { margin: 0; }
+        
+        .tabs { display: flex; gap: 10px; margin-bottom: 20px; overflow-x: auto; padding-bottom: 5px; border-bottom: 2px solid #eee; }
+        .tab { padding: 10px 20px; cursor: pointer; white-space: nowrap; border-bottom: 2px solid transparent; margin-bottom: -2px; }
+        .tab.active { border-bottom-color: var(--primary-color, #007bff); color: var(--primary-color, #007bff); font-weight: 600; }
+        
+        .options-list { display: flex; flex-direction: column; gap: 10px; }
+        .option-item { display: flex; justify-content: space-between; align-items: center; padding: 15px; border: 1px solid #eee; border-radius: 6px; }
+        .option-item:hover { background: #f9f9f9; }
+        .option-item input[type="checkbox"] { width: 20px; height: 20px; cursor: pointer; }
+        .option-item label { flex: 1; margin-left: 10px; cursor: pointer; }
+        .option-item .price { font-weight: 600; color: #333; }
+        
+        .subcategories-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 20px; margin-bottom: 20px; }
+        .subcategory-card { border: 2px solid #eee; border-radius: 8px; padding: 20px; cursor: pointer; transition: all 0.2s; text-align: center; }
+        .subcategory-card:hover { border-color: var(--primary-color, #007bff); transform: translateY(-2px); box-shadow: 0 4px 8px rgba(0,0,0,0.1); }
+        .subcategory-card h3 { margin: 0 0 10px 0; font-size: 16px; }
+        .subcategory-card .count { color: #666; font-size: 14px; }
+        
+        .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000; }
+        .modal.active { display: flex; align-items: center; justify-content: center; }
+        .modal-content { background: white; border-radius: 8px; padding: 30px; max-width: 600px; width: 90%; max-height: 90vh; overflow-y: auto; }
+        .modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+        .modal-header h2 { margin: 0; }
+        .modal-close { background: none; border: none; font-size: 24px; cursor: pointer; color: #666; }
+        .modal-close:hover { color: #000; }
+        
+        .actions { display: flex; justify-content: space-between; align-items: center; margin-top: 30px; padding-top: 20px; border-top: 1px solid #eee; }
+        .btn { padding: 12px 24px; border: none; border-radius: 6px; cursor: pointer; font-weight: 600; transition: all 0.2s; }
+        .btn-primary { background: var(--primary-color, #007bff); color: white; }
+        .btn-primary:hover { opacity: 0.9; }
+        .btn-secondary { background: #6c757d; color: white; }
+        .btn-success { background: #28a745; color: white; }
+        
+        .summary { background: #f8f9fa; padding: 20px; border-radius: 8px; margin-top: 20px; }
+        .summary-item { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #eee; }
+        .summary-item:last-child { border-bottom: none; }
+        .summary-total { font-size: 20px; font-weight: bold; color: var(--primary-color, #007bff); margin-top: 10px; }
+        
+        .five-percent-section { background: #fff3cd; border: 2px solid #ffc107; border-radius: 8px; padding: 20px; margin-top: 20px; }
+        .five-percent-section h3 { margin-top: 0; color: #856404; }
+        .five-percent-section input[type="checkbox"] { width: 20px; height: 20px; margin-right: 10px; }
+        .five-percent-options { margin-top: 15px; display: none; }
+        .five-percent-options.active { display: block; }
+        
+        .loader { border: 4px solid #f3f3f3; border-top: 4px solid #3498db; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; margin: 20px auto; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        
+        .hidden { display: none !important; }
+    </style>
+</head>
+<body>
+    <header class="header" id="header">
+        <div class="container">
+            <div class="header-content">
+                <div class="logo">
+                    <a href="/frontend/pages/dashboard.php">
+                        <img src="/frontend/assets/images/logo-gdri.png" alt="GDR-Innovation Logo">
+                        <span class="logo-text">GDR-Innovation</span>
+                    </a>
+                </div>
+                <nav class="nav" id="nav">
+                    <ul class="nav-list">
+                        <li><a href="/frontend/pages/dashboard.php" class="nav-link">Dashboard</a></li>
+                        <li><a href="/frontend/pages/modules.php" class="nav-link">Modules</a></li>
+                        <li><a href="/frontend/auth/logout.php" class="nav-link">Déconnexion</a></li>
+                    </ul>
+                </nav>
+            </div>
+        </div>
+    </header>
+    <div style="height: var(--header-height);"></div>
+
+    <div class="ugap-container">
+        <div class="card" style="display: flex; justify-content: space-between; align-items: center;">
+            <div>
+                <h1>Configurateur UGAP</h1>
+                <p style="color: #666; margin: 0;">Créez votre devis personnalisé</p>
+            </div>
+            <div>
+                <a href="/frontend/pages/modules.php" class="btn btn-secondary">Retour</a>
+            </div>
+        </div>
+
+        <div id="app">
+            <div id="loader" class="loader"></div>
+            
+            <div id="content" class="hidden">
+                <!-- Step Indicator -->
+                <div class="step-indicator">
+                    <div class="step active" data-step="1">
+                        <div class="step-number">1</div>
+                        <span>Modèle</span>
+                    </div>
+                    <div class="step" data-step="2">
+                        <div class="step-number">2</div>
+                        <span>Configuration</span>
+                    </div>
+                    <div class="step" data-step="3">
+                        <div class="step-number">3</div>
+                        <span>Options</span>
+                    </div>
+                </div>
+
+                <!-- Step 1: Model Selection -->
+                <div class="card step-content active" id="step-1">
+                    <h2>1. Choisissez votre modèle</h2>
+                    <div class="models-grid" id="models-container"></div>
+                </div>
+
+                <!-- Step 2: Configuration Selection -->
+                <div class="card step-content" id="step-2">
+                    <h2>2. Choisissez la configuration</h2>
+                    <p style="color: #666;">Modèle sélectionné: <strong id="selected-model-name"></strong></p>
+                    <div class="configs-grid" id="configs-container"></div>
+                    <div class="actions">
+                        <button class="btn btn-secondary" onclick="goToStep(1)">Précédent</button>
+                    </div>
+                </div>
+
+                <!-- Step 3: Options Selection -->
+                <div class="card step-content" id="step-3">
+                    <h2>3. Sélectionnez vos options</h2>
+                    <p style="color: #666;">Modèle: <strong id="selected-model-name-2"></strong> | Configuration: <strong id="selected-config-name"></strong></p>
+                    
+                    <div class="tabs" id="category-tabs"></div>
+                    
+                    <div id="subcategories-container"></div>
+                    <div id="options-container"></div>
+
+                    <!-- Section 5% Devis -->
+                    <div class="five-percent-section">
+                        <h3>Options supplémentaires (5% du devis)</h3>
+                        <label style="display: flex; align-items: center; cursor: pointer;">
+                            <input type="checkbox" id="enable-5percent" onchange="toggle5Percent()">
+                            <span>Activer les options supplémentaires à hauteur de 5% du devis</span>
+                        </label>
+                        <div class="five-percent-options" id="five-percent-options"></div>
+                    </div>
+
+                    <!-- Summary -->
+                    <div class="summary">
+                        <h3>Récapitulatif</h3>
+                        <div class="summary-item">
+                            <span>Modèle:</span>
+                            <span id="summary-model">-</span>
+                        </div>
+                        <div class="summary-item">
+                            <span>Configuration:</span>
+                            <span id="summary-config">-</span>
+                        </div>
+                        <div class="summary-item">
+                            <span>Options sélectionnées:</span>
+                            <span id="summary-options-count">0</span>
+                        </div>
+                        <div class="summary-item">
+                            <span>Sous-total:</span>
+                            <span id="summary-subtotal">0,00 €</span>
+                        </div>
+                        <div class="summary-item" id="summary-5percent-item" style="display: none;">
+                            <span>Budget 5%:</span>
+                            <span id="summary-5percent">0,00 €</span>
+                        </div>
+                        <div class="summary-total">
+                            <span>Total HT:</span>
+                            <span id="summary-total">0,00 €</span>
+                        </div>
+                    </div>
+
+                    <div class="actions">
+                        <button class="btn btn-secondary" onclick="goToStep(2)">Précédent</button>
+                        <button class="btn btn-success" onclick="generateDevis()">Générer le devis</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal pour afficher les options d'une sous-catégorie -->
+    <div class="modal" id="subcategory-modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 id="subcategory-modal-title">Options</h2>
+                <button class="modal-close" onclick="closeSubCategoryModal()">&times;</button>
+            </div>
+            <div id="subcategory-options-list"></div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = '/api/ugap';
+        const state = {
+            step: 1,
+            models: [],
+            categories: [],
+            selectedModel: null,
+            selectedConfig: null,
+            selectedOptions: new Set(),
+            fivePercentOptions: new Set(),
+            fivePercentCustomOptions: [],
+            use5Percent: false,
+            budget5Percent: 0
+        };
+
+        // API helper
+        async function apiCall(endpoint, options = {}) {
+            try {
+                const response = await fetch(`${API_BASE}${endpoint}`, {
+                    ...options,
+                    credentials: 'include',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        ...options.headers
+                    }
+                });
+
+                // Vérifier le type de contenu
+                const contentType = response.headers.get('content-type');
+                if (!contentType || !contentType.includes('application/json')) {
+                    const text = await response.text();
+                    console.error('Réponse non-JSON reçue:', text.substring(0, 200));
+                    throw new Error(`L'API a retourné du HTML au lieu de JSON. Status: ${response.status}. Vérifiez que le backend est démarré et que vous êtes authentifié.`);
+                }
+
+                const data = await response.json();
+                
+                if (!response.ok) {
+                    throw new Error(data.message || `Erreur HTTP ${response.status}`);
+                }
+
+                if (!data.success) {
+                    throw new Error(data.message || 'Erreur API');
+                }
+                return data;
+            } catch (error) {
+                console.error('API Error:', error);
+                if (error.message && error.message.includes('JSON')) {
+                    throw new Error('Erreur de communication avec le serveur. Vérifiez que le backend est démarré.');
+                }
+                throw error;
+            }
+        }
+
+        // Load data
+        async function loadData() {
+            try {
+                const result = await apiCall('/data');
+                state.models = result.data.models || [];
+                state.categories = result.data.categories || [];
+                render();
+            } catch (error) {
+                const errorMsg = error.message || 'Erreur inconnue';
+                if (errorMsg.includes('404') || errorMsg.includes('Aucune donnée')) {
+                    // Pas de données configurées, c'est normal
+                    state.models = [];
+                    state.categories = [];
+                    render();
+                } else {
+                    alert('Erreur lors du chargement: ' + errorMsg + '\n\nVérifiez que:\n- Le backend Node.js est démarré\n- Vous êtes authentifié\n- Le module UGAP est chargé');
+                }
+            } finally {
+                document.getElementById('loader').classList.add('hidden');
+                document.getElementById('content').classList.remove('hidden');
+            }
+        }
+
+        // Render
+        function render() {
+            updateStepIndicator();
+            
+            if (state.step === 1) {
+                renderStep1();
+            } else if (state.step === 2) {
+                renderStep2();
+            } else if (state.step === 3) {
+                renderStep3();
+            }
+        }
+
+        // Update step indicator
+        function updateStepIndicator() {
+            document.querySelectorAll('.step').forEach((step, index) => {
+                const stepNum = index + 1;
+                step.classList.remove('active', 'completed');
+                if (stepNum === state.step) {
+                    step.classList.add('active');
+                } else if (stepNum < state.step) {
+                    step.classList.add('completed');
+                }
+            });
+
+            document.querySelectorAll('.step-content').forEach((content, index) => {
+                content.classList.remove('active');
+                if (index + 1 === state.step) {
+                    content.classList.add('active');
+                }
+            });
+        }
+
+        // Step 1: Models
+        function renderStep1() {
+            const container = document.getElementById('models-container');
+            container.innerHTML = '';
+
+            state.models.forEach(model => {
+                const card = document.createElement('div');
+                card.className = 'model-card';
+                if (state.selectedModel && state.selectedModel.id === model.id) {
+                    card.classList.add('selected');
+                }
+                card.innerHTML = `
+                    <h3>${model.name}</h3>
+                    <div class="price">${(model.basePrice || 0).toFixed(2)} €</div>
+                `;
+                card.onclick = () => selectModel(model);
+                container.appendChild(card);
+            });
+        }
+
+        function selectModel(model) {
+            state.selectedModel = model;
+            state.selectedConfig = null;
+            state.selectedOptions.clear();
+            state.fivePercentOptions.clear();
+            goToStep(2);
+        }
+
+        // Step 2: Configurations
+        function renderStep2() {
+            document.getElementById('selected-model-name').textContent = state.selectedModel?.name || '-';
+            
+            const container = document.getElementById('configs-container');
+            container.innerHTML = '';
+
+            // Utiliser les vraies configurations du modèle
+            const configs = state.selectedModel?.configurations || [];
+            const fallbackConfig = {
+                id: 'default-config',
+                name: 'Configuration par défaut',
+                description: 'Aucune configuration spécifique définie pour ce modèle.',
+                image: null
+            };
+            const configsToRender = configs.length > 0 ? configs : [fallbackConfig];
+
+            configsToRender.forEach(config => {
+                const card = document.createElement('div');
+                card.className = 'config-card';
+                if (state.selectedConfig && state.selectedConfig.id === config.id) {
+                    card.classList.add('selected');
+                }
+                card.innerHTML = `
+                    ${config.image ? `<img src="${config.image}" style="width: 100%; height: 120px; object-fit: cover; border-radius: 6px; margin-bottom: 10px;">` : ''}
+                    <h3>${config.name}</h3>
+                    ${config.description ? `<p style="color: #666; font-size: 14px; margin: 5px 0;">${config.description}</p>` : ''}
+                `;
+                card.onclick = () => selectConfig(config);
+                container.appendChild(card);
+            });
+        }
+
+        function selectConfig(config) {
+            state.selectedConfig = config;
+            goToStep(3);
+        }
+
+        // Step 3: Options
+        function renderStep3() {
+            document.getElementById('selected-model-name-2').textContent = state.selectedModel?.name || '-';
+            document.getElementById('selected-config-name').textContent = state.selectedConfig?.name || '-';
+
+            // Render tabs
+            const tabsContainer = document.getElementById('category-tabs');
+            tabsContainer.innerHTML = '';
+
+            state.categories.forEach((category, index) => {
+                const tab = document.createElement('div');
+                tab.className = `tab ${index === 0 ? 'active' : ''}`;
+                tab.textContent = category.name;
+                tab.onclick = () => switchCategoryTab(index);
+                tabsContainer.appendChild(tab);
+            });
+
+            // Render options for first category
+            if (state.categories.length > 0) {
+                renderCategoryOptions(0);
+            }
+
+            updateSummary();
+        }
+
+        let currentCategoryIndex = 0;
+
+        function switchCategoryTab(index) {
+            currentCategoryIndex = index;
+            document.querySelectorAll('.tab').forEach((tab, i) => {
+                tab.classList.toggle('active', i === index);
+            });
+            renderCategoryOptions(index);
+            if (state.use5Percent) {
+                render5PercentOptions();
+            }
+        }
+
+        function renderCategoryOptions(categoryIndex) {
+            const subcategoriesContainer = document.getElementById('subcategories-container');
+            const optionsContainer = document.getElementById('options-container');
+            subcategoriesContainer.innerHTML = '';
+            optionsContainer.innerHTML = '';
+
+            const category = state.categories[categoryIndex];
+            if (!category) return;
+
+            // Créer un index des sous-catégories par optionId
+            const subCategoryIndex = new Map();
+            (category.subCategories || []).forEach(subCat => {
+                (subCat.optionIds || []).forEach(optionId => {
+                    subCategoryIndex.set(optionId, subCat);
+                });
+            });
+
+            // Filtrer les options compatibles avec le modèle sélectionné
+            const compatibleOptions = (category.options || []).filter(opt => 
+                !opt.compatibleModels || opt.compatibleModels.includes(state.selectedModel?.id)
+            );
+
+            // Grouper les options par sous-catégorie
+            const optionsBySubCategory = new Map();
+            const optionsWithoutSubCategory = [];
+
+            compatibleOptions.forEach(option => {
+                const subCategory = subCategoryIndex.get(option.id);
+                if (subCategory) {
+                    if (!optionsBySubCategory.has(subCategory.id)) {
+                        optionsBySubCategory.set(subCategory.id, {
+                            subCategory: subCategory,
+                            options: []
+                        });
+                    }
+                    optionsBySubCategory.get(subCategory.id).options.push(option);
+                } else {
+                    optionsWithoutSubCategory.push(option);
+                }
+            });
+
+            // Afficher les sous-catégories sous forme de cards
+            if (optionsBySubCategory.size > 0) {
+                const subcategoriesGrid = document.createElement('div');
+                subcategoriesGrid.className = 'subcategories-grid';
+
+                optionsBySubCategory.forEach((data, subCategoryId) => {
+                    const card = document.createElement('div');
+                    card.className = 'subcategory-card';
+                    card.innerHTML = `
+                        <h3>${data.subCategory.name}</h3>
+                        <div class="count">${data.options.length} option(s)</div>
+                        ${data.subCategory.description ? `<p style="color: #666; font-size: 12px; margin: 10px 0 0 0;">${data.subCategory.description}</p>` : ''}
+                    `;
+                    card.onclick = () => openSubCategoryModal(data.subCategory, data.options);
+                    subcategoriesGrid.appendChild(card);
+                });
+
+                subcategoriesContainer.appendChild(subcategoriesGrid);
+            }
+
+            // Afficher les options sans sous-catégorie
+            if (optionsWithoutSubCategory.length > 0) {
+                const optionsList = document.createElement('div');
+                optionsList.className = 'options-list';
+                optionsList.innerHTML = '<h3 style="margin-bottom: 15px;">Autres options</h3>';
+
+                optionsWithoutSubCategory.forEach(option => {
+                    const item = createOptionItem(option);
+                    optionsList.appendChild(item);
+                });
+
+                optionsContainer.appendChild(optionsList);
+            }
+        }
+
+        function createOptionItem(option) {
+            const item = document.createElement('div');
+            item.className = 'option-item';
+            
+            const checkbox = document.createElement('input');
+            checkbox.type = 'checkbox';
+            checkbox.id = option.id;
+            checkbox.checked = state.selectedOptions.has(option.id) || state.fivePercentOptions.has(option.id);
+            checkbox.disabled = state.fivePercentOptions.has(option.id) && !state.use5Percent;
+            checkbox.onchange = (e) => {
+                if (state.use5Percent && !state.fivePercentOptions.has(option.id)) {
+                    const price = option.priceClient || option.priceUgap || 0;
+                    if (state.budget5Percent > 0 && getFivePercentTotal() + price > state.budget5Percent) {
+                        alert('Budget 5% dépassé !');
+                        checkbox.checked = false;
+                        return;
+                    }
+                    state.fivePercentOptions.add(option.id);
+                } else {
+                    state.selectedOptions.add(option.id);
+                    state.fivePercentOptions.delete(option.id);
+                }
+                if (state.use5Percent) {
+                    render5PercentOptions();
+                }
+                updateSummary();
+            };
+
+            const label = document.createElement('label');
+            label.htmlFor = option.id;
+            label.textContent = option.name;
+
+            const price = document.createElement('div');
+            price.className = 'price';
+            price.textContent = `${(option.priceClient || option.priceUgap || 0).toFixed(2)} €`;
+
+            if (state.fivePercentOptions.has(option.id)) {
+                const badge = document.createElement('span');
+                badge.textContent = '5% Devis';
+                badge.style.cssText = 'margin-left: 8px; padding: 2px 6px; background: #ffe08a; color: #856404; border-radius: 4px; font-size: 12px; font-weight: 600;';
+                label.appendChild(badge);
+            }
+
+            item.appendChild(checkbox);
+            item.appendChild(label);
+            item.appendChild(price);
+            return item;
+        }
+
+        function openSubCategoryModal(subCategory, options) {
+            const modal = document.getElementById('subcategory-modal');
+            const title = document.getElementById('subcategory-modal-title');
+            const optionsList = document.getElementById('subcategory-options-list');
+
+            title.textContent = subCategory.name;
+            optionsList.innerHTML = '';
+
+            if (subCategory.description) {
+                const desc = document.createElement('p');
+                desc.style.color = '#666';
+                desc.style.marginBottom = '20px';
+                desc.textContent = subCategory.description;
+                optionsList.appendChild(desc);
+            }
+
+            const optionsContainer = document.createElement('div');
+            optionsContainer.className = 'options-list';
+
+            options.forEach(option => {
+                const item = createOptionItem(option);
+                optionsContainer.appendChild(item);
+            });
+
+            optionsList.appendChild(optionsContainer);
+            modal.classList.add('active');
+        }
+
+        function closeSubCategoryModal() {
+            document.getElementById('subcategory-modal').classList.remove('active');
+        }
+
+        // Fermer le modal en cliquant en dehors
+        document.getElementById('subcategory-modal').addEventListener('click', (e) => {
+            if (e.target.id === 'subcategory-modal') {
+                closeSubCategoryModal();
+            }
+        });
+
+        function toggle5Percent() {
+            state.use5Percent = document.getElementById('enable-5percent').checked;
+            const container = document.getElementById('five-percent-options');
+            
+            if (state.use5Percent) {
+                container.classList.add('active');
+                calculate5PercentBudget();
+                render5PercentOptions();
+            } else {
+                container.classList.remove('active');
+                state.fivePercentOptions.clear();
+                state.fivePercentCustomOptions = [];
+                renderCategoryOptions(currentCategoryIndex);
+                updateSummary();
+            }
+        }
+
+        function calculate5PercentBudget() {
+            let subtotal = state.selectedModel?.basePrice || 0;
+            state.selectedOptions.forEach(optId => {
+                for (const category of state.categories) {
+                    const option = category.options.find(o => o.id === optId);
+                    if (option) {
+                        subtotal += option.priceClient || option.priceUgap || 0;
+                        break;
+                    }
+                }
+            });
+            state.budget5Percent = subtotal * 0.05;
+        }
+
+        function getOptionById(optionId) {
+            for (const category of state.categories) {
+                const option = category.options.find(o => o.id === optionId);
+                if (option) return option;
+            }
+            return null;
+        }
+
+        function getOptionCategoryId(optionId) {
+            for (const category of state.categories) {
+                const exists = category.options.some(o => o.id === optionId);
+                if (exists) return category.id;
+            }
+            return null;
+        }
+
+        function getFivePercentCustomOptionsForCategory(categoryId) {
+            return (state.fivePercentCustomOptions || []).filter(opt => opt.categoryId === categoryId);
+        }
+
+        function addFivePercentCustomOption(categoryId) {
+            const nameInput = document.getElementById('five-percent-custom-name');
+            const priceInput = document.getElementById('five-percent-custom-price');
+            if (!nameInput || !priceInput) return;
+
+            const name = nameInput.value.trim();
+            const price = parseFloat(priceInput.value);
+            if (!name || Number.isNaN(price) || price <= 0) {
+                alert('Nom et prix valides requis.');
+                return;
+            }
+
+            if (state.budget5Percent > 0 && getFivePercentTotal() + price > state.budget5Percent) {
+                alert('Budget 5% dépassé !');
+                return;
+            }
+
+            state.fivePercentCustomOptions.push({
+                id: `fivepct_custom_${Date.now()}`,
+                name,
+                price,
+                categoryId
+            });
+
+            nameInput.value = '';
+            priceInput.value = '';
+            render5PercentOptions();
+            updateSummary();
+        }
+
+        function removeFivePercentCustomOption(customId) {
+            state.fivePercentCustomOptions = (state.fivePercentCustomOptions || []).filter(opt => opt.id !== customId);
+            render5PercentOptions();
+            updateSummary();
+        }
+
+        function render5PercentOptions() {
+            const container = document.getElementById('five-percent-options');
+            const currentCategory = state.categories[currentCategoryIndex];
+            const currentCategoryId = currentCategory?.id;
+            const fivePercentTotal = getFivePercentTotal();
+            const remaining = Math.max(0, state.budget5Percent - fivePercentTotal);
+
+            const selectedInCategory = Array.from(state.fivePercentOptions)
+                .filter(optId => !currentCategoryId || getOptionCategoryId(optId) === currentCategoryId)
+                .map(getOptionById)
+                .filter(Boolean);
+
+            const customInCategory = currentCategoryId ? getFivePercentCustomOptionsForCategory(currentCategoryId) : [];
+
+            container.innerHTML = `
+                <div style="margin-bottom: 10px;">
+                    <div><strong>5% Devis:</strong> ${state.budget5Percent.toFixed(2)} €</div>
+                    <div><strong>Déjà ajouté:</strong> ${fivePercentTotal.toFixed(2)} €</div>
+                    <div><strong>Restant:</strong> ${remaining.toFixed(2)} €</div>
+                </div>
+                <div style="margin-bottom: 12px; font-weight: 600;">Options 5% dans cette catégorie</div>
+                ${selectedInCategory.length === 0 && customInCategory.length === 0 ? `
+                    <p style="color: #666; margin-top: 0;">Aucune option 5% enregistrée pour cette catégorie.</p>
+                ` : `
+                    <ul style="margin: 0 0 10px 18px; padding: 0;">
+                        ${selectedInCategory.map(opt => `
+                            <li>${opt.name} — ${(opt.priceClient || opt.priceUgap || 0).toFixed(2)} €</li>
+                        `).join('')}
+                        ${customInCategory.map(opt => `
+                            <li>${opt.name} — ${opt.price.toFixed(2)} € 
+                                <button onclick="removeFivePercentCustomOption('${opt.id}')" style="margin-left: 8px; background: #dc3545; color: white; border: none; border-radius: 4px; padding: 2px 6px; cursor: pointer;">✕</button>
+                            </li>
+                        `).join('')}
+                    </ul>
+                `}
+                <div style="margin-top: 10px; padding-top: 10px; border-top: 1px solid #f1dca7;">
+                    <div style="font-weight: 600; margin-bottom: 8px;">Créer une option 5% Devis</div>
+                    <div style="display: flex; gap: 10px; flex-wrap: wrap; align-items: center;">
+                        <input id="five-percent-custom-name" type="text" placeholder="Libellé" style="padding: 8px; border: 1px solid #ddd; border-radius: 4px; min-width: 220px;">
+                        <input id="five-percent-custom-price" type="number" step="0.01" min="0" placeholder="Prix (€)" style="padding: 8px; border: 1px solid #ddd; border-radius: 4px; width: 140px;">
+                        <button onclick="addFivePercentCustomOption('${currentCategoryId || ''}')" style="padding: 8px 14px; background: #28a745; color: white; border: none; border-radius: 4px; cursor: pointer;">
+                            Ajouter
+                        </button>
+                    </div>
+                </div>
+            `;
+            
+            renderCategoryOptions(currentCategoryIndex);
+            updateSummary();
+        }
+
+        function getFivePercentTotal() {
+            let total = 0;
+            state.fivePercentOptions.forEach(optId => {
+                for (const category of state.categories) {
+                    const option = category.options.find(o => o.id === optId);
+                    if (option) {
+                        total += option.priceClient || option.priceUgap || 0;
+                        break;
+                    }
+                }
+            });
+            (state.fivePercentCustomOptions || []).forEach(opt => {
+                total += opt.price || 0;
+            });
+            return total;
+        }
+
+        function updateSummary() {
+            document.getElementById('summary-model').textContent = state.selectedModel?.name || '-';
+            document.getElementById('summary-config').textContent = state.selectedConfig?.name || '-';
+            
+            const optionsCount = state.selectedOptions.size + state.fivePercentOptions.size + (state.fivePercentCustomOptions || []).length;
+            document.getElementById('summary-options-count').textContent = optionsCount;
+
+            let subtotal = state.selectedModel?.basePrice || 0;
+            state.selectedOptions.forEach(optId => {
+                for (const category of state.categories) {
+                    const option = category.options.find(o => o.id === optId);
+                    if (option) {
+                        subtotal += option.priceClient || option.priceUgap || 0;
+                        break;
+                    }
+                }
+            });
+
+            document.getElementById('summary-subtotal').textContent = subtotal.toFixed(2) + ' €';
+
+            if (state.use5Percent) {
+                calculate5PercentBudget();
+                const fivePercentTotal = getFivePercentTotal();
+                document.getElementById('summary-5percent').textContent = fivePercentTotal.toFixed(2) + ' €';
+                document.getElementById('summary-5percent-item').style.display = 'flex';
+                document.getElementById('summary-total').textContent = (subtotal + fivePercentTotal).toFixed(2) + ' €';
+            } else {
+                document.getElementById('summary-5percent-item').style.display = 'none';
+                document.getElementById('summary-total').textContent = subtotal.toFixed(2) + ' €';
+            }
+        }
+
+        function goToStep(step) {
+            state.step = step;
+            render();
+        }
+
+        async function generateDevis() {
+            if (!state.selectedModel) {
+                alert('Veuillez sélectionner un modèle');
+                return;
+            }
+
+            const selectedOptionsArray = Array.from(state.selectedOptions);
+            if (state.use5Percent) {
+                selectedOptionsArray.push(...Array.from(state.fivePercentOptions));
+            }
+
+            try {
+                const result = await apiCall('/devis', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        modelId: state.selectedModel.id,
+                        configId: state.selectedConfig?.id,
+                        selectedOptions: selectedOptionsArray,
+                        use5Percent: state.use5Percent
+                    })
+                });
+
+                alert(`Devis généré avec succès !\nTotal: ${result.data.total.toFixed(2)} €`);
+                // TODO: Générer et télécharger le PDF
+            } catch (error) {
+                alert('Erreur lors de la génération du devis: ' + error.message);
+            }
+        }
+
+        // Init
+        document.addEventListener('DOMContentLoaded', () => {
+            loadData();
+        });
+    </script>
+</body>
+</html>

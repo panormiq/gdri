@@ -1,0 +1,474 @@
+{
+  "categories": [
+    {
+      "id": "9c2ce437-32a1-4aea-8226-9b361f34517f",
+      "title": "Références \r\nnormatives et \r\nréglementation",
+      "items": [
+        {
+          "characteristic": "Catégorie de conception"
+        },
+        {
+          "characteristic": "Catégorie de navigation professionnelle",
+          "value": "C 3\r\nème catégorie"
+        },
+        {
+          "characteristic": "Zone maritime de classe",
+          "value": "Classe C"
+        },
+        {
+          "characteristic": "Division",
+          "value": "Division 222"
+        }
+      ]
+    },
+    {
+      "id": "4bb86beb-c4dc-4a37-8e30-d4077252685c",
+      "title": "Dimensions",
+      "items": [
+        {
+          "characteristic": "Longueur hors tout",
+          "value": "6,39 mètres"
+        },
+        {
+          "characteristic": "Longueur intérieure",
+          "value": "5.09 mètres"
+        },
+        {
+          "characteristic": "Largeur hors tout",
+          "value": "2.49 mètres"
+        },
+        {
+          "characteristic": "Largeur intérieure",
+          "value": "1,43 mètres"
+        },
+        {
+          "characteristic": "Poids à vide",
+          "value": "1013 kgs"
+        },
+        {
+          "characteristic": "Diamètre flotteur",
+          "value": "0,59 mètre"
+        },
+        {
+          "characteristic": "Tirant d'eau à vide",
+          "value": "0.35 mètre"
+        }
+      ]
+    },
+    {
+      "id": "bbc39e4b-380a-4018-81c0-528b2e2ae9c8",
+      "title": "Sécurité / carène / \r\npont / divers",
+      "items": [
+        {
+          "characteristic": "Nombre de compartiments sur le flotteur principal"
+        },
+        {
+          "characteristic": "Tissus",
+          "value": "5 N\r\néoprène Hypalon 1670 dTex Gris Neptune"
+        },
+        {
+          "characteristic": "Carène",
+          "value": "Aluminium"
+        },
+        {
+          "characteristic": "Coque",
+          "value": "Aluminium"
+        },
+        {
+          "characteristic": "Pont",
+          "value": "Aluminium"
+        },
+        {
+          "characteristic": "Arceau de navigation",
+          "value": "Roll bar alu"
+        }
+      ]
+    },
+    {
+      "id": "3e171d07-ec80-4e4b-ae1d-242d24a4849b",
+      "title": "Motorisation",
+      "items": [
+        {
+          "characteristic": "Marque",
+          "value": "Suzuki"
+        },
+        {
+          "characteristic": "Modèle",
+          "value": "DF150ATX"
+        },
+        {
+          "characteristic": "Puissance",
+          "value": "150 CV"
+        },
+        {
+          "characteristic": "Démarrage",
+          "value": "Electrique"
+        },
+        {
+          "characteristic": "Energie",
+          "value": "Essence"
+        },
+        {
+          "characteristic": "Coupe circuit de sécurité",
+          "value": "Inclus"
+        },
+        {
+          "characteristic": "Type de réservoir",
+          "value": "Réservoir 120 litres"
+        },
+        {
+          "characteristic": "Quantité de carburant",
+          "value": "120 litres"
+        },
+        {
+          "characteristic": "Type d'arbre",
+          "value": "Ultra-long"
+        },
+        {
+          "characteristic": "Type de commande",
+          "value": "Boitier de commande"
+        },
+        {
+          "characteristic": "Puissance mini",
+          "value": "150 CV"
+        },
+        {
+          "characteristic": "Puissance préconisée",
+          "value": "150 CV"
+        },
+        {
+          "characteristic": "Puissance maxi",
+          "value": "175 CV"
+        }
+      ]
+    },
+    {
+      "id": "ccca3af0-304b-4e51-9bb8-ef5f745ba100",
+      "title": "Console de pilotage \r\net équipements de \r\nnavigation (si \r\néquipée)",
+      "items": [
+        {
+          "characteristic": "Console C800"
+        },
+        {
+          "characteristic": "Sondeur GPS Lowrance HDS PRO 12"
+        },
+        {
+          "characteristic": "VHF ICOM M510 EAIS"
+        },
+        {
+          "characteristic": "Compas Offshore 115"
+        },
+        {
+          "characteristic": "Direction hydraulique LS 350"
+        },
+        {
+          "characteristic": "Pompe Rules"
+        }
+      ]
+    },
+    {
+      "id": "996eae88-75fc-4559-b08d-c2bf43eb368e",
+      "title": "Signalisation \r\nlumineuse et sonore",
+      "items": [
+        {
+          "characteristic": "Signalisation lumineuse"
+        },
+        {
+          "characteristic": "Projecteur à main"
+        },
+        {
+          "characteristic": "Feux sur Roll Bar"
+        },
+        {
+          "characteristic": "Projecteur fixes de recherche"
+        },
+        {
+          "characteristic": "Réflecteur radar tulaire"
+        },
+        {
+          "characteristic": "Bandes réflechissantes sur flotteur"
+        }
+      ]
+    },
+    {
+      "id": "e2037c8c-fc4a-4ae4-a66b-0c91b9ac7be1",
+      "title": "Lot de bord",
+      "items": [
+        {
+          "characteristic": "Outillage de base"
+        },
+        {
+          "characteristic": "Trousse de réparation"
+        },
+        {
+          "characteristic": "Pagaies télescopiques 50 x 140"
+        },
+        {
+          "characteristic": "Gonfleurs à pied standard"
+        },
+        {
+          "characteristic": "Manomètre"
+        },
+        {
+          "characteristic": "Gaffe alu télescopique"
+        }
+      ]
+    },
+    {
+      "id": "0f1c0f92-ae91-49e6-8c63-b0815dd34653",
+      "title": "Equipements de base",
+      "items": [
+        {
+          "characteristic": "EQUIPEMENT DE BASE"
+        },
+        {
+          "characteristic": "Bolster 1011"
+        },
+        {
+          "characteristic": "1 panneau de pont"
+        },
+        {
+          "characteristic": "EQUIPEMENTS INTEGRES A LA CARENE"
+        },
+        {
+          "characteristic": "1 nable avec clapet anti-retour"
+        },
+        {
+          "characteristic": "Anneaux d'étrave et de tableau arrière"
+        },
+        {
+          "characteristic": "Cadènes de hissage tableau arrière"
+        },
+        {
+          "characteristic": "Caillebotis caoutchouc dans fond des coffres et pont"
+        },
+        {
+          "characteristic": "ACCESSOIRES FLOTTEUR"
+        },
+        {
+          "characteristic": "Valves de gonflage et de surpression"
+        },
+        {
+          "characteristic": "Guide de mouillage caoutchouc"
+        },
+        {
+          "characteristic": "Saisine intérieure et extérieure"
+        },
+        {
+          "characteristic": "PPA Lock, antiragage profil D"
+        },
+        {
+          "characteristic": "Supports pagaies à l'arrière"
+        },
+        {
+          "characteristic": "Logos"
+        }
+      ]
+    },
+    {
+      "id": "b2d8eaf7-51b5-4b86-b483-ce1ad95ea991",
+      "title": "Documentation",
+      "items": [
+        {
+          "characteristic": "A la livraison"
+        },
+        {
+          "characteristic": "Un certificat de conformité"
+        },
+        {
+          "characteristic": "Un bon de livraison"
+        },
+        {
+          "characteristic": "Un manuel propriétaire"
+        },
+        {
+          "characteristic": "Une carte de garantie bateau"
+        },
+        {
+          "characteristic": "Une carte de garantie moteur"
+        }
+      ]
+    },
+    {
+      "id": "ed1fb2dc-43a2-4dfb-9432-57150465d4fa",
+      "title": "GARANTIES CONTRACTUELLES",
+      "items": []
+    },
+    {
+      "id": "6a81134d-6860-4274-8aa0-7cb3b0f40a95",
+      "title": "Flotteur",
+      "items": [
+        {
+          "characteristic": "2 ans"
+        }
+      ]
+    },
+    {
+      "id": "d104ff63-7483-4095-9411-de9ba53b260b",
+      "title": "Coque",
+      "items": [
+        {
+          "characteristic": "2 ans"
+        }
+      ]
+    },
+    {
+      "id": "e9870e80-843f-48ae-b114-fbece8983bbf",
+      "title": "Antifowling",
+      "items": [
+        {
+          "characteristic": "1 an"
+        }
+      ]
+    },
+    {
+      "id": "c1da13e4-d3b8-4f62-993e-efa178e92643",
+      "title": "Moteur hord-bord",
+      "items": [
+        {
+          "characteristic": "1 an"
+        }
+      ]
+    },
+    {
+      "id": "05a12f31-17f3-47cb-8347-590e944c6b81",
+      "title": "Chaîne cinématique moteur hors-bord (moteur, inverseur, arbre, hélice)",
+      "items": [
+        {
+          "characteristic": "1 an"
+        }
+      ]
+    },
+    {
+      "id": "92c510c3-18ba-466d-a01d-27e1dbc673d0",
+      "title": "Moteur in-bord",
+      "items": [
+        {
+          "characteristic": "NC"
+        }
+      ]
+    },
+    {
+      "id": "933a1a07-7d9c-4f77-9723-61278b10c083",
+      "title": "Chaîne cinématique moteur in-bord (moteur, inverseur, arbre, hélice)",
+      "items": [
+        {
+          "characteristic": "1 an"
+        }
+      ]
+    },
+    {
+      "id": "ee42446f-8161-43cf-91a2-67f696a7f79f",
+      "title": "Motorisation de type \"hydrojet\"",
+      "items": [
+        {
+          "characteristic": "NC"
+        }
+      ]
+    },
+    {
+      "id": "32b9f84b-2dcc-4154-af57-99b6af948da8",
+      "title": "Chaîne cinématique moteur de type \"hydrojet\" (moteur, inverseur, turbine)",
+      "items": [
+        {
+          "characteristic": "NC"
+        }
+      ]
+    },
+    {
+      "id": "8822c4c7-0fb6-4ac1-b6ac-68722a5ae92b",
+      "title": "Equipement amovible",
+      "items": [
+        {
+          "characteristic": "2 ans"
+        }
+      ]
+    },
+    {
+      "id": "4d681f7a-2933-4321-ad66-c73c5f0103a1",
+      "title": "Equipement électronique",
+      "items": [
+        {
+          "characteristic": "2 ans"
+        }
+      ]
+    },
+    {
+      "id": "253c9e4c-3fc6-464c-aff6-c748f5a66a10",
+      "title": "Console de pilotage",
+      "items": [
+        {
+          "characteristic": "2 ans"
+        }
+      ]
+    },
+    {
+      "id": "2c51272d-79b7-4149-9b9b-771866e79af4",
+      "title": "Anti-corrosion (chaîne cinématique)",
+      "items": [
+        {
+          "characteristic": "2 ans"
+        }
+      ]
+    },
+    {
+      "id": "e034c01f-ce80-47ec-b383-4c2a40e4a0e4",
+      "title": "Anti-corrosion",
+      "items": [
+        {
+          "characteristic": "2 ans"
+        }
+      ]
+    },
+    {
+      "id": "204aff71-f020-4c40-a1ff-bfefcd030eef",
+      "title": "Remorque",
+      "items": [
+        {
+          "characteristic": "2 ans"
+        }
+      ]
+    },
+    {
+      "id": "8f5f7128-d2ea-43b4-986c-be604bb1ebdb",
+      "title": "DELAI DE LIVRAISON",
+      "items": []
+    },
+    {
+      "id": "e3e735b2-83f1-419b-9470-ab7b1b13d1ba",
+      "title": "1 unité",
+      "items": [
+        {
+          "characteristic": "180 jours calendaires"
+        }
+      ]
+    },
+    {
+      "id": "47bb03c9-331d-408e-a56b-38ba57ab1dbd",
+      "title": "2 unités",
+      "items": [
+        {
+          "characteristic": "240 jours calendaires"
+        }
+      ]
+    },
+    {
+      "id": "378ed514-dc9c-42ad-93c9-dd84ede000bf",
+      "title": "3 à 5 unités",
+      "items": [
+        {
+          "characteristic": "300 jours calendaires"
+        }
+      ]
+    },
+    {
+      "id": "6e59331a-29f9-40e9-b8ef-0ec3c49f4e08",
+      "title": "6 à 10 unités",
+      "items": [
+        {
+          "characteristic": "360 jours calendaires"
+        }
+      ]
+    }
+  ]
+}

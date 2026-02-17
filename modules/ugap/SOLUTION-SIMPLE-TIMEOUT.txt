@@ -1,0 +1,49 @@
+# SOLUTION SIMPLE - Timeout Apache
+
+## ❌ Problème
+Apache ne redémarre pas à cause de :
+```
+ProxyTimeout not allowed in <LocationMatch> context
+```
+
+## ✅ Solution IMMÉDIATE
+
+Dans votre VirtualHost GDRI (`*:443`), **SUPPRIMEZ** les sections `<LocationMatch>` et **AUGMENTEZ** simplement le timeout global :
+
+### Remplacez cette section :
+```apache
+    # === PROTECTION DDOS PAR VHOST ===
+    TimeOut 20
+    ProxyTimeout 30
+    
+    # ... autres configs ...
+    
+    # SUPPRIMEZ CES LIGNES (elles causent l'erreur) :
+    <LocationMatch "^/api/ugap/.*/detect-subcategories$">
+        ProxyTimeout 600
+    </LocationMatch>
+    <LocationMatch "^/api/ugap/improve-categorization$">
+        ProxyTimeout 600
+    </LocationMatch>
+```
+
+### Par cette version SIMPLE :
+```apache
+    # === PROTECTION DDOS PAR VHOST ===
+    TimeOut 20
+    ProxyTimeout 600  # 10 minutes pour toutes les routes (y compris IA)
+    
+    # ... autres configs ...
+    # (PAS de LocationMatch)
+```
+
+## 🚀 Action
+
+1. Ouvrez `C:\xampp\apache\conf\extra\httpd-vhosts.conf`
+2. Trouvez votre VirtualHost GDRI `*:443`
+3. Changez `ProxyTimeout 30` en `ProxyTimeout 600`
+4. **SUPPRIMEZ** les deux sections `<LocationMatch>` avec ProxyTimeout
+5. Sauvegardez
+6. Redémarrez Apache
+
+C'est tout ! Apache devrait redémarrer sans erreur.

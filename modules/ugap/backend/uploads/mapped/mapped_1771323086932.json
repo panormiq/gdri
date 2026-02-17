@@ -1,0 +1,617 @@
+{
+  "categories": [
+    {
+      "id": "ff6570b6-4488-47b3-8558-28c3c0138367",
+      "title": "Références normatives et réglementation",
+      "items": [],
+      "subCategories": [],
+      "source": "header",
+      "_colIndex": 1
+    },
+    {
+      "id": "994023ff-272a-4866-9953-d48e5201fa2d",
+      "title": "Catégorie de conception",
+      "items": [],
+      "subCategories": [],
+      "source": "header",
+      "_colIndex": 2
+    },
+    {
+      "id": "caf6ab5e-8991-4826-ad42-40de9af014fc",
+      "title": "C",
+      "items": [],
+      "subCategories": [],
+      "source": "header",
+      "_colIndex": 6
+    },
+    {
+      "id": "ff6570b6-4488-47b3-8558-28c3c0138367",
+      "title": "Références normatives et réglementation",
+      "items": [],
+      "subCategories": [],
+      "source": "header",
+      "_colIndex": 1
+    },
+    {
+      "id": "994023ff-272a-4866-9953-d48e5201fa2d",
+      "title": "Catégorie de conception",
+      "items": [],
+      "subCategories": [],
+      "source": "header",
+      "_colIndex": 2
+    },
+    {
+      "id": "caf6ab5e-8991-4826-ad42-40de9af014fc",
+      "title": "C",
+      "items": [],
+      "subCategories": [],
+      "source": "header",
+      "_colIndex": 6
+    },
+    {
+      "id": "c01b7a39-e8ff-4bb0-8118-23e31a49bc67",
+      "title": "Capacité",
+      "items": [],
+      "subCategories": [],
+      "source": "header",
+      "_colIndex": 1
+    },
+    {
+      "id": "30092cf3-e031-4683-b443-faf39af2ec7a",
+      "title": "Nombre maximum de personnes",
+      "items": [],
+      "subCategories": [],
+      "source": "header",
+      "_colIndex": 2
+    },
+    {
+      "id": "c1129e27-86d7-4694-9305-d25a10c84642",
+      "title": "8 personnes",
+      "items": [],
+      "subCategories": [],
+      "source": "header",
+      "_colIndex": 6
+    },
+    {
+      "id": "c01b7a39-e8ff-4bb0-8118-23e31a49bc67",
+      "title": "Capacité",
+      "items": [],
+      "subCategories": [],
+      "source": "header",
+      "_colIndex": 1
+    },
+    {
+      "id": "30092cf3-e031-4683-b443-faf39af2ec7a",
+      "title": "Nombre maximum de personnes",
+      "items": [],
+      "subCategories": [],
+      "source": "header",
+      "_colIndex": 2
+    },
+    {
+      "id": "c1129e27-86d7-4694-9305-d25a10c84642",
+      "title": "8 personnes",
+      "items": [],
+      "subCategories": [],
+      "source": "header",
+      "_colIndex": 6
+    },
+    {
+      "id": "e31ea89d-7113-4940-9b47-f9522cbfeb13",
+      "title": "Dimensions",
+      "items": [],
+      "subCategories": [],
+      "source": "header",
+      "_colIndex": 1
+    },
+    {
+      "id": "45986954-1a04-4b82-8e21-c2b0b758a665",
+      "title": "Longueur hors tout",
+      "items": [],
+      "subCategories": [],
+      "source": "header",
+      "_colIndex": 2
+    },
+    {
+      "id": "5a4df304-8e52-4276-bf27-0d4ac461cfdf",
+      "title": "6,39 mètres",
+      "items": [],
+      "subCategories": [],
+      "source": "header",
+      "_colIndex": 6
+    },
+    {
+      "id": "e31ea89d-7113-4940-9b47-f9522cbfeb13",
+      "title": "Dimensions",
+      "items": [],
+      "subCategories": [],
+      "source": "header",
+      "_colIndex": 1
+    },
+    {
+      "id": "45986954-1a04-4b82-8e21-c2b0b758a665",
+      "title": "Longueur hors tout",
+      "items": [],
+      "subCategories": [],
+      "source": "header",
+      "_colIndex": 2
+    },
+    {
+      "id": "5a4df304-8e52-4276-bf27-0d4ac461cfdf",
+      "title": "6,39 mètres",
+      "items": [],
+      "subCategories": [],
+      "source": "header",
+      "_colIndex": 6
+    },
+    {
+      "id": "81e9c570-25e1-42f5-bb50-557a4f41dbc5",
+      "title": "Sécurité / carène / pont / divers",
+      "items": [],
+      "subCategories": [],
+      "source": "header",
+      "_colIndex": 1
+    },
+    {
+      "id": "baee7d39-a167-4391-aabf-b61883339808",
+      "title": "Nombre de compartiments sur le flotteur principal",
+      "items": [],
+      "subCategories": [],
+      "source": "header",
+      "_colIndex": 2
+    },
+    {
+      "id": "de5947eb-b8d0-493e-ad28-cca76b9bac85",
+      "title": "5",
+      "items": [],
+      "subCategories": [],
+      "source": "header",
+      "_colIndex": 6
+    },
+    {
+      "id": "81e9c570-25e1-42f5-bb50-557a4f41dbc5",
+      "title": "Sécurité / carène / pont / divers",
+      "items": [],
+      "subCategories": [],
+      "source": "header",
+      "_colIndex": 1
+    },
+    {
+      "id": "baee7d39-a167-4391-aabf-b61883339808",
+      "title": "Nombre de compartiments sur le flotteur principal",
+      "items": [],
+      "subCategories": [],
+      "source": "header",
+      "_colIndex": 2
+    },
+    {
+      "id": "de5947eb-b8d0-493e-ad28-cca76b9bac85",
+      "title": "5",
+      "items": [],
+      "subCategories": [],
+      "source": "header",
+      "_colIndex": 6
+    },
+    {
+      "id": "8123d243-596e-483e-8f2b-e814e8a506f3",
+      "title": "Motorisation",
+      "items": [],
+      "subCategories": [],
+      "source": "header",
+      "_colIndex": 1
+    },
+    {
+      "id": "e1ba7b5f-77fc-4bed-9b8d-748d83a74aef",
+      "title": "Marque",
+      "items": [],
+      "subCategories": [],
+      "source": "header",
+      "_colIndex": 2
+    },
+    {
+      "id": "d0bed681-4b58-4227-8d8e-43b4afd05b44",
+      "title": "Suzuki",
+      "items": [],
+      "subCategories": [],
+      "source": "header",
+      "_colIndex": 6
+    },
+    {
+      "id": "8123d243-596e-483e-8f2b-e814e8a506f3",
+      "title": "Motorisation",
+      "items": [],
+      "subCategories": [],
+      "source": "header",
+      "_colIndex": 1
+    },
+    {
+      "id": "e1ba7b5f-77fc-4bed-9b8d-748d83a74aef",
+      "title": "Marque",
+      "items": [],
+      "subCategories": [],
+      "source": "header",
+      "_colIndex": 2
+    },
+    {
+      "id": "d0bed681-4b58-4227-8d8e-43b4afd05b44",
+      "title": "Suzuki",
+      "items": [],
+      "subCategories": [],
+      "source": "header",
+      "_colIndex": 6
+    },
+    {
+      "id": "e0363c96-b97f-4174-8f2b-b33b62eda536",
+      "title": "Console de pilotage et équipements de navigation (si équipée)",
+      "items": [],
+      "subCategories": [],
+      "source": "header",
+      "_colIndex": 1
+    },
+    {
+      "id": "e3698083-d14f-44d4-b3f2-299aa7813396",
+      "title": "Console C800",
+      "items": [],
+      "subCategories": [],
+      "source": "header",
+      "_colIndex": 2
+    },
+    {
+      "id": "e0363c96-b97f-4174-8f2b-b33b62eda536",
+      "title": "Console de pilotage et équipements de navigation (si équipée)",
+      "items": [],
+      "subCategories": [],
+      "source": "header",
+      "_colIndex": 1
+    },
+    {
+      "id": "e3698083-d14f-44d4-b3f2-299aa7813396",
+      "title": "Console C800",
+      "items": [],
+      "subCategories": [],
+      "source": "header",
+      "_colIndex": 2
+    },
+    {
+      "id": "3cad07e0-1beb-4cf4-ba1d-f7bc68746b66",
+      "title": "Signalisation lumineuse et sonore",
+      "items": [],
+      "subCategories": [],
+      "source": "header",
+      "_colIndex": 1
+    },
+    {
+      "id": "00088c2a-ed29-4d1d-8dbd-d1125e2ac923",
+      "title": "Signalisation lumineuse",
+      "items": [],
+      "subCategories": [],
+      "source": "header",
+      "_colIndex": 3
+    },
+    {
+      "id": "3cad07e0-1beb-4cf4-ba1d-f7bc68746b66",
+      "title": "Signalisation lumineuse et sonore",
+      "items": [],
+      "subCategories": [],
+      "source": "header",
+      "_colIndex": 1
+    },
+    {
+      "id": "00088c2a-ed29-4d1d-8dbd-d1125e2ac923",
+      "title": "Signalisation lumineuse",
+      "items": [],
+      "subCategories": [],
+      "source": "header",
+      "_colIndex": 3
+    },
+    {
+      "id": "68c33033-0b2a-4a53-8c66-06c30013a04e",
+      "title": "Lot de bord",
+      "items": [],
+      "subCategories": [],
+      "source": "header",
+      "_colIndex": 1
+    },
+    {
+      "id": "c2f21b4f-ec52-4a23-a111-85c15c76e5df",
+      "title": "Outillage de base",
+      "items": [],
+      "subCategories": [],
+      "source": "header",
+      "_colIndex": 2
+    },
+    {
+      "id": "68c33033-0b2a-4a53-8c66-06c30013a04e",
+      "title": "Lot de bord",
+      "items": [],
+      "subCategories": [],
+      "source": "header",
+      "_colIndex": 1
+    },
+    {
+      "id": "c2f21b4f-ec52-4a23-a111-85c15c76e5df",
+      "title": "Outillage de base",
+      "items": [],
+      "subCategories": [],
+      "source": "header",
+      "_colIndex": 2
+    },
+    {
+      "id": "9c401961-be1f-4bc6-9724-d1e85db1f065",
+      "title": "Equipements de base",
+      "items": [],
+      "subCategories": [],
+      "source": "header",
+      "_colIndex": 1
+    },
+    {
+      "id": "861d9ded-2ad9-4341-a457-7995fa655cd9",
+      "title": "EQUIPEMENT DE BASE",
+      "items": [],
+      "subCategories": [],
+      "source": "header",
+      "_colIndex": 2
+    },
+    {
+      "id": "9c401961-be1f-4bc6-9724-d1e85db1f065",
+      "title": "Equipements de base",
+      "items": [],
+      "subCategories": [],
+      "source": "header",
+      "_colIndex": 1
+    },
+    {
+      "id": "861d9ded-2ad9-4341-a457-7995fa655cd9",
+      "title": "EQUIPEMENT DE BASE",
+      "items": [],
+      "subCategories": [],
+      "source": "header",
+      "_colIndex": 2
+    },
+    {
+      "id": "a34702ba-573f-41c0-8f2c-72c1939e3652",
+      "title": "EQUIPEMENTS INTEGRES A LA CARENE",
+      "items": [],
+      "subCategories": [],
+      "source": "column",
+      "_rowIndex": 100
+    },
+    {
+      "id": "86312193-6e58-4678-b029-a449bbad735a",
+      "title": "1 nable avec clapet anti-retour",
+      "items": [],
+      "subCategories": [],
+      "source": "column",
+      "_rowIndex": 101
+    },
+    {
+      "id": "fbba5102-628c-4289-aa1e-9a502285538c",
+      "title": "Anneaux d'étrave et de tableau arrière",
+      "items": [],
+      "subCategories": [],
+      "source": "column",
+      "_rowIndex": 102
+    },
+    {
+      "id": "fd0b0f50-d667-4e18-b85b-43c1b5c2d9e0",
+      "title": "Cadènes de hissage tableau arrière",
+      "items": [],
+      "subCategories": [],
+      "source": "column",
+      "_rowIndex": 103
+    },
+    {
+      "id": "556aa6ca-441b-4cfa-83bc-500d35c5250a",
+      "title": "Caillebotis caoutchouc dans fond des coffres et pont",
+      "items": [],
+      "subCategories": [],
+      "source": "column",
+      "_rowIndex": 104
+    },
+    {
+      "id": "a34702ba-573f-41c0-8f2c-72c1939e3652",
+      "title": "EQUIPEMENTS INTEGRES A LA CARENE",
+      "items": [],
+      "subCategories": [],
+      "source": "column",
+      "_rowIndex": 100
+    },
+    {
+      "id": "86312193-6e58-4678-b029-a449bbad735a",
+      "title": "1 nable avec clapet anti-retour",
+      "items": [],
+      "subCategories": [],
+      "source": "column",
+      "_rowIndex": 101
+    },
+    {
+      "id": "fbba5102-628c-4289-aa1e-9a502285538c",
+      "title": "Anneaux d'étrave et de tableau arrière",
+      "items": [],
+      "subCategories": [],
+      "source": "column",
+      "_rowIndex": 102
+    },
+    {
+      "id": "fd0b0f50-d667-4e18-b85b-43c1b5c2d9e0",
+      "title": "Cadènes de hissage tableau arrière",
+      "items": [],
+      "subCategories": [],
+      "source": "column",
+      "_rowIndex": 103
+    },
+    {
+      "id": "556aa6ca-441b-4cfa-83bc-500d35c5250a",
+      "title": "Caillebotis caoutchouc dans fond des coffres et pont",
+      "items": [],
+      "subCategories": [],
+      "source": "column",
+      "_rowIndex": 104
+    },
+    {
+      "id": "4e91ce2d-06bb-4610-a735-a4152dfd73eb",
+      "title": "Valves de gonflage et de surpression",
+      "items": [],
+      "subCategories": [],
+      "source": "column",
+      "_rowIndex": 107
+    },
+    {
+      "id": "ef326314-fe3b-412a-9938-44240a206125",
+      "title": "Guide de mouillage caoutchouc",
+      "items": [],
+      "subCategories": [],
+      "source": "column",
+      "_rowIndex": 108
+    },
+    {
+      "id": "a2e0a0c0-97ba-4613-8432-be7620154e98",
+      "title": "Saisine intérieure et extérieure",
+      "items": [],
+      "subCategories": [],
+      "source": "column",
+      "_rowIndex": 109
+    },
+    {
+      "id": "f624764e-e290-4967-a13d-42e43d367dd6",
+      "title": "PPA Lock, antiragage profil D",
+      "items": [],
+      "subCategories": [],
+      "source": "column",
+      "_rowIndex": 110
+    },
+    {
+      "id": "bacc96b4-5338-4a79-bd36-02a8c0b25a94",
+      "title": "Supports pagaies à l'arrière",
+      "items": [],
+      "subCategories": [],
+      "source": "column",
+      "_rowIndex": 111
+    },
+    {
+      "id": "a480d3ff-3020-458a-b581-475c1d598c37",
+      "title": "Logos",
+      "items": [],
+      "subCategories": [],
+      "source": "column",
+      "_rowIndex": 112
+    },
+    {
+      "id": "4e91ce2d-06bb-4610-a735-a4152dfd73eb",
+      "title": "Valves de gonflage et de surpression",
+      "items": [],
+      "subCategories": [],
+      "source": "column",
+      "_rowIndex": 107
+    },
+    {
+      "id": "ef326314-fe3b-412a-9938-44240a206125",
+      "title": "Guide de mouillage caoutchouc",
+      "items": [],
+      "subCategories": [],
+      "source": "column",
+      "_rowIndex": 108
+    },
+    {
+      "id": "a2e0a0c0-97ba-4613-8432-be7620154e98",
+      "title": "Saisine intérieure et extérieure",
+      "items": [],
+      "subCategories": [],
+      "source": "column",
+      "_rowIndex": 109
+    },
+    {
+      "id": "f624764e-e290-4967-a13d-42e43d367dd6",
+      "title": "PPA Lock, antiragage profil D",
+      "items": [],
+      "subCategories": [],
+      "source": "column",
+      "_rowIndex": 110
+    },
+    {
+      "id": "bacc96b4-5338-4a79-bd36-02a8c0b25a94",
+      "title": "Supports pagaies à l'arrière",
+      "items": [],
+      "subCategories": [],
+      "source": "column",
+      "_rowIndex": 111
+    },
+    {
+      "id": "a480d3ff-3020-458a-b581-475c1d598c37",
+      "title": "Logos",
+      "items": [],
+      "subCategories": [],
+      "source": "column",
+      "_rowIndex": 112
+    },
+    {
+      "id": "f37ad056-1eba-4015-9cf1-8730b1634fe3",
+      "title": "Documentation",
+      "items": [],
+      "subCategories": [],
+      "source": "header",
+      "_colIndex": 1
+    },
+    {
+      "id": "8716b746-c00e-48b8-adce-bb0c246067d9",
+      "title": "A la livraison",
+      "items": [],
+      "subCategories": [],
+      "source": "header",
+      "_colIndex": 2
+    },
+    {
+      "id": "f37ad056-1eba-4015-9cf1-8730b1634fe3",
+      "title": "Documentation",
+      "items": [],
+      "subCategories": [],
+      "source": "header",
+      "_colIndex": 1
+    },
+    {
+      "id": "8716b746-c00e-48b8-adce-bb0c246067d9",
+      "title": "A la livraison",
+      "items": [],
+      "subCategories": [],
+      "source": "header",
+      "_colIndex": 2
+    },
+    {
+      "id": "9634bbd0-c1a9-4f4b-9c8f-bcd6d6b3e1f6",
+      "title": "GARANTIES CONTRACTUELLES",
+      "items": [],
+      "subCategories": [],
+      "source": "column",
+      "_rowIndex": 125
+    },
+    {
+      "id": "9634bbd0-c1a9-4f4b-9c8f-bcd6d6b3e1f6",
+      "title": "GARANTIES CONTRACTUELLES",
+      "items": [],
+      "subCategories": [],
+      "source": "column",
+      "_rowIndex": 125
+    },
+    {
+      "id": "83c0be07-4f54-4de9-9ad3-cc07383b6638",
+      "title": "DELAI DE LIVRAISON",
+      "items": [],
+      "subCategories": [],
+      "source": "column",
+      "_rowIndex": 142
+    },
+    {
+      "id": "83c0be07-4f54-4de9-9ad3-cc07383b6638",
+      "title": "DELAI DE LIVRAISON",
+      "items": [],
+      "subCategories": [],
+      "source": "column",
+      "_rowIndex": 142
+    }
+  ],
+  "stats": {
+    "totalCategories": 76,
+    "totalItems": 0,
+    "totalSubCategories": 0
+  }
+}

@@ -1,0 +1,340 @@
+categories: 
+  -     id: b2df0fd6-d976-49a9-a72c-054780a4de19
+    title: |
+  Références 
+  normatives et 
+  réglementation
+    items: 
+      -         characteristic: Catégorie de conception
+      -         characteristic: Catégorie de navigation professionnelle
+        value: |
+  C 3
+  ème catégorie
+      -         characteristic: Zone maritime de classe
+        value: Classe C
+      -         characteristic: Division
+        value: Division 222
+  -     id: 83901587-4a60-45bd-80be-f5c7e0a4adcd
+    title: Dimensions
+    items: 
+      -         characteristic: Longueur hors tout
+        value: 6,39 mètres
+      -         characteristic: Longueur intérieure
+        value: 5.09 mètres
+      -         characteristic: Largeur hors tout
+        value: 2.49 mètres
+      -         characteristic: Largeur intérieure
+        value: 1,43 mètres
+      -         characteristic: Poids à vide
+        value: 1013 kgs
+      -         characteristic: Diamètre flotteur
+        value: 0,59 mètre
+      -         characteristic: Tirant d'eau à vide
+        value: 0.35 mètre
+  -     id: 53c3dd88-fd53-40ad-b97e-360a10b4a26f
+    title: |
+  Sécurité / carène / 
+  pont / divers
+    items: 
+      -         characteristic: Nombre de compartiments sur le flotteur principal
+      -         characteristic: Tissus
+        value: |
+  5 N
+  éoprène Hypalon 1670 dTex Gris Neptune
+      -         characteristic: Carène
+        value: Aluminium
+      -         characteristic: Coque
+        value: Aluminium
+      -         characteristic: Pont
+        value: Aluminium
+      -         characteristic: Arceau de navigation
+        value: Roll bar alu
+  -     id: 18d08114-1963-4fa3-98fc-80bfb9910e7e
+    title: Motorisation
+    items: 
+      -         characteristic: Marque
+        value: Suzuki
+      -         characteristic: Modèle
+        value: DF150ATX
+      -         characteristic: Puissance
+        value: 150 CV
+      -         characteristic: Démarrage
+        value: Electrique
+      -         characteristic: Energie
+        value: Essence
+      -         characteristic: Coupe circuit de sécurité
+        value: Inclus
+      -         characteristic: Type de réservoir
+        value: Réservoir 120 litres
+      -         characteristic: Quantité de carburant
+        value: 120 litres
+      -         characteristic: Type d'arbre
+        value: Ultra-long
+      -         characteristic: Type de commande
+        value: Boitier de commande
+      -         characteristic: Puissance mini
+        value: 150 CV
+      -         characteristic: Puissance préconisée
+        value: 150 CV
+      -         characteristic: Puissance maxi
+        value: 175 CV
+  -     id: 7488cd4a-cc54-4333-8b9c-15c7ebf6b092
+    title: |
+  Console de pilotage 
+  et équipements de 
+  navigation (si 
+  équipée)
+    items: 
+      -         characteristic: Console C800
+      -         characteristic: Sondeur GPS Lowrance HDS PRO 12
+      -         characteristic: VHF ICOM M510 EAIS
+      -         characteristic: Compas Offshore 115
+      -         characteristic: Direction hydraulique LS 350
+      -         characteristic: Pompe Rules
+  -     id: a92fb294-2a4c-4a15-818a-799f8e9142d1
+    title: |
+  Signalisation 
+  lumineuse et sonore
+    items: 
+      -         characteristic: Signalisation lumineuse
+      -         characteristic: Projecteur à main
+      -         characteristic: Feux sur Roll Bar
+      -         characteristic: Projecteur fixes de recherche
+      -         characteristic: Réflecteur radar tulaire
+      -         characteristic: Bandes réflechissantes sur flotteur
+  -     id: 3b1a67e5-28c5-4137-9d74-c3ee996e7af2
+    title: Lot de bord
+    items: 
+      -         characteristic: Outillage de base
+      -         characteristic: Trousse de réparation
+      -         characteristic: Pagaies télescopiques 50 x 140
+      -         characteristic: Gonfleurs à pied standard
+      -         characteristic: Manomètre
+      -         characteristic: Gaffe alu télescopique
+  -     id: 7d1f9385-3aa2-4bf7-8bb3-6455081b55b7
+    title: Equipements de base
+    items: 
+      -         characteristic: EQUIPEMENT DE BASE
+      -         characteristic: Bolster 1011
+      -         characteristic: 1 panneau de pont
+      -         characteristic: EQUIPEMENTS INTEGRES A LA CARENE
+      -         characteristic: 1 nable avec clapet anti-retour
+      -         characteristic: Anneaux d'étrave et de tableau arrière
+      -         characteristic: Cadènes de hissage tableau arrière
+      -         characteristic: Caillebotis caoutchouc dans fond des coffres et pont
+      -         characteristic: ACCESSOIRES FLOTTEUR
+      -         characteristic: Valves de gonflage et de surpression
+      -         characteristic: Guide de mouillage caoutchouc
+      -         characteristic: Saisine intérieure et extérieure
+      -         characteristic: PPA Lock, antiragage profil D
+      -         characteristic: Supports pagaies à l'arrière
+      -         characteristic: Logos
+  -     id: 68f611e6-90ec-40c8-9f30-2d449d4b5de0
+    title: Documentation
+    items: 
+      -         characteristic: A la livraison
+      -         characteristic: Un certificat de conformité
+      -         characteristic: Un bon de livraison
+      -         characteristic: Un manuel propriétaire
+      -         characteristic: Une carte de garantie bateau
+      -         characteristic: Une carte de garantie moteur
+  -     id: c8d07681-018b-4e8e-98f9-4087fc7187d6
+    title: GARANTIES CONTRACTUELLES
+    items: 
+
+  -     id: c1421b41-9141-441c-b8f2-8aefa2e394eb
+    title: Flotteur
+    items: 
+      -         characteristic: 2 ans
+  -     id: e8099ad9-bd57-492b-981e-de567c624107
+    title: Coque
+    items: 
+      -         characteristic: 2 ans
+  -     id: f78aa525-35d1-48b2-bb77-59f3f6ddfbbc
+    title: Antifowling
+    items: 
+      -         characteristic: 1 an
+  -     id: 1043e00a-9214-45da-9fbb-859f6d836ba2
+    title: Moteur hord-bord
+    items: 
+      -         characteristic: 1 an
+  -     id: f5df6879-c6d2-45c9-a318-173ec935fad2
+    title: Chaîne cinématique moteur hors-bord (moteur, inverseur, arbre, hélice)
+    items: 
+      -         characteristic: 1 an
+  -     id: 6d3823b0-448c-4f02-90f3-92b452c29c0d
+    title: Moteur in-bord
+    items: 
+      -         characteristic: NC
+  -     id: 2239103a-b187-47ba-bce1-2e568fea12d3
+    title: Chaîne cinématique moteur in-bord (moteur, inverseur, arbre, hélice)
+    items: 
+      -         characteristic: 1 an
+  -     id: a5648a18-7912-46d3-87f9-cd65e7bdc584
+    title: Motorisation de type "hydrojet"
+    items: 
+      -         characteristic: NC
+  -     id: 332e6058-e454-4d83-b4a9-d11108da3717
+    title: Chaîne cinématique moteur de type "hydrojet" (moteur, inverseur, turbine)
+    items: 
+      -         characteristic: NC
+  -     id: b2411942-7025-483e-957d-ec47a585b6ff
+    title: Equipement amovible
+    items: 
+      -         characteristic: 2 ans
+  -     id: 2df980c8-4384-44d2-a74d-7743af513db5
+    title: Equipement électronique
+    items: 
+      -         characteristic: 2 ans
+  -     id: 0f4966b3-7d38-4ae8-b286-fa667022d872
+    title: Console de pilotage
+    items: 
+      -         characteristic: 2 ans
+  -     id: 708e2173-24fa-47d6-b0fe-3db8b95285cb
+    title: Anti-corrosion (chaîne cinématique)
+    items: 
+      -         characteristic: 2 ans
+  -     id: f581eb6d-58f8-4d9e-942a-429a8a9f93a9
+    title: Anti-corrosion
+    items: 
+      -         characteristic: 2 ans
+  -     id: d6474ac4-769c-4224-b4cc-84071038c47f
+    title: Remorque
+    items: 
+      -         characteristic: 2 ans
+  -     id: 82f605ea-9092-4488-9a86-78697881f786
+    title: DELAI DE LIVRAISON
+    items: 
+
+  -     id: ef7ed1f3-ca53-4806-aeef-369a26f0f7b3
+    title: 1 unité
+    items: 
+      -         characteristic: 180 jours calendaires
+  -     id: 07f77e96-6552-4d87-93c0-7805cc8fb568
+    title: 2 unités
+    items: 
+      -         characteristic: 240 jours calendaires
+  -     id: b53978e6-ce06-4e61-ba74-151158a6dfcf
+    title: 3 à 5 unités
+    items: 
+      -         characteristic: 300 jours calendaires
+  -     id: 55765746-741a-438f-8e57-3600c5395e16
+    title: 6 à 10 unités
+    items: 
+      -         characteristic: 360 jours calendaires
+matching: 
+  matched: 
+
+  unmatched: 
+    -       category: |
+  Références 
+  normatives et 
+  réglementation
+      characteristic: Catégorie de navigation professionnelle
+      value: |
+  C 3
+  ème catégorie
+    -       category: |
+  Références 
+  normatives et 
+  réglementation
+      characteristic: Zone maritime de classe
+      value: Classe C
+    -       category: |
+  Références 
+  normatives et 
+  réglementation
+      characteristic: Division
+      value: Division 222
+    -       category: Dimensions
+      characteristic: Longueur hors tout
+      value: 6,39 mètres
+    -       category: Dimensions
+      characteristic: Longueur intérieure
+      value: 5.09 mètres
+    -       category: Dimensions
+      characteristic: Largeur hors tout
+      value: 2.49 mètres
+    -       category: Dimensions
+      characteristic: Largeur intérieure
+      value: 1,43 mètres
+    -       category: Dimensions
+      characteristic: Poids à vide
+      value: 1013 kgs
+    -       category: Dimensions
+      characteristic: Diamètre flotteur
+      value: 0,59 mètre
+    -       category: Dimensions
+      characteristic: Tirant d'eau à vide
+      value: 0.35 mètre
+    -       category: |
+  Sécurité / carène / 
+  pont / divers
+      characteristic: Tissus
+      value: |
+  5 N
+  éoprène Hypalon 1670 dTex Gris Neptune
+    -       category: |
+  Sécurité / carène / 
+  pont / divers
+      characteristic: Carène
+      value: Aluminium
+    -       category: |
+  Sécurité / carène / 
+  pont / divers
+      characteristic: Coque
+      value: Aluminium
+    -       category: |
+  Sécurité / carène / 
+  pont / divers
+      characteristic: Pont
+      value: Aluminium
+    -       category: |
+  Sécurité / carène / 
+  pont / divers
+      characteristic: Arceau de navigation
+      value: Roll bar alu
+    -       category: Motorisation
+      characteristic: Marque
+      value: Suzuki
+    -       category: Motorisation
+      characteristic: Modèle
+      value: DF150ATX
+    -       category: Motorisation
+      characteristic: Puissance
+      value: 150 CV
+    -       category: Motorisation
+      characteristic: Démarrage
+      value: Electrique
+    -       category: Motorisation
+      characteristic: Energie
+      value: Essence
+    -       category: Motorisation
+      characteristic: Coupe circuit de sécurité
+      value: Inclus
+    -       category: Motorisation
+      characteristic: Type de réservoir
+      value: Réservoir 120 litres
+    -       category: Motorisation
+      characteristic: Quantité de carburant
+      value: 120 litres
+    -       category: Motorisation
+      characteristic: Type d'arbre
+      value: Ultra-long
+    -       category: Motorisation
+      characteristic: Type de commande
+      value: Boitier de commande
+    -       category: Motorisation
+      characteristic: Puissance mini
+      value: 150 CV
+    -       category: Motorisation
+      characteristic: Puissance préconisée
+      value: 150 CV
+    -       category: Motorisation
+      characteristic: Puissance maxi
+      value: 175 CV
+  stats: 
+    totalValues: 28
+    matched: 0
+    unmatched: 28
+    matchRate: 0

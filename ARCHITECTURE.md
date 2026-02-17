@@ -203,8 +203,90 @@ backend/modules/agent-documentaire/
 - `collectTempImageMappings()` / `promoteTempImages()` - Gestion de la promotion des images temporaires avant sauvegarde
 - `saveDocumentChanges()` - Bouton "Sauvegarder" : sérialise le JSON, promeut les images, déclenche le `PUT /document/:id`
 
-### 4. Agent Facebook
+### 4. Module Workflow (builder / viewer)
+
+Module de création et consultation de workflows avec séparation admin/user.
+
+**Structure du module :**
+```
+modules/workflow/backend/
+├── index.js                          # Point d'entrée du module
+├── routes.js                         # Routes API
+├── controllers/
+│   └── workflowController.js         # CRUD workflows
+├── services/
+│   └── WorkflowService.js            # Accès MongoDB (workflows)
+└── middleware/
+    ├── requireWorkflowRole.js        # Contrôle d'accès par rôle
+    └── useWorkflowEntrepriseDb.js    # Multi-tenant (DB entreprise)
+
+modules/workflow/frontend/
+├── builder/                          # Builder (admin)
+│   ├── index.html
+│   ├── builder/                      # Fichiers JS découpés
+│   └── builder.css
+├── viewer/                           # Viewer (user)
+│   ├── index.html
+│   ├── workflow-viewer.js
+│   └── tutorial.css
+└── shared/                           # Données mutualisées (builder + viewer)
+    ├── assets/
+    ├── block/
+    ├── bricks/
+    ├── workflows/
+    ├── workflow.json
+    ├── tutorial.json
+    └── config.js                     # API base URL
+```
+
+**Helpers front builder (modules/workflow/frontend/builder/builder/)** :
+- `isRemotePath(value)` : détecte une URL distante pour éviter les préfixes locaux.
+- `normalizeBlockPath(path)` : normalise un chemin de block en `block/...`.
+- `normalizeSharedPath(path)` : préfixe un chemin local avec `../shared/` si nécessaire.
+- `fetchApiJson(path, options)` : wrapper fetch JSON avec credentials vers l’API workflow.
+- `isApiWorkflowPath(path)` : détecte un chemin workflow `api:<id>`.
+- `getApiWorkflowId(path)` : extrait l’ID d’un chemin workflow `api:<id>`.
+
+**Routes API :**
+- `GET /api/workflow/health` - Vérifie l'état du module
+- `GET /api/workflow/workflows` - Liste des workflows (viewer + admin)
+- `GET /api/workflow/workflows/:id` - Détails d'un workflow
+- `POST /api/workflow/workflows` - Création (admin)
+- `PUT /api/workflow/workflows/:id` - Mise à jour (admin)
+- `DELETE /api/workflow/workflows/:id` - Suppression (admin)
+
+**Rôles :**
+- `ADMIN_GDRI` / `ADMIN_ENTITY` : création, édition, suppression
+- `USER_ENTITY` : lecture (viewer)
+
+**Collections (par entreprise) :**
+- `workflows` : documents de workflow (payload complet du builder)
+
+### 5. Agent Facebook
 Récupère et analyse les notifications Facebook, envoie des alertes mail si réponse nécessaire.
+
+### 6. Module Chat (Ollama)
+Module de chat pour communiquer avec le serveur IA local (Ollama).
+
+**Structure du module :**
+```
+modules/chat/backend/
+├── index.js                      # Point d'entrée du module
+├── routes.js                     # Routes API
+└── services/
+    └── ChatService.js            # Proxy vers Ollama
+```
+
+**Routes API :**
+- `POST /api/chat/message` - Envoyer un message au modèle
+- `GET /api/chat/health` - Tester la connexion à Ollama
+
+**Fonctions principales :**
+- `init(app, db)` - Initialise le module chat (modules/chat/backend/index.js)
+- `getRoutes()` - Retourne le routeur du module (modules/chat/backend/index.js)
+- `getChatService()` - Singleton du service chat (modules/chat/backend/routes.js)
+- `ChatService.sendMessage(message, options)` - Envoie un message à Ollama
+- `ChatService.testConnection()` - Test de connexion à Ollama
 
 ## Informations entreprise
 - **Nom** : GDR-Innovation (GDRI)
@@ -235,8 +317,28 @@ Récupère et analyse les notifications Facebook, envoie des alertes mail si ré
 - `assets/js/navigation.js` - Navigation responsive (fonctions: `toggleMobileMenu`, `closeMobileMenu`, `handleScroll`, `setActiveLink`, `initNavigation`)
 - `assets/js/form-validation.js` - Validation formulaires (fonctions: `validateEmail`, `validatePassword`, `showError`, `hideError`, `showSuccess`, `handleLoginSubmit`, `initFormValidation`)
 
+### Doc-template V3 (frontend)
+- `frontend/pages/modules/doc-template-v3/document/DocumentEditorPage.js` - `reorderContentToMatchTOC(hierarchy)` : réordonne le contenu HTML du document pour refléter l’ordre du TOC après drag & drop.
+- `frontend/pages/modules/doc-template-v3/document/DocumentViewPage.js` - `renderReadOnlyEditor(container)` : affiche le document via le builder en lecture seule (mêmes marges et scaling).
+- `frontend/pages/modules/doc-template-v3/document/DocumentViewPage.js` - `getPageSizePx(pageSize, orientation, pagination)` : convertit un format de page (A4/custom) en dimensions px.
+- `frontend/pages/modules/doc-template-v3/document/DocumentViewPage.js` - `normalizeCssLength(value)` : normalise une longueur CSS (string/number) pour les marges.
+
+### Doc-template V2 (frontend)
+- `frontend/pages/modules/document-editor-v2/src/document/DocumentEditorPage.js` - `reorderContentToMatchTOC(hierarchy)` : réordonne le contenu HTML du document pour refléter l’ordre du TOC après drag & drop.
+
+### Doc-template backend (PDF)
+- `backend/modules/doc-template/controllers/documentController.js` - `getTemplatePageSizeCm(pagination)` : calcule la taille page (cm) pour le PDF à partir du template.
+- `backend/modules/doc-template/controllers/documentController.js` - `buildTemplateCss(template)` : génère le CSS de titres/typo pour un rendu PDF identique au template.
+- `backend/modules/doc-template/controllers/documentController.js` - `exportHtmlToPdf(req, res)` : génère un PDF depuis un HTML fourni (viewer).
+### Doc-template frontend (PDF)
+- `frontend/pages/modules/doc-template-v3/document/utils/pdfHtmlExporter.js` - `buildInlinePdfHtml(editorElement)` : génère un HTML inline pour export PDF fidèle au viewer.
+- `backend/modules/doc-template/services/DocumentGenerationService.js` - `isImageValue(value)` : détecte si une valeur correspond à une image (objet image).
+- `backend/modules/doc-template/services/DocumentGenerationService.js` - `buildCollectionImageUrl(imageData, collectionId)` : construit l'URL API d'une image de collection.
+- `backend/modules/doc-template/services/DocumentGenerationService.js` - `resolveVariableImage(variablePath, variables)` : résout une variable d'image (valeur + collectionId).
+- `backend/modules/doc-template/services/DocumentGenerationService.js` - `replaceVariableImagesInHtml(html, variables)` : remplace les `img[data-variable-path]` par les URLs réelles.
+
 ### PHP - Includes
-- `includes/functions.php` - Fonctions utilitaires (`escape`, `redirect`, `isLoggedIn`, `getUserRole`, `hasRole`, `getRootPath`, `url`, `pageTitle`)
+- `includes/functions.php` - Fonctions utilitaires (`escape`, `redirect`, `isLoggedIn`, `getUserRole`, `hasRole`, `getRootPath`, `url`, `pageTitle`, `syncServicesWithFilesystemModules($db)`)
 - `includes/header.php` - Header HTML commun
 - `includes/footer.php` - Footer HTML commun
 
@@ -252,6 +354,17 @@ Récupère et analyse les notifications Facebook, envoie des alertes mail si ré
 
 ### PHP - Dashboard
 - `pages/dashboard.php` - Dashboard adapté selon le rôle (ADMIN_GDRI, ADMIN_ENTITY, USER_ENTITY)
+
+### PHP - Administration
+- `pages/entities.php` - Gestion des entités et des utilisateurs (ADMIN_GDRI)
+- `pages/entity-modules.php` - Attribution des modules à une entité (ADMIN_GDRI)
+- `pages/users.php` - Gestion des utilisateurs et permissions modules d'une entreprise (ADMIN_ENTITY)
+
+### Backend - Serveur Node
+- `backend/server.js` - `ensureGdriEntity()` : vérifie/crée l'entité GDRI, initialise la base d'entreprise et rattache les admins GDRI (params: aucun).
+
+### Module UGAP (backend Node)
+- `modules/ugap/backend/services/ExcelTableDetector.js` - `detectTablesFromWorksheet(ws, range, options?)` : détecte les "tableaux" dans une feuille Excel (1 tableau = bloc de lignes consécutives non vides, séparé par des lignes vides). Retourne `{ count, tables }` avec `tables=[{start,end}]` (indices de lignes 0-based). Options: `startRow/endRow/startCol/endCol/trimEmptyColumns` (défaut `true`: démarre à la 1ère colonne non vide).
 
 ### Installation
 - `INSTALLATION.md` - Guide d'installation complet

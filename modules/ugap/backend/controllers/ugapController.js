@@ -1,0 +1,2590 @@
+const path = require('path');
+const fs = require('fs');
+const { ObjectId } = require('mongodb');
+const UgapDataService = require('../services/UgapDataService');
+const UgapExcelService = require('../services/UgapExcelService');
+const UgapAIService = require('../services/UgapAIService');
+const WebSearchSimulator = require('../services/WebSearchSimulator');
+const UgapPdfService = require('../services/UgapPdfService');
+const ExcelExtractionTester = require('../services/ExcelExtractionTester');
+const PdfToExcelConverter = require('../services/PdfToExcelConverter');
+const XLSX = require('xlsx');
+const { detectTablesFromWorksheet } = require('../services/ExcelTableDetector');
+const crypto = require('crypto');
+
+async function getData(req, res) {
+  try {
+    const data = await UgapDataService.getData(req.entrepriseDb, req.entrepriseId);
+    if (!data) {
+      // Retourner 200 avec success: false pour que le frontend puisse gérer gracieusement
+      return res.json({ 
+        success: false, 
+        message: 'Aucune donnée configurée',
+        data: {
+          models: [],
+          categories: []
+        }
+      });
+    }
+    res.json({ success: true, data });
+  } catch (error) {
+    console.error('❌ UGAP getData error:', error);
+    res.status(500).json({ success: false, message: error.message || 'Erreur serveur' });
+  }
+}
+
+async function importExcel(req, res) {
+  try {
+    const filePath = path.join(__dirname, '../../source/TARIF ALU UGAP 2024(6).xlsx');
+    const extractedData = UgapExcelService.extractData(filePath);
+    await UgapDataService.saveData(req.entrepriseDb, extractedData, req.entrepriseId);
+    
+    res.json({
+      success: true,
+      message: 'Import réussi',
+      data: {
+        modelsCount: extractedData.models.length,
+        categoriesCount: extractedData.categories.length,
+        optionsCount: extractedData.categories.reduce((sum, cat) => sum + (cat.options?.length || 0), 0)
+      }
+    });
+  } catch (error) {
+    console.error('❌ UGAP importExcel error:', error);
+    res.status(500).json({ success: false, message: error.message || 'Erreur serveur' });
+  }
+}
+
+async function getModels(req, res) {
+  try {
+    const data = await UgapDataService.getData(req.entrepriseDb, req.entrepriseId);
+    if (!data) {
+      return res.status(404).json({ success: false, message: 'Aucune donnée configurée' });
+    }
+    res.json({ success: true, data: data.models || [] });
+  } catch (error) {
+    console.error('❌ UGAP getModels error:', error);
+    res.status(500).json({ success: false, message: error.message || 'Erreur serveur' });
+  }
+}
+
+async function getCategories(req, res) {
+  try {
+    const data = await UgapDataService.getData(req.entrepriseDb, req.entrepriseId);
+    if (!data) {
+      return res.status(404).json({ success: false, message: 'Aucune donnée configurée' });
+    }
+    res.json({ success: true, data: data.categories || [] });
+  } catch (error) {
+    console.error('❌ UGAP getCategories error:', error);
+    res.status(500).json({ success: false, message: error.message || 'Erreur serveur' });
+  }
+}
+
+async function generateDevis(req, res) {
+  try {
+    const { modelId, configId, selectedOptions, use5Percent } = req.body;
+    const data = await UgapDataService.getData(req.entrepriseDb, req.entrepriseId);
+    if (!data) {
+      return res.status(404).json({ success: false, message: 'Aucune donnée configurée' });
+    }
+    const model = data.models.find(m => m.id === modelId);
+    if (!model) {
+      return res.status(404).json({ success: false, message: 'Modèle non trouvé' });
+    }
+    let total = model.basePrice || 0;
+    const selectedOptionsData = [];
+    selectedOptions.forEach(optionId => {
+      for (const category of data.categories) {
+        const option = category.options.find(o => o.id === optionId);
+        if (option) {
+          selectedOptionsData.push(option);
+          total += option.priceClient || option.priceUgap || 0;
+          break;
+        }
+      }
+    });
+    const budget5Percent = use5Percent ? total * 0.05 : 0;
+    res.json({
+      success: true,
+      data: {
+        model,
+        configId,
+        selectedOptions: selectedOptionsData,
+        subtotal: total,
+        budget5Percent,
+        total: total + budget5Percent
+      }
+    });
+  } catch (error) {
+    console.error('❌ UGAP generateDevis error:', error);
+    res.status(500).json({ success: false, message: error.message || 'Erreur serveur' });
+  }
+}
+
+async function createCategory(req, res) {
+  try {
+    const { name } = req.body;
+    const categoryId = await UgapDataService.createCategory(req.entrepriseDb, req.entrepriseId, name);
+    res.json({ success: true, data: { id: categoryId, name } });
+  } catch (error) {
+    console.error('❌ UGAP createCategory error:', error);
+    res.status(500).json({ success: false, message: error.message || 'Erreur serveur' });
+  }
+}
+
+async function updateCategory(req, res) {
+  try {
+    const { categoryId } = req.params;
+    const updates = req.body;
+    await UgapDataService.updateCategory(req.entrepriseDb, req.entrepriseId, categoryId, updates);
+    res.json({ success: true, message: 'Catégorie mise à jour' });
+  } catch (error) {
+    console.error('❌ UGAP updateCategory error:', error);
+    res.status(500).json({ success: false, message: error.message || 'Erreur serveur' });
+  }
+}
+
+async function reorderCategories(req, res) {
+  try {
+    const { orderedCategoryIds } = req.body || {};
+    if (!Array.isArray(orderedCategoryIds) || orderedCategoryIds.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'orderedCategoryIds doit être un tableau non vide'
+      });
+    }
+
+    await UgapDataService.reorderCategories(req.entrepriseDb, req.entrepriseId, orderedCategoryIds);
+    res.json({ success: true, message: 'Ordre des catégories mis à jour' });
+  } catch (error) {
+    console.error('❌ UGAP reorderCategories error:', error);
+    res.status(500).json({ success: false, message: error.message || 'Erreur serveur' });
+  }
+}
+
+async function deleteCategory(req, res) {
+  try {
+    const { categoryId } = req.params;
+    await UgapDataService.deleteCategory(req.entrepriseDb, req.entrepriseId, categoryId);
+    res.json({ success: true, message: 'Catégorie supprimée' });
+  } catch (error) {
+    console.error('❌ UGAP deleteCategory error:', error);
+    res.status(500).json({ success: false, message: error.message || 'Erreur serveur' });
+  }
+}
+
+async function clearAllCategories(req, res) {
+  try {
+    const summary = await UgapDataService.clearAllCategories(req.entrepriseDb, req.entrepriseId);
+    res.json({
+      success: true,
+      message: 'Catégories réinitialisées',
+      data: summary
+    });
+  } catch (error) {
+    console.error('❌ UGAP clearAllCategories error:', error);
+    res.status(500).json({ success: false, message: error.message || 'Erreur serveur' });
+  }
+}
+
+// Clear uniquement le mapping (catégories détectées) d'une configuration (vue "Voir résultats")
+async function clearConfigurationMappedCategories(req, res) {
+  try {
+    const { modelId, configId } = req.params;
+    const data = await UgapDataService.getData(req.entrepriseDb, req.entrepriseId);
+    const model = (data.models || []).find(m => m.id === modelId);
+    const config = model?.configurations?.find(c => c.id === configId);
+
+    if (!model || !config) {
+      return res.status(404).json({ success: false, message: 'Modèle ou configuration introuvable' });
+    }
+
+    const existingPdfAnalysis = config.pdfAnalysis || {};
+
+    const clearedMapped = {
+      categories: [],
+      stats: { totalCategories: 0, totalItems: 0, totalSubCategories: 0 }
+    };
+
+    await UgapDataService.updateModelConfiguration(
+      req.entrepriseDb,
+      req.entrepriseId,
+      modelId,
+      configId,
+      {
+        pdfAnalysis: {
+          ...existingPdfAnalysis,
+          mapped: clearedMapped,
+          mappedAt: null,
+          mappedJsonPath: null,
+          mappedYamlPath: null
+        }
+      }
+    );
+
+    res.json({ success: true, message: 'Mapping réinitialisé', data: { mapped: clearedMapped } });
+  } catch (error) {
+    console.error('❌ UGAP clearConfigurationMappedCategories error:', error);
+    res.status(500).json({ success: false, message: error.message || 'Erreur serveur' });
+  }
+}
+
+async function createSubCategory(req, res) {
+  try {
+    const { categoryId } = req.params;
+    const { name, description, optionIds } = req.body;
+    console.log(`📥 createSubCategory: name=${name}, description=${description}, optionIds=${JSON.stringify(optionIds)}`);
+    const subCategoryId = await UgapDataService.createSubCategory(req.entrepriseDb, req.entrepriseId, categoryId, { 
+      name, 
+      description, 
+      optionIds: optionIds || [] 
+    });
+    console.log(`✅ createSubCategory: Sous-catégorie créée avec ID ${subCategoryId}`);
+    res.json({ success: true, data: { id: subCategoryId, name, description, optionIds: optionIds || [] } });
+  } catch (error) {
+    console.error('❌ UGAP createSubCategory error:', error);
+    res.status(500).json({ success: false, message: error.message || 'Erreur serveur' });
+  }
+}
+
+async function updateSubCategory(req, res) {
+  try {
+    const { categoryId, subCategoryId } = req.params;
+    const updates = req.body;
+    await UgapDataService.updateSubCategory(req.entrepriseDb, req.entrepriseId, categoryId, subCategoryId, updates);
+    res.json({ success: true, message: 'Sous-catégorie mise à jour' });
+  } catch (error) {
+    console.error('❌ UGAP updateSubCategory error:', error);
+    res.status(500).json({ success: false, message: error.message || 'Erreur serveur' });
+  }
+}
+
+async function deleteSubCategory(req, res) {
+  try {
+    const { categoryId, subCategoryId } = req.params;
+    await UgapDataService.deleteSubCategory(req.entrepriseDb, req.entrepriseId, categoryId, subCategoryId);
+    res.json({ success: true, message: 'Sous-catégorie supprimée' });
+  } catch (error) {
+    console.error('❌ UGAP deleteSubCategory error:', error);
+    res.status(500).json({ success: false, message: error.message || 'Erreur serveur' });
+  }
+}
+
+async function updateOption(req, res) {
+  try {
+    const { optionId } = req.params;
+    const updates = req.body;
+    await UgapDataService.updateOption(req.entrepriseDb, req.entrepriseId, optionId, updates);
+    res.json({ success: true, message: 'Option mise à jour' });
+  } catch (error) {
+    console.error('❌ UGAP updateOption error:', error);
+    res.status(500).json({ success: false, message: error.message || 'Erreur serveur' });
+  }
+}
+
+async function moveOptionToCategory(req, res) {
+  try {
+    const { fromCategoryId, optionId } = req.params;
+    const { toCategoryId, toSubCategoryId } = req.body || {};
+
+    if (!fromCategoryId || !optionId || !toCategoryId) {
+      return res.status(400).json({
+        success: false,
+        message: 'fromCategoryId, optionId et toCategoryId sont requis'
+      });
+    }
+
+    await UgapDataService.moveOptionToCategory(
+      req.entrepriseDb,
+      req.entrepriseId,
+      fromCategoryId,
+      optionId,
+      toCategoryId,
+      toSubCategoryId
+    );
+
+    res.json({ success: true, message: 'Option déplacée' });
+  } catch (error) {
+    console.error('❌ UGAP moveOptionToCategory error:', error);
+    res.status(500).json({ success: false, message: error.message || 'Erreur serveur' });
+  }
+}
+
+async function improveCategorization(req, res) {
+  try {
+    const useSSE = req.headers.accept && req.headers.accept.includes('text/event-stream');
+    const data = await UgapDataService.getData(req.entrepriseDb, req.entrepriseId);
+    if (!data) {
+      return res.status(404).json({ success: false, message: 'Aucune donnée configurée' });
+    }
+    const allOptions = data.categories.flatMap(cat => cat.options || []);
+    
+    if (useSSE) {
+      res.writeHead(200, {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        'Connection': 'keep-alive',
+        'X-Accel-Buffering': 'no'
+      });
+      res.write(': connected\n\n');
+      if (res.flush) res.flush();
+      
+      let isClosed = false;
+      req.on('close', () => { isClosed = true; });
+      
+      const sendEvent = (event, data) => {
+        if (isClosed) return;
+        try {
+          res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+          if (res.flush) res.flush();
+        } catch (e) {
+          isClosed = true;
+        }
+      };
+      
+      const keepAlive = setInterval(() => {
+        if (isClosed) {
+          clearInterval(keepAlive);
+          return;
+        }
+        res.write(': keepalive\n\n');
+        if (res.flush) res.flush();
+      }, 3000);
+      
+      const progressCallback = (progress) => {
+        if (isClosed) return;
+        if (progress.type === 'stream' && progress.streamChunk) {
+          sendEvent('stream', { chunk: progress.streamChunk });
+          return;
+        }
+        sendEvent('progress', {
+          message: progress.message || '',
+          type: progress.type || 'info',
+          partialData: progress.partialData,
+          isPartial: progress.isPartial,
+          isFinal: progress.isFinal
+        });
+      };
+      
+      try {
+        const aiService = new UgapAIService(req.entrepriseDb, req.entrepriseId, progressCallback);
+        const improvements = await aiService.improveCategorization(allOptions);
+        clearInterval(keepAlive);
+        sendEvent('done', { success: true, message: `${improvements.length} catégorisation(s) améliorée(s)`, data: improvements });
+        res.end();
+      } catch (error) {
+        clearInterval(keepAlive);
+        sendEvent('error', { message: error.message || 'Erreur serveur' });
+        res.end();
+      }
+    } else {
+      const aiService = new UgapAIService(req.entrepriseDb, req.entrepriseId);
+      const improvements = await aiService.improveCategorization(allOptions);
+      res.json({ success: true, data: improvements });
+    }
+  } catch (error) {
+    console.error('❌ UGAP improveCategorization error:', error);
+    res.status(500).json({ success: false, message: error.message || 'Erreur serveur' });
+  }
+}
+
+async function getPrompts(req, res) {
+  try {
+    const prompts = await UgapDataService.getPrompts(req.entrepriseDb, req.entrepriseId);
+    res.json({ success: true, data: prompts });
+  } catch (error) {
+    console.error('❌ UGAP getPrompts error:', error);
+    res.status(500).json({ success: false, message: error.message || 'Erreur serveur' });
+  }
+}
+
+async function updatePrompts(req, res) {
+  try {
+    const { subCategoryPrompt, categorizationPrompt } = req.body;
+    await UgapDataService.updatePrompts(req.entrepriseDb, req.entrepriseId, { subCategoryPrompt, categorizationPrompt });
+    res.json({ success: true, message: 'Prompts mis à jour' });
+  } catch (error) {
+    console.error('❌ UGAP updatePrompts error:', error);
+    res.status(500).json({ success: false, message: error.message || 'Erreur serveur' });
+  }
+}
+
+async function resetPrompts(req, res) {
+  try {
+    const prompts = await UgapDataService.resetPrompts(req.entrepriseDb, req.entrepriseId);
+    res.json({ success: true, data: prompts, message: 'Prompts réinitialisés' });
+  } catch (error) {
+    console.error('❌ UGAP resetPrompts error:', error);
+    res.status(500).json({ success: false, message: error.message || 'Erreur serveur' });
+  }
+}
+
+async function detectSubCategories(req, res) {
+  try {
+    const { categoryId } = req.params;
+    const useSSE = req.headers.accept && req.headers.accept.includes('text/event-stream');
+
+    const data = await UgapDataService.getData(req.entrepriseDb, req.entrepriseId);
+    if (!data) {
+      if (useSSE) {
+        res.write(`event: error\ndata: ${JSON.stringify({ message: 'Aucune donnée configurée' })}\n\n`);
+        res.end();
+        return;
+      }
+      return res.status(404).json({ success: false, message: 'Aucune donnée configurée' });
+    }
+
+    const category = data.categories.find(c => c.id === categoryId);
+    if (!category) {
+      if (useSSE) {
+        res.write(`event: error\ndata: ${JSON.stringify({ message: 'Catégorie non trouvée' })}\n\n`);
+        res.end();
+        return;
+      }
+      return res.status(404).json({ success: false, message: 'Catégorie non trouvée' });
+    }
+
+    if (useSSE) {
+      res.writeHead(200, {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        'Connection': 'keep-alive',
+        'X-Accel-Buffering': 'no'
+      });
+      
+      res.write(': connected\n\n');
+      if (res.flush) res.flush();
+
+      let isClosed = false;
+      req.on('close', () => { isClosed = true; });
+
+      const sendEvent = (event, data) => {
+        if (isClosed) return;
+        try {
+          res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+          if (res.flush) res.flush();
+        } catch (e) {
+          isClosed = true;
+        }
+      };
+
+      const keepAlive = setInterval(() => {
+        if (isClosed) {
+          clearInterval(keepAlive);
+          return;
+        }
+        res.write(': keepalive\n\n');
+        if (res.flush) res.flush();
+      }, 3000);
+
+      const progressCallback = (progress) => {
+        if (isClosed) return;
+        
+        if (progress.type === 'stream' && progress.streamChunk) {
+          sendEvent('stream', { chunk: progress.streamChunk });
+          return;
+        }
+        
+        const eventData = {
+          message: progress.message || '',
+          type: progress.type || 'info'
+        };
+        
+        if (progress.partialData) {
+          eventData.partialSubCategories = progress.partialData;
+          eventData.isPartial = progress.isPartial;
+          eventData.isFinal = progress.isFinal;
+        }
+        
+        sendEvent('progress', eventData);
+      };
+
+      try {
+        const aiService = new UgapAIService(req.entrepriseDb, req.entrepriseId, progressCallback);
+        console.log(`\n🚀 ugapController: Appel de detectSubCategories pour "${category.name}" avec ${category.options?.length || 0} options`);
+        const subCategories = await aiService.detectSubCategories(category.options || [], category.name);
+
+        console.log(`\n📤 ugapController: Résultat de detectSubCategories:`);
+        console.log(`📊 ugapController: ${subCategories.length} sous-catégorie(s) retournée(s)`);
+        console.log(`📋 ugapController: Sous-catégories:`, subCategories.map(sc => sc.name).join(', '));
+        
+        // Vérifier que toutes les options sont incluses
+        const allAssignedOptionIds = new Set();
+        subCategories.forEach(sc => {
+          (sc.optionIds || []).forEach(id => allAssignedOptionIds.add(id));
+        });
+        const totalOptionsInSubCategories = allAssignedOptionIds.size;
+        const missingCount = (category.options || []).length - totalOptionsInSubCategories;
+        
+        console.log(`📊 ugapController: Options assignées: ${totalOptionsInSubCategories}/${(category.options || []).length}`);
+        if (missingCount > 0) {
+          console.warn(`⚠️ ugapController: ${missingCount} option(s) non assignée(s) - une sous-catégorie "Non attribuées" devrait être créée`);
+        }
+        
+        console.log(`📋 ugapController: Détails:`, JSON.stringify(subCategories, null, 2));
+
+        clearInterval(keepAlive);
+        sendEvent('done', {
+          success: true,
+          message: `${subCategories.length} sous-catégorie(s) détectée(s)`,
+          data: subCategories
+        });
+        console.log(`✅ ugapController: Événement 'done' envoyé avec ${subCategories.length} sous-catégorie(s)`);
+        res.end();
+      } catch (error) {
+        clearInterval(keepAlive);
+        sendEvent('error', { message: error.message || 'Erreur serveur' });
+        res.end();
+      }
+    } else {
+      const aiService = new UgapAIService(req.entrepriseDb, req.entrepriseId);
+      const subCategories = await aiService.detectSubCategories(category.options || [], category.name);
+
+      res.json({
+        success: true,
+        data: subCategories
+      });
+    }
+  } catch (error) {
+    console.error('❌ UGAP detectSubCategories error:', error);
+    if (useSSE) {
+      res.write(`event: error\ndata: ${JSON.stringify({ message: error.message || 'Erreur serveur' })}\n\n`);
+      res.end();
+    } else {
+      res.status(500).json({ success: false, message: error.message || 'Erreur serveur' });
+    }
+  }
+}
+
+// ========================================
+// GESTION DES CONFIGURATIONS
+// ========================================
+
+async function addModelConfiguration(req, res) {
+  try {
+    const { modelId } = req.params;
+    const { name, description, image } = req.body;
+    
+    if (!name) {
+      return res.status(400).json({ success: false, message: 'Le nom est requis' });
+    }
+
+    const result = await UgapDataService.addModelConfiguration(
+      req.entrepriseDb,
+      req.entrepriseId,
+      modelId,
+      { name, description, image }
+    );
+
+    res.json({ success: true, data: result });
+  } catch (error) {
+    console.error('❌ UGAP addModelConfiguration error:', error);
+    res.status(500).json({ success: false, message: error.message || 'Erreur serveur' });
+  }
+}
+
+async function updateModelConfiguration(req, res) {
+  try {
+    const { modelId, configId } = req.params;
+    const updates = req.body;
+
+    const result = await UgapDataService.updateModelConfiguration(
+      req.entrepriseDb,
+      req.entrepriseId,
+      modelId,
+      configId,
+      updates
+    );
+
+    res.json({ success: true, data: result });
+  } catch (error) {
+    console.error('❌ UGAP updateModelConfiguration error:', error);
+    res.status(500).json({ success: false, message: error.message || 'Erreur serveur' });
+  }
+}
+
+async function deleteModelConfiguration(req, res) {
+  try {
+    const { modelId, configId } = req.params;
+
+    await UgapDataService.deleteModelConfiguration(
+      req.entrepriseDb,
+      req.entrepriseId,
+      modelId,
+      configId
+    );
+
+    res.json({ success: true, message: 'Configuration supprimée' });
+  } catch (error) {
+    console.error('❌ UGAP deleteModelConfiguration error:', error);
+    res.status(500).json({ success: false, message: error.message || 'Erreur serveur' });
+  }
+}
+
+async function updateModelImage(req, res) {
+  try {
+    const { modelId } = req.params;
+    const { image } = req.body;
+
+    const result = await UgapDataService.updateModelImage(
+      req.entrepriseDb,
+      req.entrepriseId,
+      modelId,
+      image
+    );
+
+    res.json({ success: true, data: result });
+  } catch (error) {
+    console.error('❌ UGAP updateModelImage error:', error);
+    res.status(500).json({ success: false, message: error.message || 'Erreur serveur' });
+  }
+}
+
+async function importConfigurationPdf(req, res) {
+  try {
+    const { modelId, configId } = req.params;
+    const file = req.file;
+
+    if (!file) {
+      return res.status(400).json({ success: false, message: 'Aucun fichier PDF fourni' });
+    }
+    const isPdf = file.mimetype === 'application/pdf' || file.originalname?.toLowerCase().endsWith('.pdf');
+    if (!isPdf) {
+      return res.status(400).json({ success: false, message: 'Le fichier doit être un PDF' });
+    }
+
+    const data = await UgapDataService.getData(req.entrepriseDb, req.entrepriseId);
+    if (!data) {
+      return res.status(404).json({ success: false, message: 'Aucune donnée configurée' });
+    }
+
+    const options = (data.categories || []).flatMap(cat => cat.options || []);
+    const fileBuffer = await fs.promises.readFile(file.path);
+    const extractedLines = await UgapPdfService.extractLinesFromPdf(fileBuffer);
+    const matchResult = UgapPdfService.matchLinesToOptions(extractedLines, options);
+
+    let structuredSections = UgapPdfService.buildStructuredSections(extractedLines);
+    let structuredFields = structuredSections.flatMap(section =>
+      (section.fields || []).map(field => ({
+        section: section.title,
+        label: field.label || '',
+        value: field.value || ''
+      }))
+    );
+    let aiStructuredSections = null;
+    let aiStructuredFields = null;
+    let aiRawResponse = null;
+    let visionRawResponse = null;
+    let visionError = null;
+    let visionModel = process.env.OLLAMA_VISION_MODEL || 'llava:7b';
+    let pdfImagePath = null;
+
+    if (extractedLines.length > 0) {
+      try {
+        const aiService = new UgapAIService(req.entrepriseDb, req.entrepriseId);
+        const prompt = buildPdfExtractionPrompt(extractedLines);
+        const aiResponse = await aiService.aiService.sendAnalysisPrompt(prompt, {
+          temperature: 0.1,
+          max_tokens: 2000
+        });
+
+        if (aiResponse.success) {
+          aiRawResponse = aiResponse.data?.response || '';
+          const parsed = parsePdfExtractionJson(aiRawResponse);
+          if (parsed && Array.isArray(parsed.sections)) {
+            aiStructuredSections = parsed.sections;
+            aiStructuredFields = aiStructuredSections.flatMap(section =>
+              (section.fields || []).map(field => ({
+                section: section.title || '',
+                label: field.label || '',
+                value: field.value || ''
+              }))
+            );
+
+            if (aiStructuredFields.length > 0) {
+              structuredSections = aiStructuredSections;
+              structuredFields = aiStructuredFields;
+            }
+          }
+        }
+      } catch (aiError) {
+        console.warn('⚠️ UGAP importConfigurationPdf AI extraction failed:', aiError.message || aiError);
+      }
+    }
+
+    try {
+      const imageResult = await UgapPdfService.renderFirstPageToPng(file.path);
+      pdfImagePath = imageResult.imagePath;
+      const visionPrompt = buildPdfVisionPrompt(extractedLines);
+      const aiService = new UgapAIService(req.entrepriseDb, req.entrepriseId);
+      const visionResponse = await aiService.aiService.sendVisionPrompt(
+        visionPrompt,
+        [imageResult.imageBase64],
+        {
+          model: visionModel,
+          temperature: 0.1,
+          max_tokens: 2000
+        }
+      );
+
+      if (visionResponse.success) {
+        visionRawResponse = visionResponse.data?.response || '';
+        const parsed = parsePdfExtractionJson(visionRawResponse);
+        if (parsed && Array.isArray(parsed.sections)) {
+          aiStructuredSections = parsed.sections;
+          aiStructuredFields = aiStructuredSections.flatMap(section =>
+            (section.fields || []).map(field => ({
+              section: section.title || '',
+              label: field.label || '',
+              value: field.value || ''
+            }))
+          );
+          if (aiStructuredFields.length > 0) {
+            structuredSections = aiStructuredSections;
+            structuredFields = aiStructuredFields;
+          }
+        }
+      } else {
+        visionError = visionResponse.error?.message || 'Vision IA indisponible';
+      }
+    } catch (visionException) {
+      visionError = visionException.message || 'Erreur vision';
+    }
+
+    const analysis = {
+      fileName: file.originalname,
+      pdfFilePath: file.path,
+      pdfUrl: `/api/ugap/models/${modelId}/configurations/${configId}/pdf`,
+      pdfImagePath,
+      extractedLines,
+      structuredSections,
+      structuredFields,
+      aiStructuredSections,
+      aiStructuredFields,
+      aiRawResponse,
+      visionRawResponse,
+      visionError,
+      visionModel,
+      matches: matchResult.matches,
+      matchedOptionIds: matchResult.matchedOptionIds,
+      unmatchedLines: matchResult.unmatchedLines,
+      needsOcr: extractedLines.length === 0,
+      updatedAt: new Date()
+    };
+
+    await UgapDataService.updateModelConfiguration(
+      req.entrepriseDb,
+      req.entrepriseId,
+      modelId,
+      configId,
+      { pdfAnalysis: analysis }
+    );
+
+    const optionById = new Map(options.map(option => [option.id, option]));
+    const matchedOptions = matchResult.matchedOptionIds
+      .map(id => optionById.get(id))
+      .filter(Boolean);
+
+    res.json({
+      success: true,
+      data: {
+        analysis,
+        matchedOptions
+      }
+    });
+  } catch (error) {
+    console.error('❌ UGAP importConfigurationPdf error:', error);
+    res.status(500).json({ success: false, message: error.message || 'Erreur serveur' });
+  }
+}
+
+async function uploadConfigurationPdf(req, res) {
+  try {
+    const { modelId, configId } = req.params;
+    const file = req.file;
+    if (!file) {
+      return res.status(400).json({ success: false, message: 'Aucun fichier fourni' });
+    }
+
+    // Enregistrer le chemin et le nom dans la configuration (sans analyser)
+    const analysis = {
+      fileName: file.originalname,
+      pdfFilePath: file.path,
+      pdfUrl: `/api/ugap/models/${modelId}/configurations/${configId}/pdf`,
+      uploadedAt: new Date()
+    };
+
+    await UgapDataService.updateModelConfiguration(
+      req.entrepriseDb,
+      req.entrepriseId,
+      modelId,
+      configId,
+      { pdfAnalysis: analysis }
+    );
+
+    res.json({ success: true, data: { analysis } });
+  } catch (error) {
+    console.error('❌ UGAP uploadConfigurationPdf error:', error);
+    res.status(500).json({ success: false, message: error.message || 'Erreur serveur' });
+  }
+}
+
+async function extractConfigurationText(req, res) {
+  try {
+    const { modelId, configId } = req.params;
+    const data = await UgapDataService.getData(req.entrepriseDb, req.entrepriseId);
+    const model = (data.models || []).find(m => m.id === modelId);
+    const config = model?.configurations?.find(c => c.id === configId);
+    const pdfPath = config?.pdfAnalysis?.pdfFilePath;
+    if (!pdfPath) {
+      return res.status(400).json({ success: false, message: 'PDF non trouvé pour cette configuration' });
+    }
+
+    const fileBuffer = await fs.promises.readFile(pdfPath);
+    const extractedLines = await UgapPdfService.extractLinesFromPdf(fileBuffer);
+    const structuredSections = UgapPdfService.buildStructuredSections(extractedLines);
+    const structuredFields = structuredSections.flatMap(section =>
+      (section.fields || []).map(field => ({ section: section.title, label: field.label || '', value: field.value || '' }))
+    );
+
+    const analysisUpdate = {
+      extractedLines,
+      structuredSections,
+      structuredFields,
+      extractedAt: new Date()
+    };
+
+    await UgapDataService.updateModelConfiguration(
+      req.entrepriseDb,
+      req.entrepriseId,
+      modelId,
+      configId,
+      { pdfAnalysis: { ...(config.pdfAnalysis || {}), ...analysisUpdate } }
+    );
+
+    res.json({ success: true, data: { analysis: analysisUpdate } });
+  } catch (error) {
+    console.error('❌ UGAP extractConfigurationText error:', error);
+    res.status(500).json({ success: false, message: error.message || 'Erreur serveur' });
+  }
+}
+
+async function analyzeConfigurationImage(req, res) {
+  try {
+    const { modelId, configId } = req.params;
+    const data = await UgapDataService.getData(req.entrepriseDb, req.entrepriseId);
+    const model = (data.models || []).find(m => m.id === modelId);
+    const config = model?.configurations?.find(c => c.id === configId);
+    const pdfPath = config?.pdfAnalysis?.pdfFilePath;
+    if (!pdfPath) {
+      return res.status(400).json({ success: false, message: 'PDF non trouvé pour cette configuration' });
+    }
+
+    // Render first page to PNG
+    const imageResult = await UgapPdfService.renderFirstPageToPng(pdfPath);
+
+    // Call vision model
+    const aiService = new UgapAIService(req.entrepriseDb, req.entrepriseId);
+    const visionModel = process.env.OLLAMA_VISION_MODEL || 'llava:7b';
+    const visionPrompt = buildPdfVisionPrompt(config.pdfAnalysis?.extractedLines || []);
+    const visionResponse = await aiService.aiService.sendVisionPrompt(
+      visionPrompt,
+      [imageResult.imageBase64],
+      { model: visionModel, temperature: 0.1, max_tokens: 2000 }
+    );
+
+    let visionParsed = null;
+    if (visionResponse.success) {
+      visionParsed = parsePdfExtractionJson(visionResponse.data?.response || '');
+    }
+
+    const analysisUpdate = {
+      pdfImagePath: imageResult.imagePath,
+      visionRawResponse: visionResponse.data?.response || null,
+      visionParsed,
+      visionModel,
+      visionAt: new Date()
+    };
+
+    await UgapDataService.updateModelConfiguration(
+      req.entrepriseDb,
+      req.entrepriseId,
+      modelId,
+      configId,
+      { pdfAnalysis: { ...(config.pdfAnalysis || {}), ...analysisUpdate } }
+    );
+
+    res.json({ success: true, data: { analysis: analysisUpdate } });
+  } catch (error) {
+    console.error('❌ UGAP analyzeConfigurationImage error:', error);
+    res.status(500).json({ success: false, message: error.message || 'Erreur serveur' });
+  }
+}
+
+async function convertConfigurationPdfToExcel(req, res) {
+  try {
+    const { modelId, configId } = req.params;
+    const data = await UgapDataService.getData(req.entrepriseDb, req.entrepriseId);
+    const model = (data.models || []).find(m => m.id === modelId);
+    const config = model?.configurations?.find(c => c.id === configId);
+    const pdfPath = config?.pdfAnalysis?.pdfFilePath;
+    if (!pdfPath) {
+      return res.status(400).json({ success: false, message: 'PDF non trouvé pour cette configuration' });
+    }
+
+    const fileBuffer = await fs.promises.readFile(pdfPath);
+    const extractedLines = await UgapPdfService.extractLinesFromPdf(fileBuffer);
+
+    // Heuristic split: try multiple delimiters (2+ spaces, tab, |, ;, ,)
+    const rows = extractedLines.map(line => {
+      let cols = line.split(/\s{2,}|\t|\||;|,/).map(c => c.trim()).filter(Boolean);
+      if (cols.length === 0) cols = [line.trim()];
+      return cols;
+    });
+
+    // Normalize rows to equal length by padding with empty strings
+    const maxCols = rows.reduce((m, r) => Math.max(m, r.length), 0);
+    const normalized = rows.map(r => {
+      const copy = r.slice();
+      while (copy.length < maxCols) copy.push('');
+      return copy;
+    });
+
+    const ws = XLSX.utils.aoa_to_sheet(normalized);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Extract');
+
+    const outDir = path.join(__dirname, '../uploads/excels');
+    if (!fs.existsSync(outDir)) fs.mkdirSync(outDir, { recursive: true });
+    const outPath = path.join(outDir, `extract_${Date.now()}.xlsx`);
+    XLSX.writeFile(wb, outPath);
+
+    const excelUrl = `/api/ugap/models/${modelId}/configurations/${configId}/excel`;
+
+    const analysisUpdate = {
+      excelFilePath: outPath,
+      excelUrl,
+      excelGeneratedAt: new Date()
+    };
+
+    await UgapDataService.updateModelConfiguration(
+      req.entrepriseDb,
+      req.entrepriseId,
+      modelId,
+      configId,
+      { pdfAnalysis: { ...(config.pdfAnalysis || {}), ...analysisUpdate } }
+    );
+
+    res.json({ success: true, data: { analysis: analysisUpdate } });
+  } catch (error) {
+    console.error('❌ UGAP convertConfigurationPdfToExcel error:', error);
+    res.status(500).json({ success: false, message: error.message || 'Erreur serveur' });
+  }
+}
+
+async function getConfigurationExcel(req, res) {
+  try {
+    const { modelId, configId } = req.params;
+    const data = await UgapDataService.getData(req.entrepriseDb, req.entrepriseId);
+    if (!data) {
+      return res.status(404).json({ success: false, message: 'Aucune donnée configurée' });
+    }
+
+    const model = (data.models || []).find(m => m.id === modelId);
+    const config = model?.configurations?.find(c => c.id === configId);
+    const excelPath = config?.pdfAnalysis?.excelFilePath;
+
+    if (!excelPath || !fs.existsSync(excelPath)) {
+      return res.status(404).json({ success: false, message: 'Fichier Excel introuvable' });
+    }
+
+    res.type('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    return res.sendFile(path.resolve(excelPath));
+  } catch (error) {
+    console.error('❌ UGAP getConfigurationExcel error:', error);
+    res.status(500).json({ success: false, message: error.message || 'Erreur serveur' });
+  }
+}
+
+function normalizeColor(c) {
+  if (!c) return null;
+  
+  let colorStr = c.toString().trim();
+  
+  // Si c'est déjà en format hex sans #, le retourner en majuscules
+  if (/^[0-9A-Fa-f]{6}$/.test(colorStr)) {
+    return colorStr.toUpperCase();
+  }
+  
+  // Si c'est en format ARGB (8 caractères), enlever le préfixe FF (alpha)
+  if (/^[0-9A-Fa-f]{8}$/.test(colorStr)) {
+    colorStr = colorStr.replace(/^FF/i, '');
+    return colorStr.toUpperCase();
+  }
+  
+  // Si ça commence par FF, l'enlever
+  colorStr = colorStr.replace(/^FF/i, '');
+  
+  // Si ça commence par #, l'enlever
+  colorStr = colorStr.replace(/^#/i, '');
+  
+  // Si c'est maintenant 6 caractères hex, le retourner
+  if (/^[0-9A-Fa-f]{6}$/.test(colorStr)) {
+    return colorStr.toUpperCase();
+  }
+  
+  // Sinon, retourner null
+  return null;
+}
+
+// Détecte toutes les couleurs uniques dans le fichier Excel
+function detectAllColorsFromExcel(ws, range, wb = null) {
+  const allColors = new Set();
+  const colorCounts = {
+    colA: {}, // Colonne A = catégories
+    colB: {}, // Colonne B = caractéristiques ou valeurs
+    colC: {}  // Colonne C = valeurs
+  };
+
+  let cellsChecked = 0;
+  let cellsWithColor = 0;
+
+  // Parcourir toutes les cellules et collecter toutes les couleurs
+  for (let r = range.s.r; r <= range.e.r; r++) {
+    const aCell = ws[XLSX.utils.encode_cell({ r, c: 0 })];
+    const bCell = ws[XLSX.utils.encode_cell({ r, c: 1 })];
+    const cCell = ws[XLSX.utils.encode_cell({ r, c: 2 })];
+
+    // Essayer de récupérer les couleurs avec le workbook pour les styles partagés
+    const aColor = normalizeColor(getCellColor(aCell, wb));
+    const bColor = normalizeColor(getCellColor(bCell, wb));
+    const cColor = normalizeColor(getCellColor(cCell, wb));
+
+    if (aCell) cellsChecked++;
+    if (bCell) cellsChecked++;
+    if (cCell) cellsChecked++;
+
+    if (aColor) {
+      allColors.add(aColor);
+      colorCounts.colA[aColor] = (colorCounts.colA[aColor] || 0) + 1;
+      cellsWithColor++;
+    }
+    if (bColor) {
+      allColors.add(bColor);
+      colorCounts.colB[bColor] = (colorCounts.colB[bColor] || 0) + 1;
+      cellsWithColor++;
+    }
+    if (cColor) {
+      allColors.add(cColor);
+      colorCounts.colC[cColor] = (colorCounts.colC[cColor] || 0) + 1;
+      cellsWithColor++;
+    }
+  }
+
+  console.log(`📊 Color detection: ${cellsChecked} cells checked, ${cellsWithColor} cells with colors, ${allColors.size} unique colors found`);
+
+  // Retourner toutes les couleurs uniques triées par fréquence décroissante
+  const sortedColors = Array.from(allColors).map(color => {
+    const totalCount = (colorCounts.colA[color] || 0) + 
+                       (colorCounts.colB[color] || 0) + 
+                       (colorCounts.colC[color] || 0);
+    return {
+      color: color,
+      count: totalCount,
+      colA: colorCounts.colA[color] || 0,
+      colB: colorCounts.colB[color] || 0,
+      colC: colorCounts.colC[color] || 0
+    };
+  }).sort((a, b) => b.count - a.count);
+
+  return sortedColors;
+}
+
+// Détecte automatiquement les couleurs dominantes dans le fichier Excel
+function detectColorsFromExcel(ws, range) {
+  const colorCounts = {
+    colA: {}, // Colonne A = catégories
+    colB: {}, // Colonne B = caractéristiques ou valeurs
+    colC: {}  // Colonne C = valeurs
+  };
+
+  // Parcourir toutes les cellules et compter les couleurs par colonne
+  for (let r = range.s.r; r <= range.e.r; r++) {
+    const aCell = ws[XLSX.utils.encode_cell({ r, c: 0 })];
+    const bCell = ws[XLSX.utils.encode_cell({ r, c: 1 })];
+    const cCell = ws[XLSX.utils.encode_cell({ r, c: 2 })];
+
+    const aColor = normalizeColor(getCellColor(aCell));
+    const bColor = normalizeColor(getCellColor(bCell));
+    const cColor = normalizeColor(getCellColor(cCell));
+
+    if (aColor) {
+      colorCounts.colA[aColor] = (colorCounts.colA[aColor] || 0) + 1;
+    }
+    if (bColor) {
+      colorCounts.colB[bColor] = (colorCounts.colB[bColor] || 0) + 1;
+    }
+    if (cColor) {
+      colorCounts.colC[cColor] = (colorCounts.colC[cColor] || 0) + 1;
+    }
+  }
+
+  // Trouver la couleur la plus fréquente dans chaque colonne
+  const getMostFrequent = (counts) => {
+    const sorted = Object.entries(counts).sort((a, b) => b[1] - a[1]);
+    return sorted.length > 0 ? sorted[0][0] : null;
+  };
+
+  const categoryColor = getMostFrequent(colorCounts.colA);
+  const charColor = getMostFrequent(colorCounts.colB);
+  const valueColor = getMostFrequent(colorCounts.colC) || getMostFrequent(colorCounts.colB);
+
+  return {
+    category: categoryColor,
+    characteristic: charColor,
+    value: valueColor
+  };
+}
+
+function getCellColor(cell, wb = null) {
+  try {
+    if (!cell) return null;
+    
+    // Méthode 1: Styles directs de la cellule
+    const s = cell.s;
+    if (s) {
+      // Essayer plusieurs méthodes pour récupérer la couleur de fond
+      let color = null;
+      
+      // fill.fgColor (couleur de premier plan du remplissage)
+      if (s.fill) {
+        const fill = s.fill;
+        
+        // Essayer fgColor
+        if (fill.fgColor) {
+          color = fill.fgColor.rgb || fill.fgColor.RGB || fill.fgColor.argb || fill.fgColor.ARGB;
+        }
+        
+        // Si pas de fgColor, essayer bgColor (couleur de fond)
+        if (!color && fill.bgColor) {
+          color = fill.bgColor.rgb || fill.bgColor.RGB || fill.bgColor.argb || fill.bgColor.ARGB;
+        }
+        
+        // Essayer directement rgb
+        if (!color && fill.rgb) {
+          color = fill.rgb;
+        }
+        
+        // Essayer patternFill (format Office Open XML)
+        if (!color && fill.patternFill) {
+          const patternFill = fill.patternFill;
+          if (patternFill.fgColor) {
+            color = patternFill.fgColor.rgb || patternFill.fgColor.RGB || patternFill.fgColor.argb || patternFill.fgColor.ARGB;
+          }
+          if (!color && patternFill.bgColor) {
+            color = patternFill.bgColor.rgb || patternFill.bgColor.RGB || patternFill.bgColor.argb || patternFill.bgColor.ARGB;
+          }
+        }
+      }
+      
+      if (color) return color;
+      
+      // Méthode 2: Essayer via l'index de style (si workbook disponible)
+      if (wb && cell.s && cell.s.style !== undefined && wb.Styles && wb.Styles.CellXf) {
+        const styleIndex = cell.s.style;
+        const cellXf = wb.Styles.CellXf[styleIndex];
+        if (cellXf && cellXf.fillId !== undefined && wb.Styles.Fills) {
+          const fill = wb.Styles.Fills[cellXf.fillId];
+          if (fill && fill.patternFill) {
+            const patternFill = fill.patternFill;
+            if (patternFill.fgColor) {
+              color = patternFill.fgColor.rgb || patternFill.fgColor.RGB || patternFill.fgColor.argb || patternFill.fgColor.ARGB;
+            }
+            if (!color && patternFill.bgColor) {
+              color = patternFill.bgColor.rgb || patternFill.bgColor.RGB || patternFill.bgColor.argb || patternFill.bgColor.ARGB;
+            }
+          }
+        }
+      }
+      
+      if (color) return color;
+    }
+    
+    // Méthode 3: Essayer directement dans la cellule (format alternatif)
+    if (cell.fill) {
+      const fill = cell.fill;
+      const color = fill.rgb || fill.RGB || fill.argb || fill.ARGB || fill.fgColor?.rgb || fill.bgColor?.rgb;
+      if (color) return color;
+    }
+    
+    return null;
+  } catch (e) {
+    // Ne pas logger chaque erreur pour éviter le spam
+    return null;
+  }
+}
+
+function isColorMatch(cellColor, target) {
+  if (!cellColor || !target) return false;
+  const c = normalizeColor(cellColor);
+  const t = normalizeColor(target);
+  return c === t || c.startsWith(t) || t.startsWith(c);
+}
+
+function simpleObjectToYaml(obj, indent = 0) {
+  const pad = (n) => ' '.repeat(n);
+  if (obj === null || obj === undefined) return 'null';
+  if (typeof obj === 'string') return obj.includes('\n') ? `|\n${pad(indent+2)}${obj.replace(/\n/g, '\n' + pad(indent+2))}` : obj;
+  if (typeof obj === 'number' || typeof obj === 'boolean') return String(obj);
+  if (Array.isArray(obj)) {
+    return obj.map(item => `${pad(indent)}- ${simpleObjectToYaml(item, indent + 2)}`).join('\n');
+  }
+  // object
+  return Object.entries(obj).map(([k,v]) => `${pad(indent)}${k}: ${typeof v === 'object' ? '\n' + simpleObjectToYaml(v, indent+2) : simpleObjectToYaml(v, 0)}`).join('\n');
+}
+
+// MAPPING SANS IA - Cette fonction fait UNIQUEMENT l'extraction depuis Excel, AUCUN appel IA
+// Peut être appelée avec step: 'categories', 'subcategories', 'values' pour faire une passe spécifique
+async function mapConfigurationExcel(req, res) {
+  try {
+    const { modelId, configId } = req.params;
+    const { step } = req.body || {}; // 'categories', 'subcategories', 'values' ou undefined (toutes)
+    const data = await UgapDataService.getData(req.entrepriseDb, req.entrepriseId);
+    const model = (data.models || []).find(m => m.id === modelId);
+    const config = model?.configurations?.find(c => c.id === configId);
+    
+    if (!config || !config.pdfAnalysis) {
+      return res.status(400).json({ success: false, message: 'Aucun fichier importé pour cette configuration' });
+    }
+    
+    // Le mapping se fait TOUJOURS depuis le fichier Excel
+    // Si on a un Excel directement, l'utiliser
+    let excelPath = config.pdfAnalysis.excelFilePath;
+    
+    if (!excelPath || !fs.existsSync(excelPath)) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Fichier Excel introuvable pour cette configuration. Assurez-vous d\'avoir importé un fichier (PDF ou Excel).' 
+      });
+    }
+    
+    console.log('✅ Utilisation du fichier Excel pour le mapping:', excelPath);
+
+    // Lire l'Excel pour le mapping
+    console.log('🔄 Lecture et parsing du fichier Excel...');
+    if (!fs.existsSync(excelPath)) {
+      return res.status(400).json({ success: false, message: 'Fichier Excel introuvable' });
+    }
+    
+    const wb = XLSX.readFile(excelPath, { cellStyles: true });
+    const sheetName = wb.SheetNames[0];
+    const ws = wb.Sheets[sheetName];
+    const fullRange = XLSX.utils.decode_range(ws['!ref'] || 'A1:A1');
+    console.log(`✅ Fichier Excel lu: ${fullRange.e.r + 1} lignes, ${fullRange.e.c + 1} colonnes`);
+
+    // Chercher "DESCRIPTIF TECHNIQUE" pour commencer après
+    let startRow = fullRange.s.r;
+    const searchText = 'DESCRIPTIF TECHNIQUE';
+    for (let r = fullRange.s.r; r <= fullRange.e.r; r++) {
+      for (let c = 0; c <= Math.min(5, fullRange.e.c); c++) {
+        const cell = ws[XLSX.utils.encode_cell({ r, c })];
+        if (cell && cell.v) {
+          const cellText = String(cell.v).toUpperCase().trim();
+          if (cellText.includes(searchText)) {
+            startRow = r + 1; // Commencer après cette ligne
+            console.log(`✅ "DESCRIPTIF TECHNIQUE" trouvé à la ligne ${r + 1}, début du mapping à la ligne ${startRow + 1}`);
+            break;
+          }
+        }
+      }
+      if (startRow > fullRange.s.r) break;
+    }
+
+    // Détecter les couleurs dominantes pour identifier les catégories/sous-catégories
+    const detectedColors = detectAllColorsFromExcel(ws, fullRange, wb);
+    const categoryColors = detectedColors.slice(0, 3).map(c => normalizeColor(c.color)).filter(Boolean);
+    
+    console.log(`🎨 Couleurs détectées: ${categoryColors.length} couleur(s) dominante(s)`);
+
+    const categories = [];
+
+    // Détection des tableaux (selon consigne: blocs de lignes consécutives non vides)
+    const { tables } = detectTablesFromWorksheet(ws, fullRange, { startRow });
+    const tablesCount = tables.length;
+    console.log(`📊 ${tablesCount} tableau(x) détecté(s)`);
+    
+    // Étape 2 : Pour chaque tableau, détecter catégories, puis sous-catégories, puis valeurs
+    tables.forEach((table, tableIndex) => {
+      console.log(`📋 Traitement du tableau ${tableIndex + 1} (lignes ${table.start + 1} à ${table.end + 1})`);
+      
+      // Lire toutes les lignes du tableau avec leurs positions
+      const tableCells = [];
+      for (let r = table.start; r <= table.end; r++) {
+        for (let c = 0; c <= fullRange.e.c; c++) {
+          const cell = ws[XLSX.utils.encode_cell({ r, c })];
+          const value = cell && cell.v !== undefined ? String(cell.v).trim() : '';
+          if (value) {
+            const color = normalizeColor(getCellColor(cell, wb));
+            tableCells.push({
+              row: r,
+              col: c,
+              value,
+              color,
+              cell,
+              isCategory: false,
+              isSubCategory: false,
+              categoryId: null,
+              subCategoryId: null
+            });
+          }
+        }
+      }
+      
+      if (tableCells.length === 0) return;
+      
+      // PASS 1 : Détecter TOUTES les catégories
+      // Catégories = première ligne du tableau OU première colonne *utile* (pas forcément la colonne A)
+      const firstRow = table.start;
+      
+      // Déterminer la première colonne réellement utilisée dans ce tableau
+      // (si la colonne A est vide et que les données commencent en B/C, on veut quand même détecter)
+      let firstCol = 0;
+      for (let c = 0; c <= fullRange.e.c; c++) {
+        const hasAnyInCol = tableCells.some(tc => tc.col === c);
+        if (hasAnyInCol) { firstCol = c; break; }
+      }
+      
+      const detectedCategories = [];
+      
+      // CONSIGNE: Les catégories sont TOUJOURS le premier élément du tableau = première ligne (en-tête)
+      const firstRowCells = tableCells.filter(c => c.row === firstRow).sort((a, b) => a.col - b.col);
+      const hasRowsBelow = tableCells.some(c => c.row > firstRow);
+      
+      console.log(`  → Analyse première ligne: ${firstRowCells.length} cellule(s), lignes en dessous: ${hasRowsBelow}`);
+      
+      // PRIORITÉ: Toujours utiliser la première ligne comme source des catégories
+      if (firstRowCells.length > 0) {
+        // Catégories en en-tête (première ligne) - TOUJOURS
+        console.log(`  → Pass 1: Catégories en en-tête (première ligne) - PRIORITÉ`);
+        firstRowCells.forEach(cell => {
+          const category = {
+            id: crypto.randomUUID(),
+            title: cell.value,
+            items: [],
+            subCategories: [],
+            colIndex: cell.col,
+            source: 'header'
+          };
+          detectedCategories.push(category);
+          cell.isCategory = true;
+          cell.categoryId = category.id;
+          console.log(`    ✓ Catégorie détectée: "${cell.value}" (colonne ${cell.col})`);
+        });
+      } else {
+        // Fallback: Si la première ligne est vraiment vide, utiliser la première colonne
+        console.log(`  → Pass 1: Première ligne vide, fallback sur première colonne`);
+        const firstColCells = tableCells.filter(c => c.col === firstCol).sort((a, b) => a.row - b.row);
+        
+        console.log(`  → Analyse première colonne: ${firstColCells.length} cellule(s)`);
+        
+        // Identifier les catégories (STRICT, selon consigne):
+        // - Soit cellule surlignée (couleur "catégorie")
+        // - Soit cellule SEULE sur sa ligne (ligne titre / catégorie)
+        // Rien d'autre (évite "tout est catégorie")
+        firstColCells.forEach(cell => {
+          const hasCategoryColor = cell.color && categoryColors.some(catColor => cell.color === catColor);
+          const rowHasOtherCells = tableCells.some(c => c.row === cell.row && c.col !== firstCol);
+          const rowHasOnlyThisCell = !rowHasOtherCells;
+          
+          // C'est une catégorie si :
+          // - Elle a une couleur de catégorie
+          // - OU elle est seule sur sa ligne (ligne titre)
+          const isCategory = hasCategoryColor || rowHasOnlyThisCell;
+          
+          if (isCategory) {
+            const category = {
+              id: crypto.randomUUID(),
+              title: cell.value,
+              items: [],
+              subCategories: [],
+              rowIndex: cell.row,
+              source: 'column'
+            };
+            detectedCategories.push(category);
+            cell.isCategory = true;
+            cell.categoryId = category.id;
+            console.log(`    ✓ Catégorie détectée: "${cell.value}" (ligne ${cell.row}, col ${firstCol}, couleur: ${hasCategoryColor}, seuleLigne: ${rowHasOnlyThisCell})`);
+          }
+        });
+      }
+      
+      if (detectedCategories.length === 0) {
+        // Aucune catégorie détectée, essayer une approche plus permissive
+        console.log(`  → Aucune catégorie détectée, tentative approche permissive...`);
+        
+        // PRIORITÉ: Toujours utiliser la première ligne comme source des catégories
+        if (firstRowCells.length > 0) {
+          console.log(`  → Utilisation de toutes les cellules de la première ligne comme catégories (fallback)`);
+          firstRowCells.forEach(cell => {
+            const category = {
+              id: crypto.randomUUID(),
+              title: cell.value,
+              items: [],
+              subCategories: [],
+              colIndex: cell.col,
+              source: 'header_fallback'
+            };
+            detectedCategories.push(category);
+            cell.isCategory = true;
+            cell.categoryId = category.id;
+          });
+        } else {
+          // Fallback: Si la première ligne est vraiment vide, utiliser la première colonne
+          const firstColCells = tableCells.filter(c => c.col === firstCol);
+          if (firstColCells.length > 0) {
+            console.log(`  → Première ligne vide, utilisation de toutes les cellules de la première colonne comme catégories (fallback)`);
+            firstColCells.forEach(cell => {
+              const category = {
+                id: crypto.randomUUID(),
+                title: cell.value,
+                items: [],
+                subCategories: [],
+                rowIndex: cell.row,
+                source: 'column_fallback'
+              };
+              detectedCategories.push(category);
+              cell.isCategory = true;
+              cell.categoryId = category.id;
+            });
+          }
+        }
+        
+        // Si toujours rien, créer une catégorie par défaut
+        if (detectedCategories.length === 0) {
+          console.log(`  → Création d'une catégorie par défaut`);
+          const defaultCategory = {
+            id: crypto.randomUUID(),
+            title: 'Sans catégorie',
+            items: [],
+            subCategories: [],
+            source: 'default'
+          };
+          detectedCategories.push(defaultCategory);
+        }
+      }
+      
+      console.log(`  → ${detectedCategories.length} catégorie(s) détectée(s) au total`);
+      
+      // Pour l'instant, on s'arrête à la passe 1 et on retourne juste les catégories
+      // Les passes 2 et 3 seront faites après validation/modification des catégories
+      
+      // Nettoyer les catégories (retirer colIndex/rowIndex pour l'affichage, mais garder source)
+      detectedCategories.forEach(cat => {
+        if (cat.colIndex !== undefined) {
+          cat._colIndex = cat.colIndex; // Garder pour référence interne
+          delete cat.colIndex;
+        }
+        if (cat.rowIndex !== undefined) {
+          cat._rowIndex = cat.rowIndex; // Garder pour référence interne
+          delete cat.rowIndex;
+        }
+      });
+      
+      // Ajouter les catégories du tableau à la liste globale
+      categories.push(...detectedCategories);
+      
+      // Si on fait seulement la passe 1 (catégories), s'arrêter ici
+      if (step === 'categories') {
+        console.log(`✅ Passe 1 terminée: ${categories.length} catégorie(s) détectée(s)`);
+      } else if (step === 'subcategories') {
+        // PASS 2 : Détecter les sous-catégories
+        console.log(`🔄 Pass 2: Détection des sous-catégories...`);
+        // TODO: Implémenter la passe 2
+        console.log(`✅ Passe 2 terminée`);
+      } else if (step === 'values') {
+        // PASS 3 : Détecter les valeurs
+        console.log(`🔄 Pass 3: Détection des valeurs...`);
+        // TODO: Implémenter la passe 3
+        console.log(`✅ Passe 3 terminée`);
+      }
+      // Si step n'est pas défini, on fait toutes les passes (comportement par défaut)
+      
+      // Ajouter les catégories du tableau à la liste globale
+      categories.push(...detectedCategories);
+    });
+
+
+    console.log(`✅ Mapping terminé: ${categories.length} catégorie(s) extraite(s), ${categories.reduce((sum, cat) => sum + (cat.items?.length || 0) + (cat.subCategories?.reduce((s, sc) => s + (sc.items?.length || 0), 0) || 0), 0)} élément(s)`);
+
+    // Sauvegarder le fichier Excel pour téléchargement
+    const tempDir = path.join(__dirname, '../uploads/camelot-mapping');
+    if (!fs.existsSync(tempDir)) {
+      fs.mkdirSync(tempDir, { recursive: true });
+    }
+    
+    const excelFileName = `camelot_${configId}_${Date.now()}.xlsx`;
+    const savedExcelPath = path.join(tempDir, excelFileName);
+    
+    // Copier le fichier avec un nom plus lisible (si différent du chemin actuel)
+    let finalExcelPath = excelPath;
+    if (excelPath !== savedExcelPath && fs.existsSync(excelPath)) {
+      try {
+        fs.copyFileSync(excelPath, savedExcelPath);
+        finalExcelPath = savedExcelPath;
+        console.log(`✅ Fichier Excel sauvegardé: ${finalExcelPath}`);
+      } catch (e) {
+        console.warn('⚠️ Impossible de copier le fichier Excel, utilisation du fichier original:', e);
+      }
+    }
+
+    // Retourner juste le mapping (sans matching IA)
+    const mapped = { 
+      categories,
+      stats: {
+        totalTables: tablesCount,
+        totalCategories: categories.length,
+        totalItems: categories.reduce((sum, cat) => sum + (cat.items?.length || 0) + (cat.subCategories?.reduce((s, sc) => s + (sc.items?.length || 0), 0) || 0), 0),
+        totalSubCategories: categories.reduce((sum, cat) => sum + (cat.subCategories?.length || 0), 0)
+      }
+    };
+    const yamlStr = simpleObjectToYaml(mapped, 0);
+
+    const mappedPath = path.join(__dirname, '../uploads/mapped');
+    if (!fs.existsSync(mappedPath)) fs.mkdirSync(mappedPath, { recursive: true });
+    const outJson = path.join(mappedPath, `mapped_${Date.now()}.json`);
+    const outYaml = path.join(mappedPath, `mapped_${Date.now()}.yaml`);
+    fs.writeFileSync(outJson, JSON.stringify(mapped, null, 2), 'utf8');
+    fs.writeFileSync(outYaml, yamlStr, 'utf8');
+
+    const analysisUpdate = {
+      mappedJsonPath: outJson,
+      mappedYamlPath: outYaml,
+      camelotExcelPath: finalExcelPath,
+      camelotExcelFileName: excelFileName,
+      mapped: mapped,
+      mappedAt: new Date()
+    };
+    
+    console.log(`💾 Sauvegarde du mapping avec Excel path: ${finalExcelPath}`);
+
+    await UgapDataService.updateModelConfiguration(
+      req.entrepriseDb,
+      req.entrepriseId,
+      modelId,
+      configId,
+      { pdfAnalysis: { ...(config.pdfAnalysis || {}), ...analysisUpdate } }
+    );
+
+    console.log('📤 Envoi du résultat du mapping');
+    
+    res.json({ success: true, data: { mapped, yaml: yamlStr, excelPath: finalExcelPath, excelFileName } });
+  } catch (error) {
+    console.error('❌ UGAP mapConfigurationExcel error:', error);
+    res.status(500).json({ success: false, message: error.message || 'Erreur serveur' });
+  }
+}
+function buildPdfExtractionPrompt(lines) {
+  const maxLines = 800;
+  const limitedLines = lines.slice(0, maxLines);
+  return `Tu reçois le texte extrait d'un PDF technique. Il contient plusieurs tableaux.
+Ta mission: reconstruire des sections structurées avec:
+- un titre de section (catégorie)
+- des champs (caractéristique + valeur)
+
+Réponds UNIQUEMENT avec un JSON valide, sans texte autour.
+Format attendu:
+{
+  "sections": [
+    {
+      "title": "Titre de section",
+      "fields": [
+        { "label": "Caractéristique", "value": "Valeur" }
+      ]
+    }
+  ]
+}
+
+Texte extrait:
+${limitedLines.join('\n')}`;
+}
+
+function buildPdfVisionPrompt(lines) {
+  const maxLines = 800;
+  const limitedLines = lines.slice(0, maxLines);
+  return `Voici une image de tableau PDF. Le texte extrait est :
+${limitedLines.join('\n')}
+
+Analyse l'image et recompose le tableau en JSON.
+Utilise le texte pour remplir les cellules, corrige si nécessaire.
+Identifie les cellules fusionnées en regroupant correctement les titres.
+
+Réponds UNIQUEMENT avec un JSON valide, sans texte autour.
+Format attendu:
+{
+  "sections": [
+    {
+      "title": "Titre de section",
+      "fields": [
+        { "label": "Caractéristique", "value": "Valeur" }
+      ]
+    }
+  ]
+}
+`;
+}
+
+function parsePdfExtractionJson(text) {
+  if (!text) return null;
+  const firstBrace = text.indexOf('{');
+  const lastBrace = text.lastIndexOf('}');
+  if (firstBrace === -1 || lastBrace === -1 || lastBrace <= firstBrace) return null;
+  const jsonText = text.substring(firstBrace, lastBrace + 1);
+  try {
+    return JSON.parse(jsonText);
+  } catch (error) {
+    return null;
+  }
+}
+
+async function getConfigurationPdf(req, res) {
+  try {
+    const { modelId, configId } = req.params;
+    const data = await UgapDataService.getData(req.entrepriseDb, req.entrepriseId);
+    if (!data) {
+      return res.status(404).json({ success: false, message: 'Aucune donnée configurée' });
+    }
+
+    const model = (data.models || []).find(m => m.id === modelId);
+    const config = model?.configurations?.find(c => c.id === configId);
+    const pdfPath = config?.pdfAnalysis?.pdfFilePath;
+
+    if (!pdfPath || !fs.existsSync(pdfPath)) {
+      return res.status(404).json({ success: false, message: 'PDF introuvable' });
+    }
+
+    res.type('application/pdf');
+    return res.sendFile(path.resolve(pdfPath));
+  } catch (error) {
+    console.error('❌ UGAP getConfigurationPdf error:', error);
+    res.status(500).json({ success: false, message: error.message || 'Erreur serveur' });
+  }
+}
+
+async function updateOptionDocTemplate(req, res) {
+  try {
+    const { optionId } = req.params;
+    const { idDocTemplate } = req.body;
+
+    const result = await UgapDataService.updateOptionDocTemplate(
+      req.entrepriseDb,
+      req.entrepriseId,
+      optionId,
+      idDocTemplate
+    );
+
+    res.json({ success: true, data: result });
+  } catch (error) {
+    console.error('❌ UGAP updateOptionDocTemplate error:', error);
+    res.status(500).json({ success: false, message: error.message || 'Erreur serveur' });
+  }
+}
+
+/**
+ * Recherche des collections existantes similaires
+ */
+async function searchSimilarCollections(req, res) {
+  try {
+    const { categoryId, subCategoryId } = req.params;
+
+    // Récupérer les données UGAP
+    const data = await UgapDataService.getData(req.entrepriseDb, req.entrepriseId);
+    if (!data) {
+      return res.status(404).json({ success: false, message: 'Aucune donnée configurée' });
+    }
+
+    const { category, subCategory } = findCategoryAndSubCategory(data, categoryId, subCategoryId);
+    if (!category) {
+      return res.status(404).json({ success: false, message: 'Catégorie non trouvée' });
+    }
+    if (!subCategory) {
+      return res.status(404).json({ success: false, message: 'Sous-catégorie non trouvée' });
+    }
+
+    // Récupérer toutes les collections de doc-template pour cette entreprise
+    const collectionsCollection = req.entrepriseDb.collection('collections');
+    const collections = await collectionsCollection.find({
+      entrepriseId: new ObjectId(req.entrepriseId)
+    }).toArray();
+
+    // Rechercher des collections similaires par nom
+    const subCategoryName = subCategory.name.toLowerCase();
+    const similarCollections = collections
+      .map(collection => {
+        const collectionName = collection.name.toLowerCase();
+        const similarity = calculateSimilarity(subCategoryName, collectionName);
+        return {
+          ...collection,
+          similarity
+        };
+      })
+      .filter(c => c.similarity > 0.3) // Seuil de similarité de 30%
+      .sort((a, b) => b.similarity - a.similarity)
+      .slice(0, 5); // Top 5
+
+    res.json({
+      success: true,
+      data: {
+        similarCollections,
+        subCategoryName: subCategory.name
+      }
+    });
+  } catch (error) {
+    console.error('❌ UGAP searchSimilarCollections error:', error);
+    res.status(500).json({ success: false, message: error.message || 'Erreur serveur' });
+  }
+}
+
+/**
+ * Normalise un texte pour la comparaison
+ */
+function normalizeTextForMatching(text) {
+  if (!text) return '';
+  return text
+    .toLowerCase()
+    .trim()
+    .replace(/[^\w\s]/g, '') // Enlever la ponctuation
+    .replace(/\s+/g, ' ') // Normaliser les espaces
+    .trim();
+}
+
+/**
+ * Calcule la similarité entre deux chaînes (algorithme simple)
+ */
+function calculateSimilarity(str1, str2) {
+  if (!str1 || !str2) return 0;
+  
+  const normalized1 = normalizeTextForMatching(str1);
+  const normalized2 = normalizeTextForMatching(str2);
+  
+  if (normalized1 === normalized2) return 1.0;
+  
+  const longer = normalized1.length > normalized2.length ? normalized1 : normalized2;
+  const shorter = normalized1.length > normalized2.length ? normalized2 : normalized1;
+  
+  if (longer.length === 0) return 1.0;
+  
+  // Vérifier si l'une contient l'autre (match partiel)
+  if (longer.includes(shorter)) {
+    return shorter.length / longer.length;
+  }
+  
+  // Distance de Levenshtein
+  const distance = levenshteinDistance(normalized1, normalized2);
+  const maxLength = Math.max(normalized1.length, normalized2.length);
+  const similarity = 1 - (distance / maxLength);
+  
+  return Math.max(0, similarity);
+}
+
+/**
+ * Distance de Levenshtein
+ */
+function levenshteinDistance(str1, str2) {
+  const matrix = [];
+  for (let i = 0; i <= str2.length; i++) {
+    matrix[i] = [i];
+  }
+  for (let j = 0; j <= str1.length; j++) {
+    matrix[0][j] = j;
+  }
+  for (let i = 1; i <= str2.length; i++) {
+    for (let j = 1; j <= str1.length; j++) {
+      if (str2.charAt(i - 1) === str1.charAt(j - 1)) {
+        matrix[i][j] = matrix[i - 1][j - 1];
+      } else {
+        matrix[i][j] = Math.min(
+          matrix[i - 1][j - 1] + 1,
+          matrix[i][j - 1] + 1,
+          matrix[i - 1][j] + 1
+        );
+      }
+    }
+  }
+  return matrix[str2.length][str1.length];
+}
+
+async function generateCollectionWithAI(req, res) {
+  try {
+    const { categoryId, subCategoryId } = req.params;
+    const { useWebSearch = false } = req.body;
+
+    console.log(`🤖 Génération de collection par IA pour sous-catégorie ${subCategoryId}, recherche web: ${useWebSearch}`);
+
+    // Récupérer les données
+    const data = await UgapDataService.getData(req.entrepriseDb, req.entrepriseId);
+    if (!data) {
+      return res.status(404).json({ success: false, message: 'Aucune donnée configurée' });
+    }
+
+    const { category, subCategory } = findCategoryAndSubCategory(data, categoryId, subCategoryId);
+    if (!category) {
+      return res.status(404).json({ success: false, message: 'Catégorie non trouvée' });
+    }
+    if (!subCategory) {
+      return res.status(404).json({ success: false, message: 'Sous-catégorie non trouvée' });
+    }
+
+    const options = (category.options || []).filter(opt => 
+      (subCategory.optionIds || []).includes(opt.id)
+    );
+
+    // Effectuer la recherche web si demandée
+    let webResults = [];
+    if (useWebSearch) {
+      console.log('🌐 Recherche web activée...');
+      const webSearch = new WebSearchSimulator();
+      try {
+        // Rechercher sur le nom de la sous-catégorie
+        webResults = await webSearch.search(subCategory.name, 5);
+        console.log(`✅ ${webResults.length} résultat(s) de recherche web trouvé(s)`);
+      } catch (error) {
+        console.warn('⚠️ Erreur lors de la recherche web:', error.message);
+        // Continuer sans les résultats web
+      }
+    }
+
+    // Construire le prompt
+    let prompt = `Tu es un expert en création de structures de données pour des collections.
+
+Analyse la sous-catégorie suivante et propose une structure de collection optimale :
+
+**Sous-catégorie :** ${subCategory.name}
+**Description :** ${subCategory.description || 'Aucune description'}
+**Nombre d'options :** ${options.length}
+
+${options.length > 0 ? `**Exemples d'options :**
+${options.slice(0, 10).map(opt => `- ${opt.name} (Prix: ${opt.priceClient || 0}€)`).join('\n')}
+${options.length > 10 ? `... et ${options.length - 10} autres options` : ''}` : ''}`;
+
+    // Ajouter les résultats de recherche web si disponibles
+    if (webResults.length > 0) {
+      const webSearch = new WebSearchSimulator();
+      prompt += webSearch.formatResultsForPrompt(webResults);
+    }
+
+    prompt += `
+
+**Instructions :**
+1. Analyse les caractéristiques principales de cette sous-catégorie
+2. Identifie les champs essentiels pour décrire et gérer les éléments de cette collection
+3. Propose une structure de collection avec des champs pertinents
+4. Utilise les types de champs suivants : Texte, TextArea, Number, Boolean, Date, DateTime, Couleur, Fichier, Image, Enum, Relation
+
+Réponds UNIQUEMENT avec un JSON valide au format suivant :
+{
+  "fields": [
+    {
+      "type": "Texte",
+      "label": "Nom du champ",
+      "required": true,
+      "description": "Description du champ"
+    }
+  ],
+  "reasoning": "Explication de la structure proposée"
+}`;
+
+    // Appel à l'IA
+    const aiService = new UgapAIService(req.entrepriseDb, req.entrepriseId);
+    const aiResponse = await aiService.aiService.sendAnalysisPrompt(prompt, { stream: false });
+    
+    // Extraire la réponse
+    const aiText = aiResponse.data?.response || aiResponse.response || '';
+
+    // Parser la réponse
+    let fields = [];
+    let reasoning = '';
+    
+    try {
+      const jsonMatch = aiText.match(/\{[\s\S]*"fields"[\s\S]*\}/);
+      if (jsonMatch) {
+        const parsed = JSON.parse(jsonMatch[0]);
+        fields = parsed.fields || [];
+        reasoning = parsed.reasoning || '';
+      } else {
+        throw new Error('Aucun JSON trouvé dans la réponse de l\'IA');
+      }
+    } catch (parseError) {
+      console.error('❌ Erreur de parsing:', parseError);
+      return res.status(500).json({ 
+        success: false, 
+        message: 'Impossible de parser la réponse de l\'IA: ' + parseError.message,
+        rawResponse: aiText.substring(0, 500)
+      });
+    }
+
+    res.json({
+      success: true,
+      data: {
+        fields,
+        reasoning,
+        webResults: webResults.length > 0 ? webResults : undefined
+      }
+    });
+  } catch (error) {
+    console.error('❌ UGAP generateCollectionWithAI error:', error);
+    res.status(500).json({ success: false, message: error.message || 'Erreur serveur' });
+  }
+}
+
+/**
+ * Trouve la catégorie et la sous-catégorie par IDs, avec fallback global.
+ */
+function findCategoryAndSubCategory(data, categoryId, subCategoryId) {
+  if (!data || !Array.isArray(data.categories)) {
+    return { category: null, subCategory: null };
+  }
+
+  let category = data.categories.find(c => c.id === categoryId);
+  let subCategory = (category?.subCategories || []).find(sc => sc.id === subCategoryId);
+
+  if (!category || !subCategory) {
+    for (const candidate of data.categories) {
+      const match = (candidate.subCategories || []).find(sc => sc.id === subCategoryId);
+      if (match) {
+        category = candidate;
+        subCategory = match;
+        break;
+      }
+    }
+  }
+
+  return { category, subCategory };
+}
+
+async function detectExcelColors(req, res) {
+  try {
+    const { modelId, configId } = req.params;
+    const data = await UgapDataService.getData(req.entrepriseDb, req.entrepriseId);
+    const model = (data.models || []).find(m => m.id === modelId);
+    const config = model?.configurations?.find(c => c.id === configId);
+    const excelPath = config?.pdfAnalysis?.excelFilePath;
+    
+    if (!excelPath || !fs.existsSync(excelPath)) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Fichier Excel introuvable pour cette configuration' 
+      });
+    }
+
+    // Essayer plusieurs options de lecture pour récupérer les styles
+    let wb;
+    try {
+      wb = XLSX.readFile(excelPath, { cellStyles: true, cellNF: true });
+    } catch (e) {
+      console.warn('Failed to read with cellStyles, trying without:', e);
+      wb = XLSX.readFile(excelPath);
+    }
+    
+    const sheetName = wb.SheetNames[0];
+    const ws = wb.Sheets[sheetName];
+    
+    if (!ws || !ws['!ref']) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Feuille Excel vide ou invalide' 
+      });
+    }
+    
+    const range = XLSX.utils.decode_range(ws['!ref']);
+    
+    // Debug: logger quelques cellules pour voir leur structure
+    console.log('🔍 Debug: Checking first few cells for colors...');
+    console.log('Workbook has Styles?', !!wb.Styles);
+    console.log('Workbook keys:', Object.keys(wb).filter(k => !k.startsWith('Sheet')));
+    
+    if (wb.Styles) {
+      console.log('Workbook Styles keys:', Object.keys(wb.Styles));
+      console.log('Fills count:', wb.Styles.Fills?.length || 0);
+      console.log('CellXf count:', wb.Styles.CellXf?.length || 0);
+      if (wb.Styles.Fills && wb.Styles.Fills.length > 0) {
+        console.log('First few fills:', JSON.stringify(wb.Styles.Fills.slice(0, 3), null, 2));
+      }
+    }
+    
+    // Vérifier aussi les cellules avec des valeurs pour voir leur structure complète
+    let sampleCells = [];
+    for (let r = range.s.r; r <= Math.min(range.s.r + 10, range.e.r); r++) {
+      for (let c = 0; c <= Math.min(2, range.e.c); c++) {
+        const cellAddr = XLSX.utils.encode_cell({ r, c });
+        const cell = ws[cellAddr];
+        if (cell && (cell.v || cell.s)) {
+          const color = getCellColor(cell, wb);
+          const normalized = normalizeColor(color);
+          const cellInfo = {
+            address: cellAddr,
+            hasValue: !!cell.v,
+            hasStyle: !!cell.s,
+            styleIndex: cell.s?.style,
+            fill: cell.s?.fill ? JSON.stringify(cell.s.fill).substring(0, 100) : null,
+            rawColor: color,
+            normalized: normalized,
+            cellKeys: Object.keys(cell).filter(k => !k.startsWith('!'))
+          };
+          sampleCells.push(cellInfo);
+          if (sampleCells.length <= 5) {
+            console.log(`Cell ${cellAddr}:`, cellInfo);
+          }
+        }
+      }
+    }
+    
+    console.log(`📊 Total sample cells checked: ${sampleCells.length}`);
+    console.log(`📊 Cells with styles: ${sampleCells.filter(c => c.hasStyle).length}`);
+    console.log(`📊 Cells with colors: ${sampleCells.filter(c => c.normalized).length}`);
+
+    const detectedColors = detectAllColorsFromExcel(ws, range, wb);
+    
+    console.log(`✅ Detected ${detectedColors.length} unique colors`);
+    if (detectedColors.length > 0) {
+      console.log('Top colors:', detectedColors.slice(0, 5).map(c => `#${c.color} (${c.count} occurrences)`).join(', '));
+    } else {
+      console.warn('⚠️ No colors detected! This might mean:');
+      console.warn('  1. The Excel file has no background colors');
+      console.warn('  2. XLSX library cannot read the color format used');
+      console.warn('  3. The file was converted from PDF without preserving colors');
+      console.warn('  → User will need to enter colors manually');
+    }
+
+    res.json({ 
+      success: true, 
+      data: { 
+        colors: detectedColors,
+        debug: {
+          totalCells: (range.e.r - range.s.r + 1) * (range.e.c - range.s.c + 1),
+          hasStyles: !!wb.Styles,
+          fillsCount: wb.Styles?.Fills?.length || 0
+        }
+      } 
+    });
+  } catch (error) {
+    console.error('❌ UGAP detectExcelColors error:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: error.message || 'Erreur serveur',
+      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+    });
+  }
+}
+
+module.exports = {
+  getData,
+  importExcel,
+  getModels,
+  getCategories,
+  generateDevis,
+  createCategory,
+  updateCategory,
+  reorderCategories,
+  deleteCategory,
+  clearAllCategories,
+  clearConfigurationMappedCategories,
+  createSubCategory,
+  updateSubCategory,
+  deleteSubCategory,
+  updateOption,
+  moveOptionToCategory,
+  improveCategorization,
+  getPrompts,
+  updatePrompts,
+  resetPrompts,
+  detectSubCategories,
+  addModelConfiguration,
+  updateModelConfiguration,
+  deleteModelConfiguration,
+  updateModelImage,
+  importConfigurationPdf,
+  uploadConfigurationPdf,
+  extractConfigurationText,
+  analyzeConfigurationImage,
+  convertConfigurationPdfToExcel,
+  getConfigurationExcel,
+  mapConfigurationExcel,
+  detectExcelColors,
+  updateOptionDocTemplate,
+  getConfigurationPdf,
+  generateCollectionWithAI,
+  searchSimilarCollections,
+  verifyOptionWithAI,
+  testExcelExtraction,
+  downloadCamelotExcel,
+  convertPdfToExcel,
+  downloadExcel,
+  viewExcelAsHtml,
+  importConfigurationFile
+};
+
+async function testExcelExtraction(req, res) {
+  try {
+    const { modelId, configId } = req.params;
+    const data = await UgapDataService.getData(req.entrepriseDb, req.entrepriseId);
+    const model = (data.models || []).find(m => m.id === modelId);
+    const config = model?.configurations?.find(c => c.id === configId);
+    const excelPath = config?.pdfAnalysis?.excelFilePath;
+    
+    if (!excelPath || !fs.existsSync(excelPath)) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Fichier Excel introuvable pour cette configuration' 
+      });
+    }
+
+    console.log('🧪 Lancement des tests d\'extraction sur:', excelPath);
+    
+    // Récupérer aussi le chemin du PDF original si disponible
+    const pdfPath = config?.pdfAnalysis?.pdfFilePath || null;
+    
+    const results = await ExcelExtractionTester.runAllTests(excelPath, pdfPath);
+
+    res.json({ 
+      success: true, 
+      data: { 
+        filePath: excelPath,
+        fileName: path.basename(excelPath),
+        results: results
+      } 
+    });
+  } catch (error) {
+    console.error('❌ UGAP testExcelExtraction error:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: error.message || 'Erreur serveur',
+      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+    });
+  }
+}
+
+async function verifyOptionWithAI(req, res) {
+  try {
+    const { categoryId, optionId, prompt } = req.body;
+    
+    if (!categoryId || !optionId || !prompt) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'categoryId, optionId et prompt sont requis' 
+      });
+    }
+    
+    const data = await UgapDataService.getData(req.entrepriseDb, req.entrepriseId);
+    if (!data || !data.categories) {
+      return res.status(404).json({ 
+        success: false, 
+        message: 'Données non trouvées' 
+      });
+    }
+    
+    const category = data.categories.find(cat => cat.id === categoryId);
+    if (!category) {
+      return res.status(404).json({ 
+        success: false, 
+        message: 'Catégorie non trouvée' 
+      });
+    }
+    
+    const option = (category.options || []).find(opt => opt.id === optionId);
+    if (!option) {
+      return res.status(404).json({ 
+        success: false, 
+        message: 'Option non trouvée' 
+      });
+    }
+    
+    // Appeler l'IA pour vérifier l'option
+    const aiService = new UgapAIService(req.entrepriseDb, req.entrepriseId);
+    const aiResponse = await aiService.aiService.sendAnalysisPrompt(prompt, { stream: false });
+    
+    // Parser la réponse JSON
+    const aiText = aiResponse.data?.response || aiResponse.response || '';
+    let recommendation = null;
+    
+    try {
+      const jsonMatch = aiText.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        recommendation = JSON.parse(jsonMatch[0]);
+      }
+    } catch (parseError) {
+      console.error('Erreur parsing réponse IA:', parseError);
+      return res.status(500).json({ 
+        success: false, 
+        message: 'Erreur lors du parsing de la réponse IA' 
+      });
+    }
+    
+    res.json({
+      success: true,
+      recommendation
+    });
+  } catch (error) {
+    console.error('❌ UGAP verifyOptionWithAI error:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: error.message || 'Erreur serveur' 
+    });
+  }
+}
+
+async function downloadCamelotExcel(req, res) {
+  try {
+    const { modelId, configId } = req.params;
+    
+    console.log(`📥 Demande de téléchargement Excel Camelot: modelId=${modelId}, configId=${configId}`);
+    
+    // Récupérer la configuration (même méthode que mapConfigurationExcel)
+    const data = await UgapDataService.getData(req.entrepriseDb, req.entrepriseId);
+    const model = (data.models || []).find(m => m.id === modelId);
+    const config = model?.configurations?.find(c => c.id === configId);
+    
+    if (!config || !config.pdfAnalysis) {
+      console.error('❌ Configuration ou analyse PDF non trouvée');
+      return res.status(404).json({ 
+        success: false, 
+        message: 'Configuration ou analyse PDF non trouvée' 
+      });
+    }
+    
+    const excelPath = config.pdfAnalysis.camelotExcelPath;
+    const excelFileName = config.pdfAnalysis.camelotExcelFileName || `camelot_${configId}.xlsx`;
+    
+    console.log(`📁 Chemin Excel recherché: ${excelPath}`);
+    console.log(`📄 Nom de fichier: ${excelFileName}`);
+    
+    if (!excelPath) {
+      console.error('❌ Aucun chemin Excel sauvegardé dans pdfAnalysis');
+      console.error('📋 Contenu de pdfAnalysis:', JSON.stringify(config.pdfAnalysis, null, 2));
+      return res.status(404).json({ 
+        success: false, 
+        message: 'Fichier Excel Camelot non trouvé dans la configuration. Le mapping n\'a peut-être pas été complété ou le fichier n\'a pas été sauvegardé. Relancez le mapping pour générer un nouveau fichier.' 
+      });
+    }
+    
+    const resolvedPath = path.resolve(excelPath);
+    console.log(`📁 Chemin résolu: ${resolvedPath}`);
+    console.log(`✅ Fichier existe: ${fs.existsSync(resolvedPath)}`);
+    
+    if (!fs.existsSync(resolvedPath)) {
+      console.error('❌ Fichier Excel non trouvé à l\'emplacement:', resolvedPath);
+      return res.status(404).json({ 
+        success: false, 
+        message: `Fichier Excel Camelot non trouvé à l'emplacement: ${resolvedPath}. Relancez le mapping.` 
+      });
+    }
+    
+    // Vérifier que c'est bien un fichier
+    const stats = fs.statSync(resolvedPath);
+    if (!stats.isFile()) {
+      console.error('❌ Le chemin ne pointe pas vers un fichier');
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Le chemin ne pointe pas vers un fichier valide' 
+      });
+    }
+    
+    console.log(`✅ Envoi du fichier: ${excelFileName} (${stats.size} bytes)`);
+    
+    // Envoyer le fichier
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="${excelFileName}"`);
+    res.setHeader('Content-Length', stats.size);
+    res.sendFile(resolvedPath);
+  } catch (error) {
+    console.error('❌ UGAP downloadCamelotExcel error:', error);
+    res.status(500).json({ success: false, message: error.message || 'Erreur serveur' });
+  }
+}
+
+/**
+ * Convertit un PDF en Excel (outil standalone)
+ */
+async function convertPdfToExcel(req, res) {
+  try {
+    const file = req.file;
+    
+    if (!file) {
+      return res.status(400).json({ success: false, message: 'Aucun fichier PDF fourni' });
+    }
+    
+    const isPdf = file.mimetype === 'application/pdf' || file.originalname?.toLowerCase().endsWith('.pdf');
+    if (!isPdf) {
+      return res.status(400).json({ success: false, message: 'Le fichier doit être un PDF' });
+    }
+    
+    // Convertir le PDF en Excel
+    const result = await PdfToExcelConverter.convert(file.path);
+    
+    // Construire l'URL de téléchargement
+    const excelUrl = `/api/ugap/download-excel/${encodeURIComponent(result.fileName)}`;
+    
+    res.json({
+      success: true,
+      message: 'Conversion PDF vers Excel réussie',
+      data: {
+        excelPath: result.excelPath,
+        fileName: result.fileName,
+        excelUrl,
+        stats: result.stats
+      }
+    });
+  } catch (error) {
+    console.error('❌ UGAP convertPdfToExcel error:', error);
+    res.status(500).json({ success: false, message: error.message || 'Erreur serveur' });
+  }
+}
+
+/**
+ * Télécharge un fichier Excel converti
+ */
+async function downloadExcel(req, res) {
+  try {
+    const { fileName } = req.params;
+    const decodedFileName = decodeURIComponent(fileName);
+    
+    // Chercher dans plusieurs dossiers possibles
+    const possibleDirs = [
+      path.join(__dirname, '../uploads/pdf-to-excel'),
+      path.join(__dirname, '../uploads/camelot-mapping')
+    ];
+    
+    let excelPath = null;
+    for (const dir of possibleDirs) {
+      const testPath = path.join(dir, decodedFileName);
+      if (fs.existsSync(testPath)) {
+        excelPath = testPath;
+        break;
+      }
+    }
+    
+    if (!excelPath) {
+      return res.status(404).json({ success: false, message: 'Fichier Excel introuvable' });
+    }
+    
+    const stats = fs.statSync(excelPath);
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="${decodedFileName}"`);
+    res.setHeader('Content-Length', stats.size);
+    res.sendFile(path.resolve(excelPath));
+  } catch (error) {
+    console.error('❌ UGAP downloadExcel error:', error);
+    res.status(500).json({ success: false, message: error.message || 'Erreur serveur' });
+  }
+}
+
+/**
+ * Affiche un fichier Excel en HTML dans le navigateur
+ */
+async function viewExcelAsHtml(req, res) {
+  try {
+    const { fileName } = req.params;
+    const decodedFileName = decodeURIComponent(fileName);
+    
+    // Chercher dans plusieurs dossiers possibles
+    const possibleDirs = [
+      path.join(__dirname, '../uploads/pdf-to-excel'),
+      path.join(__dirname, '../uploads/camelot-mapping')
+    ];
+    
+    let excelPath = null;
+    for (const dir of possibleDirs) {
+      const testPath = path.join(dir, decodedFileName);
+      if (fs.existsSync(testPath)) {
+        excelPath = testPath;
+        break;
+      }
+    }
+    
+    if (!excelPath) {
+      return res.status(404).send('<html><body><h1>Fichier Excel introuvable</h1></body></html>');
+    }
+    
+    // Lire l'Excel
+    const wb = XLSX.readFile(excelPath, { cellStyles: true });
+    const sheetName = wb.SheetNames[0];
+    const ws = wb.Sheets[sheetName];
+    const range = XLSX.utils.decode_range(ws['!ref'] || 'A1:A1');
+    
+    // Convertir en HTML avec les couleurs
+    let html = `
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>${decodedFileName}</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 10px; background: #f5f5f5; }
+        table { border-collapse: collapse; background: white; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        td, th { border: 1px solid #ddd; padding: 6px 10px; text-align: left; font-size: 12px; }
+        th { background: #f0f0f0; font-weight: bold; }
+        .container { overflow: auto; max-height: 90vh; }
+    </style>
+</head>
+<body>
+    <h2>${decodedFileName}</h2>
+    <div class="container">
+        <table>
+`;
+    
+    // Parcourir les lignes et colonnes
+    for (let r = range.s.r; r <= range.e.r; r++) {
+      html += '<tr>';
+      for (let c = range.s.c; c <= range.e.c; c++) {
+        const cellAddress = XLSX.utils.encode_cell({ r, c });
+        const cell = ws[cellAddress];
+        
+        const cellValue = cell ? (cell.v !== undefined ? String(cell.v) : '') : '';
+        const isHeader = r === range.s.r;
+        
+        // Récupérer la couleur de fond
+        let bgColor = '';
+        if (cell && cell.s && cell.s.fill) {
+          const fill = cell.s.fill;
+          if (fill.fgColor && fill.fgColor.rgb) {
+            bgColor = `#${fill.fgColor.rgb}`;
+          } else if (fill.bgColor && fill.bgColor.rgb) {
+            bgColor = `#${fill.bgColor.rgb}`;
+          }
+        }
+        
+        // Si pas de couleur dans le style, essayer de récupérer depuis le workbook
+        if (!bgColor && cell) {
+          const cellColor = getCellColor(cell, wb);
+          if (cellColor) {
+            bgColor = `#${cellColor}`;
+          }
+        }
+        
+        const style = bgColor ? `background-color: ${bgColor};` : '';
+        const tag = isHeader ? 'th' : 'td';
+        
+        html += `<${tag} style="${style}">${escapeHtml(cellValue)}</${tag}>`;
+      }
+      html += '</tr>';
+    }
+    
+    html += `
+        </table>
+    </div>
+</body>
+</html>
+`;
+    
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.send(html);
+  } catch (error) {
+    console.error('❌ UGAP viewExcelAsHtml error:', error);
+    res.status(500).send(`<html><body><h1>Erreur: ${error.message}</h1></body></html>`);
+  }
+}
+
+// Fonction helper pour échapper HTML
+function escapeHtml(text) {
+  if (!text) return '';
+  return String(text)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
+/**
+ * Importe un fichier (PDF ou Excel) dans une configuration
+ * Si PDF : convertit en Excel avec Camelot puis sauvegarde
+ * Si Excel : sauvegarde directement
+ */
+async function importConfigurationFile(req, res) {
+  try {
+    const { modelId, configId } = req.params;
+    const file = req.file;
+    
+    if (!file) {
+      return res.status(400).json({ success: false, message: 'Aucun fichier fourni' });
+    }
+    
+    const isPdf = file.mimetype === 'application/pdf' || file.originalname?.toLowerCase().endsWith('.pdf');
+    const isExcel = file.mimetype === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
+                    file.mimetype === 'application/vnd.ms-excel' ||
+                    file.originalname?.toLowerCase().endsWith('.xlsx') ||
+                    file.originalname?.toLowerCase().endsWith('.xls');
+    
+    if (!isPdf && !isExcel) {
+      return res.status(400).json({ success: false, message: 'Le fichier doit être un PDF ou un Excel' });
+    }
+    
+    // Récupérer la configuration
+    const data = await UgapDataService.getData(req.entrepriseDb, req.entrepriseId);
+    if (!data) {
+      return res.status(404).json({ success: false, message: 'Aucune donnée configurée' });
+    }
+    
+    const model = (data.models || []).find(m => m.id === modelId);
+    const config = model?.configurations?.find(c => c.id === configId);
+    
+    if (!model || !config) {
+      return res.status(404).json({ success: false, message: 'Modèle ou configuration non trouvé' });
+    }
+    
+    let excelPath = null;
+    let excelFileName = null;
+    let pdfPath = null;
+    
+    if (isPdf) {
+      // Convertir PDF en Excel avec Camelot
+      pdfPath = file.path;
+      const conversionResult = await PdfToExcelConverter.convert(pdfPath);
+      excelPath = conversionResult.excelPath;
+      excelFileName = conversionResult.fileName;
+    } else {
+      // Excel directement : copier vers le répertoire de stockage
+      const excelDir = path.join(__dirname, '../uploads/configurations');
+      if (!fs.existsSync(excelDir)) {
+        fs.mkdirSync(excelDir, { recursive: true });
+      }
+      
+      excelFileName = `config_${configId}_${Date.now()}.xlsx`;
+      excelPath = path.join(excelDir, excelFileName);
+      fs.copyFileSync(file.path, excelPath);
+    }
+    
+    // Sauvegarder les informations dans la configuration
+    const analysis = {
+      fileName: file.originalname,
+      fileType: isPdf ? 'pdf' : 'excel',
+      pdfFilePath: pdfPath || null,
+      excelFilePath: excelPath,
+      excelFileName: excelFileName,
+      excelUrl: `/api/ugap/models/${modelId}/configurations/${configId}/excel`,
+      uploadedAt: new Date(),
+      imported: true
+    };
+    
+    await UgapDataService.updateModelConfiguration(
+      req.entrepriseDb,
+      req.entrepriseId,
+      modelId,
+      configId,
+      { pdfAnalysis: analysis }
+    );
+    
+    res.json({
+      success: true,
+      message: isPdf ? 'PDF importé et converti en Excel avec succès' : 'Fichier Excel importé avec succès',
+      data: {
+        analysis,
+        excelPath,
+        excelFileName,
+        converted: isPdf
+      }
+    });
+  } catch (error) {
+    console.error('❌ UGAP importConfigurationFile error:', error);
+    res.status(500).json({ success: false, message: error.message || 'Erreur serveur' });
+  }
+}

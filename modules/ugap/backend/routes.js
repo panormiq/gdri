@@ -1,0 +1,632 @@
+/**
+ * Routes API pour le module UGAP
+ * Fichier : modules/ugap/backend/routes.js
+ */
+
+const express = require('express');
+const router = express.Router();
+const path = require('path');
+const fs = require('fs');
+const multer = require('multer');
+const { authenticateJWT } = require(path.join(__dirname, '../../../backend/config/jwt'));
+const { useUgapEntrepriseDb } = require('./middleware/useUgapEntrepriseDb');
+const { requireUgapRole } = require('./middleware/requireUgapRole');
+const ugapController = require('./controllers/ugapController');
+
+// Defensive: ensure all referenced handlers are functions to avoid Express "argument handler must be a function"
+Object.keys(ugapController || {}).forEach(key => {
+  if (typeof ugapController[key] !== 'function') {
+    console.warn(`UGAP controller handler "${key}" is not a function (type=${typeof ugapController[key]}). Replacing with error responder.`);
+    ugapController[key] = (req, res) => {
+      res.status(500).json({ success: false, message: `Handler "${key}" not implemented on server.` });
+    };
+  }
+});
+const pdfUploadDir = path.join(__dirname, 'uploads', 'pdf');
+if (!fs.existsSync(pdfUploadDir)) {
+  fs.mkdirSync(pdfUploadDir, { recursive: true });
+}
+
+const uploadPdf = multer({
+  storage: multer.diskStorage({
+    destination: (req, file, cb) => {
+      cb(null, pdfUploadDir);
+    },
+    filename: (req, file, cb) => {
+      const timestamp = Date.now();
+      const safeName = (file.originalname || 'document')
+        .toLowerCase()
+        .replace(/[^a-z0-9.]+/g, '_')
+        .replace(/_+/g, '_')
+        .replace(/^_+|_+$/g, '');
+      cb(null, `${timestamp}_${safeName}`);
+    }
+  }),
+  limits: { fileSize: 10 * 1024 * 1024 }
+});
+
+// Multer pour PDF et Excel
+const uploadPdfOrExcel = multer({
+  storage: multer.diskStorage({
+    destination: (req, file, cb) => {
+      cb(null, pdfUploadDir);
+    },
+    filename: (req, file, cb) => {
+      const timestamp = Date.now();
+      const safeName = (file.originalname || 'document')
+        .toLowerCase()
+        .replace(/[^a-z0-9.]+/g, '_')
+        .replace(/_+/g, '_')
+        .replace(/^_+|_+$/g, '');
+      cb(null, `${timestamp}_${safeName}`);
+    }
+  }),
+  limits: { fileSize: 50 * 1024 * 1024 }, // 50MB pour Excel
+  fileFilter: (req, file, cb) => {
+    const isPdf = file.mimetype === 'application/pdf' || file.originalname?.toLowerCase().endsWith('.pdf');
+    const isExcel = file.mimetype === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
+                    file.mimetype === 'application/vnd.ms-excel' ||
+                    file.originalname?.toLowerCase().endsWith('.xlsx') ||
+                    file.originalname?.toLowerCase().endsWith('.xls');
+    
+    if (isPdf || isExcel) {
+      cb(null, true);
+    } else {
+      cb(new Error('Le fichier doit être un PDF ou un Excel'));
+    }
+  }
+});
+
+/**
+ * GET /api/ugap/health
+ * Vérifie l'état du module
+ */
+router.get('/health', authenticateJWT, useUgapEntrepriseDb, (req, res) => {
+  res.json({
+    success: true,
+    message: 'Module UGAP fonctionnel',
+    version: '2.0.0'
+  });
+});
+
+// ========================================
+// ROUTES PUBLIQUES (lecture)
+// ========================================
+
+/**
+ * GET /api/ugap/data
+ * Récupère toutes les données configurées
+ */
+router.get('/data',
+  authenticateJWT,
+  useUgapEntrepriseDb,
+  requireUgapRole(['USER_ENTITY', 'ADMIN_ENTITY']),
+  ugapController.getData
+);
+
+/**
+ * GET /api/ugap/models
+ * Récupère la liste des modèles
+ */
+router.get('/models',
+  authenticateJWT,
+  useUgapEntrepriseDb,
+  requireUgapRole(['USER_ENTITY', 'ADMIN_ENTITY']),
+  ugapController.getModels
+);
+
+/**
+ * GET /api/ugap/categories
+ * Récupère les catégories avec leurs options
+ */
+router.get('/categories',
+  authenticateJWT,
+  useUgapEntrepriseDb,
+  requireUgapRole(['USER_ENTITY', 'ADMIN_ENTITY']),
+  ugapController.getCategories
+);
+
+/**
+ * POST /api/ugap/devis
+ * Génère un devis
+ */
+router.post('/devis',
+  express.json(),
+  authenticateJWT,
+  useUgapEntrepriseDb,
+  requireUgapRole(['USER_ENTITY', 'ADMIN_ENTITY']),
+  ugapController.generateDevis
+);
+
+// ========================================
+// ROUTES ADMIN (écriture)
+// ========================================
+
+/**
+ * POST /api/ugap/import
+ * Importe un fichier Excel
+ */
+router.post('/import',
+  authenticateJWT,
+  useUgapEntrepriseDb,
+  requireUgapRole(['ADMIN_ENTITY']),
+  ugapController.importExcel
+);
+
+// ========================================
+// ROUTES CATÉGORIES (ORDRE IMPORTANT : routes spécifiques AVANT routes générales)
+// ========================================
+
+/**
+ * POST /api/ugap/categories
+ * Crée une nouvelle catégorie
+ */
+router.post('/categories',
+  express.json(),
+  authenticateJWT,
+  useUgapEntrepriseDb,
+  requireUgapRole(['ADMIN_ENTITY']),
+  ugapController.createCategory
+);
+
+/**
+ * POST /api/ugap/categories/:categoryId/detect-subcategories
+ * Détecte automatiquement les sous-catégories via IA
+ * IMPORTANT: Cette route doit être AVANT /categories/:categoryId pour éviter les conflits
+ */
+router.post('/categories/:categoryId/detect-subcategories',
+  authenticateJWT,
+  useUgapEntrepriseDb,
+  requireUgapRole(['ADMIN_ENTITY']),
+  ugapController.detectSubCategories
+);
+
+/**
+ * POST /api/ugap/categories/:categoryId/subcategories
+ * Crée une sous-catégorie
+ */
+router.post('/categories/:categoryId/subcategories',
+  express.json(),
+  authenticateJWT,
+  useUgapEntrepriseDb,
+  requireUgapRole(['ADMIN_ENTITY']),
+  ugapController.createSubCategory
+);
+
+/**
+ * PUT /api/ugap/categories/:categoryId/subcategories/:subCategoryId
+ * Met à jour une sous-catégorie
+ */
+router.put('/categories/:categoryId/subcategories/:subCategoryId',
+  express.json(),
+  authenticateJWT,
+  useUgapEntrepriseDb,
+  requireUgapRole(['ADMIN_ENTITY']),
+  ugapController.updateSubCategory
+);
+
+/**
+ * DELETE /api/ugap/categories/:categoryId/subcategories/:subCategoryId
+ * Supprime une sous-catégorie
+ */
+router.delete('/categories/:categoryId/subcategories/:subCategoryId',
+  authenticateJWT,
+  useUgapEntrepriseDb,
+  requireUgapRole(['ADMIN_ENTITY']),
+  ugapController.deleteSubCategory
+);
+
+/**
+ * POST /api/ugap/categories/:fromCategoryId/options/:optionId/move
+ * Déplace une option vers une autre catégorie/sous-catégorie
+ */
+router.post('/categories/:fromCategoryId/options/:optionId/move',
+  express.json(),
+  authenticateJWT,
+  useUgapEntrepriseDb,
+  requireUgapRole(['ADMIN_ENTITY']),
+  ugapController.moveOptionToCategory
+);
+
+/**
+ * PUT /api/ugap/categories/reorder
+ * Met à jour l'ordre des catégories
+ * IMPORTANT: Cette route spécifique doit être AVANT /categories/:categoryId
+ */
+router.put('/categories/reorder',
+  express.json(),
+  authenticateJWT,
+  useUgapEntrepriseDb,
+  requireUgapRole(['ADMIN_ENTITY']),
+  ugapController.reorderCategories
+);
+
+/**
+ * POST /api/ugap/categories/clear
+ * Réinitialise toutes les catégories (regroupe toutes les options dans "Non classées")
+ * IMPORTANT: Cette route spécifique doit être AVANT /categories/:categoryId
+ */
+router.post('/categories/clear',
+  authenticateJWT,
+  useUgapEntrepriseDb,
+  requireUgapRole(['ADMIN_ENTITY']),
+  ugapController.clearAllCategories
+);
+
+/**
+ * PUT /api/ugap/categories/:categoryId
+ * Met à jour une catégorie
+ * IMPORTANT: Cette route générale doit être APRÈS les routes spécifiques
+ */
+router.put('/categories/:categoryId',
+  express.json(),
+  authenticateJWT,
+  useUgapEntrepriseDb,
+  requireUgapRole(['ADMIN_ENTITY']),
+  ugapController.updateCategory
+);
+
+/**
+ * DELETE /api/ugap/categories/:categoryId
+ * Supprime une catégorie
+ */
+router.delete('/categories/:categoryId',
+  authenticateJWT,
+  useUgapEntrepriseDb,
+  requireUgapRole(['ADMIN_ENTITY']),
+  ugapController.deleteCategory
+);
+
+/**
+ * PUT /api/ugap/options/:optionId
+ * Met à jour une option
+ */
+router.put('/options/:optionId',
+  express.json(),
+  authenticateJWT,
+  useUgapEntrepriseDb,
+  requireUgapRole(['ADMIN_ENTITY']),
+  ugapController.updateOption
+);
+
+/**
+ * POST /api/ugap/improve-categorization
+ * Améliore la catégorisation des options via IA
+ */
+router.post('/improve-categorization',
+  authenticateJWT,
+  useUgapEntrepriseDb,
+  requireUgapRole(['ADMIN_ENTITY']),
+  ugapController.improveCategorization
+);
+
+// ========================================
+// ROUTES PROMPTS IA
+// ========================================
+
+/**
+ * GET /api/ugap/prompts
+ * Récupère les prompts IA configurés
+ */
+router.get('/prompts',
+  authenticateJWT,
+  useUgapEntrepriseDb,
+  requireUgapRole(['ADMIN_ENTITY']),
+  ugapController.getPrompts
+);
+
+/**
+ * PUT /api/ugap/prompts
+ * Met à jour les prompts IA
+ */
+router.put('/prompts',
+  express.json(),
+  authenticateJWT,
+  useUgapEntrepriseDb,
+  requireUgapRole(['ADMIN_ENTITY']),
+  ugapController.updatePrompts
+);
+
+/**
+ * POST /api/ugap/prompts/reset
+ * Réinitialise les prompts aux valeurs par défaut
+ */
+router.post('/prompts/reset',
+  authenticateJWT,
+  useUgapEntrepriseDb,
+  requireUgapRole(['ADMIN_ENTITY']),
+  ugapController.resetPrompts
+);
+
+// ========================================
+// ROUTES CONFIGURATIONS ET ENRICHISSEMENT
+// ========================================
+
+/**
+ * POST /api/ugap/models/:modelId/configurations
+ * Ajoute une configuration à un modèle
+ */
+router.post('/models/:modelId/configurations',
+  express.json(),
+  authenticateJWT,
+  useUgapEntrepriseDb,
+  requireUgapRole(['ADMIN_ENTITY']),
+  ugapController.addModelConfiguration
+);
+
+/**
+ * PUT /api/ugap/models/:modelId/configurations/:configId
+ * Met à jour une configuration
+ */
+router.put('/models/:modelId/configurations/:configId',
+  express.json(),
+  authenticateJWT,
+  useUgapEntrepriseDb,
+  requireUgapRole(['ADMIN_ENTITY']),
+  ugapController.updateModelConfiguration
+);
+
+/**
+ * DELETE /api/ugap/models/:modelId/configurations/:configId
+ * Supprime une configuration
+ */
+router.delete('/models/:modelId/configurations/:configId',
+  authenticateJWT,
+  useUgapEntrepriseDb,
+  requireUgapRole(['ADMIN_ENTITY']),
+  ugapController.deleteModelConfiguration
+);
+
+/**
+ * POST /api/ugap/models/:modelId/configurations/:configId/import-file
+ * Importe un fichier (PDF ou Excel) dans une configuration
+ * IMPORTANT: Cette route doit être AVANT /import-pdf pour éviter les conflits
+ */
+router.post('/models/:modelId/configurations/:configId/import-file',
+  authenticateJWT,
+  useUgapEntrepriseDb,
+  requireUgapRole(['ADMIN_ENTITY']),
+  uploadPdfOrExcel.single('file'),
+  ugapController.importConfigurationFile
+);
+
+/**
+ * POST /api/ugap/models/:modelId/configurations/:configId/import-pdf
+ * Importe un PDF pour extraire les lignes et matcher les options
+ */
+router.post('/models/:modelId/configurations/:configId/import-pdf',
+  authenticateJWT,
+  useUgapEntrepriseDb,
+  requireUgapRole(['ADMIN_ENTITY']),
+  uploadPdf.single('file'),
+  ugapController.importConfigurationPdf
+);
+
+/**
+ * GET /api/ugap/models/:modelId/configurations/:configId/pdf
+ * Récupère le PDF d'origine importé
+ */
+router.get('/models/:modelId/configurations/:configId/pdf',
+  authenticateJWT,
+  useUgapEntrepriseDb,
+  requireUgapRole(['ADMIN_ENTITY']),
+  ugapController.getConfigurationPdf
+);
+
+/**
+ * POST /api/ugap/models/:modelId/configurations/:configId/upload-pdf
+ * Upload un PDF et le sauvegarde sans lancer d'analyse
+ */
+router.post('/models/:modelId/configurations/:configId/upload-pdf',
+  authenticateJWT,
+  useUgapEntrepriseDb,
+  requireUgapRole(['ADMIN_ENTITY']),
+  uploadPdf.single('file'),
+  ugapController.uploadConfigurationPdf
+);
+
+/**
+ * POST /api/ugap/models/:modelId/configurations/:configId/extract-text
+ * Extrait le texte du PDF précédemment uploadé et sauvegarde extractedLines
+ */
+router.post('/models/:modelId/configurations/:configId/extract-text',
+  authenticateJWT,
+  useUgapEntrepriseDb,
+  requireUgapRole(['ADMIN_ENTITY']),
+  ugapController.extractConfigurationText
+);
+
+/**
+ * POST /api/ugap/models/:modelId/configurations/:configId/analyze-image
+ * Rend la première page en image et appelle l'IA vision pour structuration
+ */
+router.post('/models/:modelId/configurations/:configId/analyze-image',
+  authenticateJWT,
+  useUgapEntrepriseDb,
+  requireUgapRole(['ADMIN_ENTITY']),
+  ugapController.analyzeConfigurationImage
+);
+
+/**
+ * POST /api/ugap/models/:modelId/configurations/:configId/convert-pdf-to-excel
+ * Convertit le PDF associé en fichier Excel (XLSX)
+ */
+router.post('/models/:modelId/configurations/:configId/convert-pdf-to-excel',
+  authenticateJWT,
+  useUgapEntrepriseDb,
+  requireUgapRole(['ADMIN_ENTITY']),
+  ugapController.convertConfigurationPdfToExcel
+);
+
+/**
+ * GET /api/ugap/models/:modelId/configurations/:configId/excel
+ * Récupère le fichier Excel généré
+ */
+router.get('/models/:modelId/configurations/:configId/excel',
+  authenticateJWT,
+  useUgapEntrepriseDb,
+  requireUgapRole(['ADMIN_ENTITY']),
+  ugapController.getConfigurationExcel
+);
+
+/**
+ * GET /api/ugap/models/:modelId/configurations/:configId/detect-colors
+ * Détecte toutes les couleurs de fond dans le fichier Excel
+ */
+router.get('/models/:modelId/configurations/:configId/detect-colors',
+  authenticateJWT,
+  useUgapEntrepriseDb,
+  requireUgapRole(['ADMIN_ENTITY']),
+  ugapController.detectExcelColors
+);
+
+/**
+ * GET /api/ugap/models/:modelId/configurations/:configId/test-extraction
+ * Teste différentes méthodes d'extraction Excel pour comparer les résultats
+ */
+router.get('/models/:modelId/configurations/:configId/test-extraction',
+  authenticateJWT,
+  useUgapEntrepriseDb,
+  requireUgapRole(['ADMIN_ENTITY']),
+  ugapController.testExcelExtraction
+);
+
+/**
+ * GET /api/ugap/test-extraction-page
+ * Affiche la page de test d'extraction
+ */
+router.get('/test-extraction-page',
+  authenticateJWT,
+  (req, res) => {
+    const testPagePath = path.join(__dirname, '../frontend/test-extraction.html');
+    res.sendFile(testPagePath);
+  }
+);
+
+/**
+ * POST /api/ugap/models/:modelId/configurations/:configId/map-excel
+ * Mappe le XLSX généré en JSON/YAML selon couleurs/colonnes et sauvegarde le mapping
+ */
+router.post('/models/:modelId/configurations/:configId/map-excel',
+  authenticateJWT,
+  useUgapEntrepriseDb,
+  requireUgapRole(['ADMIN_ENTITY']),
+  ugapController.mapConfigurationExcel
+);
+
+/**
+ * POST /api/ugap/models/:modelId/configurations/:configId/clear-mapped-categories
+ * Réinitialise les catégories détectées (mapping) pour une configuration (vue "Voir résultats")
+ */
+router.post('/models/:modelId/configurations/:configId/clear-mapped-categories',
+  authenticateJWT,
+  useUgapEntrepriseDb,
+  requireUgapRole(['ADMIN_ENTITY']),
+  ugapController.clearConfigurationMappedCategories
+);
+
+/**
+ * GET /api/ugap/models/:modelId/configurations/:configId/download-camelot-excel
+ * Télécharge le fichier Excel généré par Camelot
+ */
+router.get('/models/:modelId/configurations/:configId/download-camelot-excel',
+  authenticateJWT,
+  useUgapEntrepriseDb,
+  requireUgapRole(['ADMIN_ENTITY']),
+  ugapController.downloadCamelotExcel
+);
+
+/**
+ * PUT /api/ugap/models/:modelId/image
+ * Met à jour l'image d'un modèle
+ */
+router.put('/models/:modelId/image',
+  express.json(),
+  authenticateJWT,
+  useUgapEntrepriseDb,
+  requireUgapRole(['ADMIN_ENTITY']),
+  ugapController.updateModelImage
+);
+
+/**
+ * PUT /api/ugap/options/:optionId/doc-template
+ * Met à jour le lien doc-template d'une option
+ */
+router.put('/options/:optionId/doc-template',
+  express.json(),
+  authenticateJWT,
+  useUgapEntrepriseDb,
+  requireUgapRole(['ADMIN_ENTITY']),
+  ugapController.updateOptionDocTemplate
+);
+
+/**
+ * GET /api/ugap/categories/:categoryId/subcategories/:subCategoryId/search-collections
+ * Recherche des collections existantes similaires
+ */
+router.get('/categories/:categoryId/subcategories/:subCategoryId/search-collections',
+  authenticateJWT,
+  useUgapEntrepriseDb,
+  requireUgapRole(['ADMIN_ENTITY']),
+  ugapController.searchSimilarCollections
+);
+
+/**
+ * POST /api/ugap/categories/:categoryId/subcategories/:subCategoryId/generate-collection
+ * Génère une structure de collection via IA avec recherche web optionnelle
+ */
+router.post('/categories/:categoryId/subcategories/:subCategoryId/generate-collection',
+  express.json(),
+  authenticateJWT,
+  useUgapEntrepriseDb,
+  requireUgapRole(['ADMIN_ENTITY']),
+  ugapController.generateCollectionWithAI
+);
+
+/**
+ * POST /api/ugap/ai/verify-option
+ * Vérifie si une option appartient à la bonne sous-catégorie
+ */
+router.post('/ai/verify-option',
+  express.json(),
+  authenticateJWT,
+  useUgapEntrepriseDb,
+  requireUgapRole(['ADMIN_ENTITY']),
+  ugapController.verifyOptionWithAI
+);
+
+/**
+ * POST /api/ugap/convert-pdf-to-excel
+ * Convertit un PDF en Excel (outil standalone)
+ */
+router.post('/convert-pdf-to-excel',
+  authenticateJWT,
+  useUgapEntrepriseDb,
+  requireUgapRole(['ADMIN_ENTITY']),
+  uploadPdf.single('file'),
+  ugapController.convertPdfToExcel
+);
+
+/**
+ * GET /api/ugap/download-excel/:fileName
+ * Télécharge un fichier Excel converti
+ */
+router.get('/download-excel/:fileName',
+  authenticateJWT,
+  useUgapEntrepriseDb,
+  requireUgapRole(['ADMIN_ENTITY']),
+  ugapController.downloadExcel
+);
+
+/**
+ * GET /api/ugap/view-excel/:fileName
+ * Affiche un fichier Excel en HTML dans le navigateur
+ */
+router.get('/view-excel/:fileName',
+  authenticateJWT,
+  useUgapEntrepriseDb,
+  requireUgapRole(['ADMIN_ENTITY']),
+  ugapController.viewExcelAsHtml
+);
+
+module.exports = router;

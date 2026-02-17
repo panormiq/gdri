@@ -1,0 +1,348 @@
+categories: 
+  -     id: 6854b3d7-854e-466c-a26e-9912653fffcf
+    title: Sans catégorie
+    items: 
+      -         characteristic: Appelation commerciale :
+      -         characteristic: Fiche à dupliquer pour chaque embarcation de base (obligatoire/facultative/libre)
+      -         value: Les cases en vert sont à renseigner de manière obligatoire
+      -         value: Les cases en jaune sont à renseigner si elles sont concernées par la définition de l'embarcation de base
+      -         characteristic: DESCRIPTIF TECHNIQUE
+      -         characteristic: Références normatives et réglementation
+        value: Catégorie de conception
+      -         value: Catégorie de navigation professionnelle
+      -         value: Zone maritime de classe
+      -         value: Division
+      -         characteristic: Capacité
+        value: Nombre maximum de personnes
+      -         value: Charge maximale avec moteur et carburant
+      -         value: Volume de flottabilité
+      -         characteristic: Dimensions
+        value: Longueur hors tout
+      -         value: Longueur intérieure
+      -         value: Largeur hors tout
+      -         value: Largeur intérieure
+      -         value: Poids à vide
+      -         value: Diamètre flotteur
+      -         value: Tirant d'eau à vide
+      -         characteristic: Sécurité / carène / pont / divers
+        value: Nombre de compartiments sur le flotteur principal
+      -         value: Tissus
+      -         value: Carène
+      -         value: Coque
+      -         value: Pont
+      -         value: Arceau de navigation
+      -         characteristic: Motorisation
+        value: Marque
+      -         value: Modèle
+      -         value: Puissance
+      -         value: Démarrage
+      -         value: Energie
+      -         value: Coupe circuit de sécurité
+      -         value: Type de réservoir
+      -         value: Quantité de carburant
+      -         value: Type d'arbre
+      -         value: Type de commande
+      -         value: Puissance mini
+      -         value: Puissance préconisée
+      -         value: Puissance maxi
+      -         characteristic: Console de pilotage et équipements de navigation (si équipée)
+        value: Console C800
+      -         value: Sondeur GPS Lowrance HDS PRO 12
+      -         value: VHF ICOM M510 EAIS
+      -         value: Compas Offshore 115
+      -         value: Direction hydraulique LS 350
+      -         value: Pompe Rules
+      -         characteristic: Signalisation lumineuse et sonore
+      -         value: Projecteur à main
+      -         value: Feux sur Roll Bar
+      -         value: Projecteur fixes de recherche
+      -         value: Réflecteur radar tulaire
+      -         value: Bandes réflechissantes sur flotteur
+      -         characteristic: Lot de bord
+        value: Outillage de base
+      -         value: Trousse de réparation
+      -         value: Pagaies télescopiques 50 x 140
+      -         value: Gonfleurs à pied standard
+      -         value: Manomètre
+      -         value: Gaffe alu télescopique
+      -         characteristic: Equipements de base
+        value: EQUIPEMENT DE BASE
+      -         value: Bolster 1011
+      -         value: 1 panneau de pont
+      -         value: EQUIPEMENTS INTEGRES A LA CARENE
+      -         value: 1 nable avec clapet anti-retour
+      -         value: Anneaux d'étrave et de tableau arrière
+      -         value: Cadènes de hissage tableau arrière
+      -         value: Caillebotis caoutchouc dans fond des coffres et pont
+      -         value: Valves de gonflage et de surpression
+      -         value: Guide de mouillage caoutchouc
+      -         value: Saisine intérieure et extérieure
+      -         value: PPA Lock, antiragage profil D
+      -         value: Supports pagaies à l'arrière
+      -         value: Logos
+      -         characteristic: Documentation
+        value: A la livraison
+      -         value: Un certificat de conformité
+      -         value: Un bon de livraison
+      -         value: Un manuel propriétaire
+      -         value: Une carte de garantie bateau
+      -         value: Une carte de garantie moteur
+      -         characteristic: GARANTIES CONTRACTUELLES
+      -         characteristic: Flotteur
+      -         characteristic: Coque
+      -         characteristic: Antifowling
+      -         characteristic: Moteur hord-bord
+      -         characteristic: Chaîne cinématique moteur hors-bord (moteur, inverseur, arbre, hélice)
+      -         characteristic: Moteur in-bord
+      -         characteristic: Chaîne cinématique moteur in-bord (moteur, inverseur, arbre, hélice)
+      -         characteristic: Motorisation de type "hydrojet"
+      -         characteristic: Chaîne cinématique moteur de type "hydrojet" (moteur, inverseur, turbine)
+      -         characteristic: Equipement amovible
+      -         characteristic: Equipement électronique
+      -         characteristic: Console de pilotage
+      -         characteristic: Anti-corrosion (chaîne cinématique)
+      -         characteristic: Anti-corrosion
+      -         characteristic: Remorque
+      -         characteristic: DELAI DE LIVRAISON
+      -         characteristic: 1 unité
+      -         characteristic: 2 unités
+      -         characteristic: 3 à 5 unités
+      -         characteristic: 6 à 10 unités
+matching: 
+  matched: 
+    -       category: Sans catégorie
+      characteristic: 
+      value: Bolster 1011
+      matches: 
+        -           optionId: opt_170
+          optionName: Taud pour bolster 1011
+          categoryName: Aménagement
+          similarity: 55
+          priceClient: 126.58510790199999
+          priceUgap: 118.99
+      bestMatch: 
+        optionId: opt_170
+        optionName: Taud pour bolster 1011
+        categoryName: Aménagement
+        similarity: 55
+        priceClient: 126.58510790199999
+        priceUgap: 118.99
+  unmatched: 
+    -       category: Sans catégorie
+      characteristic: 
+      value: Les cases en vert sont à renseigner de manière obligatoire
+    -       category: Sans catégorie
+      characteristic: 
+      value: Les cases en jaune sont à renseigner si elles sont concernées par la définition de l'embarcation de base
+    -       category: Sans catégorie
+      characteristic: Références normatives et réglementation
+      value: Catégorie de conception
+    -       category: Sans catégorie
+      characteristic: 
+      value: Catégorie de navigation professionnelle
+    -       category: Sans catégorie
+      characteristic: 
+      value: Zone maritime de classe
+    -       category: Sans catégorie
+      characteristic: 
+      value: Division
+    -       category: Sans catégorie
+      characteristic: Capacité
+      value: Nombre maximum de personnes
+    -       category: Sans catégorie
+      characteristic: 
+      value: Charge maximale avec moteur et carburant
+    -       category: Sans catégorie
+      characteristic: 
+      value: Volume de flottabilité
+    -       category: Sans catégorie
+      characteristic: Dimensions
+      value: Longueur hors tout
+    -       category: Sans catégorie
+      characteristic: 
+      value: Longueur intérieure
+    -       category: Sans catégorie
+      characteristic: 
+      value: Largeur hors tout
+    -       category: Sans catégorie
+      characteristic: 
+      value: Largeur intérieure
+    -       category: Sans catégorie
+      characteristic: 
+      value: Poids à vide
+    -       category: Sans catégorie
+      characteristic: 
+      value: Diamètre flotteur
+    -       category: Sans catégorie
+      characteristic: 
+      value: Tirant d'eau à vide
+    -       category: Sans catégorie
+      characteristic: Sécurité / carène / pont / divers
+      value: Nombre de compartiments sur le flotteur principal
+    -       category: Sans catégorie
+      characteristic: 
+      value: Tissus
+    -       category: Sans catégorie
+      characteristic: 
+      value: Carène
+    -       category: Sans catégorie
+      characteristic: 
+      value: Coque
+    -       category: Sans catégorie
+      characteristic: 
+      value: Pont
+    -       category: Sans catégorie
+      characteristic: 
+      value: Arceau de navigation
+    -       category: Sans catégorie
+      characteristic: Motorisation
+      value: Marque
+    -       category: Sans catégorie
+      characteristic: 
+      value: Modèle
+    -       category: Sans catégorie
+      characteristic: 
+      value: Puissance
+    -       category: Sans catégorie
+      characteristic: 
+      value: Démarrage
+    -       category: Sans catégorie
+      characteristic: 
+      value: Energie
+    -       category: Sans catégorie
+      characteristic: 
+      value: Coupe circuit de sécurité
+    -       category: Sans catégorie
+      characteristic: 
+      value: Type de réservoir
+    -       category: Sans catégorie
+      characteristic: 
+      value: Quantité de carburant
+    -       category: Sans catégorie
+      characteristic: 
+      value: Type d'arbre
+    -       category: Sans catégorie
+      characteristic: 
+      value: Type de commande
+    -       category: Sans catégorie
+      characteristic: 
+      value: Puissance mini
+    -       category: Sans catégorie
+      characteristic: 
+      value: Puissance préconisée
+    -       category: Sans catégorie
+      characteristic: 
+      value: Puissance maxi
+    -       category: Sans catégorie
+      characteristic: Console de pilotage et équipements de navigation (si équipée)
+      value: Console C800
+    -       category: Sans catégorie
+      characteristic: 
+      value: Sondeur GPS Lowrance HDS PRO 12
+    -       category: Sans catégorie
+      characteristic: 
+      value: VHF ICOM M510 EAIS
+    -       category: Sans catégorie
+      characteristic: 
+      value: Compas Offshore 115
+    -       category: Sans catégorie
+      characteristic: 
+      value: Direction hydraulique LS 350
+    -       category: Sans catégorie
+      characteristic: 
+      value: Pompe Rules
+    -       category: Sans catégorie
+      characteristic: 
+      value: Projecteur à main
+    -       category: Sans catégorie
+      characteristic: 
+      value: Feux sur Roll Bar
+    -       category: Sans catégorie
+      characteristic: 
+      value: Projecteur fixes de recherche
+    -       category: Sans catégorie
+      characteristic: 
+      value: Réflecteur radar tulaire
+    -       category: Sans catégorie
+      characteristic: 
+      value: Bandes réflechissantes sur flotteur
+    -       category: Sans catégorie
+      characteristic: Lot de bord
+      value: Outillage de base
+    -       category: Sans catégorie
+      characteristic: 
+      value: Trousse de réparation
+    -       category: Sans catégorie
+      characteristic: 
+      value: Pagaies télescopiques 50 x 140
+    -       category: Sans catégorie
+      characteristic: 
+      value: Gonfleurs à pied standard
+    -       category: Sans catégorie
+      characteristic: 
+      value: Manomètre
+    -       category: Sans catégorie
+      characteristic: 
+      value: Gaffe alu télescopique
+    -       category: Sans catégorie
+      characteristic: Equipements de base
+      value: EQUIPEMENT DE BASE
+    -       category: Sans catégorie
+      characteristic: 
+      value: 1 panneau de pont
+    -       category: Sans catégorie
+      characteristic: 
+      value: EQUIPEMENTS INTEGRES A LA CARENE
+    -       category: Sans catégorie
+      characteristic: 
+      value: 1 nable avec clapet anti-retour
+    -       category: Sans catégorie
+      characteristic: 
+      value: Anneaux d'étrave et de tableau arrière
+    -       category: Sans catégorie
+      characteristic: 
+      value: Cadènes de hissage tableau arrière
+    -       category: Sans catégorie
+      characteristic: 
+      value: Caillebotis caoutchouc dans fond des coffres et pont
+    -       category: Sans catégorie
+      characteristic: 
+      value: Valves de gonflage et de surpression
+    -       category: Sans catégorie
+      characteristic: 
+      value: Guide de mouillage caoutchouc
+    -       category: Sans catégorie
+      characteristic: 
+      value: Saisine intérieure et extérieure
+    -       category: Sans catégorie
+      characteristic: 
+      value: PPA Lock, antiragage profil D
+    -       category: Sans catégorie
+      characteristic: 
+      value: Supports pagaies à l'arrière
+    -       category: Sans catégorie
+      characteristic: 
+      value: Logos
+    -       category: Sans catégorie
+      characteristic: Documentation
+      value: A la livraison
+    -       category: Sans catégorie
+      characteristic: 
+      value: Un certificat de conformité
+    -       category: Sans catégorie
+      characteristic: 
+      value: Un bon de livraison
+    -       category: Sans catégorie
+      characteristic: 
+      value: Un manuel propriétaire
+    -       category: Sans catégorie
+      characteristic: 
+      value: Une carte de garantie bateau
+    -       category: Sans catégorie
+      characteristic: 
+      value: Une carte de garantie moteur
+  stats: 
+    totalValues: 72
+    matched: 1
+    unmatched: 71
+    matchRate: 1

@@ -1,0 +1,613 @@
+categories: 
+  -     id: 3dc2b969-fef9-42ad-bda5-ed596ee7d7c7
+    title: Références normatives et réglementation
+    items: 
+
+    subCategories: 
+
+    source: header
+    _colIndex: 1
+  -     id: 69dbfe02-21d2-4bf0-82db-83e1aded025f
+    title: Catégorie de conception
+    items: 
+
+    subCategories: 
+
+    source: header
+    _colIndex: 2
+  -     id: 2319151d-2796-4066-8b47-9661899d32e8
+    title: C
+    items: 
+
+    subCategories: 
+
+    source: header
+    _colIndex: 6
+  -     id: 3dc2b969-fef9-42ad-bda5-ed596ee7d7c7
+    title: Références normatives et réglementation
+    items: 
+
+    subCategories: 
+
+    source: header
+    _colIndex: 1
+  -     id: 69dbfe02-21d2-4bf0-82db-83e1aded025f
+    title: Catégorie de conception
+    items: 
+
+    subCategories: 
+
+    source: header
+    _colIndex: 2
+  -     id: 2319151d-2796-4066-8b47-9661899d32e8
+    title: C
+    items: 
+
+    subCategories: 
+
+    source: header
+    _colIndex: 6
+  -     id: 491a6763-de7a-4ceb-80ff-c214102a75c3
+    title: Capacité
+    items: 
+
+    subCategories: 
+
+    source: header
+    _colIndex: 1
+  -     id: 1148153a-be4f-4286-97fa-8dea71eae673
+    title: Nombre maximum de personnes
+    items: 
+
+    subCategories: 
+
+    source: header
+    _colIndex: 2
+  -     id: 26b2baca-17b1-4987-8557-7fe292c17117
+    title: 8 personnes
+    items: 
+
+    subCategories: 
+
+    source: header
+    _colIndex: 6
+  -     id: 491a6763-de7a-4ceb-80ff-c214102a75c3
+    title: Capacité
+    items: 
+
+    subCategories: 
+
+    source: header
+    _colIndex: 1
+  -     id: 1148153a-be4f-4286-97fa-8dea71eae673
+    title: Nombre maximum de personnes
+    items: 
+
+    subCategories: 
+
+    source: header
+    _colIndex: 2
+  -     id: 26b2baca-17b1-4987-8557-7fe292c17117
+    title: 8 personnes
+    items: 
+
+    subCategories: 
+
+    source: header
+    _colIndex: 6
+  -     id: b4a787c6-0972-4ac9-8732-cacdd7e9f502
+    title: Dimensions
+    items: 
+
+    subCategories: 
+
+    source: header
+    _colIndex: 1
+  -     id: 250eccc0-9b99-4098-9a6d-5a25c002fe0f
+    title: Longueur hors tout
+    items: 
+
+    subCategories: 
+
+    source: header
+    _colIndex: 2
+  -     id: 90707a9c-98c5-4a62-9992-5364a5ad326e
+    title: 6,39 mètres
+    items: 
+
+    subCategories: 
+
+    source: header
+    _colIndex: 6
+  -     id: b4a787c6-0972-4ac9-8732-cacdd7e9f502
+    title: Dimensions
+    items: 
+
+    subCategories: 
+
+    source: header
+    _colIndex: 1
+  -     id: 250eccc0-9b99-4098-9a6d-5a25c002fe0f
+    title: Longueur hors tout
+    items: 
+
+    subCategories: 
+
+    source: header
+    _colIndex: 2
+  -     id: 90707a9c-98c5-4a62-9992-5364a5ad326e
+    title: 6,39 mètres
+    items: 
+
+    subCategories: 
+
+    source: header
+    _colIndex: 6
+  -     id: 5719c5c4-5dde-40b2-8d76-f161efc67e15
+    title: Sécurité / carène / pont / divers
+    items: 
+
+    subCategories: 
+
+    source: header
+    _colIndex: 1
+  -     id: 8589c2f4-dd17-49ee-b275-d5f7025cf77a
+    title: Nombre de compartiments sur le flotteur principal
+    items: 
+
+    subCategories: 
+
+    source: header
+    _colIndex: 2
+  -     id: 56a31815-806c-4cea-b0f2-75e1ec08b949
+    title: 5
+    items: 
+
+    subCategories: 
+
+    source: header
+    _colIndex: 6
+  -     id: 5719c5c4-5dde-40b2-8d76-f161efc67e15
+    title: Sécurité / carène / pont / divers
+    items: 
+
+    subCategories: 
+
+    source: header
+    _colIndex: 1
+  -     id: 8589c2f4-dd17-49ee-b275-d5f7025cf77a
+    title: Nombre de compartiments sur le flotteur principal
+    items: 
+
+    subCategories: 
+
+    source: header
+    _colIndex: 2
+  -     id: 56a31815-806c-4cea-b0f2-75e1ec08b949
+    title: 5
+    items: 
+
+    subCategories: 
+
+    source: header
+    _colIndex: 6
+  -     id: 6e3479b9-96f5-4ff4-9dac-4f9c6b54aacf
+    title: Motorisation
+    items: 
+
+    subCategories: 
+
+    source: header
+    _colIndex: 1
+  -     id: 6b34a7b8-0af8-4c95-a3b4-39329e0a5686
+    title: Marque
+    items: 
+
+    subCategories: 
+
+    source: header
+    _colIndex: 2
+  -     id: b821c907-a1c4-4590-93ed-f1a371c5ec22
+    title: Suzuki
+    items: 
+
+    subCategories: 
+
+    source: header
+    _colIndex: 6
+  -     id: 6e3479b9-96f5-4ff4-9dac-4f9c6b54aacf
+    title: Motorisation
+    items: 
+
+    subCategories: 
+
+    source: header
+    _colIndex: 1
+  -     id: 6b34a7b8-0af8-4c95-a3b4-39329e0a5686
+    title: Marque
+    items: 
+
+    subCategories: 
+
+    source: header
+    _colIndex: 2
+  -     id: b821c907-a1c4-4590-93ed-f1a371c5ec22
+    title: Suzuki
+    items: 
+
+    subCategories: 
+
+    source: header
+    _colIndex: 6
+  -     id: e5fab06e-9916-4063-83df-37bdc6bdefb0
+    title: Console de pilotage et équipements de navigation (si équipée)
+    items: 
+
+    subCategories: 
+
+    source: header
+    _colIndex: 1
+  -     id: 1e423d1c-b2c0-4fcb-a4b1-fd869b32b167
+    title: Console C800
+    items: 
+
+    subCategories: 
+
+    source: header
+    _colIndex: 2
+  -     id: e5fab06e-9916-4063-83df-37bdc6bdefb0
+    title: Console de pilotage et équipements de navigation (si équipée)
+    items: 
+
+    subCategories: 
+
+    source: header
+    _colIndex: 1
+  -     id: 1e423d1c-b2c0-4fcb-a4b1-fd869b32b167
+    title: Console C800
+    items: 
+
+    subCategories: 
+
+    source: header
+    _colIndex: 2
+  -     id: ca125326-dc48-4d06-bceb-e64795dce349
+    title: Signalisation lumineuse et sonore
+    items: 
+
+    subCategories: 
+
+    source: header
+    _colIndex: 1
+  -     id: 6e741e46-6b4f-4e0d-9243-19865c236e56
+    title: Signalisation lumineuse
+    items: 
+
+    subCategories: 
+
+    source: header
+    _colIndex: 3
+  -     id: ca125326-dc48-4d06-bceb-e64795dce349
+    title: Signalisation lumineuse et sonore
+    items: 
+
+    subCategories: 
+
+    source: header
+    _colIndex: 1
+  -     id: 6e741e46-6b4f-4e0d-9243-19865c236e56
+    title: Signalisation lumineuse
+    items: 
+
+    subCategories: 
+
+    source: header
+    _colIndex: 3
+  -     id: d4d5ea6d-42f8-4ae4-a9dc-d23ab084fb64
+    title: Lot de bord
+    items: 
+
+    subCategories: 
+
+    source: header
+    _colIndex: 1
+  -     id: f8d33525-7756-44a2-8982-37672ac64662
+    title: Outillage de base
+    items: 
+
+    subCategories: 
+
+    source: header
+    _colIndex: 2
+  -     id: d4d5ea6d-42f8-4ae4-a9dc-d23ab084fb64
+    title: Lot de bord
+    items: 
+
+    subCategories: 
+
+    source: header
+    _colIndex: 1
+  -     id: f8d33525-7756-44a2-8982-37672ac64662
+    title: Outillage de base
+    items: 
+
+    subCategories: 
+
+    source: header
+    _colIndex: 2
+  -     id: 1a945be7-6a8b-4cb6-976b-8520e591c3db
+    title: Equipements de base
+    items: 
+
+    subCategories: 
+
+    source: header
+    _colIndex: 1
+  -     id: 497478aa-800c-4f71-9881-bd3bc1d24a17
+    title: EQUIPEMENT DE BASE
+    items: 
+
+    subCategories: 
+
+    source: header
+    _colIndex: 2
+  -     id: 1a945be7-6a8b-4cb6-976b-8520e591c3db
+    title: Equipements de base
+    items: 
+
+    subCategories: 
+
+    source: header
+    _colIndex: 1
+  -     id: 497478aa-800c-4f71-9881-bd3bc1d24a17
+    title: EQUIPEMENT DE BASE
+    items: 
+
+    subCategories: 
+
+    source: header
+    _colIndex: 2
+  -     id: 17bedc02-2f10-4bea-a48f-0a655e25f2ac
+    title: EQUIPEMENTS INTEGRES A LA CARENE
+    items: 
+
+    subCategories: 
+
+    source: column
+    _rowIndex: 100
+  -     id: fe054550-6aa0-4425-813a-2d83a82497ec
+    title: 1 nable avec clapet anti-retour
+    items: 
+
+    subCategories: 
+
+    source: column
+    _rowIndex: 101
+  -     id: 45205850-3d1d-4a40-bfc0-3d8175b65c5c
+    title: Anneaux d'étrave et de tableau arrière
+    items: 
+
+    subCategories: 
+
+    source: column
+    _rowIndex: 102
+  -     id: 20719ec2-6a19-48e9-9c55-728d95d44cda
+    title: Cadènes de hissage tableau arrière
+    items: 
+
+    subCategories: 
+
+    source: column
+    _rowIndex: 103
+  -     id: ade7a92a-6f8d-462c-9f44-2c09eab6dc0f
+    title: Caillebotis caoutchouc dans fond des coffres et pont
+    items: 
+
+    subCategories: 
+
+    source: column
+    _rowIndex: 104
+  -     id: 17bedc02-2f10-4bea-a48f-0a655e25f2ac
+    title: EQUIPEMENTS INTEGRES A LA CARENE
+    items: 
+
+    subCategories: 
+
+    source: column
+    _rowIndex: 100
+  -     id: fe054550-6aa0-4425-813a-2d83a82497ec
+    title: 1 nable avec clapet anti-retour
+    items: 
+
+    subCategories: 
+
+    source: column
+    _rowIndex: 101
+  -     id: 45205850-3d1d-4a40-bfc0-3d8175b65c5c
+    title: Anneaux d'étrave et de tableau arrière
+    items: 
+
+    subCategories: 
+
+    source: column
+    _rowIndex: 102
+  -     id: 20719ec2-6a19-48e9-9c55-728d95d44cda
+    title: Cadènes de hissage tableau arrière
+    items: 
+
+    subCategories: 
+
+    source: column
+    _rowIndex: 103
+  -     id: ade7a92a-6f8d-462c-9f44-2c09eab6dc0f
+    title: Caillebotis caoutchouc dans fond des coffres et pont
+    items: 
+
+    subCategories: 
+
+    source: column
+    _rowIndex: 104
+  -     id: 29fba9a6-5d52-4dcd-a07d-2f10a2f96e0c
+    title: Valves de gonflage et de surpression
+    items: 
+
+    subCategories: 
+
+    source: column
+    _rowIndex: 107
+  -     id: b69481d3-d694-435f-9262-610b6c503456
+    title: Guide de mouillage caoutchouc
+    items: 
+
+    subCategories: 
+
+    source: column
+    _rowIndex: 108
+  -     id: a26f2c0f-8b35-4c02-aee5-3e7ec5a267dc
+    title: Saisine intérieure et extérieure
+    items: 
+
+    subCategories: 
+
+    source: column
+    _rowIndex: 109
+  -     id: 0adf8e41-aabf-4c1f-871a-e6f7f40822e1
+    title: PPA Lock, antiragage profil D
+    items: 
+
+    subCategories: 
+
+    source: column
+    _rowIndex: 110
+  -     id: 0ef2b720-4a6d-438f-8d18-8143e251b6f8
+    title: Supports pagaies à l'arrière
+    items: 
+
+    subCategories: 
+
+    source: column
+    _rowIndex: 111
+  -     id: 05bdad7f-0a05-4f52-b331-85da2e12352e
+    title: Logos
+    items: 
+
+    subCategories: 
+
+    source: column
+    _rowIndex: 112
+  -     id: 29fba9a6-5d52-4dcd-a07d-2f10a2f96e0c
+    title: Valves de gonflage et de surpression
+    items: 
+
+    subCategories: 
+
+    source: column
+    _rowIndex: 107
+  -     id: b69481d3-d694-435f-9262-610b6c503456
+    title: Guide de mouillage caoutchouc
+    items: 
+
+    subCategories: 
+
+    source: column
+    _rowIndex: 108
+  -     id: a26f2c0f-8b35-4c02-aee5-3e7ec5a267dc
+    title: Saisine intérieure et extérieure
+    items: 
+
+    subCategories: 
+
+    source: column
+    _rowIndex: 109
+  -     id: 0adf8e41-aabf-4c1f-871a-e6f7f40822e1
+    title: PPA Lock, antiragage profil D
+    items: 
+
+    subCategories: 
+
+    source: column
+    _rowIndex: 110
+  -     id: 0ef2b720-4a6d-438f-8d18-8143e251b6f8
+    title: Supports pagaies à l'arrière
+    items: 
+
+    subCategories: 
+
+    source: column
+    _rowIndex: 111
+  -     id: 05bdad7f-0a05-4f52-b331-85da2e12352e
+    title: Logos
+    items: 
+
+    subCategories: 
+
+    source: column
+    _rowIndex: 112
+  -     id: a1d0b922-87ca-4182-80c6-98513c9a4fdd
+    title: Documentation
+    items: 
+
+    subCategories: 
+
+    source: header
+    _colIndex: 1
+  -     id: 431e77dc-b7e4-4c6c-bb1d-724e94ffdf77
+    title: A la livraison
+    items: 
+
+    subCategories: 
+
+    source: header
+    _colIndex: 2
+  -     id: a1d0b922-87ca-4182-80c6-98513c9a4fdd
+    title: Documentation
+    items: 
+
+    subCategories: 
+
+    source: header
+    _colIndex: 1
+  -     id: 431e77dc-b7e4-4c6c-bb1d-724e94ffdf77
+    title: A la livraison
+    items: 
+
+    subCategories: 
+
+    source: header
+    _colIndex: 2
+  -     id: e1f4b29d-4947-49cd-a9cc-d47bcfc0b66a
+    title: GARANTIES CONTRACTUELLES
+    items: 
+
+    subCategories: 
+
+    source: column
+    _rowIndex: 125
+  -     id: e1f4b29d-4947-49cd-a9cc-d47bcfc0b66a
+    title: GARANTIES CONTRACTUELLES
+    items: 
+
+    subCategories: 
+
+    source: column
+    _rowIndex: 125
+  -     id: 182e1810-9c0b-4e03-a88f-fd83361dc35b
+    title: DELAI DE LIVRAISON
+    items: 
+
+    subCategories: 
+
+    source: column
+    _rowIndex: 142
+  -     id: 182e1810-9c0b-4e03-a88f-fd83361dc35b
+    title: DELAI DE LIVRAISON
+    items: 
+
+    subCategories: 
+
+    source: column
+    _rowIndex: 142
+stats: 
+  totalCategories: 76
+  totalItems: 0
+  totalSubCategories: 0
