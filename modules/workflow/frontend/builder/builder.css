@@ -1,0 +1,314 @@
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-primary);
+  background: var(--color-light);
+  color: var(--color-dark);
+}
+
+.builder-app {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
+  padding: var(--spacing-md);
+}
+
+.builder-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--spacing-md);
+  background: var(--color-white);
+  border: 1px solid var(--color-light);
+  border-radius: var(--border-radius-lg);
+  padding: var(--spacing-sm) var(--spacing-md);
+  box-shadow: var(--shadow-sm);
+}
+
+.builder-title h1 {
+  margin: 0;
+  font-size: var(--font-size-h3);
+}
+
+.builder-subtitle {
+  display: block;
+  font-size: var(--font-size-small);
+  color: var(--color-gray);
+  margin-top: 4px;
+}
+
+.builder-actions {
+  display: flex;
+  gap: var(--spacing-sm);
+  align-items: center;
+}
+
+.builder-tabs {
+  display: flex;
+  gap: var(--spacing-sm);
+}
+
+.builder-tab {
+  background: var(--color-white);
+  border: 1px solid var(--color-light);
+  color: var(--color-dark);
+  padding: 8px 16px;
+  border-radius: var(--border-radius-md);
+  cursor: pointer;
+  transition: var(--transition-fast);
+}
+
+.builder-tab.active {
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+}
+
+.builder-panel {
+  display: none;
+  flex-direction: column;
+  gap: var(--spacing-md);
+}
+
+.builder-panel.active {
+  display: flex;
+}
+
+.primary {
+  background: var(--color-primary);
+  border: 1px solid var(--color-primary);
+  color: var(--color-black);
+  padding: 8px 16px;
+  border-radius: var(--border-radius-md);
+  cursor: pointer;
+  transition: var(--transition-fast);
+}
+
+.primary:hover {
+  background: var(--color-primary-dark);
+}
+
+.ghost {
+  background: var(--color-white);
+  border: 1px solid var(--color-light);
+  color: var(--color-dark);
+  padding: 8px 16px;
+  border-radius: var(--border-radius-md);
+  cursor: pointer;
+  transition: var(--transition-fast);
+}
+
+.ghost:hover {
+  border-color: var(--color-primary);
+}
+
+.file-button {
+  position: relative;
+  overflow: hidden;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+}
+
+.file-button input[type="file"] {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.workflow-canvas-toolbar {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.workflow-viewport {
+  background: var(--color-white);
+  border: 1px solid var(--color-light);
+  border-radius: var(--border-radius-lg);
+  min-height: 420px;
+  overflow: auto;
+  box-shadow: var(--shadow-sm);
+}
+
+.workflow-canvas {
+  position: relative;
+  min-height: 600px;
+  min-width: 900px;
+  transform-origin: 0 0;
+}
+
+.workflow-canvas.zoomed {
+  transition: transform var(--transition-fast);
+}
+
+.workflow-block {
+  position: absolute;
+  width: 160px;
+  min-height: 64px;
+  background: var(--color-white);
+  border: 1px solid var(--color-light);
+  border-radius: var(--border-radius-md);
+  padding: 10px 12px;
+  cursor: grab;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  color: var(--color-dark);
+  box-shadow: var(--shadow-sm);
+  user-select: none;
+}
+
+.workflow-block.selected {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 2px rgba(158, 219, 235, 0.4);
+}
+
+.workflow-preview {
+  background: var(--color-white);
+  border: 1px solid var(--color-light);
+  border-radius: var(--border-radius-lg);
+  padding: var(--spacing-md);
+  box-shadow: var(--shadow-sm);
+}
+
+.workflow-preview h2 {
+  margin: 0 0 var(--spacing-sm);
+  font-size: var(--font-size-h4);
+}
+
+.preview-body {
+  display: grid;
+  gap: var(--spacing-sm);
+}
+
+.preview-card {
+  background: var(--color-primary-light);
+  border: 1px solid var(--color-primary);
+  border-radius: var(--border-radius-md);
+  padding: var(--spacing-sm);
+  display: grid;
+  gap: 6px;
+}
+
+.preview-card img {
+  max-width: 100%;
+  border-radius: var(--border-radius-md);
+}
+
+.editor-layout {
+  display: grid;
+  grid-template-columns: 260px 1fr;
+  gap: var(--spacing-md);
+}
+
+.editor-tree,
+.editor-content {
+  background: var(--color-white);
+  border: 1px solid var(--color-light);
+  border-radius: var(--border-radius-lg);
+  padding: var(--spacing-md);
+  box-shadow: var(--shadow-sm);
+}
+
+.panel-title {
+  font-weight: 600;
+  margin-bottom: var(--spacing-sm);
+}
+
+.tree-list {
+  display: grid;
+  gap: 6px;
+}
+
+.tree-item {
+  padding: 6px 8px;
+  border-radius: var(--border-radius-sm);
+  cursor: pointer;
+  border: 1px solid transparent;
+}
+
+.tree-item:hover {
+  border-color: var(--color-primary-light);
+}
+
+.tree-item.selected {
+  border-color: var(--color-primary);
+  background: var(--color-primary-light);
+}
+
+.editor-body {
+  display: grid;
+  gap: var(--spacing-md);
+}
+
+.editor-section {
+  background: var(--color-light);
+  border: 1px solid var(--color-primary-light);
+  border-radius: var(--border-radius-md);
+  padding: var(--spacing-sm);
+  display: grid;
+  gap: var(--spacing-sm);
+}
+
+.editor-row {
+  display: grid;
+  gap: 6px;
+}
+
+.editor-row label {
+  font-size: var(--font-size-small);
+  color: var(--color-gray);
+}
+
+.editor-row input,
+.editor-row textarea,
+.editor-row select {
+  background: var(--color-white);
+  border: 1px solid var(--color-light);
+  color: var(--color-dark);
+  border-radius: var(--border-radius-sm);
+  padding: 6px 10px;
+}
+
+.editor-items {
+  display: grid;
+  gap: var(--spacing-xs);
+}
+
+.editor-item {
+  display: grid;
+  gap: 6px;
+  border: 1px solid var(--color-light);
+  border-radius: var(--border-radius-sm);
+  padding: var(--spacing-xs);
+  background: var(--color-white);
+}
+
+.editor-item-actions {
+  display: flex;
+  gap: var(--spacing-xs);
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: var(--border-radius-full);
+  background: var(--color-secondary-light);
+  color: var(--color-dark);
+  font-size: 12px;
+}
+
+@media (max-width: 1000px) {
+  .editor-layout {
+    grid-template-columns: 1fr;
+  }
+  .builder-toolbar {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}

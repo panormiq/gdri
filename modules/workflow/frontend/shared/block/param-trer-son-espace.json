@@ -1,0 +1,24 @@
+{
+    "version": 1,
+    "id": "param-trer-son-espace",
+    "name": "Paramétrer son espace",
+    "shape": {
+        "type": "rect",
+        "text": "Paramétrage de son espace",
+        "width": 160,
+        "height": 70,
+        "fontSize": 14,
+        "fontFamily": "Segoe UI",
+        "textColor": "#ffffff",
+        "bgColor": "#0e9cef",
+        "opacity": 1,
+        "imageData": null
+    },
+    "workflow": null,
+    "tutorial": {
+        "title": "Paramétrer son espace",
+        "intro": "",
+        "steps": [],
+        "conditions": []
+    }
+}

@@ -1,0 +1,39 @@
+{
+    "workflows": [
+        {
+            "id": "cr-e-un-questionnaire",
+            "name": "cr-e-un-questionnaire",
+            "file": "workflows/cr-e-un-questionnaire.json"
+        },
+        {
+            "id": "guide-initial",
+            "name": "guide-initial",
+            "file": "workflows/guide-initial.json"
+        },
+        {
+            "id": "l-agenda",
+            "name": "l-agenda",
+            "file": "workflows/l-agenda.json"
+        },
+        {
+            "id": "les-protocoles",
+            "name": "les-protocoles",
+            "file": "workflows/les-protocoles.json"
+        },
+        {
+            "id": "test-sous-workflow",
+            "name": "test-sous-workflow",
+            "file": "workflows/test-sous-workflow.json"
+        },
+        {
+            "id": "test-workflow",
+            "name": "test-workflow",
+            "file": "workflows/test-workflow.json"
+        },
+        {
+            "id": "workflow(2)",
+            "name": "workflow(2)",
+            "file": "workflows/workflow(2).json"
+        }
+    ]
+}

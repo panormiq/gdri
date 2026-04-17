@@ -26,14 +26,14 @@ export default class LeftPanel {
 
   render(container) {
     this.container = container;
-    this.container.className = 'left-panel';
+    this.container.classList.add('left-panel');
     
     this.container.innerHTML = '';
 
     // Bouton pour réduire/agrandir
     const toggleBtn = document.createElement('button');
     toggleBtn.className = 'left-panel-toggle';
-    toggleBtn.textContent = this.collapsed ? '▶' : '◀';
+    toggleBtn.setAttribute('data-collapsed', this.collapsed ? 'true' : 'false');
     toggleBtn.onclick = () => this.toggleCollapse();
     this.container.appendChild(toggleBtn);
 

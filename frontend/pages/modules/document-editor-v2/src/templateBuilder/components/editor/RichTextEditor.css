@@ -86,6 +86,13 @@
   height: auto;
 }
 
+/* Images wrapper (éditeur) */
+.image-container-wrapper {
+  margin: var(--spacing-sm) 0;
+  margin-bottom: 0.84cm;
+  text-align: center;
+}
+
 .template-variable {
   display: inline-block;
   user-select: none;

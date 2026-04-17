@@ -1,0 +1,11 @@
+{
+  "name": "chat",
+  "displayName": "Chat IA",
+  "version": "1.0.0",
+  "description": "Module chat IA avec droits multi-niveaux et mémoire de conversation",
+  "author": "GDR-Innovation",
+  "routes": ["/api/chat"],
+  "dependencies": [],
+  "requiredServices": ["ia"],
+  "compatibleVersion": ">=1.0.0"
+}

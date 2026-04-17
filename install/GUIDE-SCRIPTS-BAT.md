@@ -2,6 +2,8 @@
 
 ## 📁 Scripts disponibles
 
+Emplacement : `C:\xampp\htdocs\gdri\install\demarrage`
+
 ### Scripts individuels
 
 1. **`start-gdri-backend.bat`**
@@ -35,14 +37,14 @@ Double-cliquez simplement sur le script .bat souhaité dans l'explorateur Window
 ### Méthode 2 : Ligne de commande
 
 ```cmd
-cd C:\xampp\htdocs\gdri\install
+cd C:\xampp\htdocs\gdri\install\demarrage
 start-gdri-backend.bat
 ```
 
 ### Méthode 3 : Démarrer tous les services
 
 ```cmd
-cd C:\xampp\htdocs\gdri\install
+cd C:\xampp\htdocs\gdri\install\demarrage
 start-all-backends.bat
 ```
 

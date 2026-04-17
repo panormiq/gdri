@@ -6,7 +6,8 @@
 const express = require('express');
 const router = express.Router();
 const database = require('../config/database');
-const mailModule = require('../modules/mail/index');
+const path = require('path');
+const mailModule = require(path.join(__dirname, '../../modules/mail/backend'));
 const mail = mailModule.getMailService();
 
 /**

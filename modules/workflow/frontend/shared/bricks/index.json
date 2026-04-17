@@ -1,0 +1,29 @@
+{
+  "blocks": [
+    {
+      "id": "besoin-info",
+      "name": "Besoin d'Information Complementaire?",
+      "file": "./bricks/besoin-info/brick.json"
+    },
+    {
+      "id": "dossier-administratif",
+      "name": "Dossier Administratif",
+      "file": "./bricks/dossier-administratif/brick.json"
+    },
+    {
+      "id": "dossier-medical",
+      "name": "Dossier Medical",
+      "file": "./bricks/dossier-medical/brick.json"
+    },
+    {
+      "id": "questionnaire-admission",
+      "name": "Questionnaire d'Admission QMBI",
+      "file": "./bricks/questionnaire-admission/brick.json"
+    },
+    {
+      "id": "validation-candidature",
+      "name": "Validation de Candidature",
+      "file": "./bricks/validation-candidature/brick.json"
+    }
+  ]
+}

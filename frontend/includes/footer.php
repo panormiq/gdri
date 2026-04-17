@@ -61,6 +61,28 @@
     <?php endforeach; ?>
 <?php endif; ?>
 
+<?php if (function_exists('isLoggedIn') && isLoggedIn()): ?>
+<script>
+(function() {
+    const endpoint = <?php echo json_encode(url('auth/user-activity.php')); ?>;
+    const payload = {
+        eventType: 'page_view',
+        page: <?php echo json_encode($page_title ?? null, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>,
+        url: window.location.pathname,
+        referrer: document.referrer || null
+    };
+    fetch(endpoint, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+    }).catch(() => {
+        // Tracking silencieux
+    });
+})();
+</script>
+<?php endif; ?>
+
 </body>
 </html>
 

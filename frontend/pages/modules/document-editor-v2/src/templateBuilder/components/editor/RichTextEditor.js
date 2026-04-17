@@ -22,7 +22,7 @@ export default class RichTextEditor {
 
   render(container) {
     this.container = container;
-    this.container.className = 'rich-text-editor-container';
+    this.container.classList.add('rich-text-editor-container');
     this.container.innerHTML = '';
 
     // Wrapper de page (pour centrer et styliser)

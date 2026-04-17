@@ -43,9 +43,9 @@ $criticalFiles = @(
     "frontend/includes/header.php",
     "frontend/includes/footer.php",
     "backend/server.js",
-    "backend/modules/analyse-intention/routes.js",
-    "backend/modules/analyse-intention/services/IntentionService.js",
-    "backend/modules/analyse-intention/services/AIService.js"
+    "modules/analyse-intention/backend/routes.js",
+    "modules/analyse-intention/backend/services/IntentionService.js",
+    "modules/ia/backend/services/IAClient.js"
 )
 
 foreach ($file in $criticalFiles) {
@@ -81,8 +81,8 @@ foreach ($file in $phpFiles) {
 Write-Host ""
 Write-Host "5️⃣ Vérification modules Node.js..." -ForegroundColor Yellow
 $nodeFiles = @(
-    "backend/modules/analyse-intention/routes.js",
-    "backend/modules/analyse-intention/services/IntentionService.js"
+    "modules/analyse-intention/backend/routes.js",
+    "modules/analyse-intention/backend/services/IntentionService.js"
 )
 
 foreach ($file in $nodeFiles) {

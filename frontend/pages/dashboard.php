@@ -21,6 +21,87 @@ $userRole = getUserRole();
 
 require_once '../includes/header.php';
 
+// Charger les modules autorisés pour l'entreprise active
+$authorizedServices = [];
+if ($userRole !== 'ADMIN_GDRI') {
+    try {
+        $token = getJWTToken();
+        $apiBase = rtrim(getApiBaseUrl(), '/');
+        if ($token && $apiBase) {
+            $ch = curl_init($apiBase . '/users/me/services-context');
+            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+            curl_setopt($ch, CURLOPT_HTTPHEADER, [
+                'Authorization: Bearer ' . $token,
+                'Content-Type: application/json'
+            ]);
+            curl_setopt($ch, CURLOPT_TIMEOUT, 20);
+            $raw = curl_exec($ch);
+            $err = curl_error($ch);
+            $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            curl_close($ch);
+            if (!$err && $code >= 200 && $code < 300) {
+                $decoded = json_decode((string)$raw, true);
+                $authorizedServices = is_array($decoded['data']['services'] ?? null) ? $decoded['data']['services'] : [];
+            }
+        }
+    } catch (Exception $e) {
+        $authorizedServices = [];
+    }
+}
+
+function renderModuleLinks($service, $userRole) {
+    $name = strtolower(trim($service['name'] ?? ''));
+
+    if (strpos($name, 'mail') !== false) {
+        return '<div style="display:flex; gap: var(--spacing-sm); flex-wrap: wrap; margin-top: var(--spacing-md);">
+            <a class="btn btn-primary" href="' . url('pages/modules/mail-config.php') . '">⚙️ Configuration</a>
+            <a class="btn btn-outline" href="' . url('pages/modules/mail-test.php') . '">🧪 Test</a>
+        </div>';
+    }
+
+    if (strpos($name, 'workflow') !== false) {
+        return '<div style="display:flex; gap: var(--spacing-sm); flex-wrap: wrap; margin-top: var(--spacing-md);">
+            <a class="btn btn-primary" href="/modules/workflow/frontend/viewer/index.html">👁️ Viewer</a>
+            <a class="btn btn-outline" href="/modules/workflow/frontend/builder/index.html">🛠️ Builder</a>
+        </div>';
+    }
+
+    if (strpos($name, 'facebook') !== false) {
+        return '<div style="margin-top: var(--spacing-md);">
+            <a class="btn btn-primary" href="' . url('pages/modules/analyse-intention-config.php') . '">⚙️ Configurer</a>
+        </div>';
+    }
+
+    if (strpos($name, 'ugap') !== false) {
+        $adminLink = '';
+        if ($userRole === 'ADMIN_GDRI' || $userRole === 'ADMIN_ENTITY') {
+            $adminLink = '<a class="btn btn-outline" href="/modules/ugap/frontend/admin.html">🔎 Admin Extraction</a>';
+        }
+        return '<div style="display:flex; gap: var(--spacing-sm); flex-wrap: wrap; margin-top: var(--spacing-md);">
+            <a class="btn btn-primary" href="/modules/ugap/frontend/index.html">🚀 Configurer</a>
+            ' . $adminLink . '
+        </div>';
+    }
+
+    if (strpos($name, 'chat') !== false) {
+        return '<div style="margin-top: var(--spacing-md);">
+            <a class="btn btn-primary" href="' . url('pages/modules/chat.php') . '">💬 Discuter</a>
+        </div>';
+    }
+
+    if (strpos($name, 'document') !== false) {
+        return '<div style="display:flex; gap: var(--spacing-sm); flex-wrap: wrap; margin-top: var(--spacing-md);">
+            <a class="btn btn-outline" href="' . url('pages/modules/document-agent/index.php') . '">📄 V1 (Ancien)</a>
+            <a class="btn btn-outline" href="https://www.gdri.fr/doc-template/" target="_blank">🚀 V2 (Externe)</a>
+            <a class="btn btn-primary" href="' . url('pages/modules/doc-template-v3/index.php') . '">✨ V3 (Intégré)</a>
+        </div>';
+    }
+
+    return '<div style="margin-top: var(--spacing-md);">
+        <a class="btn btn-primary" href="' . url('pages/modules.php') . '">Accéder</a>
+    </div>';
+}
+
 // Token JWT pour les appels API
 $jwt_token = getJWTToken();
 $api_base_url = getApiBaseUrl();
@@ -68,9 +149,9 @@ $api_base_url = getApiBaseUrl();
                     <p class="card-description">
                         Gérer les entreprises et entités inscrites sur la plateforme
                     </p>
-                    <button class="btn btn-primary" style="margin-top: var(--spacing-md);">
+                    <a class="btn btn-primary" style="margin-top: var(--spacing-md);" href="<?php echo url('pages/entities.php'); ?>">
                         Gérer les entités
-                    </button>
+                    </a>
                 </div>
                 
                 <div class="card">
@@ -79,9 +160,9 @@ $api_base_url = getApiBaseUrl();
                     <p class="card-description">
                         Configurer les services disponibles et leurs autorisations
                     </p>
-                    <button class="btn btn-primary" style="margin-top: var(--spacing-md);">
-                        Gérer les services
-                    </button>
+                    <a class="btn btn-primary" style="margin-top: var(--spacing-md);" href="<?php echo url('pages/entities.php'); ?>">
+                        Gérer les droits modules
+                    </a>
                 </div>
                 
                 <div class="card">
@@ -90,9 +171,9 @@ $api_base_url = getApiBaseUrl();
                     <p class="card-description">
                         Voir tous les utilisateurs de la plateforme
                     </p>
-                    <button class="btn btn-primary" style="margin-top: var(--spacing-md);">
+                    <a class="btn btn-primary" style="margin-top: var(--spacing-md);" href="<?php echo url('pages/entities.php'); ?>">
                         Voir les utilisateurs
-                    </button>
+                    </a>
                 </div>
             </div>
             
@@ -109,9 +190,9 @@ $api_base_url = getApiBaseUrl();
                     <p class="card-description">
                         Gérer les utilisateurs de votre entité
                     </p>
-                    <button class="btn btn-primary" style="margin-top: var(--spacing-md);">
+                    <a class="btn btn-primary" style="margin-top: var(--spacing-md);" href="<?php echo url('pages/users.php'); ?>">
                         Gérer les utilisateurs
-                    </button>
+                    </a>
                 </div>
                 
                 <div class="card">
@@ -120,9 +201,9 @@ $api_base_url = getApiBaseUrl();
                     <p class="card-description">
                         Voir les services disponibles pour votre entité
                     </p>
-                    <button class="btn btn-primary" style="margin-top: var(--spacing-md);">
+                    <a class="btn btn-primary" style="margin-top: var(--spacing-md);" href="<?php echo url('pages/modules.php'); ?>">
                         Voir les services
-                    </button>
+                    </a>
                 </div>
                 
                 <div class="card">
@@ -136,6 +217,33 @@ $api_base_url = getApiBaseUrl();
                     </button>
                 </div>
             </div>
+
+            <div class="section-title" style="margin-top: var(--spacing-xxl);">
+                <h2>Modules autorisés</h2>
+            </div>
+
+            <div class="cards-grid">
+                <?php if (empty($authorizedServices)): ?>
+                    <div class="card">
+                        <div class="card-icon">🧩</div>
+                        <h3 class="card-title">Aucun module autorisé</h3>
+                        <p class="card-description">
+                            Contactez l'administrateur GDRI pour activer des modules.
+                        </p>
+                    </div>
+                <?php else: ?>
+                    <?php foreach ($authorizedServices as $service): ?>
+                        <div class="card">
+                            <div class="card-icon"><?php echo escape($service['icon'] ?? '🧩'); ?></div>
+                            <h3 class="card-title"><?php echo escape($service['name'] ?? 'Module'); ?></h3>
+                            <p class="card-description">
+                                <?php echo escape($service['description'] ?? ''); ?>
+                            </p>
+                            <?php echo renderModuleLinks($service, $userRole); ?>
+                        </div>
+                    <?php endforeach; ?>
+                <?php endif; ?>
+            </div>
             
         <?php else: ?>
             <!-- Dashboard Utilisateur -->
@@ -144,49 +252,26 @@ $api_base_url = getApiBaseUrl();
             </div>
             
             <div class="cards-grid">
-                <div class="card">
-                    <div class="card-icon">🎯</div>
-                    <h3 class="card-title">Agent Analyse d'intention</h3>
-                    <p class="card-description">
-                        Accéder à l'agent d'analyse d'intention
-                    </p>
-                    <button class="btn btn-primary" style="margin-top: var(--spacing-md);">
-                        Accéder
-                    </button>
-                </div>
-                
-                <div class="card">
-                    <div class="card-icon">✉️</div>
-                    <h3 class="card-title">Agent Mail</h3>
-                    <p class="card-description">
-                        Accéder à l'agent de gestion des emails
-                    </p>
-                    <button class="btn btn-primary" style="margin-top: var(--spacing-md);">
-                        Accéder
-                    </button>
-                </div>
-                
-                <div class="card">
-                    <div class="card-icon">📄</div>
-                    <h3 class="card-title">Agent Documentaire</h3>
-                    <p class="card-description">
-                        Accéder à l'agent documentaire
-                    </p>
-                    <button class="btn btn-primary" style="margin-top: var(--spacing-md);">
-                        Accéder
-                    </button>
-                </div>
-                
-                <div class="card">
-                    <div class="card-icon">📱</div>
-                    <h3 class="card-title">Agent Facebook</h3>
-                    <p class="card-description">
-                        Accéder à l'agent Facebook
-                    </p>
-                    <button class="btn btn-primary" style="margin-top: var(--spacing-md);">
-                        Accéder
-                    </button>
-                </div>
+                <?php if (empty($authorizedServices)): ?>
+                    <div class="card">
+                        <div class="card-icon">🧩</div>
+                        <h3 class="card-title">Aucun module autorisé</h3>
+                        <p class="card-description">
+                            Contactez votre administrateur pour activer des modules.
+                        </p>
+                    </div>
+                <?php else: ?>
+                    <?php foreach ($authorizedServices as $service): ?>
+                        <div class="card">
+                            <div class="card-icon"><?php echo escape($service['icon'] ?? '🧩'); ?></div>
+                            <h3 class="card-title"><?php echo escape($service['name'] ?? 'Module'); ?></h3>
+                            <p class="card-description">
+                                <?php echo escape($service['description'] ?? ''); ?>
+                            </p>
+                            <?php echo renderModuleLinks($service, $userRole); ?>
+                        </div>
+                    <?php endforeach; ?>
+                <?php endif; ?>
             </div>
         <?php endif; ?>
         

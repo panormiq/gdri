@@ -11,7 +11,7 @@
     --color-light: #e4e4e4;        /* Gris clair */
     
     /* Variations de couleurs */
-    --color-primary-dark: #7bc4d6;
+    --color-primary-dark: #5ba3b8;
     --color-primary-light: #c5eaf3;
     --color-secondary-dark: #a0c91d;
     --color-secondary-light: #d4f06b;
@@ -63,7 +63,7 @@
     
     /* Layout */
     --max-width: 1200px;
-    --header-height: 80px;
+    --header-height: 120px;
     --footer-height: 40px;
 }
 

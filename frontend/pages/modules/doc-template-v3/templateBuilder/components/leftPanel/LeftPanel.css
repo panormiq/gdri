@@ -21,6 +21,21 @@
   margin: var(--spacing-xs);
   align-self: flex-start;
   transition: background var(--transition-fast);
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  font-weight: 700;
+}
+
+.left-panel-toggle::before {
+  content: '<';
+}
+
+.left-panel-toggle[data-collapsed="true"]::before {
+  content: '>';
 }
 
 .left-panel-toggle:hover {

@@ -5,7 +5,7 @@ import LeftPanel from '../templateBuilder/components/leftPanel/LeftPanel.js';
 import FormatTab from '../templateBuilder/components/rightPanel/FormatTab.js';
 import SectionTab from '../templateBuilder/components/rightPanel/SectionTab.js';
 import LayoutTab from '../templateBuilder/components/rightPanel/LayoutTab.js';
-import { buildHierarchy } from '../templateBuilder/utils/sectionHierarchy.js';
+import { buildHierarchy, flattenSections } from '../templateBuilder/utils/sectionHierarchy.js';
 import { documentApi } from '../shared/api/DocumentApi.js';
 
 // Charger le CSS
@@ -90,6 +90,7 @@ export default class DocumentEditorPage extends Page {
     this.initComponents();
   }
 
+
   initComponents() {
     // Créer un template minimal pour l'éditeur (il a besoin d'une structure)
     const templateForEditor = {
@@ -135,8 +136,8 @@ export default class DocumentEditorPage extends Page {
             this.editor.scrollToSection(sectionId);
           }
         },
-        onSectionReorder: () => {
-          // Pas de réordonnancement en mode document
+        onSectionReorder: (hierarchy) => {
+          this.reorderContentToMatchTOC(hierarchy);
         }
       });
       this.leftPanel.render(leftColumn);
@@ -174,9 +175,20 @@ export default class DocumentEditorPage extends Page {
       setTimeout(() => {
         if (this.editor && this.editor.editorElement) {
           console.log('📝 Chargement du contenu du document dans l\'éditeur');
-          // Si le document a du contenu, le charger directement
+          // Si le document a du contenu, le charger via setContent pour restaurer images/variables
           if (this.document.content && this.document.content.trim()) {
-            this.editor.editorElement.innerHTML = this.document.content;
+            if (this.editor.setContent) {
+              this.editor.setContent(this.document.content);
+            } else {
+              this.editor.editorElement.innerHTML = this.document.content;
+            }
+            // Réappliquer le format/mise en page après injection du contenu
+            if (this.editor.applyPageFormat) {
+              this.editor.applyPageFormat();
+            }
+            if (this.editor.applyLayoutStyles) {
+              this.editor.applyLayoutStyles();
+            }
             console.log('✅ Contenu chargé:', this.document.content.substring(0, 100));
             
             // Mettre à jour le TOC après chargement (avec un délai supplémentaire pour que le DOM soit prêt)
@@ -202,6 +214,66 @@ export default class DocumentEditorPage extends Page {
     this.initRightPanel(rightColumn);
   }
 
+  reorderContentToMatchTOC(hierarchy) {
+    if (!this.editor || !this.editor.editorElement) return;
+    if (!hierarchy || !Array.isArray(hierarchy)) return;
+
+    const editorElement = this.editor.editorElement;
+    const headingSelector = 'h1[data-section-id], h2[data-section-id], h3[data-section-id], ' +
+      '.doc-title-level-1[data-section-id], .doc-title-level-2[data-section-id], .doc-title-level-3[data-section-id]';
+
+    const isHeadingNode = node => {
+      if (!node || node.nodeType !== Node.ELEMENT_NODE) return false;
+      return node.matches(headingSelector);
+    };
+
+    const prefaceNodes = [];
+    const blocks = new Map();
+    let currentSectionId = null;
+
+    Array.from(editorElement.childNodes).forEach(node => {
+      if (isHeadingNode(node)) {
+        currentSectionId = node.dataset.sectionId;
+        if (!blocks.has(currentSectionId)) {
+          blocks.set(currentSectionId, []);
+        }
+        blocks.get(currentSectionId).push(node);
+        return;
+      }
+
+      if (currentSectionId) {
+        blocks.get(currentSectionId).push(node);
+      } else {
+        prefaceNodes.push(node);
+      }
+    });
+
+    const flatSections = flattenSections(hierarchy);
+    const orderedSectionIds = flatSections.map(({ section }) => section.id);
+
+    const fragment = document.createDocumentFragment();
+    prefaceNodes.forEach(node => fragment.appendChild(node));
+
+    orderedSectionIds.forEach(sectionId => {
+      const block = blocks.get(sectionId);
+      if (block && block.length) {
+        block.forEach(node => fragment.appendChild(node));
+      }
+    });
+
+    // Ajouter les sections restantes (non présentes dans la hiérarchie)
+    blocks.forEach((block, sectionId) => {
+      if (orderedSectionIds.includes(sectionId)) return;
+      block.forEach(node => fragment.appendChild(node));
+    });
+
+    editorElement.innerHTML = '';
+    editorElement.appendChild(fragment);
+
+    // Rafraîchir le TOC après réordonnancement
+    this.updateTOC();
+  }
+
   updateTOC() {
     // Extraire la structure depuis le HTML de l'éditeur pour mettre à jour le TOC
     if (!this.editor || !this.editor.editorElement || !this.leftPanel) {
@@ -213,14 +285,25 @@ export default class DocumentEditorPage extends Page {
       return;
     }
     
-    // Extraire les sections depuis le HTML
-    const headings = this.editor.editorElement.querySelectorAll('h1, h2, h3');
+    // Extraire les sections depuis le HTML (support h1/h2/h3 + titres custom)
+    const headings = this.editor.editorElement.querySelectorAll(
+      'h1, h2, h3, .doc-title-level-1, .doc-title-level-2, .doc-title-level-3'
+    );
     console.log('🔍 updateTOC: headings trouvés', headings.length);
     
     const flatSections = [];
     
     headings.forEach((heading, index) => {
-      const level = parseInt(heading.tagName.charAt(1));
+      let level = 1;
+      if (heading.classList.contains('doc-title-level-1')) {
+        level = 1;
+      } else if (heading.classList.contains('doc-title-level-2')) {
+        level = 2;
+      } else if (heading.classList.contains('doc-title-level-3')) {
+        level = 3;
+      } else if (heading.tagName && heading.tagName.toLowerCase().startsWith('h')) {
+        level = parseInt(heading.tagName.charAt(1));
+      }
       // Extraire le titre (sans la numérotation si elle existe)
       let titleText = heading.textContent.trim();
       // Retirer la numérotation hiérarchique au début (format: "1.1. ", "1.2. ", etc.)
@@ -231,6 +314,9 @@ export default class DocumentEditorPage extends Page {
       }
       
       const sectionId = heading.dataset.sectionId || `section-${Date.now()}-${index}`;
+      if (!heading.dataset.sectionId) {
+        heading.dataset.sectionId = sectionId;
+      }
       
       flatSections.push({
         id: sectionId,
@@ -266,7 +352,7 @@ export default class DocumentEditorPage extends Page {
   }
 
   initRightPanel(container) {
-    container.className = 'document-editor-right-panel';
+    container.classList.add('document-editor-right-panel');
     container.innerHTML = '';
 
     // Container flex pour onglets verticaux + contenu

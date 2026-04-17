@@ -81,7 +81,7 @@ export default class FormatTab {
   
   render(container) {
     this.container = container;
-    this.container.className = 'format-tab';
+    this.container.classList.add('format-tab');
     this.container.innerHTML = '';
     this.buttons.clear(); // Réinitialiser la map des boutons
 

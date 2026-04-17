@@ -9,7 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import settings
 from app.core.database import create_tables
-from app.routers import auth, prompt, admin, services, base
+from app.routers import auth, prompt, admin, services, base, generate
 
 
 def create_application() -> FastAPI:
@@ -43,6 +43,7 @@ def create_application() -> FastAPI:
     application.include_router(prompt.router)
     application.include_router(admin.router)
     application.include_router(services.router)
+    application.include_router(generate.router)
 
     return application
 

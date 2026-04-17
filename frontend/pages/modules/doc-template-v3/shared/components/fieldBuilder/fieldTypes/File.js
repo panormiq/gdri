@@ -3,14 +3,40 @@
 // On chargera documentApi seulement quand nécessaire (dans renderDocumentSelector)
 
 export default class FileField {
-  constructor({ field, value, onChange }) {
+  constructor({ field, value, onChange, collectionId = null }) {
     this.field = field;
-    this.value = value || null;
+    // Nettoyer les URLs blob dans la valeur initiale
+    this.value = this.cleanBlobUrls(value) || null;
     this.onChange = onChange;
-    this.mode = value?.type || 'upload'; // 'upload' ou 'document'
+    this.collectionId = collectionId; // CollectionId pour construire les URLs d'images
+    this.mode = this.value?.type || 'upload'; // 'upload' ou 'document'
     
     // Détecter si c'est une image en fonction du label ou des extensions
     this.isImage = this.detectIfImage();
+  }
+
+  /**
+   * Nettoie les URLs blob dans les données d'image pour éviter les problèmes CSP
+   */
+  cleanBlobUrls(value) {
+    if (!value) return value;
+    
+    // Si c'est un objet avec previewUrl blob, le nettoyer
+    if (typeof value === 'object' && value.previewUrl && value.previewUrl.startsWith('blob:')) {
+      console.warn('⚠️ Blob URL détectée dans previewUrl, nettoyage...');
+      const cleaned = { ...value };
+      // Supprimer la previewUrl blob, garder url ou filename
+      delete cleaned.previewUrl;
+      return cleaned;
+    }
+    
+    // Si c'est une string blob URL, retourner null
+    if (typeof value === 'string' && value.startsWith('blob:')) {
+      console.warn('⚠️ Blob URL détectée comme valeur string, ignorée');
+      return null;
+    }
+    
+    return value;
   }
 
   detectIfImage() {
@@ -123,6 +149,13 @@ export default class FileField {
           url: this.value,
           name: 'Fichier existant'
         };
+      } else if (typeof this.value === 'object' && (this.value.filename || this.value.fileName)) {
+        // Objet avec filename (valeur depuis la base de données)
+        previewData = {
+          ...this.value,
+          type: 'upload' // S'assurer que le type est défini
+        };
+        console.log('🖼️ Valeur existante avec filename:', previewData);
       }
       this.renderPreview(contentArea, previewData);
     }
@@ -256,8 +289,30 @@ export default class FileField {
     };
 
     // Pour les images, créer une URL de prévisualisation
+    // Utiliser FileReader au lieu de createObjectURL pour éviter les problèmes CSP
     if (this.isImage && file.type.startsWith('image/')) {
-      fileData.previewUrl = URL.createObjectURL(file);
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        fileData.previewUrl = e.target.result; // Data URL (base64)
+        this.value = fileData;
+        this.onChange && this.onChange(fileData);
+        this.renderPreview(container, fileData);
+      };
+      reader.onerror = (error) => {
+        console.error('❌ Erreur lors de la lecture du fichier:', error);
+        // En cas d'erreur, essayer avec createObjectURL en dernier recours
+        try {
+          fileData.previewUrl = URL.createObjectURL(file);
+          this.value = fileData;
+          this.onChange && this.onChange(fileData);
+          this.renderPreview(container, fileData);
+        } catch (blobError) {
+          console.error('❌ Erreur avec createObjectURL:', blobError);
+        }
+      };
+      reader.readAsDataURL(file);
+      // Ne pas appeler renderPreview ici car on attend le résultat du FileReader
+      return; // Sortir de la fonction, renderPreview sera appelé dans reader.onload
     }
 
     this.value = fileData;
@@ -354,14 +409,69 @@ export default class FileField {
       background-color: #f9f9f9;
     `;
 
-    // Gérer les valeurs existantes (string URL) ou les nouveaux fichiers
-    const isExistingValue = typeof fileData === 'string' || (fileData && fileData.url && !fileData.file);
+    // Gérer les valeurs existantes (string URL, objet avec url, ou objet avec filename)
+    const isExistingValue = typeof fileData === 'string' 
+      || (fileData && fileData.url && !fileData.file)
+      || (fileData && (fileData.filename || fileData.fileName)); // Objet avec filename = valeur existante
     
     if (fileData.type === 'upload' || (this.isImage && isExistingValue)) {
-      const imageUrl = fileData.previewUrl || fileData.url || fileData;
+      // Nettoyer les URLs blob (problèmes CSP) - utiliser url ou construire depuis filename
+      let imageUrl = fileData.previewUrl || fileData.url || (typeof fileData === 'string' ? fileData : null);
       
-      if (this.isImage && imageUrl) {
-        // Prévisualisation d'image
+      // Si on n'a pas d'URL mais qu'on a un filename, construire l'URL
+      if (!imageUrl && (fileData.filename || fileData.fileName)) {
+        const filename = fileData.filename || fileData.fileName;
+        const apiBase = window.API_BASE_URL || '/api';
+        // Utiliser le collectionId si disponible pour construire l'URL
+        if (this.collectionId) {
+          // Encoder le filename pour éviter les problèmes avec les caractères spéciaux
+          const encodedFilename = encodeURIComponent(filename);
+          imageUrl = `${apiBase}/doc-template/collections/${this.collectionId}/images/${encodedFilename}`;
+          console.log('🔗 URL construite depuis filename:', {
+            filename,
+            encodedFilename,
+            collectionId: this.collectionId,
+            fullUrl: imageUrl,
+            fileData: fileData
+          });
+        } else {
+          // Sans collectionId, on ne peut pas construire l'URL complète
+          console.warn('⚠️ collectionId manquant, impossible de construire l\'URL complète de l\'image', {
+            fileData,
+            collectionId: this.collectionId
+          });
+          imageUrl = null;
+        }
+      }
+      
+      // Si c'est une blob URL, l'ignorer et utiliser url ou construire depuis filename
+      if (imageUrl && typeof imageUrl === 'string' && imageUrl.startsWith('blob:')) {
+        console.warn('⚠️ Blob URL détectée dans previewUrl, utilisation de url ou filename à la place');
+        // Essayer d'utiliser url à la place
+        if (fileData.url && !fileData.url.startsWith('blob:')) {
+          imageUrl = fileData.url;
+        } else if (fileData.filename || fileData.fileName) {
+          // Construire l'URL API depuis le filename
+          const filename = fileData.filename || fileData.fileName;
+          const apiBase = window.API_BASE_URL || '/api';
+          // Utiliser le collectionId si disponible pour construire l'URL
+          if (this.collectionId) {
+            imageUrl = `${apiBase}/doc-template/collections/${this.collectionId}/images/${filename}`;
+          } else {
+            // Sans collectionId, on ne peut pas construire l'URL complète
+            console.warn('⚠️ collectionId manquant, impossible de construire l\'URL complète de l\'image');
+            imageUrl = null;
+          }
+        } else {
+          // Pas d'alternative, on ne peut pas afficher l'image
+          imageUrl = null;
+          console.warn('⚠️ Impossible d\'afficher l\'image : blob URL détectée et aucune alternative disponible');
+        }
+      }
+      
+      // Afficher l'image uniquement si on a une URL valide (pas blob)
+      if (this.isImage && imageUrl && typeof imageUrl === 'string' && !imageUrl.startsWith('blob:')) {
+        // Prévisualisation d'image (uniquement si ce n'est pas une blob URL)
         const imgPreview = document.createElement('div');
         imgPreview.style.cssText = 'text-align: center;';
         
@@ -433,7 +543,8 @@ export default class FileField {
       font-size: 14px;
     `;
     removeBtn.onclick = () => {
-      if (fileData.previewUrl) {
+      // Révoquer uniquement les URLs blob (pas les data URLs)
+      if (fileData.previewUrl && fileData.previewUrl.startsWith('blob:')) {
         URL.revokeObjectURL(fileData.previewUrl);
       }
       this.value = null;

@@ -15,10 +15,10 @@ try {
   const aiService = new UgapAIService();
   console.log('   ✅ Instance créée');
   
-  console.log('3. Test du chargement de AIService...');
-  const AIServicePath = path.join(__dirname, '../../backend/modules/analyse-intention/services/AIService');
-  const AIService = require(AIServicePath);
-  console.log('   ✅ AIService chargé depuis:', AIServicePath);
+  console.log('3. Test du chargement du module IA...');
+  const iaModule = require(path.join(__dirname, '../ia/backend'));
+  const client = iaModule.getIAClient();
+  console.log('   ✅ Module IA chargé, client:', !!client);
   
   console.log('4. Test du chargement de UgapDataService...');
   const UgapDataService = require('./backend/services/UgapDataService');

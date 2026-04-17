@@ -1,0 +1,435 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chat IA</title>
+    <link rel="stylesheet" href="/frontend/assets/css/variables.css">
+    <link rel="stylesheet" href="/frontend/assets/css/main.css">
+    <style>
+        body { background-color: #f5f7fa; display: flex; flex-direction: column; height: 100vh; margin: 0; }
+        body.embedded { background-color: transparent; }
+        body.embedded .header,
+        body.embedded .header-spacer { display: none !important; }
+        body.embedded .chat-container { max-width: none; padding: 0; height: 100vh; }
+        body.embedded .card { border-radius: 0; box-shadow: none; }
+        .header-spacer { height: var(--header-height); flex-shrink: 0; }
+        .chat-container { flex: 1; display: flex; flex-direction: column; max-width: 900px; margin: 0 auto; width: 100%; padding: 20px; box-sizing: border-box; overflow: hidden; }
+        .card { background: white; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); display: flex; flex-direction: column; height: 100%; overflow: hidden; }
+        .chat-header { padding: 15px 20px; border-bottom: 1px solid #eee; background: #fff; }
+        .chat-header-top { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+        .chat-meta { color: #6c757d; font-size: 0.85rem; margin-top: 6px; }
+        .runtime-selectors { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 10px; }
+        .runtime-selectors .field { display: flex; align-items: center; gap: 8px; }
+        .runtime-selectors label { font-size: 0.85rem; color: #555; }
+        .runtime-selectors select { padding: 6px 10px; border-radius: 8px; border: 1px solid #ddd; font-size: 0.85rem; min-width: 220px; }
+        .context-wrap { margin-top: 10px; }
+        .context-wrap textarea { width: 100%; min-height: 72px; border: 1px solid #ddd; border-radius: 8px; padding: 8px 10px; resize: vertical; }
+        .context-help { color: #666; font-size: 0.8rem; margin-top: 4px; }
+        .messages { flex: 1; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 15px; background: #f8f9fa; }
+        .message { padding: 12px 18px; border-radius: 12px; max-width: 80%; line-height: 1.5; font-size: 15px; position: relative; }
+        .message.user { background: var(--primary-color, #007bff); color: white; align-self: flex-end; border-bottom-right-radius: 4px; box-shadow: 0 1px 2px rgba(0,0,0,0.1); }
+        .message.bot { background: white; color: #333; align-self: flex-start; border-bottom-left-radius: 4px; border: 1px solid #eee; box-shadow: 0 1px 2px rgba(0,0,0,0.05); }
+        .input-area { padding: 20px; background: white; border-top: 1px solid #eee; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+        .response-mode-wrap { display: flex; align-items: center; gap: 8px; font-size: 0.85rem; color: #555; width: 100%; order: -1; margin-bottom: 4px; }
+        .response-mode-wrap select { padding: 6px 10px; border-radius: 8px; border: 1px solid #ddd; font-size: 0.85rem; }
+        input[type="text"] { flex: 1; padding: 12px 15px; border: 1px solid #ddd; border-radius: 25px; font-size: 15px; outline: none; transition: border-color 0.2s; }
+        input[type="text"]:focus { border-color: var(--primary-color, #007bff); }
+        button#sendBtn { padding: 10px 20px; background: var(--primary-color, #007bff); color: white; border: none; border-radius: 25px; cursor: pointer; font-weight: 600; display: flex; align-items: center; gap: 5px; transition: background 0.2s; }
+        button#sendBtn:hover { background: var(--primary-color-dark, #0056b3); }
+        button#sendBtn:disabled { background: #ccc; cursor: not-allowed; }
+        .status-line { margin: 8px 20px 0; font-size: 0.85rem; color: #666; }
+        .typing { font-style: italic; color: #888; font-size: 0.85em; margin: 0 20px 10px; display: none; }
+    </style>
+</head>
+<body>
+    <header class="header" id="header">
+        <div class="container">
+            <div class="header-content">
+                <div class="logo">
+                    <a href="/frontend/pages/dashboard.php">
+                        <img src="/frontend/assets/images/logo-gdri.png" alt="GDR-Innovation Logo">
+                        <span class="logo-text">GDR-Innovation</span>
+                    </a>
+                </div>
+                <nav class="nav" id="nav">
+                    <ul class="nav-list">
+                        <li><a href="/frontend/pages/dashboard.php" class="nav-link">Dashboard</a></li>
+                        <li><a href="/frontend/pages/modules.php" class="nav-link">Modules</a></li>
+                        <li><a href="/frontend/auth/logout.php" class="nav-link">Déconnexion</a></li>
+                    </ul>
+                </nav>
+            </div>
+        </div>
+    </header>
+
+    <div class="header-spacer"></div>
+
+    <div class="chat-container">
+        <div class="card">
+            <div class="chat-header">
+                <div class="chat-header-top">
+                    <div>
+                        <h2 style="margin:0; font-size: 1.2rem;">💬 Assistant IA</h2>
+                        <small style="color: #666;">Chat avec mémoire de conversation</small>
+                    </div>
+                    <a href="/frontend/pages/modules.php" class="btn btn-secondary" style="font-size: 0.9rem; padding: 6px 12px;">Retour</a>
+                </div>
+                <div class="chat-meta" id="chatMeta">Chargement de la configuration...</div>
+                <div class="runtime-selectors" id="runtimeSelectors" style="display:none;">
+                    <div class="field">
+                        <label for="serverSelect"><strong>Serveur</strong></label>
+                        <select id="serverSelect"></select>
+                    </div>
+                    <div class="field">
+                        <label for="modelSelect"><strong>LLM</strong></label>
+                        <select id="modelSelect"></select>
+                    </div>
+                </div>
+                <div class="context-wrap">
+                    <label for="contextInput"><strong>Contexte</strong></label>
+                    <textarea id="contextInput" placeholder="Ex: Tu réponds en français, style concis, domaine métier RH."></textarea>
+                    <div class="context-help">Ce contexte guide l’IA pendant cette conversation uniquement.</div>
+                </div>
+            </div>
+
+            <div class="messages" id="messages">
+                <div class="message bot">Bonjour ! Je suis votre assistant IA. Comment puis-je vous aider aujourd'hui ?</div>
+            </div>
+            <div class="status-line" id="statusLine"></div>
+            <div class="typing" id="typing">L'IA est en train d'écrire...</div>
+
+            <div class="input-area">
+                <div class="response-mode-wrap">
+                    <label for="responseMode">Réponse</label>
+                    <select id="responseMode" title="Mode d’affichage de la réponse IA">
+                        <option value="complete">Complète (une fois)</option>
+                        <option value="stream">Flux (mot à mot)</option>
+                    </select>
+                </div>
+                <input type="text" id="userInput" placeholder="Écrivez votre message..." autocomplete="off">
+                <button id="sendBtn">Envoyer 📤</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="/frontend/assets/js/main.js"></script>
+    <script src="/frontend/assets/js/navigation.js"></script>
+
+    <script>
+        const isEmbedded = new URLSearchParams(window.location.search).get('embedded') === '1';
+        if (isEmbedded) document.body.classList.add('embedded');
+
+        let conversationId = null;
+        const messagesDiv = document.getElementById('messages');
+        const userInput = document.getElementById('userInput');
+        const sendBtn = document.getElementById('sendBtn');
+        const typingIndicator = document.getElementById('typing');
+        const contextInput = document.getElementById('contextInput');
+        const chatMeta = document.getElementById('chatMeta');
+        const statusLine = document.getElementById('statusLine');
+        const responseMode = document.getElementById('responseMode');
+        const runtimeSelectors = document.getElementById('runtimeSelectors');
+        const serverSelect = document.getElementById('serverSelect');
+        const modelSelect = document.getElementById('modelSelect');
+        let runtimeDefaults = { default_server_id: null, default_model: null };
+
+        function scrollToBottom() {
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+        }
+
+        function addMessage(text, sender) {
+            const div = document.createElement('div');
+            div.className = `message ${sender}`;
+            div.textContent = text;
+            messagesDiv.appendChild(div);
+            scrollToBottom();
+        }
+
+        function setStatus(text) {
+            statusLine.textContent = text || '';
+        }
+
+        async function ensureConversation() {
+            if (conversationId) return conversationId;
+            const response = await fetch('/api/chat/conversations', {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    context: contextInput.value.trim(),
+                    server_id: serverSelect && serverSelect.value ? serverSelect.value : undefined,
+                    model: modelSelect && modelSelect.value ? modelSelect.value : undefined
+                })
+            });
+            const data = await response.json();
+            if (!data.success || !data.data || !data.data._id) {
+                throw new Error(data.message || 'Impossible de créer la conversation.');
+            }
+            conversationId = data.data._id;
+            return conversationId;
+        }
+
+        async function loadBootstrap() {
+            try {
+                const response = await fetch('/api/chat/bootstrap', { credentials: 'same-origin' });
+                const data = await response.json();
+                if (!data.success) {
+                    chatMeta.textContent = 'Chat indisponible: ' + (data.message || 'configuration manquante');
+                    sendBtn.disabled = true;
+                    userInput.disabled = true;
+                    return;
+                }
+                const info = data.data || {};
+                runtimeDefaults = {
+                    default_server_id: info.default_server_id || null,
+                    default_model: info.default_model || null
+                };
+                chatMeta.textContent = `Serveur: ${runtimeDefaults.default_server_id || '-'} | Modèle: ${runtimeDefaults.default_model || '-'}`;
+                setStatus('Configuration prête.');
+                await loadServersAndModels();
+            } catch (error) {
+                chatMeta.textContent = 'Erreur de chargement de la configuration.';
+                sendBtn.disabled = true;
+                userInput.disabled = true;
+            }
+        }
+
+        function updateMeta() {
+            const sid = serverSelect && serverSelect.value ? serverSelect.value : (runtimeDefaults.default_server_id || '-');
+            const mid = modelSelect && modelSelect.value ? modelSelect.value : (runtimeDefaults.default_model || '-');
+            chatMeta.textContent = `Serveur: ${sid || '-'} | Modèle: ${mid || '-'}`;
+        }
+
+        function setSelectOptions(selectEl, items, getValue, getLabel) {
+            selectEl.innerHTML = '';
+            for (const it of items) {
+                const opt = document.createElement('option');
+                opt.value = getValue(it);
+                opt.textContent = getLabel(it);
+                selectEl.appendChild(opt);
+            }
+        }
+
+        async function fetchJson(url) {
+            const r = await fetch(url, { credentials: 'same-origin' });
+            const j = await r.json();
+            if (!j || j.success !== true) throw new Error(j && j.message ? j.message : 'Erreur API');
+            return j;
+        }
+
+        async function loadServersAndModels() {
+            try {
+                const j = await fetchJson('/api/ia/servers');
+                const servers = Array.isArray(j.servers) ? j.servers : [];
+                if (!servers.length) {
+                    runtimeSelectors.style.display = 'none';
+                    return;
+                }
+                runtimeSelectors.style.display = 'flex';
+                setSelectOptions(
+                    serverSelect,
+                    servers,
+                    (s) => String(s._id || ''),
+                    (s) => `${s.name || 'Serveur'} (${s.provider || '-'})`
+                );
+                if (runtimeDefaults.default_server_id) {
+                    serverSelect.value = runtimeDefaults.default_server_id;
+                }
+                await loadModelsForServer(serverSelect.value);
+                if (runtimeDefaults.default_model) {
+                    modelSelect.value = runtimeDefaults.default_model;
+                }
+                updateMeta();
+            } catch (e) {
+                runtimeSelectors.style.display = 'none';
+            }
+        }
+
+        async function loadModelsForServer(serverId) {
+            if (!serverId) {
+                modelSelect.innerHTML = '';
+                return;
+            }
+            modelSelect.disabled = true;
+            modelSelect.innerHTML = '<option value="">Chargement...</option>';
+            try {
+                const j = await fetchJson(`/api/ia/servers/${encodeURIComponent(serverId)}/models`);
+                const models = Array.isArray(j.models) ? j.models : [];
+                const names = models.map((m) => (typeof m === 'string' ? m : (m.name || '')).trim()).filter(Boolean);
+                if (!names.length) {
+                    modelSelect.innerHTML = '<option value="">Aucun modèle</option>';
+                    return;
+                }
+                setSelectOptions(modelSelect, names, (x) => x, (x) => x);
+            } finally {
+                modelSelect.disabled = false;
+            }
+        }
+
+        function parseSseBlocks(buffer, onEvent) {
+            let rest = buffer;
+            let idx;
+            while ((idx = rest.indexOf('\n\n')) >= 0) {
+                const block = rest.slice(0, idx);
+                rest = rest.slice(idx + 2);
+                for (const line of block.split('\n')) {
+                    if (!line.startsWith('data:')) continue;
+                    const raw = line.slice(5).trim();
+                    if (!raw) continue;
+                    try {
+                        onEvent(JSON.parse(raw));
+                    } catch (_) { /* ignore */ }
+                }
+            }
+            return rest;
+        }
+
+        async function sendMessageStream(text) {
+            const convId = await ensureConversation();
+            const response = await fetch(`/api/chat/conversations/${convId}/messages/stream`, {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: { 'Content-Type': 'application/json', 'Accept': 'text/event-stream' },
+                body: JSON.stringify({
+                    message: text,
+                    memory_size: 20,
+                    server_id: serverSelect && serverSelect.value ? serverSelect.value : undefined,
+                    model: modelSelect && modelSelect.value ? modelSelect.value : undefined
+                })
+            });
+
+            if (!response.ok) {
+                let msg = `HTTP ${response.status}`;
+                try {
+                    const j = await response.json();
+                    if (j.message) msg = j.message;
+                } catch (_) { /* keep */ }
+                addMessage('Erreur: ' + msg, 'bot');
+                setStatus('Erreur API.');
+                return;
+            }
+
+            const botEl = document.createElement('div');
+            botEl.className = 'message bot';
+            botEl.textContent = '';
+            messagesDiv.appendChild(botEl);
+            scrollToBottom();
+
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let buf = '';
+            let sawFatalError = false;
+
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                buf += decoder.decode(value, { stream: true });
+                buf = parseSseBlocks(buf, (j) => {
+                    if (j.token) {
+                        botEl.textContent += j.token;
+                        scrollToBottom();
+                    }
+                    if (j.error) {
+                        sawFatalError = true;
+                        botEl.textContent += (botEl.textContent ? '\n\n' : '') + '[Erreur] ' + j.error;
+                    }
+                    if (j.done && j.conversation) {
+                        setStatus(`Réponse reçue (${j.model || 'modèle inconnu'})`);
+                    }
+                });
+            }
+            buf = parseSseBlocks(buf, (j) => {
+                if (j.token) botEl.textContent += j.token;
+                if (j.error) {
+                    sawFatalError = true;
+                    botEl.textContent += (botEl.textContent ? '\n\n' : '') + '[Erreur] ' + j.error;
+                }
+                if (j.done && j.conversation) {
+                    setStatus(`Réponse reçue (${j.model || 'modèle inconnu'})`);
+                }
+            });
+            if (!botEl.textContent.trim() && !sawFatalError) {
+                botEl.textContent = 'Aucune réponse.';
+            }
+        }
+
+        async function sendMessage() {
+            const text = userInput.value.trim();
+            if (!text) return;
+
+            const mode = responseMode && responseMode.value === 'stream' ? 'stream' : 'complete';
+
+            addMessage(text, 'user');
+            userInput.value = '';
+            userInput.disabled = true;
+            sendBtn.disabled = true;
+            typingIndicator.style.display = mode === 'complete' ? 'block' : 'none';
+            setStatus(mode === 'stream' ? 'Génération en flux…' : 'Envoi en cours...');
+
+            try {
+                if (mode === 'stream') {
+                    await sendMessageStream(text);
+                } else {
+                    const convId = await ensureConversation();
+                    const response = await fetch(`/api/chat/conversations/${convId}/messages`, {
+                        method: 'POST',
+                        credentials: 'same-origin',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            message: text,
+                            memory_size: 20,
+                            server_id: serverSelect && serverSelect.value ? serverSelect.value : undefined,
+                            model: modelSelect && modelSelect.value ? modelSelect.value : undefined
+                        })
+                    });
+
+                    const data = await response.json();
+                    if (data.success) {
+                        addMessage(data.data.response || 'Aucune réponse.', 'bot');
+                        setStatus(`Réponse reçue (${data.data.model || 'modèle inconnu'})`);
+                    } else {
+                        addMessage('Erreur: ' + (data.message || 'Problème inconnu'), 'bot');
+                        setStatus('Erreur API.');
+                    }
+                }
+            } catch (e) {
+                console.error(e);
+                addMessage('Erreur de connexion au serveur.', 'bot');
+                setStatus('Erreur de connexion.');
+            } finally {
+                userInput.disabled = false;
+                sendBtn.disabled = false;
+                typingIndicator.style.display = 'none';
+                userInput.focus();
+                scrollToBottom();
+            }
+        }
+
+        sendBtn.addEventListener('click', sendMessage);
+        userInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') sendMessage();
+        });
+
+        contextInput.addEventListener('change', async () => {
+            if (!conversationId) return;
+            setStatus('Le nouveau contexte sera pris en compte après nouvelle conversation.');
+        });
+
+        serverSelect && serverSelect.addEventListener('change', async () => {
+            try {
+                await loadModelsForServer(serverSelect.value);
+                updateMeta();
+            } catch (_) { /* ignore */ }
+            if (conversationId) setStatus('Serveur/LLM modifié: appliqué au prochain message.');
+        });
+        modelSelect && modelSelect.addEventListener('change', async () => {
+            updateMeta();
+            if (conversationId) setStatus('Serveur/LLM modifié: appliqué au prochain message.');
+        });
+
+        loadBootstrap();
+        userInput.focus();
+    </script>
+</body>
+</html>

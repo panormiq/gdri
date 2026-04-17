@@ -1,0 +1,40 @@
+{
+    "shapes": [
+        {
+            "id": "shape-u3lmqmz",
+            "type": "rect",
+            "x": 148,
+            "y": 93.58332824707031,
+            "width": 160,
+            "height": 70,
+            "text": "presentation",
+            "fontSize": 14,
+            "fontFamily": "Segoe UI",
+            "textColor": "#ffffff",
+            "bgColor": "#0e9cef",
+            "opacity": 1,
+            "group": "",
+            "imageData": null,
+            "blockId": ""
+        },
+        {
+            "id": "shape-jzvmioj",
+            "type": "rect",
+            "x": 334,
+            "y": 97.58332824707031,
+            "width": 160,
+            "height": 70,
+            "text": "prendre un  rendez vous",
+            "fontSize": 14,
+            "fontFamily": "Segoe UI",
+            "textColor": "#ffffff",
+            "bgColor": "#0e9cef",
+            "opacity": 1,
+            "group": "",
+            "imageData": null,
+            "blockId": ""
+        }
+    ],
+    "connections": [],
+    "groups": []
+}

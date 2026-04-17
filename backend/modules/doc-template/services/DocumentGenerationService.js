@@ -6,6 +6,143 @@ const Collection = require('../models/collection_model');
 const database = require('../../../config/database');
 
 /**
+ * 🔹 Vérifie si une valeur correspond à une image (objet d'image attendu)
+ * @param {*} value - Valeur à vérifier
+ * @returns {boolean}
+ */
+const isImageValue = value => {
+  if (!value || typeof value !== 'object') return false;
+  return !!(value.previewUrl || value.url || value.filename || value.fileName);
+};
+
+/**
+ * 🔹 Construit l'URL d'une image de collection (compatible backend)
+ * @param {Object|string} imageData - Données image
+ * @param {string} collectionId - ID de collection
+ * @returns {string} URL de l'image ou chaîne vide si invalide
+ */
+const buildCollectionImageUrl = (imageData, collectionId) => {
+  if (!imageData) return '';
+
+  const apiBase = '/api';
+
+  if (typeof imageData === 'string') {
+    if (imageData.startsWith('blob:')) return '';
+    if (imageData.startsWith('http://')
+      || imageData.startsWith('https://')
+      || imageData.startsWith('/')
+      || imageData.startsWith('data:')) {
+      return imageData;
+    }
+    if (!collectionId) return '';
+    return `${apiBase}/doc-template/collections/${collectionId}/images/${encodeURIComponent(imageData)}`;
+  }
+
+  if (typeof imageData === 'object') {
+    if (imageData.previewUrl && !imageData.previewUrl.startsWith('blob:')) {
+      return imageData.previewUrl;
+    }
+    if (imageData.url && !imageData.url.startsWith('blob:')) {
+      return imageData.url;
+    }
+    const filename = imageData.filename || imageData.fileName;
+    if (filename && collectionId) {
+      return `${apiBase}/doc-template/collections/${collectionId}/images/${encodeURIComponent(filename)}`;
+    }
+  }
+
+  return '';
+};
+
+/**
+ * 🔹 Résout une variable d'image depuis variables
+ * @param {string} variablePath - Chemin de variable (alias.champ)
+ * @param {Object} variables - Variables du document
+ * @returns {{ value: *, isImage: boolean, collectionId: string|null }}
+ */
+const resolveVariableImage = (variablePath, variables) => {
+  let value = '';
+  let isImage = false;
+  let collectionId = null;
+
+  if (!variablePath) {
+    return { value, isImage, collectionId };
+  }
+
+  if (variablePath.includes('.')) {
+    const [alias, ...fieldParts] = variablePath.split('.');
+    const fieldName = fieldParts.join('.');
+    const collectionData = variables?.collections?.[alias];
+    if (collectionData?.values) {
+      value = collectionData.values[fieldName] ?? '';
+      isImage = isImageValue(value);
+      collectionId = collectionData.collectionId || null;
+    }
+  } else if (variables?.simple) {
+    value = variables.simple[variablePath] ?? '';
+    isImage = isImageValue(value);
+  }
+
+  return { value, isImage, collectionId };
+};
+
+/**
+ * 🔹 Remplace les images variables (data-variable-path) par les vraies URLs
+ * @param {string} html - HTML du template
+ * @param {Object} variables - Variables du document
+ * @returns {string} HTML mis à jour
+ */
+const replaceVariableImagesInHtml = (html, variables) => {
+  if (!html) return '';
+
+  const variableImageRegex = /<img\b[^>]*\bdata-variable-path=(["'])(.*?)\1[^>]*>/gi;
+
+  return html.replace(variableImageRegex, (match, quote, variablePath) => {
+    const { value, isImage, collectionId } = resolveVariableImage(variablePath, variables);
+    if (!isImage || !collectionId) {
+      return '';
+    }
+
+    const imageUrl = buildCollectionImageUrl(value, collectionId);
+    if (!imageUrl) {
+      return '';
+    }
+
+    let updated = match;
+
+    // Remplacer ou ajouter src
+    if (/\ssrc=/.test(updated)) {
+      updated = updated.replace(/\ssrc=(["']).*?\1/i, ` src="${imageUrl}"`);
+    } else {
+      updated = updated.replace('<img', `<img src="${imageUrl}"`);
+    }
+
+    // Nettoyer les attributs de variable
+    updated = updated
+      .replace(/\sdata-variable-path=(["']).*?\1/i, '')
+      .replace(/\sdata-image-type=(["']).*?\1/i, '');
+
+    // Garantir la classe collection-image pour les marges PDF
+    if (/\sclass=/.test(updated)) {
+      updated = updated.replace(/\sclass=(["'])(.*?)\1/i, (full, clsQuote, clsValue) => {
+        const classes = clsValue
+          .split(/\s+/)
+          .filter(Boolean)
+          .filter(cls => cls !== 'template-image');
+        if (!classes.includes('collection-image')) {
+          classes.push('collection-image');
+        }
+        return ` class="${classes.join(' ')}"`;
+      });
+    } else {
+      updated = updated.replace('<img', '<img class="collection-image"');
+    }
+
+    return updated;
+  });
+};
+
+/**
  * 🔹 Service de génération automatique de documents pour les champs "Document généré"
  */
 class DocumentGenerationService {
@@ -166,11 +303,31 @@ class DocumentGenerationService {
         if (collectionData.values) {
           for (const [fieldName, value] of Object.entries(collectionData.values)) {
             const regex = new RegExp(`\\{\\{${alias}\\.${fieldName}\\}\\}`, 'g');
-            content = content.replace(regex, String(value || ''));
+            if (isImageValue(value)) {
+              const imageUrl = buildCollectionImageUrl(value, collectionData.collectionId);
+              if (imageUrl) {
+                const imgTag = `<img src="${imageUrl}" alt="${alias}.${fieldName}" class="collection-image" style="max-width: 100%; height: auto;" />`;
+                content = content.replace(regex, imgTag);
+
+                // Remplacer aussi dans les attributs src si {{alias.field}} est utilisé
+                const srcPattern = new RegExp(`(src=["'])([^"']*\\{\\{${alias}\\.${fieldName}\\}\\}[^"']*)(["'])`, 'gi');
+                content = content.replace(srcPattern, (match, prefix, srcContent, suffix) => {
+                  const newSrc = srcContent.replace(regex, imageUrl);
+                  return `${prefix}${newSrc}${suffix}`;
+                });
+              } else {
+                content = content.replace(regex, '');
+              }
+            } else {
+              content = content.replace(regex, String(value ?? ''));
+            }
           }
         }
       }
     }
+
+    // Remplacer les images variables via data-variable-path
+    content = replaceVariableImagesInHtml(content, variables);
 
     return content;
   }

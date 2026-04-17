@@ -14,8 +14,11 @@ function startSecureSession() {
         // Configuration sécurisée de la session
         ini_set('session.cookie_httponly', 1);
         ini_set('session.use_only_cookies', 1);
-        ini_set('session.cookie_secure', 0); // Mettre à 1 en production avec HTTPS
-        ini_set('session.cookie_samesite', 'Strict');
+        $isHttps = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') || (!empty($_SERVER['HTTP_X_FORWARDED_PROTO']) && $_SERVER['HTTP_X_FORWARDED_PROTO'] === 'https') || (!empty($_SERVER['SERVER_PORT']) && (int)$_SERVER['SERVER_PORT'] === 443);
+        ini_set('session.cookie_secure', $isHttps ? 1 : 0);
+        // 'Lax' au lieu de 'Strict' pour permettre les redirections OAuth depuis des domaines externes (Facebook)
+        // 'Lax' est toujours sécurisé : le cookie n'est envoyé que pour les requêtes GET de navigation (comme les redirections OAuth)
+        ini_set('session.cookie_samesite', 'Lax');
         
         // Durée de vie de la session : 2 heures
         ini_set('session.gc_maxlifetime', 7200);

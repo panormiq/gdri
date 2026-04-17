@@ -1,6 +1,6 @@
 modules/editor/
 │
-├─app.js   # point d'entrée
+├─app.js   # point d'entrée, construit le shell app + nav globale
 ├─ shared/
 │   ├─ api/
 │   │   ├─ CollectionApi.js
@@ -58,3 +58,11 @@ modules/editor/
     ├─ DocumentEditPage.js
     ├─ DocumentCreatePage.js
     └─ DocumentCard.js
+
+styles/
+└─ AppNav.css   # styles de la navigation globale de l'app
+
+app/app.js
+└─ createAppShell(root, basePath)   # crée la nav globale + container contenu (root, basePath)
+└─ getNormalizedPath(basePath)      # normalise le path courant pour le menu actif
+└─ setActiveNav(nav, basePath)      # applique l'état actif sur les liens de nav

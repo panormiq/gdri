@@ -1,0 +1,72 @@
+{
+  "categories": [
+    {
+      "id": "general",
+      "name": "General",
+      "blocks": [
+        {
+          "id": "cr-ation",
+          "name": "création",
+          "file": "./block/cr-ation.json",
+          "shape": {
+            "type": "rect",
+            "text": "Forme",
+            "imageData": null
+          }
+        }
+      ]
+    },
+    {
+      "id": "medicap",
+      "name": "medicap",
+      "blocks": [
+        {
+          "id": "d-but",
+          "name": "Début",
+          "file": "./block/medicap/debut.json",
+          "shape": {
+            "type": "circle",
+            "text": "Forme",
+            "imageData": null
+          }
+        },
+        {
+          "id": "d-but",
+          "name": "Fin",
+          "file": "./block/medicap/fin.json",
+          "shape": {
+            "type": "circle",
+            "text": "Forme",
+            "imageData": null
+          }
+        },
+        {
+          "id": "questionnaires",
+          "name": "Questionnaires",
+          "file": "./block/medicap/questionnaires.json",
+          "shape": {
+            "type": "rect",
+            "text": "Forme",
+            "imageData": null
+          }
+        }
+      ]
+    },
+    {
+      "id": "questionnaires",
+      "name": "Questionnaires",
+      "blocks": [
+        {
+          "id": "questionnaires",
+          "name": "Questionnaires",
+          "file": "./block/questionnaires/questionnaires.json",
+          "shape": {
+            "type": "rect",
+            "text": "Forme",
+            "imageData": null
+          }
+        }
+      ]
+    }
+  ]
+}

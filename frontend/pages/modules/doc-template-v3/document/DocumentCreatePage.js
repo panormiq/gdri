@@ -55,6 +55,23 @@ export default class DocumentCreatePage extends Page {
     });
 
     listPage.render(container);
+
+    const nav = document.createElement('div');
+    nav.className = 'document-create-nav';
+
+    const backBtn = document.createElement('button');
+    backBtn.type = 'button';
+    backBtn.className = 'btn btn-secondary';
+    backBtn.textContent = 'Retour aux documents';
+    backBtn.onclick = () => this.navigate('/documents');
+    nav.appendChild(backBtn);
+
+    const listPageContainer = container.querySelector('.listpage-container');
+    if (listPageContainer) {
+      container.insertBefore(nav, listPageContainer);
+    } else {
+      container.prepend(nav);
+    }
   }
 
   async renderVariableForm(container) {
@@ -83,6 +100,29 @@ export default class DocumentCreatePage extends Page {
     // Créer le formulaire
     const formContainer = document.createElement('div');
     formContainer.className = 'document-create-form';
+
+    const nav = document.createElement('div');
+    nav.className = 'document-create-nav';
+
+    const backTemplatesBtn = document.createElement('button');
+    backTemplatesBtn.type = 'button';
+    backTemplatesBtn.className = 'btn btn-secondary';
+    backTemplatesBtn.textContent = 'Retour aux templates';
+    backTemplatesBtn.onclick = () => {
+      this.step = 'template';
+      this.selectedTemplate = null;
+      this.render(document.querySelector('#app'));
+    };
+    nav.appendChild(backTemplatesBtn);
+
+    const backDocumentsBtn = document.createElement('button');
+    backDocumentsBtn.type = 'button';
+    backDocumentsBtn.className = 'btn btn-secondary';
+    backDocumentsBtn.textContent = 'Retour aux documents';
+    backDocumentsBtn.onclick = () => this.navigate('/documents');
+    nav.appendChild(backDocumentsBtn);
+
+    formContainer.appendChild(nav);
 
     // Titre
     const title = document.createElement('h1');
@@ -343,9 +383,15 @@ export default class DocumentCreatePage extends Page {
 
   filterCollectionElements(alias, query, allElements, group) {
     const elementsList = group.querySelector('.collection-elements-list');
-    const indexedFields = elementsList.dataset.indexedFields
-      ? JSON.parse(elementsList.dataset.indexedFields)
-      : [];
+    let indexedFields = [];
+    if (elementsList.dataset.indexedFields) {
+      try {
+        indexedFields = JSON.parse(elementsList.dataset.indexedFields);
+      } catch (error) {
+        console.warn('⚠️ indexedFields JSON invalide, fallback tableau vide:', error);
+        indexedFields = [];
+      }
+    }
 
     // Récupérer la collection depuis le dataset
     const collectionId = group.dataset.collectionId;
@@ -390,7 +436,7 @@ export default class DocumentCreatePage extends Page {
 
     // Stocker la sélection
     // Les éléments peuvent avoir leurs valeurs dans element.values ou directement sur element
-    const values = element.values || {};
+    let values = element.values || {};
     
     // Si values est vide, essayer de récupérer les valeurs directement depuis element
     if (Object.keys(values).length === 0) {
@@ -403,20 +449,38 @@ export default class DocumentCreatePage extends Page {
       });
     }
     
+    // S'assurer que values est un objet (pas null ou undefined)
+    if (!values || typeof values !== 'object') {
+      values = {};
+    }
+    
     console.log('🔍 Sélection élément collection:', {
       alias,
       elementId: element._id,
       values,
-      elementStructure: element
+      elementStructure: element,
+      hasValues: !!element.values,
+      valuesKeys: Object.keys(values)
     });
 
+    const collectionId = group.dataset.collectionId;
+    
+    // Vérifier que le collectionId est présent
+    if (!collectionId) {
+      console.error('❌ collectionId manquant dans group.dataset:', group.dataset);
+    }
+
     this.variables.collections[alias] = {
-      collectionId: group.dataset.collectionId,
+      collectionId: collectionId,
       elementId: element._id,
       values: values
     };
     
-    console.log('📦 Variables collections après sélection:', this.variables.collections);
+    console.log('📦 Variables collections après sélection:', {
+      alias,
+      collectionData: this.variables.collections[alias],
+      allCollections: this.variables.collections
+    });
   }
 
   async createNewElement(collectionId, alias, group) {

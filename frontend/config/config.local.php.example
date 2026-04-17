@@ -1,0 +1,12 @@
+<?php
+/**
+ * Exemple de configuration locale (copier en config.local.php et adapter).
+ * config.local.php est ignoré par git ; il permet de surcharger l'URL de l'API backend.
+ *
+ * Utile quand le frontend est servi par un vhost (ex. http://gdri.local/) sans proxy
+ * vers Node : les appels iraient vers Apache et renverraient 404.
+ * En définissant BACKEND_API_URL, on force les appels API vers le serveur Node.
+ */
+
+// Forcer l'URL de l'API backend (ex. backend Node sur port 3000)
+define('BACKEND_API_URL', 'http://localhost:3000/api');

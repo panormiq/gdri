@@ -15,11 +15,20 @@ export default class Router {
     });
 
     document.addEventListener('click', e => {
-      const link = e.target.closest('[data-link]');
+      const target = (e.target instanceof Element) ? e.target : e.target.parentElement;
+      if (!target) return;
+
+      const link = target.closest('[data-link]');
       if (!link) return;
 
+      // Laisser le comportement natif pour les nouveaux onglets / clics secondaires
+      if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) {
+        return;
+      }
+
       e.preventDefault();
-      this.navigate(link.getAttribute('href'));
+      const path = link.dataset.path || link.getAttribute('href');
+      this.navigate(path);
     });
 
     // Normaliser le pathname initial (gère le rafraîchissement de page)
@@ -70,8 +79,11 @@ export default class Router {
   }
 
   navigate(path) {
-    history.pushState({}, '', this.basePath + path);
-    this.resolve(this.basePath + path);
+    const target = (this.basePath && path.startsWith(this.basePath))
+      ? path
+      : this.basePath + path;
+    history.pushState({}, '', target);
+    this.resolve(target);
   }
 
   async resolve(fullPath) {

@@ -1,0 +1,68 @@
+{
+    "version": 1,
+    "id": "questionnaires",
+    "name": "Questionnaires",
+    "shape": {
+        "type": "rect",
+        "text": "Forme",
+        "width": 160,
+        "height": 70,
+        "fontSize": 14,
+        "fontFamily": "Segoe UI",
+        "textColor": "#ffffff",
+        "bgColor": "#0e9cef",
+        "opacity": 1,
+        "imageData": null
+    },
+    "tutorial": {
+        "title": "Questionnaires",
+        "intro": "",
+        "steps": [
+            {
+                "title": "Add Questionnaire",
+                "items": [
+                    {
+                        "type": "text",
+                        "html": "On doit pouvoir ajouter récursivement des questionnaires  au block",
+                        "text": "On doit pouvoir ajouter récursivement des questionnaires  au block"
+                    },
+                    {
+                        "type": "text",
+                        "html": "GetlistClientQuestionnaire",
+                        "text": "GetClientListQuestionnaire\njson reçu à définir"
+                    },
+                    {
+                        "type": "text",
+                        "html": "link vers crée un nouveau questionnaires",
+                        "text": "link vers crée un nouveau questionnaires"
+                    }
+                ],
+                "collapsed": false,
+                "substeps": []
+            },
+            {
+                "title": "Protocole",
+                "items": [
+                    {
+                        "type": "text",
+                        "html": "on doit pouvoir  saisir le type de protocole: \n-manuel\n-programmé",
+                        "text": "on doit pouvoir  saisir le type de protocole: \n-manuel\n-programmé"
+                    },
+                    {
+                        "type": "text",
+                        "html": "GetClientListProtocole",
+                        "text": "GetClientListProtocole\njson reçu à définir"
+                    },
+                    {
+                        "type": "text",
+                        "html": "link vers crée un nouveau protocole ",
+                        "text": "link vers crée un nouveau protocole "
+                    }
+                ],
+                "collapsed": false,
+                "substeps": []
+            }
+        ],
+        "conditions": []
+    }
+}

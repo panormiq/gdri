@@ -1,0 +1,13 @@
+{
+  "id": "besoin-info",
+  "name": "Besoin d'Information Complementaire?",
+  "description": "Decision sur la necessite d'informations supplementaires.",
+  "bricks": [
+    {
+      "name": "Questionnaire Complementaire"
+    },
+    {
+      "name": "Demande d'Information Complementaire"
+    }
+  ]
+}

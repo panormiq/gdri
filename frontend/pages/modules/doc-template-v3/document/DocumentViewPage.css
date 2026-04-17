@@ -48,12 +48,17 @@
   background: var(--color-primary-dark);
 }
 
-.document-view-content {
-  background: white;
-  padding: var(--spacing-lg);
-  border-radius: var(--border-radius);
-  box-shadow: var(--shadow-sm);
-  min-height: 400px;
+.document-view-editor {
+  width: 100%;
+}
+
+/* Masquer les contrôles d'édition dans le viewer */
+.document-view-page .image-delete-button,
+.document-view-page .resize-handle,
+.document-view-page .image-crop-overlay,
+.document-view-page .image-crop-box,
+.document-view-page .lock-button {
+  display: none !important;
 }
 
 .error-message {

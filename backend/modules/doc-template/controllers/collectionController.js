@@ -549,12 +549,97 @@ module.exports = {
   updateElement: updateCollectionData,
   deleteElement: deleteCollectionData,
   
-  // Images (à implémenter - pour l'instant placeholder)
+  // Images
   uploadImage: async (req, res) => {
     res.status(501).json({ success: false, error: 'Upload image not yet implemented' });
   },
   getImage: async (req, res) => {
-    res.status(501).json({ success: false, error: 'Get image not yet implemented' });
+    try {
+      const { id: collectionId, imageId } = req.params;
+      const entrepriseId = req.user.currentEntrepriseId || req.user.entrepriseId;
+      const fs = require('fs');
+      const path = require('path');
+
+      // Vérifier que la collection existe
+      const collection = await req.entrepriseDb
+        .collection('collections')
+        .findOne({ _id: new ObjectId(collectionId) });
+
+      if (!collection) {
+        return res.status(404).json({ 
+          success: false, 
+          error: 'Collection non trouvée' 
+        });
+      }
+
+      // Décoder le nom de fichier (au cas où il serait encodé)
+      const decodedImageId = decodeURIComponent(imageId);
+
+      console.log('🖼️ getImage appelé:', {
+        collectionId,
+        imageId,
+        decodedImageId,
+        entrepriseId
+      });
+
+      // Construire le chemin du fichier image
+      // Les images sont stockées dans uploads/entreprise_${entrepriseId}/collection_${collectionId}/previews/
+      const imagePath = path.join(
+        process.cwd(),
+        'uploads',
+        `entreprise_${entrepriseId}`,
+        `collection_${collectionId}`,
+        'previews',
+        decodedImageId
+      );
+
+      console.log('🔍 Chemin image recherché:', imagePath);
+
+      // Vérifier que le fichier existe
+      if (!fs.existsSync(imagePath)) {
+        console.warn(`⚠️ Image non trouvée: ${imagePath}`);
+        // Lister les fichiers dans le dossier pour debug
+        const previewsDir = path.join(
+          process.cwd(),
+          'uploads',
+          `entreprise_${entrepriseId}`,
+          `collection_${collectionId}`,
+          'previews'
+        );
+        if (fs.existsSync(previewsDir)) {
+          const files = fs.readdirSync(previewsDir);
+          console.log('📁 Fichiers disponibles dans previews:', files);
+        }
+        return res.status(404).json({ 
+          success: false, 
+          error: 'Image non trouvée' 
+        });
+      }
+
+      // Déterminer le Content-Type
+      const ext = path.extname(decodedImageId).toLowerCase();
+      const mimeTypes = {
+        '.jpg': 'image/jpeg',
+        '.jpeg': 'image/jpeg',
+        '.png': 'image/png',
+        '.gif': 'image/gif',
+        '.webp': 'image/webp',
+        '.bmp': 'image/bmp',
+        '.svg': 'image/svg+xml'
+      };
+      const contentType = mimeTypes[ext] || 'image/jpeg';
+
+      // Envoyer le fichier avec le bon Content-Type
+      res.setHeader('Content-Type', contentType);
+      res.sendFile(path.resolve(imagePath));
+
+    } catch (error) {
+      console.error('❌ getImage error:', error);
+      res.status(500).json({ 
+        success: false, 
+        error: error.message 
+      });
+    }
   },
   
   // Anciennes fonctions (gardées pour compatibilité)

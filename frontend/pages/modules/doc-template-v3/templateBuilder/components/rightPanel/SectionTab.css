@@ -16,9 +16,13 @@
   font-size: var(--font-size-large);
   font-weight: 600;
   color: var(--color-dark);
-  margin: 0 0 var(--spacing-sm);
-  padding-bottom: var(--spacing-xs);
+  margin: 0;
+  padding: var(--spacing-xs) 0 var(--spacing-xs);
   border-bottom: 2px solid var(--color-primary-light);
+  position: sticky;
+  top: 0;
+  background: var(--color-white);
+  z-index: 2;
 }
 
 .section-field {

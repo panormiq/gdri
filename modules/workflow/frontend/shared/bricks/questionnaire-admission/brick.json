@@ -1,0 +1,13 @@
+{
+  "id": "questionnaire-admission",
+  "name": "Questionnaire d'Admission QMBI",
+  "description": "Collecte initiale des informations du candidat.",
+  "bricks": [
+    {
+      "name": "QR Codes"
+    },
+    {
+      "name": "Questionnaire Complementaire"
+    }
+  ]
+}

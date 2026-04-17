@@ -29,14 +29,14 @@ const globalLimiter = rateLimit({
   // Fonction pour obtenir l'IP réelle (prend en compte le reverse proxy)
   keyGenerator: (req) => {
     // Priorité : X-Forwarded-For (reverse proxy) > X-Real-IP > IP directe
-    const ip = req.headers['x-forwarded-for']?.split(',')[0]?.trim() 
-      || req.headers['x-real-ip'] 
-      || req.connection.remoteAddress 
+    const ip = req.headers['x-forwarded-for']?.split(',')[0]?.trim()
+      || req.headers['x-real-ip']
+      || req.connection.remoteAddress
       || req.socket.remoteAddress
       || req.ip
       || 'unknown';
     // Utiliser ipKeyGenerator pour gérer correctement IPv6
-    return ipKeyGenerator(req, ip);
+    return ipKeyGenerator(ip);
   },
   // Handler personnalisé pour les requêtes bloquées
   handler: (req, res) => {
@@ -54,10 +54,18 @@ const globalLimiter = rateLimit({
       timestamp: new Date().toISOString()
     });
   },
-  // Skip certaines routes (health check, etc.)
+  // Skip certaines routes (health check, webhooks, OAuth callbacks, etc.)
   skip: (req) => {
     // Ne pas limiter les health checks
     if (req.path === '/api/health') {
+      return true;
+    }
+    // Ne pas limiter les webhooks Facebook (appelés directement par Facebook)
+    if (req.path && req.path.includes('/facebook/webhook')) {
+      return true;
+    }
+    // Ne pas limiter les callbacks OAuth (appelés directement par Facebook)
+    if (req.path && req.path.includes('/facebook/oauth/callback')) {
       return true;
     }
     return false;
@@ -79,14 +87,14 @@ const strictLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   keyGenerator: (req) => {
-    const ip = req.headers['x-forwarded-for']?.split(',')[0]?.trim() 
-      || req.headers['x-real-ip'] 
-      || req.connection.remoteAddress 
+    const ip = req.headers['x-forwarded-for']?.split(',')[0]?.trim()
+      || req.headers['x-real-ip']
+      || req.connection.remoteAddress
       || req.socket.remoteAddress
       || req.ip
       || 'unknown';
     // Utiliser ipKeyGenerator pour gérer correctement IPv6
-    return ipKeyGenerator(req, ip);
+    return ipKeyGenerator(ip);
   },
   handler: (req, res) => {
     const ip = req.headers['x-forwarded-for']?.split(',')[0]?.trim() 
@@ -120,12 +128,13 @@ const uploadLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   keyGenerator: (req) => {
-    return req.headers['x-forwarded-for']?.split(',')[0]?.trim() 
-      || req.headers['x-real-ip'] 
-      || req.connection.remoteAddress 
+    const ip = req.headers['x-forwarded-for']?.split(',')[0]?.trim()
+      || req.headers['x-real-ip']
+      || req.connection.remoteAddress
       || req.socket.remoteAddress
       || req.ip
       || 'unknown';
+    return ipKeyGenerator(ip);
   }
 });
 
@@ -144,12 +153,13 @@ const publicApiLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   keyGenerator: (req) => {
-    return req.headers['x-forwarded-for']?.split(',')[0]?.trim() 
-      || req.headers['x-real-ip'] 
-      || req.connection.remoteAddress 
+    const ip = req.headers['x-forwarded-for']?.split(',')[0]?.trim()
+      || req.headers['x-real-ip']
+      || req.connection.remoteAddress
       || req.socket.remoteAddress
       || req.ip
       || 'unknown';
+    return ipKeyGenerator(ip);
   }
 });
 

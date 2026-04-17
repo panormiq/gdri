@@ -32,7 +32,7 @@ $jwt_token = getJWTToken();
         <div class="hero-content">
             <h1>Configuration du module Mail</h1>
             <p class="hero-description">
-                Configurez les profils SMTP et règles de routing pour votre entité
+                Configurez les comptes mail (envoi SMTP et réception IMAP) et les règles de routing
             </p>
         </div>
     </div>
@@ -44,7 +44,9 @@ $jwt_token = getJWTToken();
         <!-- Mode Liste -->
         <div id="listMode">
             <div class="section-title">
-                <h2>Profils SMTP configurés</h2>
+                <h2>Profils mail configurés</h2>
+            </div>
+            <div class="section-actions" style="margin-bottom: 1rem;">
                 <button class="btn btn-primary" id="addNewConfigBtn">
                     + Nouvelle configuration
                 </button>
@@ -67,22 +69,59 @@ $jwt_token = getJWTToken();
             </div>
 
             <form id="mailConfigForm">
-                <div class="form-section">
-                    <h2>Profils SMTP</h2>
-                    <p class="text-muted">Ajoutez un ou plusieurs profils SMTP. Chaque profil peut utiliser une adresse d'envoi différente.</p>
-                    
-                    <div id="smtpProfilesContainer">
-                        <!-- Les profils SMTP seront ajoutés dynamiquement ici -->
-                    </div>
+                <div class="form-section provider-help">
+                    <h2>Modèle : profils serveur + comptes utilisateur</h2>
+                    <p class="text-muted">
+                        <strong>Profils</strong> = serveur + port + SSL/TLS (sans identifiants).<br>
+                        <strong>Comptes</strong> = adresse mail + mot de passe, liés à un profil IMAP et un profil SMTP.<br>
+                        Certains comptes sont génériques (app@…, news@…) liés à l’entité ; d’autres seront liés à un utilisateur.
+                    </p>
+                </div>
 
-                    <button type="button" class="btn btn-outline" id="addProfileBtn">
-                        + Ajouter un profil SMTP
+                <div class="form-section">
+                    <h2>Profils IMAP (courrier entrant)</h2>
+                    <p class="text-muted">Adresse serveur, port et SSL/TLS pour la réception. Aucun identifiant ici.</p>
+                    <div class="preset-row">
+                        <button type="button" class="btn btn-outline" id="addPresetImapBtn">Ajouter depuis un fournisseur</button>
+                        <select id="presetImapSelect" class="form-control preset-select">
+                            <option value="">— Choisir un fournisseur —</option>
+                        </select>
+                    </div>
+                    <div id="imapProfilesContainer" class="profiles-container"></div>
+                </div>
+
+                <div class="form-section">
+                    <h2>Profils SMTP (courrier sortant)</h2>
+                    <p class="text-muted">Adresse serveur, port et SSL/TLS pour l’envoi. Aucun identifiant ici.</p>
+                    <div class="preset-row">
+                        <button type="button" class="btn btn-outline" id="addPresetSmtpBtn">Ajouter depuis un fournisseur</button>
+                        <select id="presetSmtpSelect" class="form-control preset-select">
+                            <option value="">— Choisir un fournisseur —</option>
+                        </select>
+                    </div>
+                    <div id="smtpProfilesContainer" class="profiles-container"></div>
+                </div>
+
+                <div class="form-section">
+                    <h2>Comptes utilisateur</h2>
+                    <p class="text-muted">Adresse mail + mot de passe, reliés à un profil IMAP et un profil SMTP. Type : entité (app@, news@…) ou utilisateur. Ajoutez d’abord au moins un profil SMTP ci-dessus.</p>
+                    <div id="comptesContainer" class="profiles-container"></div>
+                    <button type="button" class="btn btn-outline" id="addCompteBtn">+ Ajouter un compte</button>
+                </div>
+
+                <div class="form-actions">
+                    <button type="submit" class="btn btn-primary">
+                        Sauvegarder la configuration
                     </button>
+                    <button type="button" class="btn btn-outline" id="testConnectionBtn" onclick="testConnections()">
+                        Tester les connexions (SMTP et IMAP)
+                    </button>
+                    <div id="smtpTestResults" style="margin-top: 8px; color: #666;"></div>
                 </div>
 
                 <div class="form-section">
                     <h2>Règles de routing (optionnel)</h2>
-                    <p class="text-muted">Définissez des règles pour sélectionner automatiquement le profil SMTP selon le contexte.</p>
+                    <p class="text-muted">Définissez des règles pour sélectionner automatiquement quel compte mail utiliser selon le contexte.</p>
                     
                     <div id="routingRulesContainer">
                         <!-- Les règles seront ajoutées dynamiquement ici -->
@@ -103,14 +142,6 @@ $jwt_token = getJWTToken();
                     </div>
                 </div>
 
-                <div class="form-actions">
-                    <button type="submit" class="btn btn-primary">
-                        Sauvegarder la configuration
-                    </button>
-                    <button type="button" class="btn btn-outline" id="testConnectionBtn">
-                        Tester les connexions SMTP
-                    </button>
-                </div>
             </form>
 
             <div class="error-state" id="errorState" style="display: none;">
@@ -156,6 +187,13 @@ $jwt_token = getJWTToken();
 .profile-item-header h3, .rule-item-header h3 {
     margin: 0;
     font-size: 1.1rem;
+}
+
+.profile-item-actions {
+    display: flex;
+    gap: var(--spacing-sm);
+    margin: 0 0 var(--spacing-md) 0;
+    flex-wrap: wrap;
 }
 
 .btn-remove {
@@ -274,27 +312,75 @@ $jwt_token = getJWTToken();
     padding: var(--spacing-xxl);
     color: var(--color-gray);
 }
+
+.provider-help { border-left: 4px solid var(--color-primary); }
+.provider-table-wrap { overflow-x: auto; margin: 0.75rem 0; }
+.provider-table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+.provider-table th, .provider-table td { padding: 0.5rem 0.75rem; text-align: left; border: 1px solid var(--color-light); }
+.provider-table th { background: var(--color-light); font-weight: 600; }
+.provider-table .small { font-size: 0.85rem; margin-top: 0.5rem; }
+
+.profile-imap-block { margin-top: 1rem; padding-top: 1rem; border-top: 1px dashed var(--color-light); }
+.profile-imap-block h4 { margin: 0 0 0.5rem 0; font-size: 1rem; color: var(--color-gray); }
+.preset-row { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 1rem; flex-wrap: wrap; }
+.preset-row label { font-weight: 600; min-width: 120px; }
+.preset-row .preset-select { max-width: 280px; }
+.profiles-container { margin: 1rem 0; }
+.profile-row, .compte-row { background: var(--color-light); border-radius: 6px; padding: 1rem; margin-bottom: 0.75rem; display: grid; grid-template-columns: 1fr auto; gap: 0.5rem; align-items: start; }
+.profile-row .fields, .compte-row .fields { grid-column: 1; }
+.profile-row .btn-remove, .compte-row .btn-remove { grid-column: 2; }
 </style>
 
 <script>
-const API_BASE_URL = 'http://localhost:3000/api/mail';
+const API_BASE_URL = <?php echo json_encode(getApiBaseUrl() . '/mail'); ?>;
 const JWT_TOKEN = '<?php echo $jwt_token; ?>';
 const MODULE_NAME = '<?php echo $module_name; ?>';
 
-let profileCounter = 0;
+let presets = [];
+let imapIdCounter = 0;
+let smtpIdCounter = 0;
+let compteIdCounter = 0;
 let ruleCounter = 0;
 let currentConfig = null;
 
-// Charger la configuration au démarrage
 document.addEventListener('DOMContentLoaded', function() {
+    loadPresets();
     loadConfigList();
-    
-    document.getElementById('addNewConfigBtn').addEventListener('click', showFormMode);
-    document.getElementById('addProfileBtn').addEventListener('click', addProfileForm);
+    document.getElementById('addNewConfigBtn').addEventListener('click', () => showFormMode());
+    document.getElementById('addCompteBtn').addEventListener('click', () => addCompte());
+    document.getElementById('addPresetImapBtn').addEventListener('click', () => addImapFromPreset());
+    document.getElementById('addPresetSmtpBtn').addEventListener('click', () => addSmtpFromPreset());
     document.getElementById('addRuleBtn').addEventListener('click', addRuleForm);
     document.getElementById('mailConfigForm').addEventListener('submit', saveConfig);
-    document.getElementById('testConnectionBtn').addEventListener('click', testConnections);
+    document.getElementById('testConnectionBtn')?.addEventListener('click', testConnections);
 });
+
+function parseJsonResponse(res) {
+    const ct = (res.headers.get('content-type') || '').toLowerCase();
+    if (ct.indexOf('application/json') === -1) {
+        return res.text().then(() => { throw new Error('Réponse non-JSON'); });
+    }
+    return res.json();
+}
+
+function loadPresets() {
+    fetch(`${API_BASE_URL}/presets`, { headers: { 'Authorization': `Bearer ${JWT_TOKEN}` } })
+        .then(r => parseJsonResponse(r))
+        .then(data => {
+            if (data.success && data.presets) {
+                presets = data.presets;
+                fillPresetDropdowns();
+            }
+        })
+        .catch(() => {});
+}
+
+function fillPresetDropdowns() {
+    const opt = (p) => `<option value="${p.id}">${p.name}</option>`;
+    const sel = '<option value="">— Choisir un fournisseur —</option>' + (presets.map(opt).join(''));
+    document.getElementById('presetImapSelect').innerHTML = sel;
+    document.getElementById('presetSmtpSelect').innerHTML = sel;
+}
 
 function showListMode() {
     document.getElementById('listMode').style.display = 'block';
@@ -306,17 +392,18 @@ function showFormMode(config = null) {
     currentConfig = config;
     document.getElementById('listMode').style.display = 'none';
     document.getElementById('formMode').style.display = 'block';
-    
+    document.getElementById('formTitle').textContent = config ? 'Modifier la configuration' : 'Nouvelle configuration';
+    document.getElementById('imapProfilesContainer').innerHTML = '';
+    document.getElementById('smtpProfilesContainer').innerHTML = '';
+    document.getElementById('comptesContainer').innerHTML = '';
+    document.getElementById('routingRulesContainer').innerHTML = '';
+    document.getElementById('collectionName').value = config?.collection_name || '';
     if (config) {
-        document.getElementById('formTitle').textContent = 'Modifier la configuration';
         populateForm(config);
     } else {
-        document.getElementById('formTitle').textContent = 'Nouvelle configuration';
-        // Formulaire vide
-        document.getElementById('smtpProfilesContainer').innerHTML = '';
-        document.getElementById('routingRulesContainer').innerHTML = '';
-        document.getElementById('collectionName').value = '';
-        addProfileForm();
+        // Base manuelle : toujours au moins un profil IMAP et un profil SMTP affichés
+        addImapProfile();
+        addSmtpProfile();
     }
 }
 
@@ -324,16 +411,16 @@ function loadConfigList() {
     const listDiv = document.getElementById('configList');
     listDiv.innerHTML = '<div class="loading-state"><p>Chargement de la configuration...</p></div>';
 
-    fetch(`${API_BASE_URL}/config/${MODULE_NAME}`, {
-        headers: {
-            'Authorization': `Bearer ${JWT_TOKEN}`
-        }
-    })
+    fetch(`${API_BASE_URL}/config/${MODULE_NAME}`, { headers: { 'Authorization': `Bearer ${JWT_TOKEN}` } })
     .then(response => response.json())
     .then(data => {
         if (data.success) {
-            if (!data.config || !data.config.smtp_profiles || Object.keys(data.config.smtp_profiles).length === 0) {
-                // Pas de configuration
+            const c = data.config;
+            const hasNew = c && Array.isArray(c.comptes) && c.comptes.length > 0;
+            const hasOld = c && c.smtp_profiles && Object.keys(c.smtp_profiles).length > 0;
+            const hasImap = c && (c.imap_config || (hasNew && c.comptes.some(x => x.profil_imap_id)));
+            if (!c || (!hasNew && !hasOld && !hasImap)) {
+                // Pas de configuration (ni SMTP ni IMAP)
                 listDiv.innerHTML = `
                     <div class="empty-state">
                         <p>Aucune configuration trouvée.</p>
@@ -345,21 +432,36 @@ function loadConfigList() {
                 displayConfigList(data.config);
             }
         } else {
-            listDiv.innerHTML = `<div class="error-state"><p>${data.message || 'Erreur lors du chargement'}</p></div>`;
+            listDiv.innerHTML = `
+                <div class="error-state">
+                    <p>${data.message || 'Erreur lors du chargement'}</p>
+                    <button class="btn btn-primary" onclick="showFormMode()">Créer une configuration</button>
+                </div>
+            `;
         }
     })
     .catch(error => {
-        listDiv.innerHTML = '<div class="error-state"><p>Erreur de connexion au serveur</p></div>';
+        listDiv.innerHTML = `
+            <div class="error-state">
+                <p>Erreur de connexion au serveur</p>
+                <button class="btn btn-primary" onclick="showFormMode()">Créer une configuration</button>
+            </div>
+        `;
         console.error(error);
     });
 }
 
 function displayConfigList(config) {
     const listDiv = document.getElementById('configList');
+    const ruleCount = (config.routing_rules || []).length;
+    const isNewFormat = Array.isArray(config.profils_imap) && Array.isArray(config.profils_smtp) && Array.isArray(config.comptes);
+    const profilsImap = config.profils_imap || [];
+    const profilsSmtp = config.profils_smtp || [];
+    const comptes = config.comptes || [];
     const profiles = config.smtp_profiles || {};
-    const profileCount = Object.keys(profiles).length;
-    const ruleCount = config.routing_rules ? config.routing_rules.length : 0;
-    
+    const profileCount = isNewFormat ? comptes.length : Object.keys(profiles).length;
+    const hasImap = isNewFormat ? comptes.some(c => c.profil_imap_id) : (!!config.imap_config || Object.values(profiles).some(p => p.imap));
+
     let html = `
         <div class="config-card">
             <div class="config-card-header">
@@ -369,55 +471,40 @@ function displayConfigList(config) {
                     <button class="btn btn-primary" onclick="editConfig()">✏️ Modifier</button>
                 </div>
             </div>
-            
             <div class="config-details">
-                <div class="config-detail-item">
-                    <strong>Profils SMTP</strong>
-                    <span>${profileCount} profil(s) configuré(s)</span>
-                </div>
-                <div class="config-detail-item">
-                    <strong>Règles de routing</strong>
-                    <span>${ruleCount} règle(s) définie(s)</span>
-                </div>
-                <div class="config-detail-item">
-                    <strong>Collection</strong>
-                    <span>${config.collection_name || 'emails (défaut)'}</span>
-                </div>
+                <div class="config-detail-item"><strong>Profils IMAP</strong><span>${profilsImap.length}</span></div>
+                <div class="config-detail-item"><strong>Profils SMTP</strong><span>${profilsSmtp.length}</span></div>
+                <div class="config-detail-item"><strong>Comptes</strong><span>${profileCount}</span></div>
+                <div class="config-detail-item"><strong>Règles de routing</strong><span>${ruleCount}</span></div>
+                <div class="config-detail-item"><strong>Collection</strong><span>${config.collection_name || 'emails (défaut)'}</span></div>
             </div>
-        </div>
-    `;
-    
-    // Afficher les profils
-    Object.keys(profiles).forEach((profileName, index) => {
-        const profile = profiles[profileName];
-        html += `
-            <div class="config-card">
-                <div class="config-card-header">
-                    <h3>Profil: ${profileName}</h3>
-                </div>
-                <div class="config-details">
-                    <div class="config-detail-item">
-                        <strong>SMTP Host</strong>
-                        <span>${profile.smtp.host}</span>
-                    </div>
-                    <div class="config-detail-item">
-                        <strong>SMTP Port</strong>
-                        <span>${profile.smtp.port}</span>
-                    </div>
-                    <div class="config-detail-item">
-                        <strong>Utilisateur</strong>
-                        <span>${profile.smtp.auth.user}</span>
-                    </div>
-                    <div class="config-detail-item">
-                        <strong>From</strong>
-                        <span>${profile.from.name} &lt;${profile.from.email}&gt;</span>
-                    </div>
-                </div>
-            </div>
-        `;
-    });
-    
-    // Afficher les règles de routing
+        </div>`;
+
+    if (isNewFormat) {
+        profilsImap.forEach(p => {
+            html += `<div class="config-card"><div class="config-card-header"><h3>IMAP : ${p.name || p.id}</h3></div><div class="config-details"><div class="config-detail-item"><strong>Serveur</strong><span>${p.host}:${p.port} ${p.secure ? 'SSL' : ''}</span></div></div></div>`;
+        });
+        profilsSmtp.forEach(p => {
+            html += `<div class="config-card"><div class="config-card-header"><h3>SMTP : ${p.name || p.id}</h3></div><div class="config-details"><div class="config-detail-item"><strong>Serveur</strong><span>${p.host}:${p.port} ${p.secure ? 'SSL' : ''}</span></div></div></div>`;
+        });
+        comptes.forEach(c => {
+            const smtpP = profilsSmtp.find(x => x.id === c.profil_smtp_id);
+            const imapP = profilsImap.find(x => x.id === c.profil_imap_id);
+            html += `<div class="config-card"><div class="config-card-header"><h3>Compte : ${c.email}</h3></div><div class="config-details"><div class="config-detail-item"><strong>Type</strong><span>${c.type || 'entity'}</span></div><div class="config-detail-item"><strong>SMTP</strong><span>${smtpP ? smtpP.host : '-'}</span></div><div class="config-detail-item"><strong>IMAP</strong><span>${imapP ? imapP.host : '-'}</span></div></div></div>`;
+        });
+    } else {
+        Object.keys(profiles).forEach((profileName) => {
+            const profile = profiles[profileName];
+            const imap = profile.imap;
+            html += `<div class="config-card"><div class="config-card-header"><h3>Compte : ${profileName}</h3></div><div class="config-details"><div class="config-detail-item"><strong>SMTP</strong><span>${profile.smtp.host}:${profile.smtp.port}</span></div><div class="config-detail-item"><strong>Email</strong><span>${profile.smtp.auth.user}</span></div>${imap ? `<div class="config-detail-item"><strong>IMAP</strong><span>${imap.host}:${imap.port || 993}</span></div>` : ''}</div></div>`;
+        });
+        if (config.imap_config && !Object.keys(profiles).some(n => profiles[n].imap)) {
+            const imap = config.imap_config;
+            html += `<div class="config-card"><div class="config-card-header"><h3>IMAP (réception)</h3></div><div class="config-details"><div class="config-detail-item"><strong>Serveur</strong><span>${imap.host || '-'}:${imap.port || 993}</span></div></div></div>`;
+        }
+    }
+
+    // Règles de routing
     if (config.routing_rules && config.routing_rules.length > 0) {
         html += `
             <div class="config-card">
@@ -465,103 +552,179 @@ function editConfig() {
 }
 
 function testAllConnections() {
-    fetch(`${API_BASE_URL}/config/${MODULE_NAME}`, {
-        headers: {
-            'Authorization': `Bearer ${JWT_TOKEN}`
-        }
-    })
-    .then(response => response.json())
-    .then(data => {
-        if (data.success && data.config && data.config.smtp_profiles) {
-            testConnectionsForProfiles(data.config.smtp_profiles);
-        }
-    });
+    fetch(`${API_BASE_URL}/config/${MODULE_NAME}`, { headers: { 'Authorization': `Bearer ${JWT_TOKEN}` } })
+        .then(r => r.json())
+        .then(data => {
+            if (!data.success || !data.config) return;
+            const cfg = data.config;
+            if (Array.isArray(cfg.comptes) && cfg.comptes.length > 0) {
+                const ids = cfg.comptes.map(c => c.id || c.email);
+                testConnectionsForProfiles(ids.reduce((o, id) => { o[id] = {}; return o; }, {}));
+            } else if (cfg.smtp_profiles && Object.keys(cfg.smtp_profiles).length > 0) {
+                testConnectionsForProfiles(cfg.smtp_profiles);
+            }
+        });
 }
+
+function addImapProfile(data = {}) {
+    const id = data.id || `imap_${++imapIdCounter}`;
+    const div = document.createElement('div');
+    div.className = 'profile-row';
+    div.dataset.profileId = id;
+    div.innerHTML = `
+        <div class="fields">
+            <div class="form-group">
+                <label>Nom (optionnel)</label>
+                <input type="text" class="form-control profile-name" value="${(data.name || '').replace(/"/g, '&quot;')}" placeholder="ex. OVH Pro" />
+            </div>
+            <div class="form-group">
+                <label>Host</label>
+                <input type="text" class="form-control profile-host" value="${(data.host || '').replace(/"/g, '&quot;')}" placeholder="ex. pro1.mail.ovh.net" required />
+            </div>
+            <div class="form-group">
+                <label>Port</label>
+                <input type="number" class="form-control profile-port" value="${data.port ?? 993}" required />
+            </div>
+            <div class="form-group">
+                <label>SSL/TLS</label>
+                <select class="form-control profile-secure"><option value="true" ${data.secure !== false ? 'selected' : ''}>Oui</option><option value="false" ${data.secure === false ? 'selected' : ''}>Non</option></select>
+            </div>
+        </div>
+        <button type="button" class="btn-remove" onclick="removeImapProfile('${id}')">Supprimer</button>`;
+    document.getElementById('imapProfilesContainer').appendChild(div);
+}
+
+function addSmtpProfile(data = {}) {
+    const id = data.id || `smtp_${++smtpIdCounter}`;
+    const div = document.createElement('div');
+    div.className = 'profile-row';
+    div.dataset.profileId = id;
+    div.innerHTML = `
+        <div class="fields">
+            <div class="form-group">
+                <label>Nom (optionnel)</label>
+                <input type="text" class="form-control profile-name" value="${(data.name || '').replace(/"/g, '&quot;')}" placeholder="ex. OVH Pro" />
+            </div>
+            <div class="form-group">
+                <label>Host</label>
+                <input type="text" class="form-control profile-host" value="${(data.host || '').replace(/"/g, '&quot;')}" placeholder="ex. pro1.mail.ovh.net" required />
+            </div>
+            <div class="form-group">
+                <label>Port</label>
+                <input type="number" class="form-control profile-port" value="${data.port ?? 587}" required />
+            </div>
+            <div class="form-group">
+                <label>SSL/TLS</label>
+                <select class="form-control profile-secure"><option value="true" ${data.secure === true ? 'selected' : ''}>Oui</option><option value="false" ${data.secure !== true ? 'selected' : ''}>Non</option></select>
+            </div>
+        </div>
+        <button type="button" class="btn-remove" onclick="removeSmtpProfile('${id}')">Supprimer</button>`;
+    document.getElementById('smtpProfilesContainer').appendChild(div);
+}
+
+function addCompte(data = {}) {
+    const id = data.id || `compte_${++compteIdCounter}`;
+    const imapOpts = (config) => {
+        const list = (config && config.profils_imap) ? config.profils_imap : [];
+        return list.map(p => `<option value="${p.id}" ${(data.profil_imap_id === p.id) ? 'selected' : ''}>${p.name || p.id} (${p.host})</option>`).join('') || '<option value="">— Aucun —</option>';
+    };
+    const smtpOpts = (config) => {
+        const list = (config && config.profils_smtp) ? config.profils_smtp : [];
+        return list.map(p => `<option value="${p.id}" ${(data.profil_smtp_id === p.id) ? 'selected' : ''}>${p.name || p.id} (${p.host})</option>`).join('') || '<option value="">— Choisir un profil SMTP —</option>';
+    };
+    const imapSel = document.getElementById('imapProfilesContainer');
+    const smtpSel = document.getElementById('smtpProfilesContainer');
+    const imapIds = [...imapSel.querySelectorAll('[data-profile-id]')].map(el => ({ id: el.dataset.profileId, name: el.querySelector('.profile-name')?.value || el.dataset.profileId, host: el.querySelector('.profile-host')?.value }));
+    const smtpIds = [...smtpSel.querySelectorAll('[data-profile-id]')].map(el => ({ id: el.dataset.profileId, name: el.querySelector('.profile-name')?.value || el.dataset.profileId, host: el.querySelector('.profile-host')?.value }));
+    const div = document.createElement('div');
+    div.className = 'compte-row';
+    div.dataset.compteId = id;
+    div.innerHTML = `
+        <div class="fields">
+            <div class="form-group">
+                <label>Email</label>
+                <input type="email" class="form-control compte-email" value="${(data.email || '').replace(/"/g, '&quot;')}" required />
+            </div>
+            <div class="form-group">
+                <label>Mot de passe</label>
+                <input type="password" class="form-control compte-password" value="" placeholder="${data.password ? '••••••••' : ''}" />
+            </div>
+            <div class="form-group">
+                <label>Profil SMTP (courrier sortant)</label>
+                <select class="form-control compte-profil-smtp" required>${smtpIds.map(p => `<option value="${p.id}" ${(data.profil_smtp_id === p.id) ? 'selected' : ''}>${p.name || p.id} (${p.host || ''})</option>`).join('') || '<option value="">— Aucun profil —</option>'}</select>
+            </div>
+            <div class="form-group">
+                <label>Profil IMAP (courrier entrant, optionnel)</label>
+                <select class="form-control compte-profil-imap"><option value="">— Aucun —</option>${imapIds.map(p => `<option value="${p.id}" ${(data.profil_imap_id === p.id) ? 'selected' : ''}>${p.name || p.id} (${p.host || ''})</option>`).join('')}</select>
+            </div>
+            <div class="form-group">
+                <label>Type</label>
+                <select class="form-control compte-type"><option value="entity" ${(data.type || 'entity') === 'entity' ? 'selected' : ''}>Entité (app@, news@…)</option><option value="user" ${data.type === 'user' ? 'selected' : ''}>Utilisateur</option></select>
+            </div>
+            <div class="form-group">
+                <label>Nom affiché (From)</label>
+                <input type="text" class="form-control compte-from-name" value="${(data.from_name || '').replace(/"/g, '&quot;')}" placeholder="Optionnel" />
+            </div>
+            <div class="form-group">
+                <label>Dossier IMAP (mailbox)</label>
+                <input type="text" class="form-control compte-imap-mailbox" value="${(data.imap_mailbox || 'INBOX').replace(/"/g, '&quot;')}" placeholder="INBOX" />
+            </div>
+        </div>
+        <button type="button" class="btn-remove" onclick="removeCompte('${id}')">Supprimer</button>`;
+    document.getElementById('comptesContainer').appendChild(div);
+}
+
+function addImapFromPreset() {
+    const sel = document.getElementById('presetImapSelect');
+    const presetId = sel.value;
+    if (!presetId) { alert('Choisissez un fournisseur'); return; }
+    const p = presets.find(x => x.id === presetId);
+    if (!p || !p.imap) return;
+    addImapProfile({ name: p.name, host: p.imap.host, port: p.imap.port, secure: p.imap.secure !== false });
+    sel.value = '';
+}
+
+function addSmtpFromPreset() {
+    const sel = document.getElementById('presetSmtpSelect');
+    const presetId = sel.value;
+    if (!presetId) { alert('Choisissez un fournisseur'); return; }
+    const p = presets.find(x => x.id === presetId);
+    if (!p || !p.smtp) return;
+    addSmtpProfile({ name: p.name, host: p.smtp.host, port: p.smtp.port, secure: p.smtp.secure === true });
+    sel.value = '';
+}
+
+function removeImapProfile(id) { document.querySelector(`[data-profile-id="${id}"]`)?.remove(); }
+function removeSmtpProfile(id) { document.querySelector(`[data-profile-id="${id}"]`)?.remove(); }
+function removeCompte(id) { document.querySelector(`[data-compte-id="${id}"]`)?.remove(); }
 
 function populateForm(config) {
-    // Vider les containers
-    document.getElementById('smtpProfilesContainer').innerHTML = '';
-    document.getElementById('routingRulesContainer').innerHTML = '';
-    
-    // Remplir les profils SMTP
-    if (config.smtp_profiles) {
-        Object.keys(config.smtp_profiles).forEach(profileName => {
-            const profile = config.smtp_profiles[profileName];
-            addProfileForm(profileName, profile);
-        });
+    const migrateOld = config.smtp_profiles && !Array.isArray(config.profils_imap);
+    let profilsImap = config.profils_imap || [];
+    let profilsSmtp = config.profils_smtp || [];
+    let comptes = config.comptes || [];
+    if (migrateOld) {
+        const smtpProfiles = config.smtp_profiles;
+        const smtpIds = Object.keys(smtpProfiles);
+        profilsSmtp = smtpIds.map((key, i) => ({ id: `smtp_${i}`, name: key, host: smtpProfiles[key].smtp.host, port: smtpProfiles[key].smtp.port, secure: smtpProfiles[key].smtp.secure }));
+        if (config.imap_config) {
+            profilsImap = [{ id: 'imap_0', name: 'IMAP', host: config.imap_config.host, port: config.imap_config.port || 993, secure: config.imap_config.secure !== false }];
+        }
+        comptes = smtpIds.map((key, i) => ({
+            id: key,
+            email: smtpProfiles[key].smtp.auth.user,
+            password: smtpProfiles[key].smtp.auth.pass,
+            profil_smtp_id: profilsSmtp[i].id,
+            profil_imap_id: profilsImap[0] ? profilsImap[0].id : null,
+            type: 'entity',
+            from_name: smtpProfiles[key].from && smtpProfiles[key].from.name
+        }));
     }
-
-    // Remplir les règles de routing
-    if (config.routing_rules && config.routing_rules.length > 0) {
-        config.routing_rules.forEach(rule => {
-            addRuleForm(rule);
-        });
-    }
-
-    // Collection name
-    if (config.collection_name) {
-        document.getElementById('collectionName').value = config.collection_name;
-    }
-}
-
-function addProfileForm(profileName = null, profileData = null) {
-    const container = document.getElementById('smtpProfilesContainer');
-    const profileId = profileName || `profile_${profileCounter++}`;
-    
-    const profileDiv = document.createElement('div');
-    profileDiv.className = 'profile-item';
-    profileDiv.dataset.profileName = profileId;
-    
-    profileDiv.innerHTML = `
-        <div class="profile-item-header">
-            <h3>Profil SMTP: ${profileId}</h3>
-            <button type="button" class="btn-remove" onclick="removeProfile('${profileId}')">Supprimer</button>
-        </div>
-        <div class="form-group">
-            <label>Nom du profil</label>
-            <input type="text" class="form-control profile-name" value="${profileId}" data-original="${profileId}" />
-        </div>
-        <div class="form-group">
-            <label>SMTP Host</label>
-            <input type="text" class="form-control smtp-host" value="${profileData?.smtp?.host || ''}" placeholder="smtp.example.com" required />
-        </div>
-        <div class="form-group">
-            <label>SMTP Port</label>
-            <input type="number" class="form-control smtp-port" value="${profileData?.smtp?.port || '587'}" placeholder="587" required />
-        </div>
-        <div class="form-group">
-            <label>SMTP Secure (SSL/TLS)</label>
-            <select class="form-control smtp-secure">
-                <option value="false" ${!profileData?.smtp?.secure ? 'selected' : ''}>False (TLS)</option>
-                <option value="true" ${profileData?.smtp?.secure ? 'selected' : ''}>True (SSL)</option>
-            </select>
-        </div>
-        <div class="form-group">
-            <label>SMTP User</label>
-            <input type="text" class="form-control smtp-user" value="${profileData?.smtp?.auth?.user || ''}" placeholder="user@example.com" required />
-        </div>
-        <div class="form-group">
-            <label>SMTP Password</label>
-            <input type="password" class="form-control smtp-password" value="${profileData?.smtp?.auth?.pass || ''}" placeholder="Mot de passe" required />
-        </div>
-        <div class="form-group">
-            <label>From Name</label>
-            <input type="text" class="form-control from-name" value="${profileData?.from?.name || ''}" placeholder="Nom de l'expéditeur" required />
-        </div>
-        <div class="form-group">
-            <label>From Email</label>
-            <input type="email" class="form-control from-email" value="${profileData?.from?.email || ''}" placeholder="email@example.com" required />
-        </div>
-    `;
-    
-    container.appendChild(profileDiv);
-}
-
-function removeProfile(profileName) {
-    const profileDiv = document.querySelector(`[data-profile-name="${profileName}"]`);
-    if (profileDiv) {
-        profileDiv.remove();
-    }
+    profilsImap.forEach(p => addImapProfile(p));
+    profilsSmtp.forEach(p => addSmtpProfile(p));
+    comptes.forEach(c => addCompte({ ...c, password: c.password ? '••••••••' : '' }));
+    (config.routing_rules || []).forEach(rule => addRuleForm(rule));
+    if (config.collection_name) document.getElementById('collectionName').value = config.collection_name;
 }
 
 function addRuleForm(ruleData = null) {
@@ -583,8 +746,8 @@ function addRuleForm(ruleData = null) {
             <small class="text-muted">Exemple: priority:high, category:alert</small>
         </div>
         <div class="form-group">
-            <label>Profil SMTP à utiliser</label>
-            <input type="text" class="form-control rule-profile" value="${ruleData?.use_profile || ''}" placeholder="alerts" required />
+            <label>Compte mail à utiliser</label>
+            <input type="text" class="form-control rule-profile" value="${ruleData?.use_profile || ''}" placeholder="nom du compte" required />
         </div>
         <div class="form-group">
             <label>Destinataire par défaut (optionnel)</label>
@@ -604,32 +767,48 @@ function removeRule(ruleId) {
 
 function collectFormData() {
     const config = {
-        smtp_profiles: {},
+        profils_imap: [],
+        profils_smtp: [],
+        comptes: [],
         routing_rules: [],
-        collection_name: document.getElementById('collectionName').value || null
+        collection_name: document.getElementById('collectionName').value.trim() || null
     };
 
-    // Collecter les profils SMTP
-    document.querySelectorAll('.profile-item').forEach(profileDiv => {
-        const profileName = profileDiv.querySelector('.profile-name').value;
-        config.smtp_profiles[profileName] = {
-            smtp: {
-                host: profileDiv.querySelector('.smtp-host').value,
-                port: parseInt(profileDiv.querySelector('.smtp-port').value),
-                secure: profileDiv.querySelector('.smtp-secure').value === 'true',
-                auth: {
-                    user: profileDiv.querySelector('.smtp-user').value,
-                    pass: profileDiv.querySelector('.smtp-password').value
-                }
-            },
-            from: {
-                name: profileDiv.querySelector('.from-name').value,
-                email: profileDiv.querySelector('.from-email').value
-            }
-        };
+    document.querySelectorAll('#imapProfilesContainer .profile-row').forEach(row => {
+        config.profils_imap.push({
+            id: row.dataset.profileId,
+            name: row.querySelector('.profile-name')?.value?.trim() || null,
+            host: row.querySelector('.profile-host')?.value?.trim(),
+            port: parseInt(row.querySelector('.profile-port')?.value, 10) || 993,
+            secure: row.querySelector('.profile-secure')?.value !== 'false'
+        });
+    });
+    document.querySelectorAll('#smtpProfilesContainer .profile-row').forEach(row => {
+        config.profils_smtp.push({
+            id: row.dataset.profileId,
+            name: row.querySelector('.profile-name')?.value?.trim() || null,
+            host: row.querySelector('.profile-host')?.value?.trim(),
+            port: parseInt(row.querySelector('.profile-port')?.value, 10) || 587,
+            secure: row.querySelector('.profile-secure')?.value === 'true'
+        });
+    });
+    document.querySelectorAll('#comptesContainer .compte-row').forEach(row => {
+        const email = row.querySelector('.compte-email')?.value?.trim();
+        const profilSmtpId = row.querySelector('.compte-profil-smtp')?.value || null;
+        if (!email || !profilSmtpId) return;
+        const pwd = row.querySelector('.compte-password')?.value;
+        config.comptes.push({
+            id: row.dataset.compteId,
+            email,
+            password: pwd || undefined,
+            profil_smtp_id: profilSmtpId,
+            profil_imap_id: row.querySelector('.compte-profil-imap')?.value || null,
+            type: row.querySelector('.compte-type')?.value || 'entity',
+            from_name: row.querySelector('.compte-from-name')?.value?.trim() || null,
+            imap_mailbox: row.querySelector('.compte-imap-mailbox')?.value?.trim() || 'INBOX'
+        });
     });
 
-    // Collecter les règles de routing
     document.querySelectorAll('.rule-item').forEach(ruleDiv => {
         const conditionStr = ruleDiv.querySelector('.rule-condition').value;
         const condition = {};
@@ -652,50 +831,80 @@ function collectFormData() {
     return config;
 }
 
-function saveConfig(e) {
-    e.preventDefault();
-    
-    const config = collectFormData();
-    
-    // Validation
-    if (Object.keys(config.smtp_profiles).length === 0) {
-        alert('Veuillez ajouter au moins un profil SMTP');
-        return;
-    }
-
-    fetch(`${API_BASE_URL}/config/${MODULE_NAME}`, {
+function postConfig(config) {
+    return fetch(`${API_BASE_URL}/config/${MODULE_NAME}`, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${JWT_TOKEN}`
         },
         body: JSON.stringify({ config })
-    })
-    .then(response => response.json())
-    .then(data => {
-        if (data.success) {
-            alert('Configuration sauvegardée avec succès !');
-            showListMode(); // Retourner à la liste
-        } else {
-            alert('Erreur : ' + (data.message || 'Erreur inconnue'));
-        }
-    })
-    .catch(error => {
-        alert('Erreur de connexion au serveur');
-        console.error(error);
-    });
+    }).then(response => response.json());
+}
+
+function saveConfig(e) {
+    if (e && e.preventDefault) {
+        e.preventDefault();
+    }
+    
+    const config = collectFormData();
+    
+    if (!config.comptes.length || !config.profils_smtp.length) {
+        alert('Veuillez ajouter au moins un profil SMTP et un compte utilisateur.');
+        return;
+    }
+
+    postConfig(config)
+        .then(data => {
+            if (data.success) {
+                alert('Configuration sauvegardée avec succès !');
+                showListMode(); // Retourner à la liste
+            } else {
+                alert('Erreur : ' + (data.message || 'Erreur inconnue'));
+            }
+        })
+        .catch(error => {
+            alert('Erreur de connexion au serveur');
+            console.error(error);
+        });
+}
+
+function saveConfigAndTestProfile(compteId) {
+    const config = collectFormData();
+    if (!config.comptes.length) {
+        alert('Veuillez ajouter au moins un compte.');
+        return;
+    }
+    postConfig(config)
+        .then(data => {
+            if (!data.success) throw new Error(data.message || 'Erreur lors de la sauvegarde');
+            testConnectionsForProfiles({ [compteId]: {} });
+        })
+        .catch(error => alert(error.message || 'Erreur de connexion au serveur'));
 }
 
 function testConnections() {
+    const resultsDiv = document.getElementById('smtpTestResults');
+    if (resultsDiv) resultsDiv.textContent = 'Sauvegarde puis test en cours...';
     const config = collectFormData();
-    testConnectionsForProfiles(config.smtp_profiles);
+    if (!config.comptes.length) {
+        if (resultsDiv) resultsDiv.textContent = 'Ajoutez au moins un compte et sauvegardez.';
+        return;
+    }
+    postConfig(config).then(data => {
+        if (!data.success) {
+            if (resultsDiv) resultsDiv.textContent = 'Erreur sauvegarde : ' + (data.message || '');
+            return;
+        }
+        testAllConnections();
+    }).catch(() => { if (resultsDiv) resultsDiv.textContent = 'Erreur de connexion'; });
 }
 
 function testConnectionsForProfiles(profiles) {
     const profilesArr = Object.keys(profiles);
     
     if (profilesArr.length === 0) {
-        alert('Veuillez configurer au moins un profil SMTP');
+        alert('Veuillez configurer au moins un compte mail');
         return;
     }
 
@@ -740,12 +949,22 @@ function showTestResults(results) {
     const message = results.map(r => 
         `Profil "${r.profile}": ${r.success ? '✅ OK' : '❌ Erreur'} - ${r.message}`
     ).join('\n');
-    alert(message);
+
+    const resultsDiv = document.getElementById('smtpTestResults');
+    if (resultsDiv) {
+        resultsDiv.textContent = message;
+    } else {
+        alert(message);
+    }
 }
 
 // Exposer les fonctions globalement pour les boutons onclick
-window.removeProfile = removeProfile;
+window.removeImapProfile = removeImapProfile;
+window.removeSmtpProfile = removeSmtpProfile;
+window.removeCompte = removeCompte;
 window.removeRule = removeRule;
+window.testConnections = testConnections;
+window.showTestResults = showTestResults;
 window.loadConfigList = loadConfigList;
 window.showListMode = showListMode;
 window.showFormMode = showFormMode;

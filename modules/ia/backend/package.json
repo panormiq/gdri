@@ -1,0 +1,21 @@
+{
+  "name": "ia",
+  "displayName": "Serveur IA",
+  "version": "1.0.0",
+  "description": "Point d'accès unique à l'IA : priorité backendIA (proxy Ollama), puis fallback direct Ollama ; prévu pour OpenAI/Claude/DeepSeek plus tard.",
+  "author": "GDR-Innovation",
+  "routes": ["/api/ia"],
+  "dependencies": [],
+  "requiredServices": [],
+  "compatibleVersion": ">=1.0.0",
+  "app": {
+    "id": "ia",
+    "label": "Serveur IA",
+    "description": "Configure et centralise l'accès aux modèles IA (Ollama local, backendIA, OpenAI, Claude, DeepSeek...).",
+    "category": "infrastructure",
+    "tags": ["ia", "infrastructure", "proxy", "configuration"],
+    "icon": "ia.svg",
+    "entryPath": "/modules/ia",               
+    "configPath": "/modules/ia-config"     
+  }
+}

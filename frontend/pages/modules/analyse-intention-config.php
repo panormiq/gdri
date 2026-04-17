@@ -20,6 +20,18 @@ if (!hasRole(ROLE_ADMIN_GDRI) && !hasRole(ROLE_ADMIN_ENTITY)) {
 $page_title = 'Configuration Agent IA';
 require_once '../../includes/header.php';
 
+// Vérifier qu'une entreprise est sélectionnée (sauf pour ADMIN_GDRI)
+// Cette vérification se fait APRÈS le header car $currentEntreprise est défini dans header.php
+if (!hasRole(ROLE_ADMIN_GDRI) && empty($currentEntreprise)) {
+    // Si aucune entreprise n'est sélectionnée, rediriger vers le dashboard
+    // où l'utilisateur pourra sélectionner une entreprise
+    echo '<script>
+        alert("Veuillez sélectionner une entreprise avant d\'accéder à cette page.");
+        window.location.href = "' . url('pages/dashboard.php') . '";
+    </script>';
+    exit;
+}
+
 // Token JWT pour les appels API
 $jwt_token = getJWTToken();
 $api_base_url = getApiBaseUrl();
@@ -46,6 +58,17 @@ $api_base_url = getApiBaseUrl();
             </div>
             <div class="card-body">
                 <form id="agentConfigForm">
+                    <!-- Page Facebook (paramétrage par page) -->
+                    <div class="form-group">
+                        <label for="facebookPageSelect">Page Facebook</label>
+                        <select id="facebookPageSelect" name="facebookPage" class="form-control" style="max-width: 400px;">
+                            <option value="">Toutes les pages (défaut)</option>
+                            <!-- Options chargies dynamiquement depuis les pages connectées -->
+                        </select>
+                        <small class="form-text text-muted">
+                            Choisissez une page pour appliquer une configuration spécifique, ou « Toutes les pages » pour la config par défaut (utilisée si aucune config par page n'existe).
+                        </small>
+                    </div>
                     <!-- Prompt de base -->
                     <div class="form-group">
                         <label for="basePrompt">Prompt de base *</label>
@@ -106,6 +129,90 @@ Analyse maintenant le(s) message(s) suivant(s) :</textarea>
                         <small class="form-text text-muted">
                             Adresse email utilisée par défaut pour toutes les intentions non configurées.
                         </small>
+                    </div>
+
+                    <!-- Fréquence des rapports -->
+                    <div class="form-group report-frequency-section" style="margin-top: 1.5rem; padding: 1rem; background: #f8f9fa; border-radius: 8px; border: 1px solid #e9ecef;">
+                        <h3 style="margin: 0 0 1rem 0; font-size: 1.05rem;">Fréquence des rapports</h3>
+                        <p class="form-text text-muted" style="margin-bottom: 1rem;">Définissez quand envoyer un mail pour chaque type de message.</p>
+                        <!-- Messages urgents -->
+                        <div class="form-group">
+                            <label><strong>Messages urgents</strong></label>
+                            <select id="reportUrgentSchedule" name="reportUrgentSchedule" class="form-control" style="max-width: 320px;">
+                                <option value="immediate">Envoyer un mail immédiatement</option>
+                                <option value="daily_1">1 fois par jour (à l'heure choisie)</option>
+                                <option value="daily_2">2 fois par jour (heures choisies)</option>
+                                <option value="daily_3">3 fois par jour (heures choisies)</option>
+                            </select>
+                            <div id="reportUrgentTimesWrap" style="display: none; margin-top: 0.5rem;">
+                                <div id="reportUrgentTime1Wrap" class="report-urgent-time-row" style="margin-bottom: 0.35rem;">
+                                    <label>Heure 1</label>
+                                    <input type="time" id="reportUrgentTime1" class="form-control report-urgent-time" style="max-width: 100px; display: inline-block;" value="09:00">
+                                </div>
+                                <div id="reportUrgentTime2Wrap" class="report-urgent-time-row" style="display: none; margin-bottom: 0.35rem;">
+                                    <label>Heure 2</label>
+                                    <input type="time" id="reportUrgentTime2" class="form-control report-urgent-time" style="max-width: 100px; display: inline-block;" value="14:00">
+                                </div>
+                                <div id="reportUrgentTime3Wrap" class="report-urgent-time-row" style="display: none; margin-bottom: 0.35rem;">
+                                    <label>Heure 3</label>
+                                    <input type="time" id="reportUrgentTime3" class="form-control report-urgent-time" style="max-width: 100px; display: inline-block;" value="18:00">
+                                </div>
+                            </div>
+                        </div>
+                        <!-- Messages à répondre -->
+                        <div class="form-group">
+                            <label><strong>Messages à répondre</strong></label>
+                            <select id="reportReplySchedule" name="reportReplySchedule" class="form-control" style="max-width: 320px;">
+                                <option value="immediate">Envoyer un mail immédiatement</option>
+                                <option value="daily">Quotidien (à l'heure choisie)</option>
+                                <option value="weekly_1">1 fois par semaine (jour + heure)</option>
+                                <option value="weekly_2">2 fois par semaine (jours + heure)</option>
+                                <option value="weekly_3">3 fois par semaine (jours + heure)</option>
+                            </select>
+                            <div id="reportReplyDailyWrap" style="display: none; margin-top: 0.5rem;">
+                                <label for="reportReplyDailyHour">Heure d'envoi</label>
+                                <input type="time" id="reportReplyDailyHour" class="form-control" style="max-width: 100px; display: inline-block;" value="09:00">
+                            </div>
+                            <div id="reportReplyWeeklyWrap" style="display: none; margin-top: 0.5rem;">
+                                <div class="report-weekly-rows">
+                                    <div class="report-weekly-row" data-n="1">
+                                        <label>Jour 1</label>
+                                        <select id="reportReplyWeekDay1" class="form-control report-reply-weekday" style="max-width: 140px; display: inline-block;">
+                                            <option value="1">Lundi</option><option value="2">Mardi</option><option value="3">Mercredi</option><option value="4">Jeudi</option><option value="5">Vendredi</option><option value="6">Samedi</option><option value="0">Dimanche</option>
+                                        </select>
+                                    </div>
+                                    <div class="report-weekly-row" data-n="2" style="display: none;">
+                                        <label>Jour 2</label>
+                                        <select id="reportReplyWeekDay2" class="form-control report-reply-weekday" style="max-width: 140px; display: inline-block;">
+                                            <option value="1">Lundi</option><option value="2">Mardi</option><option value="3">Mercredi</option><option value="4">Jeudi</option><option value="5">Vendredi</option><option value="6">Samedi</option><option value="0">Dimanche</option>
+                                        </select>
+                                    </div>
+                                    <div class="report-weekly-row" data-n="3" style="display: none;">
+                                        <label>Jour 3</label>
+                                        <select id="reportReplyWeekDay3" class="form-control report-reply-weekday" style="max-width: 140px; display: inline-block;">
+                                            <option value="1">Lundi</option><option value="2">Mardi</option><option value="3">Mercredi</option><option value="4">Jeudi</option><option value="5">Vendredi</option><option value="6">Samedi</option><option value="0">Dimanche</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                <div style="margin-top: 0.35rem;">
+                                    <label for="reportReplyWeeklyHour">Heure d'envoi</label>
+                                    <input type="time" id="reportReplyWeeklyHour" class="form-control" style="max-width: 100px; display: inline-block;" value="09:00">
+                                </div>
+                            </div>
+                        </div>
+                        <!-- Interactions / Statistiques -->
+                        <div class="form-group">
+                            <label><strong>Interactions / Statistiques</strong></label>
+                            <select id="reportInteractionFrequency" name="reportInteractionFrequency" class="form-control" style="max-width: 280px;">
+                                <option value="daily">1 fois par jour</option>
+                                <option value="weekly">1 fois par semaine</option>
+                                <option value="monthly">1 fois par mois</option>
+                            </select>
+                            <div class="form-check" style="margin-top: 0.5rem;">
+                                <input type="checkbox" id="reportInteractionSendEmail" name="reportInteractionSendEmail" class="form-check-input">
+                                <label class="form-check-label" for="reportInteractionSendEmail">Envoyer un mail avec le rapport</label>
+                            </div>
+                        </div>
                     </div>
 
                     <!-- Liste des intentions -->
@@ -201,23 +308,46 @@ Analyse maintenant le(s) message(s) suivant(s) :</textarea>
                     <small class="form-text text-muted">Sélectionnez une intention prédéfinie dans la liste ou saisissez un nom personnalisé</small>
                 </div>
                 
-                <div class="form-group">
-                    <label for="intentionEmail">Email pour cette intention</label>
-                    <input 
-                        type="email" 
-                        id="intentionEmail" 
+                <div class="form-group intention-modal-section">
+                    <label for="intentionDefinition">Définition affinée</label>
+                    <textarea 
+                        id="intentionDefinition" 
                         class="form-control" 
-                        placeholder="sav@example.com (optionnel, utilisera l'email par défaut si vide)"
-                    />
-                    <small class="form-text text-muted">Email qui recevra les notifications pour cette intention. Si vide, l'email par défaut sera utilisé.</small>
+                        rows="3" 
+                        placeholder="Décrivez précisément ce que recouvre cette intention pour l'analyse..."
+                    ></textarea>
+                    <small class="form-text text-muted">Précisez le périmètre de cette intention pour améliorer la détection par l'IA</small>
                 </div>
                 
-                <div class="form-group">
-                    <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; white-space: nowrap; justify-content: flex-start;">
-                        <input type="checkbox" id="intentionUrgent" style="margin: 0; cursor: pointer; flex-shrink: 0; width: auto;" />
-                        <span style="white-space: nowrap;">Notification urgente (envoi immédiat)</span>
-                    </label>
-                    <small class="form-text text-muted">Si coché, un email sera envoyé immédiatement lorsqu'une intention urgente est détectée</small>
+                <div class="form-group intention-modal-section">
+                    <label for="intentionPriority">Ordre de priorité du rapport</label>
+                    <select id="intentionPriority" class="form-control">
+                        <option value="immediate">Immédiat — notification dès qu'une intention est détectée</option>
+                        <option value="daily">Journalier — rapport récapitulatif chaque jour</option>
+                        <option value="weekly">Rapport par semaine — rapport récapitulatif hebdomadaire</option>
+                        <option value="monthly">Mensuel — rapport récapitulatif mensuel</option>
+                    </select>
+                    <small class="form-text text-muted">Définit comment et quand les rapports pour cette intention sont envoyés</small>
+                </div>
+                
+                <div class="form-group intention-modal-section">
+                    <label>Destinataires du rapport d'intention</label>
+                    <div id="intentionRecipientsContainer" class="recipients-container">
+                        <!-- Les destinataires seront ajoutés ici dynamiquement -->
+                    </div>
+                    <div style="display: flex; gap: 8px; margin-top: 8px;">
+                        <input 
+                            type="email" 
+                            id="intentionEmailInput" 
+                            class="form-control" 
+                            placeholder="email@exemple.com"
+                            style="flex: 1;"
+                        />
+                        <button type="button" class="btn btn-outline btn-sm" id="addRecipientBtn">
+                            + Ajouter
+                        </button>
+                    </div>
+                    <small class="form-text text-muted">Un ou plusieurs emails qui recevront les notifications pour cette intention. Si vide, l'email par défaut sera utilisé.</small>
                 </div>
             </form>
         </div>
@@ -355,10 +485,41 @@ const DEFAULT_INTENTIONS = [
 ];
 
 let defaultIntentionsEnabled = {}; // Objet pour stocker l'état des intentions par défaut {name: true/false}
+let defaultIntentionOverrides = {}; // { name: { priority, emails } } pour priorité/destinataires des intentions par défaut
 let intentions = []; // Tableau pour stocker les intentions personnalisées uniquement
 let smtpProfiles = []; // Tableau pour stocker les profils SMTP
 let editingIntentionIndex = null;
+let editingDefaultIntentionName = null; // Nom de l'intention par défaut en cours d'édition (ou null si custom)
 let editingSmtpIndex = null;
+
+// Sauvegarder le prompt par défaut
+const DEFAULT_PROMPT = `Tu es un spécialiste expert en analyse d'intention de messages. Ton rôle est d'analyser précisément les messages reçus et d'identifier leur(s) intention(s) parmi les catégories suivantes :
+
+{{Liste des intentions}}
+
+Pour chaque message analysé, tu dois :
+
+1. IDENTIFIER toutes les intentions possibles présentes dans le message
+   - Un message peut contenir PLUSIEURS intentions simultanées (ex: SAV + Commercial, Technique + Information)
+   - Pour chaque intention détectée, indique :
+     * La catégorie d'intention
+     * Le niveau de probabilité (de 0 à 100%)
+     * Une brève explication de pourquoi cette intention a été détectée
+
+2. ÉVALUER le niveau de certitude global de ton analyse (de 0 à 100%)
+
+3. DÉTERMINER si une action urgente est requise (notamment pour les messages critiques, réclamations importantes, ou demandes nécessitant une réponse immédiate)
+
+Instructions importantes :
+- Sois précis et objectif dans ton analyse
+- Prends en compte le contexte, le ton et le contenu du message
+- Si plusieurs intentions sont possibles, liste-les toutes avec leur probabilité respective
+- Pour les messages ambigus, indique un niveau de certitude plus faible
+- Les messages urgents nécessitent une attention immédiate et doivent être traités en priorité
+
+Réponds au format JSON avec un tableau d'intentions détectées, chacune avec sa probabilité.
+
+Analyse maintenant le(s) message(s) suivant(s) :`;
 
 // Ouvrir le modal pour ajouter une intention
 document.getElementById('addIntentionBtn').addEventListener('click', () => {
@@ -377,7 +538,7 @@ function initDefaultIntentions() {
     renderDefaultIntentions();
 }
 
-// Afficher les checkboxes des intentions par défaut
+// Afficher les checkboxes des intentions par défaut + bouton Modifier
 function renderDefaultIntentions() {
     const container = document.getElementById('defaultIntentionsContainer');
     if (!container) return;
@@ -387,43 +548,60 @@ function renderDefaultIntentions() {
     DEFAULT_INTENTIONS.forEach(intention => {
         const checkboxWrapper = document.createElement('div');
         checkboxWrapper.className = 'default-intention-item';
-        checkboxWrapper.style.cssText = 'display: flex; align-items: flex-start; gap: 8px; padding: 8px; margin-bottom: 8px; background: #f9f9f9; border-radius: 4px;';
         
         const checkbox = document.createElement('input');
         checkbox.type = 'checkbox';
         checkbox.id = `default-intention-${intention.name}`;
         checkbox.checked = defaultIntentionsEnabled[intention.name] || false;
-        checkbox.style.cssText = 'margin-top: 2px; cursor: pointer;';
         checkbox.addEventListener('change', (e) => {
             defaultIntentionsEnabled[intention.name] = e.target.checked;
         });
         
         const label = document.createElement('label');
         label.htmlFor = `default-intention-${intention.name}`;
-        label.style.cssText = 'flex: 1; cursor: pointer; margin: 0;';
         label.innerHTML = `
-            <strong style="color: var(--color-primary);">${escapeHtml(intention.label)}</strong>
-            <br>
-            <small style="color: var(--color-gray); font-size: 0.85em;">${escapeHtml(intention.description)}</small>
+            <strong>${escapeHtml(intention.label)}</strong>
+            <small>${escapeHtml(intention.description)}</small>
         `;
+        
+        const actionsDiv = document.createElement('div');
+        actionsDiv.className = 'default-intention-actions';
+        const modifBtn = document.createElement('button');
+        modifBtn.type = 'button';
+        modifBtn.className = 'btn btn-outline btn-sm btn-modifier-intention';
+        modifBtn.textContent = 'Modifier';
+        modifBtn.title = 'Ouvrir le paramétrage (priorité et destinataires)';
+        modifBtn.dataset.intentionName = intention.name;
+        modifBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            openIntentionModalForDefault(intention.name);
+        });
+        actionsDiv.appendChild(modifBtn);
         
         checkboxWrapper.appendChild(checkbox);
         checkboxWrapper.appendChild(label);
+        checkboxWrapper.appendChild(actionsDiv);
         container.appendChild(checkboxWrapper);
     });
 }
 
-// Obtenir toutes les intentions actives (par défaut activées + personnalisées)
+// Obtenir toutes les intentions actives (par défaut activées + personnalisées) avec priorité/destinataires
 function getAllActiveIntentions() {
     const activeDefault = DEFAULT_INTENTIONS
         .filter(intention => defaultIntentionsEnabled[intention.name])
-        .map(intention => ({
-            name: intention.name,
-            email: '', // Sera rempli par l'email par défaut
-            urgent: false,
-            isDefault: true
-        }));
-    
+        .map(intention => {
+            const overrides = defaultIntentionOverrides[intention.name] || {};
+            const emails = overrides.emails && overrides.emails.length > 0 ? overrides.emails : [];
+            const email = emails[0] || '';
+            return {
+                name: intention.name,
+                priority: overrides.priority || 'immediate',
+                emails,
+                email,
+                urgent: (overrides.priority || 'immediate') === 'immediate',
+                isDefault: true
+            };
+        });
     return [...activeDefault, ...intentions];
 }
 
@@ -566,89 +744,217 @@ function initAutocomplete() {
     });
 }
 
+// Gérer les destinataires dans le modal
+let currentRecipients = []; // Liste des emails pour l'intention en cours d'édition
+
+// Ajouter un destinataire
+document.getElementById('addRecipientBtn').addEventListener('click', () => {
+    const emailInput = document.getElementById('intentionEmailInput');
+    const email = emailInput.value.trim();
+    
+    if (!email) {
+        alert('Veuillez saisir un email');
+        return;
+    }
+    
+    // Valider le format email
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+        alert('Veuillez saisir un email valide');
+        return;
+    }
+    
+    // Vérifier si l'email n'est pas déjà dans la liste
+    if (currentRecipients.includes(email)) {
+        alert('Cet email est déjà dans la liste');
+        return;
+    }
+    
+    currentRecipients.push(email);
+    emailInput.value = '';
+    renderRecipients();
+});
+
+// Permettre d'ajouter un destinataire avec Enter
+document.getElementById('intentionEmailInput').addEventListener('keypress', (e) => {
+    if (e.key === 'Enter') {
+        e.preventDefault();
+        document.getElementById('addRecipientBtn').click();
+    }
+});
+
+// Afficher les destinataires
+function renderRecipients() {
+    const container = document.getElementById('intentionRecipientsContainer');
+    container.innerHTML = '';
+    
+    if (currentRecipients.length === 0) {
+        container.innerHTML = '<p style="color: #999; font-style: italic; margin: 0; padding: 8px;">Aucun destinataire ajouté (utilisera l\'email par défaut)</p>';
+        return;
+    }
+    
+    currentRecipients.forEach((email, index) => {
+        const recipientBadge = document.createElement('div');
+        recipientBadge.className = 'recipient-badge';
+        recipientBadge.innerHTML = `
+            <span>${escapeHtml(email)}</span>
+            <button type="button" class="recipient-remove" data-index="${index}" title="Supprimer">×</button>
+        `;
+        
+        recipientBadge.querySelector('.recipient-remove').addEventListener('click', () => {
+            currentRecipients.splice(index, 1);
+            renderRecipients();
+        });
+        
+        container.appendChild(recipientBadge);
+    });
+}
+
+// Libellés de priorité pour l'affichage
+const PRIORITY_LABELS = {
+    immediate: 'Immédiat',
+    daily: 'Journalier',
+    weekly: 'Rapport par semaine',
+    monthly: 'Mensuel'
+};
+
 // Sauvegarder l'intention
 document.getElementById('saveIntentionBtn').addEventListener('click', () => {
     const name = document.getElementById('intentionName').value.trim();
-    let email = document.getElementById('intentionEmail').value.trim();
-    const urgent = document.getElementById('intentionUrgent').checked;
+    const priority = document.getElementById('intentionPriority').value || 'immediate';
+    const definition = (document.getElementById('intentionDefinition') && document.getElementById('intentionDefinition').value.trim()) || '';
     
     if (!name) {
         alert('Veuillez saisir un nom d\'intention');
         return;
     }
     
-    // Si pas d'email, utiliser l'email par défaut
-    if (!email) {
+    // Si pas de destinataires, utiliser l'email par défaut
+    let emails = [...currentRecipients];
+    if (emails.length === 0) {
         const defaultEmail = document.getElementById('defaultEmail').value.trim();
         if (!defaultEmail) {
-            alert('Veuillez saisir un email pour cette intention ou configurer un email par défaut');
+            alert('Veuillez ajouter au moins un destinataire ou configurer un email par défaut');
             return;
         }
-        email = defaultEmail;
+        emails = [defaultEmail]; // Utiliser l'email par défaut comme seul destinataire
     }
     
-    const intention = {
-        name,
-        email,
-        urgent
-    };
-    
-    if (editingIntentionIndex !== null) {
-        // Modifier une intention existante
-        intentions[editingIntentionIndex] = intention;
+    if (editingDefaultIntentionName) {
+        // Sauvegarder les paramètres d'une intention par défaut (priorité + destinataires)
+        defaultIntentionOverrides[editingDefaultIntentionName] = {
+            priority,
+            emails
+        };
+        editingDefaultIntentionName = null;
+        renderDefaultIntentions();
     } else {
-        // Ajouter une nouvelle intention
-        intentions.push(intention);
+        const intention = {
+            name,
+            definition: definition || undefined,
+            priority,
+            emails,
+            email: emails[0],
+            urgent: priority === 'immediate'
+        };
+        if (editingIntentionIndex !== null) {
+            intentions[editingIntentionIndex] = intention;
+        } else {
+            intentions.push(intention);
+        }
+        renderIntentions();
     }
     
-    renderIntentions();
     closeIntentionModal();
 });
 
+// Ouvrir le modal pour paramétrer une intention par défaut (priorité + destinataires)
+function openIntentionModalForDefault(intentionName) {
+    editingDefaultIntentionName = intentionName;
+    editingIntentionIndex = null;
+    const modal = document.getElementById('intentionModal');
+    const title = document.getElementById('intentionModalTitle');
+    const defaultIntention = DEFAULT_INTENTIONS.find(i => i.name === intentionName);
+    const overrides = defaultIntentionOverrides[intentionName] || {};
+    
+    title.textContent = 'Paramétrer l\'intention : ' + (defaultIntention ? defaultIntention.label : intentionName);
+    document.getElementById('intentionName').value = intentionName;
+    document.getElementById('intentionName').readOnly = true;
+    document.getElementById('intentionName').classList.add('readonly-field');
+    document.getElementById('intentionDefinition').value = defaultIntention ? (defaultIntention.description || '') : '';
+    document.getElementById('intentionDefinition').readOnly = true;
+    document.getElementById('intentionDefinition').classList.add('readonly-field');
+    document.getElementById('intentionPriority').value = overrides.priority || 'immediate';
+    document.getElementById('intentionEditIndex').value = '';
+    
+    currentRecipients = overrides.emails && Array.isArray(overrides.emails) ? [...overrides.emails] : (overrides.email ? [overrides.email] : []);
+    document.getElementById('intentionEmailInput').value = '';
+    renderRecipients();
+    
+    modal.style.display = 'flex';
+}
+
 // Fonctions pour gérer le modal
 function openIntentionModal(intentionIndex = null) {
+    editingDefaultIntentionName = null;
     editingIntentionIndex = intentionIndex;
     const modal = document.getElementById('intentionModal');
     const form = document.getElementById('intentionForm');
     const title = document.getElementById('intentionModalTitle');
+    const nameInput = document.getElementById('intentionName');
+    const definitionInput = document.getElementById('intentionDefinition');
+    
+    nameInput.readOnly = false;
+    nameInput.classList.remove('readonly-field');
+    definitionInput.readOnly = false;
+    definitionInput.classList.remove('readonly-field');
+    currentRecipients = [];
     
     if (intentionIndex !== null) {
-        // Mode édition
         title.textContent = 'Modifier une intention';
         const intention = intentions[intentionIndex];
-        document.getElementById('intentionName').value = intention.name;
-        document.getElementById('intentionEmail').value = intention.email;
-        document.getElementById('intentionUrgent').checked = intention.urgent;
+        nameInput.value = intention.name || '';
+        definitionInput.value = intention.definition || '';
+        document.getElementById('intentionPriority').value = intention.priority || intention.reportFrequency || 'immediate';
         document.getElementById('intentionEditIndex').value = intentionIndex;
+        
+        if (intention.emails && Array.isArray(intention.emails)) {
+            currentRecipients = [...intention.emails];
+        } else if (intention.email) {
+            currentRecipients = [intention.email];
+        }
     } else {
-        // Mode création
         title.textContent = 'Ajouter une intention';
         form.reset();
         document.getElementById('intentionEditIndex').value = '';
-        // Pré-remplir l'email avec l'email par défaut si disponible
-        const defaultEmail = document.getElementById('defaultEmail').value.trim();
-        if (defaultEmail) {
-            document.getElementById('intentionEmail').placeholder = `Email (par défaut: ${defaultEmail})`;
-        }
+        document.getElementById('intentionPriority').value = 'immediate';
     }
     
+    document.getElementById('intentionEmailInput').value = '';
+    renderRecipients();
     modal.style.display = 'flex';
     
-    // Initialiser l'auto-complétion après l'ouverture du modal
-    setTimeout(() => {
-        initAutocomplete();
-    }, 150);
+    setTimeout(() => initAutocomplete(), 150);
 }
 
 function closeIntentionModal() {
     document.getElementById('intentionModal').style.display = 'none';
     editingIntentionIndex = null;
+    editingDefaultIntentionName = null;
     document.getElementById('intentionForm').reset();
-    // Réinitialiser le flag d'auto-complétion pour permettre la réinitialisation
-    const input = document.getElementById('intentionName');
-    if (input) {
-        input.removeAttribute('data-autocomplete-init');
+    const nameInput = document.getElementById('intentionName');
+    const definitionInput = document.getElementById('intentionDefinition');
+    if (nameInput) {
+        nameInput.readOnly = false;
+        nameInput.classList.remove('readonly-field');
+        nameInput.removeAttribute('data-autocomplete-init');
     }
+    if (definitionInput) {
+        definitionInput.readOnly = false;
+        definitionInput.classList.remove('readonly-field');
+    }
+    currentRecipients = [];
+    renderRecipients();
 }
 
 // Fermer le modal en cliquant en dehors
@@ -661,12 +967,12 @@ document.getElementById('intentionModal').addEventListener('click', (e) => {
 // Mettre à jour le placeholder de l'email quand l'email par défaut change
 document.getElementById('defaultEmail').addEventListener('input', (e) => {
     const defaultEmail = e.target.value.trim();
-    const intentionEmailInput = document.getElementById('intentionEmail');
+    const intentionEmailInput = document.getElementById('intentionEmailInput');
     if (intentionEmailInput && !intentionEmailInput.value) {
         if (defaultEmail) {
             intentionEmailInput.placeholder = `Email (par défaut: ${defaultEmail})`;
         } else {
-            intentionEmailInput.placeholder = "sav@example.com (optionnel, utilisera l'email par défaut si vide)";
+            intentionEmailInput.placeholder = "sav@example.com";
         }
     }
 });
@@ -690,29 +996,52 @@ function renderIntentions() {
     container.innerHTML = '';
     
     intentions.forEach((intention, index) => {
+        // Récupérer tous les destinataires (support ancien et nouveau format)
+        const emails = intention.emails && Array.isArray(intention.emails) 
+            ? intention.emails 
+            : (intention.email ? [intention.email] : []);
+        
+        const emailsDisplay = emails.length > 0 
+            ? emails.map(email => escapeHtml(email)).join(', ')
+            : 'Aucun destinataire';
+        
+        const priority = intention.priority || intention.reportFrequency || 'immediate';
+        const priorityLabel = PRIORITY_LABELS[priority] || priority;
+        
         const badge = document.createElement('div');
         badge.className = 'intention-badge';
+        badge.setAttribute('data-index', index);
+        badge.style.cursor = 'pointer';
+        badge.title = 'Cliquer pour modifier la priorité et les destinataires';
         badge.innerHTML = `
             <div class="intention-badge-content">
                 <div class="intention-badge-info">
-                    <strong>${escapeHtml(intention.name)}</strong>
-                    <span class="intention-badge-email">${escapeHtml(intention.email)}</span>
-                    ${intention.urgent ? '<span class="intention-badge-urgent">⚠️ Urgent</span>' : ''}
+                    <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                        <strong>${escapeHtml(intention.name)}</strong>
+                        <span class="intention-badge-priority">${escapeHtml(priorityLabel)}</span>
+                        ${(intention.urgent || priority === 'immediate') ? '<span class="intention-badge-urgent">⚠️ Urgent</span>' : ''}
+                    </div>
+                    <span class="intention-badge-email" title="${emails.length > 1 ? emails.map(e => escapeHtml(e)).join(', ') : ''}">
+                        ${emails.length > 1 ? `${emails.length} destinataires: ${emailsDisplay}` : emailsDisplay}
+                    </span>
                 </div>
                 <div class="intention-badge-actions">
-                    <button type="button" class="btn btn-sm btn-outline edit-intention" data-index="${index}">✏️</button>
-                    <button type="button" class="btn btn-sm btn-danger remove-intention" data-index="${index}">🗑️</button>
+                    <button type="button" class="btn btn-outline edit-intention" data-index="${index}" title="Modifier">
+                        <span style="font-size: 14px;">✏️</span>
+                    </button>
+                    <button type="button" class="btn btn-danger remove-intention" data-index="${index}" title="Supprimer">
+                        <span style="font-size: 14px;">🗑️</span>
+                    </button>
                 </div>
             </div>
         `;
         
-        // Gérer l'édition
-        badge.querySelector('.edit-intention').addEventListener('click', () => {
-            openIntentionModal(index);
+        badge.addEventListener('click', (e) => {
+            if (!e.target.closest('.intention-badge-actions')) openIntentionModal(index);
         });
-        
-        // Gérer la suppression
-        badge.querySelector('.remove-intention').addEventListener('click', () => {
+        badge.querySelector('.edit-intention').addEventListener('click', (e) => { e.stopPropagation(); openIntentionModal(index); });
+        badge.querySelector('.remove-intention').addEventListener('click', (e) => {
+            e.stopPropagation();
             if (confirm(`Êtes-vous sûr de vouloir supprimer l'intention "${intention.name}" ?`)) {
                 intentions.splice(index, 1);
                 renderIntentions();
@@ -851,8 +1180,12 @@ function renderSmtpProfiles() {
                     <span class="smtp-profile-badge-details">${escapeHtml(profile.host)}:${profile.port} - ${escapeHtml(profile.from_email)}</span>
                 </div>
                 <div class="smtp-profile-badge-actions">
-                    <button type="button" class="btn btn-sm btn-outline edit-smtp" data-index="${index}">✏️</button>
-                    <button type="button" class="btn btn-sm btn-danger remove-smtp" data-index="${index}">🗑️</button>
+                    <button type="button" class="btn btn-outline edit-smtp" data-index="${index}" title="Modifier">
+                        <span style="font-size: 14px;">✏️</span>
+                    </button>
+                    <button type="button" class="btn btn-danger remove-smtp" data-index="${index}" title="Supprimer">
+                        <span style="font-size: 14px;">🗑️</span>
+                    </button>
                 </div>
             </div>
         `;
@@ -983,13 +1316,45 @@ async function loadDefaultMailSmtp() {
     }
 }
 
+function getSelectedPageId() {
+    const sel = document.getElementById('facebookPageSelect');
+    return sel && sel.value ? sel.value : '';
+}
+
+// Charger la liste des pages Facebook pour le sélecteur
+async function loadFacebookPagesForSelect() {
+    const sel = document.getElementById('facebookPageSelect');
+    if (!sel) return;
+    const firstOption = sel.options[0];
+    while (sel.options.length > 1) sel.remove(1);
+    try {
+        const res = await fetch(`${API_BASE_URL}/facebook/pages/summary`, {
+            headers: { 'Authorization': `Bearer ${JWT_TOKEN}` }
+        });
+        if (!res.ok) return;
+        const data = await res.json();
+        if (data.success && data.pages && data.pages.length > 0) {
+            data.pages.forEach(p => {
+                const opt = document.createElement('option');
+                opt.value = p.pageId || '';
+                opt.textContent = (p.pageName || `Page ${p.pageId}`).trim();
+                sel.appendChild(opt);
+            });
+        }
+    } catch (e) {
+        console.warn('Liste des pages Facebook non chargée:', e);
+    }
+}
+
 // Charger la configuration
 document.getElementById('loadConfigBtn').addEventListener('click', async () => {
     try {
-        console.log('🔍 Chargement config - URL:', `${API_BASE_URL}/analyse/agent-config`);
+        const pageId = getSelectedPageId();
+        const url = pageId ? `${API_BASE_URL}/analyse/agent-config?pageId=${encodeURIComponent(pageId)}` : `${API_BASE_URL}/analyse/agent-config`;
+        console.log('🔍 Chargement config - URL:', url);
         console.log('🔍 Token JWT présent:', JWT_TOKEN ? 'Oui' : 'Non');
         
-        const response = await fetch(`${API_BASE_URL}/analyse/agent-config`, {
+        const response = await fetch(url, {
             headers: {
                 'Authorization': `Bearer ${JWT_TOKEN}`
             }
@@ -1007,11 +1372,48 @@ document.getElementById('loadConfigBtn').addEventListener('click', async () => {
         
         if (data.success) {
             // Remplir le formulaire
-            document.getElementById('basePrompt').value = data.data.basePrompt || data.data.base_prompt || '';
+            // Ne remplacer le prompt que s'il existe vraiment dans la configuration (non vide)
+            const loadedPrompt = data.data.basePrompt || data.data.base_prompt || '';
+            if (loadedPrompt.trim()) {
+                document.getElementById('basePrompt').value = loadedPrompt;
+            } else {
+                // Si pas de prompt dans la config, garder le prompt par défaut
+                document.getElementById('basePrompt').value = DEFAULT_PROMPT;
+            }
             document.getElementById('defaultEmail').value = data.data.defaultEmail || data.data.default_email || '';
             
             // Vérifier l'email après le chargement
             checkDefaultEmail();
+            
+            // Fréquence des rapports
+            const rf = data.data.reportFrequency || {};
+            var urgentScheduleEl = document.getElementById('reportUrgentSchedule');
+            if (urgentScheduleEl) {
+                urgentScheduleEl.value = rf.urgentSchedule || (rf.urgentSendEmail !== false ? 'immediate' : 'daily_1');
+                toggleUrgentTimes();
+            }
+            var replyScheduleEl = document.getElementById('reportReplySchedule');
+            if (replyScheduleEl) {
+                replyScheduleEl.value = rf.replyFrequency || 'immediate';
+            }
+            var replyDailyHourEl = document.getElementById('reportReplyDailyHour');
+            if (replyDailyHourEl) replyDailyHourEl.value = rf.replyDailyHour || '09:00';
+            var replyDailyWrap = document.getElementById('reportReplyDailyWrap');
+            if (replyDailyWrap) replyDailyWrap.style.display = (rf.replyFrequency || 'immediate') === 'daily' ? 'block' : 'none';
+            var replyWeeklyWrap = document.getElementById('reportReplyWeeklyWrap');
+            if (replyWeeklyWrap) {
+                replyWeeklyWrap.style.display = (rf.replyFrequency === 'weekly_1' || rf.replyFrequency === 'weekly_2' || rf.replyFrequency === 'weekly_3') ? 'block' : 'none';
+                replyWeeklyWrap.querySelectorAll('.report-weekly-row').forEach(function(row) {
+                    var n = parseInt(row.getAttribute('data-n'), 10);
+                    row.style.display = (n <= (rf.replyFrequency === 'weekly_1' ? 1 : rf.replyFrequency === 'weekly_2' ? 2 : rf.replyFrequency === 'weekly_3' ? 3 : 0)) ? 'block' : 'none';
+                });
+            }
+            var replyWeeklyHourEl = document.getElementById('reportReplyWeeklyHour');
+            if (replyWeeklyHourEl) replyWeeklyHourEl.value = rf.replyWeeklyHour || '09:00';
+            var interactionFreqEl = document.getElementById('reportInteractionFrequency');
+            if (interactionFreqEl) interactionFreqEl.value = rf.interactionFrequency || 'daily';
+            var interactionSendEmailEl = document.getElementById('reportInteractionSendEmail');
+            if (interactionSendEmailEl) interactionSendEmailEl.checked = rf.interactionSendEmail === true;
             
             // Remplir les intentions
             const loadedIntentions = data.data.customIntentions || data.data.intentions || [];
@@ -1027,17 +1429,29 @@ document.getElementById('loadConfigBtn').addEventListener('click', async () => {
             
             // Charger les intentions personnalisées (exclure les intentions par défaut)
             intentions = [];
+            defaultIntentionOverrides = {};
             const defaultNames = DEFAULT_INTENTIONS.map(i => i.name);
             
             if (loadedIntentions.length > 0) {
                 loadedIntentions.forEach(intention => {
-                    // Ne charger que les intentions personnalisées (pas les intentions par défaut)
-                    if (!defaultNames.includes(intention.name)) {
+                    const name = intention.name || intention.category;
+                    if (!name) return;
+                    if (defaultNames.includes(name)) {
+                        // Paramètres (priorité, destinataires) d'une intention par défaut
+                        const emails = intention.emails && Array.isArray(intention.emails) ? intention.emails : (intention.email ? [intention.email] : []);
+                        if (intention.priority || emails.length > 0) {
+                            defaultIntentionOverrides[name] = {
+                                priority: intention.priority || intention.reportFrequency || 'immediate',
+                                emails
+                            };
+                        }
+                    } else {
                         addIntentionFromData(intention);
                     }
                 });
             }
             
+            renderDefaultIntentions();
             renderIntentions();
             
             // Remplir SMTP
@@ -1086,6 +1500,12 @@ document.getElementById('loadConfigBtn').addEventListener('click', async () => {
             });
             renderDefaultIntentions();
             
+            // S'assurer que le prompt par défaut est présent
+            const basePromptEl = document.getElementById('basePrompt');
+            if (!basePromptEl.value.trim()) {
+                basePromptEl.value = DEFAULT_PROMPT;
+            }
+            
             // Charger le SMTP par défaut
             await loadDefaultMailSmtp();
             // Vérifier l'email (sera vide, donc warning affiché)
@@ -1100,6 +1520,12 @@ document.getElementById('loadConfigBtn').addEventListener('click', async () => {
         });
         renderDefaultIntentions();
         
+        // S'assurer que le prompt par défaut est présent
+        const basePromptEl = document.getElementById('basePrompt');
+        if (!basePromptEl.value.trim()) {
+            basePromptEl.value = DEFAULT_PROMPT;
+        }
+        
         // Charger le SMTP par défaut même en cas d'erreur
         await loadDefaultMailSmtp();
         // Vérifier l'email (sera vide, donc warning affiché)
@@ -1109,10 +1535,17 @@ document.getElementById('loadConfigBtn').addEventListener('click', async () => {
 });
 
 function addIntentionFromData(intention) {
+    const emails = intention.emails && Array.isArray(intention.emails) 
+        ? intention.emails 
+        : (intention.email ? [intention.email] : []);
+    
     intentions.push({
         name: intention.name || intention.category || '',
-        email: intention.email || '',
-        urgent: intention.urgent || false
+        definition: intention.definition || '',
+        priority: intention.priority || intention.reportFrequency || 'immediate',
+        emails,
+        email: emails[0] || '',
+        urgent: intention.urgent || intention.priority === 'immediate'
     });
 }
 
@@ -1152,8 +1585,24 @@ document.getElementById('agentConfigForm').addEventListener('submit', async (e) 
         base_prompt: document.getElementById('basePrompt').value,
         default_email: document.getElementById('defaultEmail').value,
         intentions: allActiveIntentions,
-        defaultIntentionsEnabled: defaultIntentionsEnabled, // Sauvegarder l'état des intentions par défaut
-        smtp_profiles: smtpProfilesObj
+        defaultIntentionsEnabled: defaultIntentionsEnabled,
+        smtp_profiles: smtpProfilesObj,
+        pageId: getSelectedPageId() || null,
+        reportFrequency: (function() {
+            var urgentEl = document.getElementById('reportUrgentSchedule');
+            var replyEl = document.getElementById('reportReplySchedule');
+            var replyDailyEl = document.getElementById('reportReplyDailyHour');
+            var interactionFreqEl = document.getElementById('reportInteractionFrequency');
+            var interactionSendEl = document.getElementById('reportInteractionSendEmail');
+            return {
+                urgentSchedule: urgentEl ? urgentEl.value : 'immediate',
+                urgentSendEmail: urgentEl ? (urgentEl.value === 'immediate') : true,
+                replyFrequency: replyEl ? replyEl.value : 'immediate',
+                replyDailyHour: replyDailyEl ? replyDailyEl.value : '09:00',
+                interactionFrequency: interactionFreqEl ? interactionFreqEl.value : 'daily',
+                interactionSendEmail: interactionSendEl ? interactionSendEl.checked : false
+            };
+        })()
     };
     
     try {
@@ -1201,23 +1650,93 @@ document.getElementById('testConnectionBtn').addEventListener('click', async () 
     }
 });
 
+// Fermer le modal d'entreprise dès que le DOM est prêt (avant même le chargement complet)
+document.addEventListener('DOMContentLoaded', () => {
+    // S'assurer que le modal d'entreprise n'est pas affiché
+    // Si une entreprise est déjà sélectionnée, le modal ne devrait pas s'afficher
+    const entrepriseModal = document.getElementById('entrepriseModal');
+    if (entrepriseModal) {
+        // Forcer la fermeture du modal
+        entrepriseModal.classList.remove('active');
+        entrepriseModal.style.display = 'none';
+        console.log('✅ Modal d\'entreprise fermé automatiquement - une entreprise est déjà sélectionnée');
+    }
+});
+
+// Fermer le modal immédiatement (avant même DOMContentLoaded)
+(function() {
+    const entrepriseModal = document.getElementById('entrepriseModal');
+    if (entrepriseModal) {
+        entrepriseModal.classList.remove('active');
+        entrepriseModal.style.display = 'none';
+    }
+})();
+
+// Visibilité des options "Messages urgents"
+function toggleUrgentTimes() {
+    const sel = document.getElementById('reportUrgentSchedule');
+    if (!sel) return;
+    const v = sel.value;
+    const wrap = document.getElementById('reportUrgentTimesWrap');
+    if (wrap) wrap.style.display = (v === 'daily_1' || v === 'daily_2' || v === 'daily_3') ? 'block' : 'none';
+    const t1 = document.getElementById('reportUrgentTime1Wrap');
+    if (t1) t1.style.display = wrap ? wrap.style.display : 'none';
+    const t2 = document.getElementById('reportUrgentTime2Wrap');
+    if (t2) t2.style.display = (v === 'daily_2' || v === 'daily_3') ? 'block' : 'none';
+    const t3 = document.getElementById('reportUrgentTime3Wrap');
+    if (t3) t3.style.display = (v === 'daily_3') ? 'block' : 'none';
+}
+var reportUrgentScheduleEl = document.getElementById('reportUrgentSchedule');
+if (reportUrgentScheduleEl) reportUrgentScheduleEl.addEventListener('change', toggleUrgentTimes);
+
+// Visibilité des options "Messages à répondre"
+function toggleReplySchedule() {
+    const sel = document.getElementById('reportReplySchedule');
+    if (!sel) return;
+    const v = sel.value;
+    const dailyWrap = document.getElementById('reportReplyDailyWrap');
+    if (dailyWrap) dailyWrap.style.display = v === 'daily' ? 'block' : 'none';
+    const weeklyWrap = document.getElementById('reportReplyWeeklyWrap');
+    if (weeklyWrap) {
+        weeklyWrap.style.display = (v === 'weekly_1' || v === 'weekly_2' || v === 'weekly_3') ? 'block' : 'none';
+        const n = v === 'weekly_1' ? 1 : v === 'weekly_2' ? 2 : v === 'weekly_3' ? 3 : 0;
+        weeklyWrap.querySelectorAll('.report-weekly-row').forEach(function(row) {
+            row.style.display = (parseInt(row.getAttribute('data-n'), 10) <= n) ? 'block' : 'none';
+        });
+    }
+}
+var reportReplyScheduleEl = document.getElementById('reportReplySchedule');
+if (reportReplyScheduleEl) reportReplyScheduleEl.addEventListener('change', toggleReplySchedule);
+
+// Au changement de page Facebook, recharger la config
+var facebookPageSelectEl = document.getElementById('facebookPageSelect');
+if (facebookPageSelectEl) facebookPageSelectEl.addEventListener('change', function() {
+    var loadBtn = document.getElementById('loadConfigBtn');
+    if (loadBtn) loadBtn.click();
+});
+
 // Charger la configuration au chargement de la page
-window.addEventListener('load', () => {
-    // Initialiser les intentions par défaut (toutes activées)
-    initDefaultIntentions();
+window.addEventListener('load', async () => {
+    const entrepriseModal = document.getElementById('entrepriseModal');
+    if (entrepriseModal) {
+        entrepriseModal.classList.remove('active');
+        entrepriseModal.style.display = 'none';
+        console.log('✅ Modal d\'entreprise fermé automatiquement (vérification au chargement)');
+    }
     
-    // Initialiser l'affichage vide
+    initDefaultIntentions();
     renderIntentions();
     renderSmtpProfiles();
     
-    // Ne PAS charger automatiquement le SMTP par défaut au chargement
-    // Il sera chargé uniquement si aucune config n'est sauvegardée
-    // Charger la config complète directement
+    await loadFacebookPagesForSelect();
     document.getElementById('loadConfigBtn').click();
 });
 </script>
 
 <style>
+.form-check { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.25rem; }
+.form-check-input { width: 1rem; height: 1rem; margin: 0; }
+.form-check-label { margin: 0; cursor: pointer; }
 .intentions-badges-container {
     margin-bottom: var(--spacing-md);
     min-height: 60px;
@@ -1232,52 +1751,122 @@ window.addEventListener('load', () => {
 
 .intention-badge {
     background: white;
-    border: 1px solid #ddd;
-    border-radius: 6px;
-    padding: var(--spacing-sm) var(--spacing-md);
+    border: 1px solid #e0e0e0;
+    border-radius: 8px;
+    padding: 12px 16px;
     display: flex;
     align-items: center;
-    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    box-shadow: 0 2px 4px rgba(0,0,0,0.08);
+    transition: all 0.2s ease;
+    min-width: 280px;
+    max-width: 100%;
+}
+
+.intention-badge:hover {
+    box-shadow: 0 4px 8px rgba(0,0,0,0.12);
+    border-color: var(--color-primary);
 }
 
 .intention-badge-content {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: var(--spacing-md);
+    gap: 12px;
     width: 100%;
 }
 
 .intention-badge-info {
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: 6px;
     flex: 1;
+    min-width: 0; /* Permet au texte de se rétrécir si nécessaire */
 }
 
 .intention-badge-info strong {
     color: var(--color-primary);
     font-size: 0.95rem;
+    font-weight: 600;
+    line-height: 1.3;
+    word-break: break-word;
 }
 
 .intention-badge-email {
-    font-size: 0.85rem;
-    color: var(--color-gray);
+    font-size: 0.8rem;
+    color: #666;
+    line-height: 1.3;
+    word-break: break-word;
+    overflow-wrap: break-word;
+}
+
+.intention-badge-priority {
+    display: inline-block;
+    background: #e8f4fd;
+    color: var(--color-primary);
+    font-size: 0.75rem;
+    font-weight: 500;
+    padding: 2px 8px;
+    border-radius: 12px;
+    border: 1px solid #b3d9ff;
 }
 
 .intention-badge-urgent {
     display: inline-block;
     background: #ff6b6b;
     color: white;
-    font-size: 0.75rem;
-    padding: 2px 6px;
-    border-radius: 3px;
+    font-size: 0.7rem;
+    font-weight: 500;
+    padding: 2px 8px;
+    border-radius: 12px;
     margin-top: 4px;
+    align-self: flex-start;
 }
 
 .intention-badge-actions {
     display: flex;
-    gap: var(--spacing-xs);
+    gap: 4px;
+    flex-shrink: 0; /* Empêche les boutons de rétrécir */
+    align-items: center;
+}
+
+.intention-badge-actions .btn {
+    min-width: 32px;
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 6px;
+    font-size: 14px;
+    line-height: 1;
+    transition: all 0.2s ease;
+}
+
+.intention-badge-actions .btn:hover {
+    transform: scale(1.1);
+}
+
+.intention-badge-actions .edit-intention {
+    background: #f0f7ff;
+    border-color: #b3d9ff;
+    color: var(--color-primary);
+}
+
+.intention-badge-actions .edit-intention:hover {
+    background: #e0efff;
+    border-color: var(--color-primary);
+}
+
+.intention-badge-actions .remove-intention {
+    background: #fff5f5;
+    border-color: #ffb3b3;
+    color: #dc3545;
+}
+
+.intention-badge-actions .remove-intention:hover {
+    background: #ffe0e0;
+    border-color: #dc3545;
 }
 
 .empty-state {
@@ -1371,42 +1960,99 @@ window.addEventListener('load', () => {
 
 .smtp-profile-badge {
     background: white;
-    border: 1px solid #ddd;
-    border-radius: 6px;
-    padding: var(--spacing-sm) var(--spacing-md);
+    border: 1px solid #e0e0e0;
+    border-radius: 8px;
+    padding: 12px 16px;
     display: flex;
     align-items: center;
-    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    box-shadow: 0 2px 4px rgba(0,0,0,0.08);
+    transition: all 0.2s ease;
+    min-width: 280px;
+    max-width: 100%;
+}
+
+.smtp-profile-badge:hover {
+    box-shadow: 0 4px 8px rgba(0,0,0,0.12);
+    border-color: var(--color-primary);
 }
 
 .smtp-profile-badge-content {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: var(--spacing-md);
+    gap: 12px;
     width: 100%;
 }
 
 .smtp-profile-badge-info {
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: 6px;
     flex: 1;
+    min-width: 0; /* Permet au texte de se rétrécir si nécessaire */
 }
 
 .smtp-profile-badge-info strong {
     color: var(--color-primary);
     font-size: 0.95rem;
+    font-weight: 600;
+    line-height: 1.3;
+    word-break: break-word;
 }
 
 .smtp-profile-badge-details {
-    font-size: 0.85rem;
-    color: var(--color-gray);
+    font-size: 0.8rem;
+    color: #666;
+    line-height: 1.3;
+    word-break: break-word;
+    overflow-wrap: break-word;
 }
 
 .smtp-profile-badge-actions {
     display: flex;
-    gap: var(--spacing-xs);
+    gap: 4px;
+    flex-shrink: 0; /* Empêche les boutons de rétrécir */
+    align-items: center;
+}
+
+.smtp-profile-badge-actions .btn {
+    min-width: 32px;
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 6px;
+    font-size: 14px;
+    line-height: 1;
+    transition: all 0.2s ease;
+}
+
+.smtp-profile-badge-actions .btn:hover {
+    transform: scale(1.1);
+}
+
+.smtp-profile-badge-actions .edit-smtp {
+    background: #f0f7ff;
+    border-color: #b3d9ff;
+    color: var(--color-primary);
+}
+
+.smtp-profile-badge-actions .edit-smtp:hover {
+    background: #e0efff;
+    border-color: var(--color-primary);
+}
+
+.smtp-profile-badge-actions .remove-smtp {
+    background: #fff5f5;
+    border-color: #ffb3b3;
+    color: #dc3545;
+}
+
+.smtp-profile-badge-actions .remove-smtp:hover {
+    background: #ffe0e0;
+    border-color: #dc3545;
 }
 
 .modal-large {
@@ -1487,20 +2133,132 @@ code {
 .default-intentions-checkboxes {
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: 8px;
 }
 
 .default-intention-item {
-    transition: background-color 0.2s;
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 12px;
+    margin-bottom: 0;
+    background: #f9f9f9;
+    border-radius: 6px;
+    transition: all 0.2s ease;
+    border: 1px solid transparent;
 }
 
 .default-intention-item:hover {
     background: #f0f0f0 !important;
+    border-color: #e0e0e0;
+}
+
+.default-intention-item input[type="checkbox"] {
+    width: 18px !important;
+    height: 18px !important;
+    min-width: 18px !important;
+    max-width: 18px !important;
+    flex-shrink: 0;
+    margin-top: 4px;
+    cursor: pointer;
+    accent-color: var(--color-primary);
+}
+
+.default-intention-item label {
+    flex: 1;
+    cursor: pointer;
+    margin: 0;
+    line-height: 1.4;
+}
+
+.default-intention-item label strong {
+    display: block;
+    color: var(--color-primary);
+    font-size: 0.95rem;
+    font-weight: 600;
+    margin-bottom: 4px;
+}
+
+.default-intention-item label small {
+    display: block;
+    color: #666;
+    font-size: 0.85em;
+    line-height: 1.3;
+}
+
+.default-intention-actions {
+    flex-shrink: 0;
+    margin-left: auto;
+}
+
+.default-intention-actions .btn-modifier-intention {
+    white-space: nowrap;
+}
+
+#intentionModal .readonly-field,
+.modal-overlay#intentionModal .readonly-field {
+    background: #f5f5f5;
+    color: #555;
+    cursor: not-allowed;
 }
 
 .custom-intentions-section {
     padding-top: 16px;
     border-top: 2px solid #e0e0e0;
+}
+
+/* Styles pour les destinataires dans le modal */
+.recipients-container {
+    min-height: 40px;
+    max-height: 200px;
+    overflow-y: auto;
+    padding: 8px;
+    background: #f9f9f9;
+    border-radius: 6px;
+    border: 1px solid #e0e0e0;
+    margin-bottom: 8px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.recipient-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 10px;
+    background: white;
+    border: 1px solid #ddd;
+    border-radius: 16px;
+    font-size: 0.85rem;
+    color: #333;
+}
+
+.recipient-badge span {
+    color: #555;
+}
+
+.recipient-remove {
+    background: none;
+    border: none;
+    color: #dc3545;
+    font-size: 18px;
+    line-height: 1;
+    cursor: pointer;
+    padding: 0;
+    width: 20px;
+    height: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    transition: all 0.2s ease;
+}
+
+.recipient-remove:hover {
+    background: #ffe0e0;
+    color: #c82333;
+    transform: scale(1.1);
 }
 </style>
 

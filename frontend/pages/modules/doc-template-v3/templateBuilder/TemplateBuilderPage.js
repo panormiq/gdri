@@ -44,7 +44,7 @@ export default class TemplateBuilderPage extends Page {
     
     const listButton = document.createElement('button');
     listButton.className = 'template-list-button';
-    listButton.textContent = '← Liste';
+    listButton.textContent = '← Templates';
     listButton.title = 'Retour à la liste des templates';
     listButton.onclick = () => this.router.navigate('/templates');
     
@@ -310,15 +310,33 @@ export default class TemplateBuilderPage extends Page {
 
   onSectionReorder(sections) {
     if (this.template && this.template.structure) {
+      // Sauvegarder le HTML actuel AVANT de modifier quoi que ce soit
+      // Cela préserve tout le formatage, les images, etc.
+      if (this.editor && this.editor.editorElement) {
+        this.template.content = this.editor.editorElement.innerHTML;
+      }
+      
       // Mettre à jour la structure directement (déjà hiérarchique)
       this.template.structure.sections = sections;
       
-      // Re-render l'éditeur avec la nouvelle numérotation
-      if (this.editor) {
-        this.editor.renderAllSections();
+      // Réordonner les éléments dans le DOM directement au lieu de tout re-render
+      // Cela préserve le HTML existant
+      if (this.editor && this.editor.editorElement) {
+        this.reorderSectionsInDOM(sections);
         
-        // Recalculer les spacers de page après le re-render
-        // (nécessaire car les éléments ont été déplacés dans le TOC)
+        // Normaliser tous les titres pour garantir l'uniformité des styles
+        this.editor.normalizeTitleElements();
+        
+        // Mettre à jour la numérotation sans re-render tout le contenu
+        this.updateNumberingInEditor();
+        
+        // Réappliquer les styles après normalisation et réordonnancement
+        this.editor.applyLayoutStyles();
+        
+        // Mettre à jour template.content avec le HTML réordonné
+        this.template.content = this.editor.editorElement.innerHTML;
+        
+        // Recalculer les spacers de page après le réordonnancement
         setTimeout(() => {
           this.editor.recalculateAllSpacers();
         }, 100);
@@ -328,9 +346,88 @@ export default class TemplateBuilderPage extends Page {
       if (this.leftPanel) {
         this.leftPanel.setTemplate(this.template);
       }
+    }
+  }
+  
+  /**
+   * Réordonne les sections dans le DOM selon la nouvelle structure
+   * Préserve le HTML existant au lieu de tout re-render
+   */
+  reorderSectionsInDOM(sections) {
+    if (!this.editor || !this.editor.editorElement) return;
+    
+    // Aplatir la hiérarchie pour obtenir l'ordre
+    const flatList = flattenSections(sections);
+    
+    // Créer une map des éléments par sectionId
+    const elementsMap = new Map();
+    const allChildren = Array.from(this.editor.editorElement.children);
+    
+    // Parcourir tous les enfants et les regrouper par section
+    let currentSectionId = null;
+    let currentSectionElements = [];
+    
+    for (const child of allChildren) {
+      // Vérifier si c'est un titre
+      const tagName = child.tagName ? child.tagName.toLowerCase() : '';
+      const className = child.className || '';
+      const isTitle = /^h[1-3]$/i.test(tagName) || (tagName === 'div' && /doc-title-level-[1-3]/.test(className));
       
-      // Ne PAS appeler refactorTemplateFromHTML ici car cela écrase les changements du drag and drop
-      // La structure est déjà correctement hiérarchique
+      if (isTitle) {
+        // Sauvegarder la section précédente si elle existe
+        if (currentSectionId && currentSectionElements.length > 0) {
+          elementsMap.set(currentSectionId, currentSectionElements);
+        }
+        
+        // Nouvelle section
+        const sectionId = child.dataset.sectionId;
+        if (sectionId) {
+          currentSectionId = sectionId;
+          currentSectionElements = [child];
+        } else {
+          currentSectionId = null;
+          currentSectionElements = [];
+        }
+      } else if (currentSectionId) {
+        // C'est un paragraphe ou autre contenu de la section actuelle
+        currentSectionElements.push(child);
+      } else {
+        // Élément orphelin, le garder à la fin
+        if (!elementsMap.has('_orphans')) {
+          elementsMap.set('_orphans', []);
+        }
+        elementsMap.get('_orphans').push(child);
+      }
+    }
+    
+    // Sauvegarder la dernière section
+    if (currentSectionId && currentSectionElements.length > 0) {
+      elementsMap.set(currentSectionId, currentSectionElements);
+    }
+    
+    // Retirer tous les éléments de l'éditeur (sans les détruire)
+    // On les stocke dans un tableau pour les réinsérer ensuite
+    const allElements = Array.from(this.editor.editorElement.children);
+    allElements.forEach(el => {
+      this.editor.editorElement.removeChild(el);
+    });
+    
+    // Réinsérer les éléments dans le nouvel ordre selon la structure
+    for (const { section } of flatList) {
+      const elements = elementsMap.get(section.id);
+      if (elements && elements.length > 0) {
+        elements.forEach(el => {
+          this.editor.editorElement.appendChild(el);
+        });
+      }
+    }
+    
+    // Ajouter les éléments orphelins à la fin
+    const orphans = elementsMap.get('_orphans');
+    if (orphans && orphans.length > 0) {
+      orphans.forEach(el => {
+        this.editor.editorElement.appendChild(el);
+      });
     }
   }
 
@@ -625,23 +722,119 @@ export default class TemplateBuilderPage extends Page {
     // Le titre existe déjà dans le DOM (créé par formatBlock)
     if (this.editor && this.editor.editorElement && titleElement) {
       titleElement.dataset.sectionId = sectionId;
+      console.log('🔖 SectionId assigné au titre:', sectionId, titleElement);
     }
     
-    // Recréer le JSON depuis le HTML pour éviter les pertes et reconstruire la hiérarchie
-    // La structure hiérarchique sera reconstruite automatiquement depuis le HTML
-    this.refactorTemplateFromHTML();
-    
-    // Re-render pour régénérer la numérotation
-    if (this.editor) {
-      this.editor.renderAllSections();
-    }
-    
-    // Mettre à jour le LeftPanel
-    if (this.leftPanel) {
-      this.leftPanel.setTemplate(this.template);
-    }
-    
-    console.log('✅ Nouvelle section créée:', { id: sectionId, level: parseInt(headingLevel.charAt(1)), title: titleText });
+    // Attendre un peu pour que le titre soit complètement inséré dans le DOM
+    // et que le DOM soit à jour avant d'extraire la structure
+    setTimeout(() => {
+      try {
+        // Vérifier que le titre est bien un enfant direct de editorElement
+        const titleInChildren = Array.from(this.editor.editorElement.children).includes(titleElement);
+        if (!titleInChildren) {
+          console.warn('⚠️ Titre pas encore dans les enfants directs, recherche...');
+          // Chercher le titre dans le DOM
+          const foundTitle = this.editor.editorElement.querySelector(`[data-section-id="${sectionId}"]`);
+          if (foundTitle && foundTitle !== titleElement) {
+            titleElement = foundTitle;
+          }
+        }
+        
+        // Vérifier que le titre a bien le data-section-id
+        if (titleElement && !titleElement.dataset.sectionId) {
+          console.warn('⚠️ data-section-id manquant, restauration...');
+          titleElement.dataset.sectionId = sectionId;
+        }
+        
+        // Recréer le JSON depuis le HTML pour éviter les pertes et reconstruire la hiérarchie
+        // La structure hiérarchique sera reconstruite automatiquement depuis le HTML
+        this.refactorTemplateFromHTML();
+        
+        // Vérifier que la section est bien dans la structure
+        const flatList = flattenSections(this.template.structure.sections || []);
+        const sectionFound = flatList.find(({ section }) => section.id === sectionId);
+        
+        if (!sectionFound) {
+          console.warn('⚠️ Section non trouvée dans la structure, vérification du DOM...');
+          // Vérifier que le titre est bien dans le DOM
+          const titleInDOM = this.editor.editorElement.querySelector(`[data-section-id="${sectionId}"]`);
+          if (titleInDOM) {
+            console.log('✅ Titre trouvé dans le DOM, réextraction...');
+            // S'assurer que le data-section-id est bien présent
+            if (!titleInDOM.dataset.sectionId) {
+              titleInDOM.dataset.sectionId = sectionId;
+            }
+            // Forcer la réextraction
+            this.refactorTemplateFromHTML();
+            
+            // Vérifier à nouveau
+            const flatList2 = flattenSections(this.template.structure.sections || []);
+            const sectionFound2 = flatList2.find(({ section }) => section.id === sectionId);
+            if (sectionFound2) {
+              console.log('✅ Section trouvée après réextraction:', sectionFound2.section);
+            } else {
+              console.error('❌ Section toujours non trouvée après réextraction');
+              // Afficher tous les enfants pour déboguer
+              const children = Array.from(this.editor.editorElement.children);
+              console.log('Enfants de editorElement:', children.map(el => ({
+                tag: el.tagName,
+                class: el.className,
+                sectionId: el.dataset.sectionId,
+                text: el.textContent?.substring(0, 50),
+                isTitle: /^h[1-3]$/i.test(el.tagName) || (el.tagName === 'DIV' && /doc-title-level-[1-3]/.test(el.className))
+              })));
+              
+              // Vérifier si le titre est dans les enfants
+              const titleInChildren = children.find(el => el.dataset.sectionId === sectionId);
+              if (titleInChildren) {
+                console.log('✅ Titre trouvé dans les enfants directs:', titleInChildren);
+                // Vérifier pourquoi extractStructureFromHTML ne le détecte pas
+                const tagName = titleInChildren.tagName ? titleInChildren.tagName.toLowerCase() : '';
+                const className = titleInChildren.className || '';
+                console.log('Tag:', tagName, 'Class:', className);
+                const isH = /^h[1-3]$/i.test(tagName);
+                const isDiv = tagName === 'div' && /doc-title-level-[1-3]/.test(className);
+                console.log('Est H1-H3:', isH, 'Est div avec classe:', isDiv);
+              } else {
+                console.error('❌ Titre avec sectionId', sectionId, 'non trouvé dans les enfants directs');
+              }
+            }
+          } else {
+            console.error('❌ Titre non trouvé dans le DOM');
+          }
+        } else {
+          console.log('✅ Section trouvée dans la structure:', sectionFound.section);
+        }
+        
+        // Mettre à jour la numérotation SANS re-render tout le contenu (pour éviter d'écraser le HTML)
+        // Cela préserve le contenu existant et met juste à jour les numéros
+        if (this.editor && this.editor.editorElement) {
+          this.updateNumberingInEditor();
+          
+          // Mettre à jour template.content avec le HTML actuel du DOM (qui contient le nouveau titre)
+          // updateNumberingInEditor() modifie le DOM de manière synchrone, donc on peut sauvegarder immédiatement
+          const currentHTML = this.editor.editorElement.innerHTML;
+          if (currentHTML && currentHTML.trim().length > 0) {
+            this.template.content = currentHTML;
+          } else {
+            console.warn('⚠️ Contenu HTML vide après création de titre');
+          }
+        }
+        
+        // Mettre à jour le LeftPanel (TOC)
+        if (this.leftPanel) {
+          this.leftPanel.setTemplate(this.template);
+        }
+        
+        console.log('✅ Nouvelle section créée:', { id: sectionId, level: parseInt(headingLevel.charAt(1)), title: titleText });
+      } catch (error) {
+        console.error('❌ Erreur lors de la création de la section:', error);
+        // En cas d'erreur, essayer de restaurer le contenu depuis le DOM
+        if (this.editor && this.editor.editorElement) {
+          this.template.content = this.editor.editorElement.innerHTML;
+        }
+      }
+      }, 50); // Petit délai pour s'assurer que le DOM est à jour
   }
   
   refactorTemplateFromHTML() {

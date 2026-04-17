@@ -35,8 +35,14 @@ mapItemToCard: el => {
     : (this.collection.fields || []).slice(0, 1);
 
   const titleField = fieldsToUse[0];
-  const title = titleField && el[titleField.name] !== undefined && el[titleField.name] !== null
-    ? String(el[titleField.name])
+  // Essayer d'abord avec el.values?.[field.name]
+  let titleValue = el.values?.[titleField.name];
+  // Si pas trouvé, essayer directement el[field.name]
+  if (titleValue === undefined) {
+    titleValue = el[titleField.name];
+  }
+  const title = titleField && titleValue !== undefined && titleValue !== null
+    ? String(titleValue)
     : `Élément ${el._id}`;
 
   // Sous-titre : autres champs indexés (ou champs suivants si pas d'indexés)
@@ -47,7 +53,12 @@ mapItemToCard: el => {
   const subtitle = subtitleFields
     .filter(f => el[f.name] !== undefined && el[f.name] !== null)
     .map(f => {
-      const value = el[f.name];
+      // Essayer d'abord avec el.values?.[f.name]
+      let value = el.values?.[f.name];
+      // Si pas trouvé, essayer directement el[f.name]
+      if (value === undefined) {
+        value = el[f.name];
+      }
       // Formater la valeur selon le type
       let displayValue = value;
       if (typeof value === 'object' && value !== null) {
@@ -55,6 +66,9 @@ mapItemToCard: el => {
           displayValue = '📎 Fichier';
         } else if (value.type === 'document' && value.name) {
           displayValue = `📄 ${value.name}`;
+        } else if (value.filename || value.fileName) {
+          // C'est une image
+          displayValue = '🖼️ Image';
         } else {
           displayValue = JSON.stringify(value);
         }

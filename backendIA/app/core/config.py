@@ -27,6 +27,9 @@ class Settings(BaseSettings):
     # Token de développement (à désactiver en production !)
     DEV_TOKEN: str = "dev-token-123456789-quick-access"
     enable_dev_token: bool = True  # Mettre à False en production
+
+    # Token pour l'API gateway (backend Node / modules) - appelle /api/generate sans JWT user
+    IA_SERVICE_TOKEN: str = "ia-service-token-gdri-gateway"
     
     # App
     app_name: str = "BackendIA"

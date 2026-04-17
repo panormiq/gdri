@@ -1,0 +1,13 @@
+{
+  "id": "dossier-administratif",
+  "name": "Dossier Administratif",
+  "description": "Verification de la conformite administrative du dossier.",
+  "bricks": [
+    {
+      "name": "Regles de Validation"
+    },
+    {
+      "name": "Demande d'Information Complementaire"
+    }
+  ]
+}

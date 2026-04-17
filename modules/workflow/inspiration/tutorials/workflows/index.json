@@ -1,0 +1,59 @@
+{
+    "workflows": [
+        {
+            "id": "cr-e-un-questionnaire",
+            "name": "cr-e-un-questionnaire",
+            "file": "workflows/cr-e-un-questionnaire.json"
+        },
+        {
+            "id": "cr-er-un-questionnaire",
+            "name": "créer  un questionnaire",
+            "file": "workflows/cr-er-un-questionnaire.json"
+        },
+        {
+            "id": "g-rer-vos-questions",
+            "name": "Gérer vos questions",
+            "file": "workflows/g-rer-vos-questions.json"
+        },
+        {
+            "id": "guide-initial",
+            "name": "guide-initial",
+            "file": "workflows/guide-initial.json"
+        },
+        {
+            "id": "guide-questionnaire-basic",
+            "name": "guide-questionnaire-basic",
+            "file": "workflows/guide-questionnaire-basic.json"
+        },
+        {
+            "id": "l-agenda",
+            "name": "l-agenda",
+            "file": "workflows/l-agenda.json"
+        },
+        {
+            "id": "les-protocoles",
+            "name": "les-protocoles",
+            "file": "workflows/les-protocoles.json"
+        },
+        {
+            "id": "test-sous-workflow",
+            "name": "test-sous-workflow",
+            "file": "workflows/test-sous-workflow.json"
+        },
+        {
+            "id": "test-workflow",
+            "name": "test-workflow",
+            "file": "workflows/test-workflow.json"
+        },
+        {
+            "id": "test",
+            "name": "test",
+            "file": "workflows/test.json"
+        },
+        {
+            "id": "workflow(2)",
+            "name": "workflow(2)",
+            "file": "workflows/workflow(2).json"
+        }
+    ]
+}

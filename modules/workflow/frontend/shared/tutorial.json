@@ -1,0 +1,55 @@
+{
+  "title": "Tutoriel Medicapp",
+  "intro": "Guide rapide pour demarrer et comprendre les elements de base.",
+  "logo": "assets/logotext-white.png",
+  "sections": [
+    {
+      "id": "login",
+      "title": "Comment se connecter",
+      "intro": "Acceder a l'application avec votre compte.",
+      "steps": [
+        {
+          "text": "Ouvrez l'application et cliquez sur Connexion."
+        },
+        {
+          "text": "Saisissez votre email et votre mot de passe."
+        },
+        {
+          "text": "Cliquez sur Valider pour acceder au tableau de bord."
+        }
+      ]
+    },
+    {
+      "id": "discover-elements",
+      "title": "Decouvrir les differents elements",
+      "intro": "Comprendre les zones principales de l'interface.",
+      "steps": [
+        {
+          "text": "Reperez le menu principal a gauche."
+        },
+        {
+          "text": "Identifiez la zone centrale pour le contenu."
+        },
+        {
+          "text": "Utilisez la barre d'actions pour les operations rapides."
+        }
+      ]
+    },
+    {
+      "id": "settings",
+      "title": "Parametrer l'application",
+      "intro": "Ajuster les options de base de votre compte.",
+      "steps": [
+        {
+          "text": "Ouvrez le menu Profil puis Parametres."
+        },
+        {
+          "text": "Mettez a jour vos informations personnelles."
+        },
+        {
+          "text": "Sauvegardez pour appliquer les changements."
+        }
+      ]
+    }
+  ]
+}

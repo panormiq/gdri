@@ -1,0 +1,78 @@
+/* AppNav.css - Navigation globale */
+:root {
+  --app-nav-height: 48px;
+}
+
+.app-shell {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+}
+
+.app-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-md);
+  padding: 0 var(--spacing-lg);
+  height: var(--app-nav-height);
+  background: var(--color-white);
+  border-bottom: 1px solid var(--color-light);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.04);
+  position: sticky;
+  top: 0;
+  z-index: 900;
+}
+
+.app-nav-left,
+.app-nav-right {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  flex-wrap: wrap;
+}
+
+.app-nav-link {
+  padding: var(--spacing-xs) var(--spacing-md);
+  border-radius: var(--border-radius);
+  text-decoration: none;
+  color: var(--color-dark);
+  border: 1px solid transparent;
+  transition: all var(--transition-normal);
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.app-nav-link:hover {
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+  background: var(--color-light);
+}
+
+.app-nav-link.active {
+  background: var(--color-primary);
+  color: var(--color-white);
+  border-color: var(--color-primary);
+}
+
+.app-nav-back {
+  padding: var(--spacing-xs) var(--spacing-md);
+  border-radius: var(--border-radius);
+  border: 1px solid var(--color-light);
+  background: var(--color-light);
+  color: var(--color-dark);
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--transition-normal);
+  white-space: nowrap;
+}
+
+.app-nav-back:hover {
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+}
+
+.app-content {
+  flex: 1;
+  min-height: 0;
+}

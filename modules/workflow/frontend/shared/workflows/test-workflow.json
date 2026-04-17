@@ -1,0 +1,202 @@
+{
+    "shapes": [
+        {
+            "opacity": 1,
+            "id": "shape-n4e33k9",
+            "type": "circle",
+            "x": 120,
+            "y": 120,
+            "width": 100,
+            "height": 100,
+            "text": "Début",
+            "fontSize": 14,
+            "fontFamily": "Segoe UI",
+            "textColor": "#ffffff",
+            "bgColor": "#0e9cef",
+            "group": "",
+            "imageData": null,
+            "workflow": null,
+            "tutorial": {
+                "title": "Début",
+                "intro": "Signal le Début du Flow",
+                "steps": [
+                    {
+                        "title": "rien a signaler",
+                        "items": [
+                            {
+                                "type": "text",
+                                "html": ""
+                            }
+                        ],
+                        "collapsed": true,
+                        "substeps": []
+                    }
+                ],
+                "conditions": []
+            }
+        },
+        {
+            "opacity": 1,
+            "id": "shape-i2pzenk",
+            "type": "circle",
+            "x": 681,
+            "y": 120,
+            "width": 100,
+            "height": 100,
+            "text": "Fin",
+            "fontSize": 14,
+            "fontFamily": "Segoe UI",
+            "textColor": "#ffffff",
+            "bgColor": "#0e9cef",
+            "group": "",
+            "imageData": null,
+            "workflow": null,
+            "tutorial": {
+                "title": "Fin",
+                "intro": "Signal la fin du Flow",
+                "steps": [
+                    {
+                        "title": "rien a signaler",
+                        "items": [
+                            {
+                                "type": "text",
+                                "html": ""
+                            }
+                        ],
+                        "collapsed": true,
+                        "substeps": []
+                    }
+                ],
+                "conditions": []
+            }
+        },
+        {
+            "opacity": 1,
+            "id": "shape-0og1jk3",
+            "type": "rect",
+            "x": 359,
+            "y": 135,
+            "width": 160,
+            "height": 70,
+            "text": "Questionnaires",
+            "fontSize": 14,
+            "fontFamily": "Segoe UI",
+            "textColor": "#ffffff",
+            "bgColor": "#0e9cef",
+            "group": "",
+            "imageData": null,
+            "workflow": null,
+            "tutorial": {
+                "title": "Questionnaires",
+                "intro": "",
+                "steps": [
+                    {
+                        "title": "Add Questionnaire",
+                        "items": [
+                            {
+                                "type": "text",
+                                "html": "On doit pouvoir ajouter récursivement des questionnaires  au block",
+                                "text": "On doit pouvoir ajouter récursivement des questionnaires  au block"
+                            },
+                            {
+                                "type": "text",
+                                "html": "GetlistClientQuestionnaire",
+                                "text": "GetClientListQuestionnaire\njson reçu à définir"
+                            },
+                            {
+                                "type": "text",
+                                "html": "link vers crée un nouveau questionnaires",
+                                "text": "link vers crée un nouveau questionnaires"
+                            }
+                        ],
+                        "collapsed": false,
+                        "substeps": []
+                    },
+                    {
+                        "title": "Protocole",
+                        "items": [
+                            {
+                                "type": "text",
+                                "html": "on doit pouvoir  saisir le type de protocole: \n-manuel\n-programmé",
+                                "text": "on doit pouvoir  saisir le type de protocole: \n-manuel\n-programmé"
+                            },
+                            {
+                                "type": "text",
+                                "html": "GetClientListProtocole",
+                                "text": "GetClientListProtocole\njson reçu à définir"
+                            },
+                            {
+                                "type": "text",
+                                "html": "link vers crée un nouveau protocole ",
+                                "text": "link vers crée un nouveau protocole "
+                            }
+                        ],
+                        "collapsed": false,
+                        "substeps": []
+                    }
+                ],
+                "conditions": []
+            }
+        }
+    ],
+    "connections": [
+        {
+            "points": [
+                {
+                    "x": 220,
+                    "y": 170
+                },
+                {
+                    "x": 240,
+                    "y": 170
+                },
+                {
+                    "x": 289.5,
+                    "y": 170
+                },
+                {
+                    "x": 339,
+                    "y": 170
+                },
+                {
+                    "x": 359,
+                    "y": 170
+                }
+            ],
+            "auto": false,
+            "lineColor": "#0e9cef",
+            "lineStyle": "dashed",
+            "lineArrow": false,
+            "startAnchor": "right",
+            "endAnchor": "left",
+            "label": "",
+            "labelDx": 0,
+            "labelDy": 0,
+            "labelBgColor": "#ffffff",
+            "labelOpacity": 1,
+            "labelTextColor": "#1f2933",
+            "id": "conn-5luh5nm",
+            "from": "shape-n4e33k9",
+            "to": "shape-0og1jk3"
+        },
+        {
+            "points": [],
+            "auto": true,
+            "lineColor": "#0e9cef",
+            "lineStyle": "solid",
+            "lineArrow": true,
+            "startAnchor": "right",
+            "endAnchor": "left",
+            "label": "",
+            "labelDx": 0,
+            "labelDy": 0,
+            "labelBgColor": "#ffffff",
+            "labelOpacity": 1,
+            "labelTextColor": "#1f2933",
+            "id": "conn-ehwxad0",
+            "from": "shape-0og1jk3",
+            "to": "shape-i2pzenk"
+        }
+    ],
+    "groups": []
+}

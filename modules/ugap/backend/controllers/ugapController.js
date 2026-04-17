@@ -37,6 +37,62 @@ async function importExcel(req, res) {
   try {
     const filePath = path.join(__dirname, '../../source/TARIF ALU UGAP 2024(6).xlsx');
     const extractedData = UgapExcelService.extractData(filePath);
+
+    // Fallback IA uniquement pour les modèles incomplets/ambiguës
+    const aiService = new UgapAIService(req.entrepriseDb, req.entrepriseId);
+    for (const model of extractedData.models || []) {
+      const needsFallback =
+        !model?.posteNumber ||
+        !String(model?.motorizationBase || '').trim() ||
+        /\bposte\b/i.test(String(model?.name || ''));
+
+      if (!needsFallback) continue;
+
+      const fallbackLabel = String(model?.baseLabel || '').trim();
+      if (!fallbackLabel) continue;
+
+      const parsed = await aiService.parseBaseModelLabelFallback(fallbackLabel);
+      if (parsed.modelName) model.name = parsed.modelName;
+      if (parsed.motorizationBase) model.motorizationBase = parsed.motorizationBase;
+      if (Number.isFinite(parsed.posteNumber)) model.posteNumber = parsed.posteNumber;
+      if (parsed.deliveryMode) model.defaultDeliveryMode = parsed.deliveryMode;
+    }
+
+    // Enrichissement IA des lignes "option de base" (produit initial/final)
+    const allOptions = (extractedData.categories || []).flatMap((cat) => cat.options || []);
+    const baseLikeOptions = allOptions.filter((opt) => {
+      const s = String(opt?.name || '').toLowerCase();
+      if (!s) return false;
+      return (
+        /\ben\s+remplacement\b/.test(s) ||
+        /\ben\s+lieu\s+et\s+place\b/.test(s) ||
+        /\bau\s+lieu\s+et\s+place\b/.test(s) ||
+        /\bnon\s+fourniture\b/.test(s) ||
+        /^(moins-value|plus-value|plus\s+value)\b/.test(s)
+      );
+    });
+
+    if (baseLikeOptions.length > 0) {
+      try {
+        const aiRows = await aiService.extractBaseReplacementProducts(baseLikeOptions);
+        const byId = new Map((aiRows || []).map((r) => [String(r.id || '').trim(), r]));
+        const minConfidence = Number(process.env.UGAP_BASE_REPL_AI_MIN_CONFIDENCE || 0.55);
+
+        (extractedData.categories || []).forEach((cat) => {
+          (cat.options || []).forEach((opt) => {
+            const ai = byId.get(String(opt.id || '').trim());
+            if (!ai) return;
+            if ((ai.confidence || 0) < minConfidence) return;
+            if (ai.changeType) opt.changeType = ai.changeType;
+            if (ai.initialProduct) opt.initialProduct = ai.initialProduct;
+            if (ai.finalProduct) opt.finalProduct = ai.finalProduct;
+          });
+        });
+      } catch (aiErr) {
+        console.warn('⚠️ UGAP importExcel: enrichissement IA options de base ignoré:', aiErr.message || aiErr);
+      }
+    }
+
     await UgapDataService.saveData(req.entrepriseDb, extractedData, req.entrepriseId);
     
     res.json({
@@ -400,8 +456,32 @@ async function getPrompts(req, res) {
 
 async function updatePrompts(req, res) {
   try {
-    const { subCategoryPrompt, categorizationPrompt } = req.body;
-    await UgapDataService.updatePrompts(req.entrepriseDb, req.entrepriseId, { subCategoryPrompt, categorizationPrompt });
+    const {
+      subCategoryPrompt,
+      categorizationPrompt,
+      minorationPrompt,
+      famillePrompt,
+      assignationPrompt,
+      familleContext,
+      subCategoryLlmId,
+      categorizationLlmId,
+      minorationLlmId,
+      familleLlmId,
+      assignationLlmId
+    } = req.body;
+    await UgapDataService.updatePrompts(req.entrepriseDb, req.entrepriseId, {
+      subCategoryPrompt,
+      categorizationPrompt,
+      minorationPrompt,
+      famillePrompt,
+      assignationPrompt,
+      familleContext,
+      subCategoryLlmId,
+      categorizationLlmId,
+      minorationLlmId,
+      familleLlmId,
+      assignationLlmId
+    });
     res.json({ success: true, message: 'Prompts mis à jour' });
   } catch (error) {
     console.error('❌ UGAP updatePrompts error:', error);
@@ -415,6 +495,149 @@ async function resetPrompts(req, res) {
     res.json({ success: true, data: prompts, message: 'Prompts réinitialisés' });
   } catch (error) {
     console.error('❌ UGAP resetPrompts error:', error);
+    res.status(500).json({ success: false, message: error.message || 'Erreur serveur' });
+  }
+}
+
+async function getIaContext(req, res) {
+  try {
+    const iaModule = require(path.join(__dirname, '../../../ia/backend'));
+    const database = require(path.join(__dirname, '../../../../backend/config/database'));
+
+    const entityId = req.entrepriseId ? String(req.entrepriseId) : '';
+    const userId = String(req.user?.user_id || req.user?.sub || req.user?._id || '').trim();
+    const userRole = String(req.user?.role || '').trim();
+    const isAdmin = userRole === 'ADMIN_ENTITY' || userRole === 'ADMIN_GDRI';
+
+    const entityClient = entityId ? await iaModule.getIAClientForEntity(entityId) : null;
+    const globalClient = iaModule.getIAClient({ timeout: 600000 });
+    const client = entityClient || globalClient;
+    const cfg = await client._getEffectiveConfig({});
+
+    const llmDoc = entityId ? await iaModule.getLLMConfigForEntity(entityId) : null;
+    const promptsDoc = await UgapDataService.getPrompts(req.entrepriseDb, req.entrepriseId);
+
+    let serverName = null;
+    if (llmDoc && llmDoc.server_id) {
+      try {
+        const serversCol = database.getCollection('ia_servers');
+        const sid = llmDoc.server_id;
+        const oid = typeof sid === 'string' ? new ObjectId(sid) : sid;
+        const serverDoc = await serversCol.findOne({ _id: oid });
+        if (serverDoc) serverName = serverDoc.name || null;
+      } catch (e) {
+        /* ignore */
+      }
+    }
+
+    let endpointSummary = '';
+    if (cfg.provider === 'ollama_server' && cfg.serverUrl) {
+      endpointSummary = `Proxy serveur IA : ${cfg.serverUrl}`;
+    } else if (cfg.provider === 'openai') {
+      endpointSummary = 'API OpenAI';
+    } else if (cfg.provider === 'anthropic') {
+      endpointSummary = 'API Anthropic';
+    } else if (cfg.provider === 'deepseek') {
+      endpointSummary = 'API DeepSeek';
+    } else if (cfg.ollamaUrl) {
+      endpointSummary = `Ollama : ${cfg.ollamaUrl}`;
+    } else {
+      endpointSummary = '—';
+    }
+
+    const llmsCol = database.getCollection('ia_llms');
+    const userRightsCol = database.getCollection('ia_llm_user_rights');
+    const roleRightsCol = database.getCollection('ia_llm_role_rights');
+    const serversCol = database.getCollection('ia_servers');
+
+    const allLlms = await llmsCol
+      .find({ entity_id: entityId })
+      .project({ _id: 1, name: 1, model: 1, provider: 1, is_default: 1, server_id: 1 })
+      .sort({ created_at: -1 })
+      .toArray();
+
+    let allowedLlmIds = null; // null = pas de restriction explicite
+    if (!isAdmin) {
+      const [userRights, roleRights] = await Promise.all([
+        userId ? userRightsCol.findOne({ entity_id: entityId, user_id: userId }) : null,
+        userRole ? roleRightsCol.findOne({ entity_id: entityId, role_id: userRole }) : null
+      ]);
+      const userIds = (userRights?.llm_ids || []).map((x) => String(x));
+      const roleIds = (roleRights?.llm_ids || []).map((x) => String(x));
+      const union = new Set([...userIds, ...roleIds]);
+      if (union.size > 0) {
+        allowedLlmIds = union;
+      }
+    }
+
+    const visibleLlms = (allowedLlmIds
+      ? allLlms.filter((l) => allowedLlmIds.has(String(l._id)))
+      : allLlms
+    ).map((l) => ({
+      id: String(l._id),
+      name: l.name || '',
+      model: l.model || '',
+      provider: l.provider || '',
+      is_default: !!l.is_default,
+      serverId: l.server_id ? String(l.server_id) : ''
+    }));
+
+    const serverIds = Array.from(new Set(visibleLlms.map((l) => l.serverId).filter(Boolean)));
+    const serversMap = new Map();
+    if (serverIds.length > 0) {
+      const serverOids = serverIds.map((id) => {
+        try { return new ObjectId(id); } catch (_) { return null; }
+      }).filter(Boolean);
+      const serverDocs = await serversCol
+        .find({ _id: { $in: serverOids } })
+        .project({ _id: 1, name: 1, provider: 1, scope: 1 })
+        .toArray();
+      serverDocs.forEach((s) => {
+        serversMap.set(String(s._id), {
+          id: String(s._id),
+          name: s.name || '',
+          provider: s.provider || '',
+          scope: s.scope || ''
+        });
+      });
+    }
+    const visibleServers = Array.from(serversMap.values());
+
+    res.json({
+      success: true,
+      data: {
+        source: entityClient ? 'entity_llm' : 'global_ia_config',
+        sourceLabel: entityClient
+          ? 'LLM de l’entité (module IA → ia_llms)'
+          : 'Configuration IA globale (ia_config / variables d’environnement)',
+        provider: cfg.provider,
+        model: cfg.model,
+        endpointSummary,
+        llmName: entityClient && llmDoc ? (llmDoc.name || null) : null,
+        entityLlm: llmDoc
+          ? {
+              id: llmDoc._id ? String(llmDoc._id) : '',
+              name: llmDoc.name || '',
+              model: llmDoc.model || '',
+              provider: llmDoc.provider || '',
+              is_default: !!llmDoc.is_default,
+              serverId: llmDoc.server_id ? String(llmDoc.server_id) : '',
+              serverName
+            }
+          : null,
+        availableLlms: visibleLlms,
+        availableServers: visibleServers,
+        promptLlmSelection: {
+          subCategoryLlmId: promptsDoc.subCategoryLlmId || '',
+          categorizationLlmId: promptsDoc.categorizationLlmId || '',
+          minorationLlmId: promptsDoc.minorationLlmId || '',
+          familleLlmId: promptsDoc.familleLlmId || '',
+          assignationLlmId: promptsDoc.assignationLlmId || ''
+        }
+      }
+    });
+  } catch (error) {
+    console.error('❌ UGAP getIaContext error:', error);
     res.status(500).json({ success: false, message: error.message || 'Erreur serveur' });
   }
 }
@@ -682,8 +905,9 @@ async function importConfigurationPdf(req, res) {
     if (extractedLines.length > 0) {
       try {
         const aiService = new UgapAIService(req.entrepriseDb, req.entrepriseId);
+        const iaClient = await aiService.resolveAiClient();
         const prompt = buildPdfExtractionPrompt(extractedLines);
-        const aiResponse = await aiService.aiService.sendAnalysisPrompt(prompt, {
+        const aiResponse = await iaClient.sendAnalysisPrompt(prompt, {
           temperature: 0.1,
           max_tokens: 2000
         });
@@ -717,7 +941,8 @@ async function importConfigurationPdf(req, res) {
       pdfImagePath = imageResult.imagePath;
       const visionPrompt = buildPdfVisionPrompt(extractedLines);
       const aiService = new UgapAIService(req.entrepriseDb, req.entrepriseId);
-      const visionResponse = await aiService.aiService.sendVisionPrompt(
+      const iaClient = await aiService.resolveAiClient();
+      const visionResponse = await iaClient.sendVisionPrompt(
         visionPrompt,
         [imageResult.imageBase64],
         {
@@ -885,9 +1110,10 @@ async function analyzeConfigurationImage(req, res) {
 
     // Call vision model
     const aiService = new UgapAIService(req.entrepriseDb, req.entrepriseId);
+    const iaClient = await aiService.resolveAiClient();
     const visionModel = process.env.OLLAMA_VISION_MODEL || 'llava:7b';
     const visionPrompt = buildPdfVisionPrompt(config.pdfAnalysis?.extractedLines || []);
-    const visionResponse = await aiService.aiService.sendVisionPrompt(
+    const visionResponse = await iaClient.sendVisionPrompt(
       visionPrompt,
       [imageResult.imageBase64],
       { model: visionModel, temperature: 0.1, max_tokens: 2000 }
@@ -1895,7 +2121,8 @@ Réponds UNIQUEMENT avec un JSON valide au format suivant :
 
     // Appel à l'IA
     const aiService = new UgapAIService(req.entrepriseDb, req.entrepriseId);
-    const aiResponse = await aiService.aiService.sendAnalysisPrompt(prompt, { stream: false });
+    const iaClient = await aiService.resolveAiClient();
+    const aiResponse = await iaClient.sendAnalysisPrompt(prompt, { stream: false });
     
     // Extraire la réponse
     const aiText = aiResponse.data?.response || aiResponse.response || '';
@@ -2076,6 +2303,301 @@ async function detectExcelColors(req, res) {
   }
 }
 
+async function suggestFamiliesByAI(req, res) {
+  try {
+    const { options } = req.body || {};
+    if (!Array.isArray(options) || options.length === 0) {
+      return res.status(400).json({ success: false, message: 'Liste d\'options requise (tableau non vide)' });
+    }
+    console.log('\n🔎 [UGAP/FAMILLE] suggestFamiliesByAI called');
+    console.log(`Entreprise: ${String(req.entrepriseId || '')} | lignes: ${options.length}`);
+    console.log('Aperçu payload (3 premières lignes):');
+    options.slice(0, 3).forEach((o, i) => {
+      console.log(`  ${i + 1}. id=${o?.id || ''} | type=${o?.lineKind || ''} | cat=${o?.category || ''} | ${o?.name || ''}`);
+    });
+    const aiService = new UgapAIService(req.entrepriseDb, req.entrepriseId);
+    const data = await aiService.suggestOptionFamilies(options);
+    res.json({ success: true, data });
+  } catch (error) {
+    console.error('❌ UGAP suggestFamiliesByAI:', error);
+    res.status(500).json({ success: false, message: error.message || 'Erreur serveur' });
+  }
+}
+
+async function assignFamiliesToBusinessViewsAI(req, res) {
+  try {
+    const { families, businessViews } = req.body || {};
+    if (!Array.isArray(families) || families.length === 0) {
+      return res.status(400).json({ success: false, message: 'Liste de familles requise.' });
+    }
+    if (!Array.isArray(businessViews) || businessViews.length === 0) {
+      return res.status(400).json({ success: false, message: 'Liste de vues métier requise.' });
+    }
+
+    const aiService = new UgapAIService(req.entrepriseDb, req.entrepriseId);
+    const data = await aiService.assignFamiliesToBusinessViews(families, businessViews);
+    res.json({ success: true, data });
+  } catch (error) {
+    console.error('❌ UGAP assignFamiliesToBusinessViewsAI:', error);
+    res.status(500).json({ success: false, message: error.message || 'Erreur serveur' });
+  }
+}
+
+async function completeBaseOptionsWithAI(req, res) {
+  try {
+    const data = await UgapDataService.getData(req.entrepriseDb, req.entrepriseId);
+    if (!data) {
+      return res.status(404).json({ success: false, message: 'Aucune donnée configurée' });
+    }
+
+    const allOptions = (data.categories || []).flatMap((cat) => cat.options || []);
+    const baseLikeOptions = allOptions.filter((opt) => {
+      const s = String(opt?.name || '').toLowerCase();
+      if (!s) return false;
+      return (
+        /\ben\s+remplacement\b/.test(s) ||
+        /\ben\s+lieu\s+et\s+place\b/.test(s) ||
+        /\bau\s+lieu\s+et\s+place\b/.test(s) ||
+        /\bnon\s+fourniture\b/.test(s) ||
+        /^(moins-value|plus-value|plus\s+value)\b/.test(s)
+      );
+    });
+
+    if (baseLikeOptions.length === 0) {
+      return res.json({
+        success: true,
+        message: 'Aucune ligne option de base à compléter',
+        data,
+        stats: { scanned: 0, enriched: 0 }
+      });
+    }
+
+    const aiService = new UgapAIService(req.entrepriseDb, req.entrepriseId);
+    const aiRows = await aiService.extractBaseReplacementProducts(baseLikeOptions);
+    const byId = new Map((aiRows || []).map((r) => [String(r.id || '').trim(), r]));
+    const minConfidence = Number(req.body?.minConfidence ?? process.env.UGAP_BASE_REPL_AI_MIN_CONFIDENCE ?? 0.55);
+
+    let enriched = 0;
+    (data.categories || []).forEach((cat) => {
+      (cat.options || []).forEach((opt) => {
+        const ai = byId.get(String(opt.id || '').trim());
+        if (!ai) return;
+        if ((ai.confidence || 0) < minConfidence) return;
+        const before = `${opt.changeType || ''}|${opt.initialProduct || ''}|${opt.finalProduct || ''}`;
+        if (ai.changeType) opt.changeType = ai.changeType;
+        if (ai.initialProduct) opt.initialProduct = ai.initialProduct;
+        if (ai.finalProduct) opt.finalProduct = ai.finalProduct;
+        const after = `${opt.changeType || ''}|${opt.initialProduct || ''}|${opt.finalProduct || ''}`;
+        if (after !== before) enriched += 1;
+      });
+    });
+
+    await UgapDataService.saveData(req.entrepriseDb, data, req.entrepriseId);
+
+    res.json({
+      success: true,
+      message: `Complétion IA terminée (${enriched} ligne(s) enrichie(s))`,
+      data,
+      stats: {
+        scanned: baseLikeOptions.length,
+        aiReturned: aiRows.length,
+        enriched
+      }
+    });
+  } catch (error) {
+    console.error('❌ UGAP completeBaseOptionsWithAI:', error);
+    res.status(500).json({ success: false, message: error.message || 'Erreur serveur' });
+  }
+}
+
+async function completeBaseOptionLineWithAI(req, res) {
+  try {
+    const { optionId } = req.body || {};
+    const targetId = String(optionId || '').trim();
+    if (!targetId) {
+      return res.status(400).json({ success: false, message: 'optionId requis' });
+    }
+
+    const data = await UgapDataService.getData(req.entrepriseDb, req.entrepriseId);
+    if (!data) {
+      return res.status(404).json({ success: false, message: 'Aucune donnée configurée' });
+    }
+
+    let targetOption = null;
+    for (const cat of data.categories || []) {
+      const found = (cat.options || []).find((o) => String(o.id || '').trim() === targetId);
+      if (found) {
+        targetOption = found;
+        break;
+      }
+    }
+
+    if (!targetOption) {
+      return res.status(404).json({ success: false, message: 'Option introuvable' });
+    }
+
+    const s = String(targetOption.name || '').toLowerCase();
+    const isBaseLike = (
+      /\ben\s+remplacement\b/.test(s) ||
+      /\ben\s+lieu\s+et\s+place\b/.test(s) ||
+      /\bau\s+lieu\s+et\s+place\b/.test(s) ||
+      /\bnon\s+fourniture\b/.test(s) ||
+      /^(moins-value|plus-value|plus\s+value)\b/.test(s)
+    );
+    if (!isBaseLike) {
+      return res.json({
+        success: true,
+        message: 'Ligne ignorée (hors périmètre options de base)',
+        data: { updatedOption: targetOption, skipped: true }
+      });
+    }
+
+    // 1) Heuristique d'abord : si ligne complète, on n'appelle PAS l'IA
+    let appliedSource = 'none';
+    const h = UgapExcelService.parseBaseReplacementProducts(targetOption.name || '');
+    const heuristicComplete = !!(String(h?.initialProduct || '').trim() && String(h?.finalProduct || '').trim());
+    if (h?.changeType || h?.initialProduct || h?.finalProduct) {
+      if (h.changeType) targetOption.changeType = h.changeType;
+      if (h.initialProduct) targetOption.initialProduct = h.initialProduct;
+      if (h.finalProduct) targetOption.finalProduct = h.finalProduct;
+      targetOption.baseAiConfidence = 0;
+      if (heuristicComplete) {
+        console.log(`[UGAP][BASE-OPTIONS][${targetOption.id}] Heuristique complète -> pas d'appel IA`, {
+          initialProduct: targetOption.initialProduct || '',
+          finalProduct: targetOption.finalProduct || '',
+          changeType: targetOption.changeType || ''
+        });
+        appliedSource = 'heuristic';
+        await UgapDataService.saveData(req.entrepriseDb, data, req.entrepriseId);
+        return res.json({
+          success: true,
+          message: 'Ligne enrichie (heuristique)',
+          data: {
+            updatedOption: targetOption,
+            accepted: true,
+            appliedSource,
+            confidence: 0
+          }
+        });
+      }
+    }
+
+    // 2) IA seulement si heuristique non complète
+    const aiService = new UgapAIService(req.entrepriseDb, req.entrepriseId);
+    let ai = null;
+    try {
+      const rows = await aiService.extractBaseReplacementProducts([targetOption]);
+      ai = (rows || [])[0] || null;
+      console.log(`[UGAP][BASE-OPTIONS][IA-BATCH][${targetOption.id}]`, ai || null);
+    } catch (e) {
+      console.warn('⚠️ completeBaseOptionLineWithAI: appel IA en lot échoué, fallback unitaire:', e.message || e);
+    }
+
+    if (!ai) {
+      try {
+        const prompts = await UgapDataService.getPrompts(req.entrepriseDb, req.entrepriseId);
+        const llmId = prompts.minorationLlmId || prompts.subCategoryLlmId || null;
+        if (llmId) {
+          const client = await aiService.resolveAiClient(llmId);
+          const prompt = `Analyse UNE ligne UGAP et retourne uniquement un JSON.
+
+Ligne:
+id=${targetOption.id} | ${targetOption.name}
+
+FORMAT DE RETOUR STRICT (OBLIGATOIRE):
+- Réponds avec UN SEUL OBJET JSON valide.
+- AUCUN texte avant "{" ni après "}".
+- Clés autorisées uniquement: id, changeType, initialProduct, finalProduct, confidence
+- changeType doit être exactement l'une de: "replacement", "motor_base_non_supply", ""
+- initialProduct/finalProduct: string ("" si inconnu)
+- confidence: number entre 0 et 1
+
+Retour attendu:
+{
+  "id": "${targetOption.id}",
+  "changeType": "replacement|motor_base_non_supply|",
+  "initialProduct": "string",
+  "finalProduct": "string",
+  "confidence": 0.0
+}
+
+Exemples:
+- "Flotteur moussé PE sans revêtement PU en remplacement de celui de base" => initial "flotteur de base", final "Flotteur moussé PE sans revêtement PU"
+- "Moins-value GPSMAP 8412 xsv en remplacement HDS PRO 12 - Postes 1, 5, 6, 7 et 8" => initial "HDS PRO 12", final "GPSMAP 8412 xsv"
+- "Non fourniture du moteur de base - Poste 1" => changeType "motor_base_non_supply", initial "moteur de base", final "moteur choisi"`;
+          const response = await client.sendAnalysisPrompt(prompt, { temperature: 0.05, max_tokens: 700 });
+          const text = String(response?.data?.response || '').trim();
+          console.log(`\n🧾 [UGAP][BASE-OPTIONS][IA-RAW][${targetOption.id}]`);
+          console.log(text || '(réponse vide)');
+          console.log('---');
+          const firstBrace = text.indexOf('{');
+          const lastBrace = text.lastIndexOf('}');
+          if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+            const parsed = JSON.parse(text.substring(firstBrace, lastBrace + 1));
+            ai = {
+              id: String(parsed?.id || targetOption.id),
+              changeType: String(parsed?.changeType || '').trim(),
+              initialProduct: String(parsed?.initialProduct || '').trim(),
+              finalProduct: String(parsed?.finalProduct || '').trim(),
+              confidence: Number.isFinite(Number(parsed?.confidence)) ? Number(parsed.confidence) : 0
+            };
+          }
+        }
+      } catch (e2) {
+        console.warn('⚠️ completeBaseOptionLineWithAI: fallback unitaire IA échoué:', e2.message || e2);
+      }
+    }
+
+    const minConfidence = Number(req.body?.minConfidence ?? process.env.UGAP_BASE_REPL_AI_MIN_CONFIDENCE ?? 0.35);
+    const aiHasUsefulData = !!ai && (
+      String(ai.changeType || '').trim() !== '' ||
+      String(ai.initialProduct || '').trim() !== '' ||
+      String(ai.finalProduct || '').trim() !== ''
+    );
+    const aiAcceptedByConfidence = !!ai && ((ai.confidence || 0) >= minConfidence);
+    const aiAccepted = aiHasUsefulData && (aiAcceptedByConfidence || !Number.isFinite(Number(ai.confidence)));
+    console.log(
+      `[UGAP][BASE-OPTIONS][IA-PARSED][${targetOption.id}]`,
+      ai || null,
+      `accepted=${aiAccepted} useful=${aiHasUsefulData} confidence=${ai?.confidence ?? 'n/a'}`
+    );
+
+    if (aiAccepted) {
+      if (ai.changeType) targetOption.changeType = ai.changeType;
+      if (ai.initialProduct) targetOption.initialProduct = ai.initialProduct;
+      if (ai.finalProduct) targetOption.finalProduct = ai.finalProduct;
+      targetOption.baseAiConfidence = Number.isFinite(Number(ai.confidence)) ? Number(ai.confidence) : null;
+      appliedSource = 'ai';
+    } else if (h?.changeType || h?.initialProduct || h?.finalProduct) {
+      // Heuristique partielle conservée si IA insuffisante
+      targetOption.baseAiConfidence = Number.isFinite(Number(ai?.confidence)) ? Number(ai.confidence) : 0;
+      appliedSource = 'heuristic';
+    }
+
+    if (appliedSource !== 'none') {
+      await UgapDataService.saveData(req.entrepriseDb, data, req.entrepriseId);
+    }
+
+    res.json({
+      success: true,
+      message: appliedSource === 'ai'
+        ? 'Ligne enrichie (IA)'
+        : appliedSource === 'heuristic'
+          ? 'Ligne enrichie (fallback heuristique)'
+          : 'Aucun enrichissement trouvé',
+      data: {
+        updatedOption: targetOption,
+        accepted: appliedSource !== 'none',
+        appliedSource,
+        confidence: ai?.confidence || 0
+      }
+    });
+  } catch (error) {
+    console.error('❌ UGAP completeBaseOptionLineWithAI:', error);
+    res.status(500).json({ success: false, message: error.message || 'Erreur serveur' });
+  }
+}
+
 module.exports = {
   getData,
   importExcel,
@@ -2097,6 +2619,7 @@ module.exports = {
   getPrompts,
   updatePrompts,
   resetPrompts,
+  getIaContext,
   detectSubCategories,
   addModelConfiguration,
   updateModelConfiguration,
@@ -2120,7 +2643,11 @@ module.exports = {
   convertPdfToExcel,
   downloadExcel,
   viewExcelAsHtml,
-  importConfigurationFile
+  importConfigurationFile,
+  suggestFamiliesByAI,
+  assignFamiliesToBusinessViewsAI,
+  completeBaseOptionsWithAI,
+  completeBaseOptionLineWithAI
 };
 
 async function testExcelExtraction(req, res) {
@@ -2200,7 +2727,8 @@ async function verifyOptionWithAI(req, res) {
     
     // Appeler l'IA pour vérifier l'option
     const aiService = new UgapAIService(req.entrepriseDb, req.entrepriseId);
-    const aiResponse = await aiService.aiService.sendAnalysisPrompt(prompt, { stream: false });
+    const iaClient = await aiService.resolveAiClient();
+    const aiResponse = await iaClient.sendAnalysisPrompt(prompt, { stream: false });
     
     // Parser la réponse JSON
     const aiText = aiResponse.data?.response || aiResponse.response || '';

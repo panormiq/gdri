@@ -14,7 +14,8 @@
 
 const http = require('http');
 const database = require('./config/database');
-const mailModule = require('./modules/mail');
+const path = require('path');
+const mailModule = require(path.join(__dirname, '../modules/mail/backend'));
 
 // Configuration
 const BACKEND_URL = 'http://localhost:3000';

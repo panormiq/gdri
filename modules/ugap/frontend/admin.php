@@ -1,25 +1,10324 @@
-<?php
-/**
- * Page d'administration UGAP
- * Wrapper PHP pour vérifier l'authentification et les permissions
- * Les cookies JWT sont gérés par le système GDRI central, pas ici
- */
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
+    <title>UGAP Admin - Gestion des données</title>
+    <link rel="stylesheet" href="/frontend/assets/css/variables.css">
+    <link rel="stylesheet" href="/frontend/assets/css/main.css">
+    <style>
+        body { background-color: #f5f7fa; }
+        .container-xl { max-width: 1400px; margin: 0 auto; padding: 20px; }
+        .card { background: white; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); padding: 20px; margin-bottom: 20px; }
+        .btn { padding: 10px 16px; border: none; border-radius: 6px; cursor: pointer; font-weight: 600; transition: all 0.2s; }
+        .btn-primary { background: var(--primary-color, #007bff); color: white; }
+        .btn-primary:hover { opacity: 0.9; }
+        .btn-outline { background: transparent; border: 1px solid #ddd; }
+        .btn-success { background: #28a745; color: white; }
+        .btn-danger { background: #dc3545; color: white; }
+        .alert { padding: 12px 16px; border-radius: 6px; margin-bottom: 20px; }
+        .alert-success { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
+        .alert-error { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+        .alert-info { background: #d1ecf1; color: #0c5460; border: 1px solid #bee5eb; }
+        table { width: 100%; border-collapse: collapse; }
+        th, td { border-bottom: 1px solid #eee; padding: 8px 10px; font-size: 14px; text-align: left; }
+        th { background: #f7f7f7; font-weight: 600; }
+        .badge { display: inline-block; padding: 4px 8px; background: #eef; color: #334; border-radius: 4px; font-size: 12px; }
+        .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin-bottom: 20px; }
+        .stat-card { background: #f8f9fa; padding: 15px; border-radius: 6px; }
+        .stat-card h3 { margin: 0 0 5px 0; font-size: 24px; color: var(--primary-color, #007bff); }
+        .stat-card p { margin: 0; color: #666; font-size: 14px; }
+        .tabs { display: flex; gap: 10px; margin-bottom: 20px; border-bottom: 2px solid #eee; }
+        .tab { padding: 10px 20px; cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -2px; }
+        .tab.active { border-bottom-color: var(--primary-color, #007bff); color: var(--primary-color, #007bff); font-weight: 600; }
+        .tab-panel { display: none; }
+        .tab-panel.active { display: block; }
+        .subtabs { display: flex; gap: 8px; margin: 0 0 14px 0; border-bottom: 1px solid #eee; padding-bottom: 8px; flex-wrap: wrap; }
+        .subtab-btn { padding: 8px 14px; border: 1px solid #ddd; background: #fff; border-radius: 6px; cursor: pointer; font-weight: 600; }
+        .subtab-btn.active { border-color: var(--primary-color, #007bff); color: #fff; background: var(--primary-color, #007bff); }
+        .subtab-panel { display: none; }
+        .subtab-panel.active { display: block; }
+        .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 10000; }
+        .modal.active { display: flex; align-items: center; justify-content: center; }
+        .modal-content { background: white; border-radius: 8px; padding: 30px; max-width: 800px; width: 90%; max-height: 90vh; overflow-y: auto; }
+        .modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+        .modal-header h2 { margin: 0; }
+        .form-group { margin-bottom: 20px; }
+        .form-group label { display: block; margin-bottom: 5px; font-weight: 600; }
+        .form-group input, .form-group textarea, .form-group select { width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; box-sizing: border-box; }
+        .image-upload-area { border: 2px dashed #ddd; border-radius: 8px; padding: 40px; text-align: center; cursor: pointer; margin-top: 10px; }
+        .image-upload-area:hover { border-color: var(--primary-color, #007bff); }
+        .image-preview { max-width: 100%; max-height: 200px; border-radius: 6px; margin-top: 10px; }
+        .config-item { display: flex; justify-content: space-between; align-items: center; padding: 15px; border: 1px solid #eee; border-radius: 6px; margin-bottom: 10px; }
+        .config-item:hover { background: #f9f9f9; }
+        .color-picker { width: 100px; height: 40px; border: 2px solid #ddd; border-radius: 4px; cursor: pointer; }
+        .color-preview { width: 40px; height: 40px; border: 2px solid #ddd; border-radius: 4px; display: inline-block; vertical-align: middle; margin-left: 10px; }
+        .accordion { border: 1px solid #ddd; border-radius: 6px; overflow: hidden; margin-bottom: 10px; }
+        .accordion-header { background: #f8f9fa; padding: 15px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #ddd; transition: background 0.2s; }
+        .accordion-header:hover { background: #e9ecef; }
+        .accordion-header.active { background: #007bff; color: white; }
+        .accordion-content { display: none; padding: 0; }
+        .accordion-content.active { display: block; }
+        .accordion-icon { transition: transform 0.3s; }
+        .accordion-icon.rotated { transform: rotate(180deg); }
+        .steps-container { display: flex; gap: 10px; margin: 15px 0; flex-wrap: wrap; }
+        .step { flex: 1; min-width: 150px; padding: 12px; border-radius: 6px; text-align: center; cursor: pointer; transition: all 0.3s; border: 2px solid #ddd; }
+        .step.disabled { background: #e9ecef; color: #6c757d; cursor: not-allowed; border-color: #dee2e6; }
+        .step.completed { background: #28a745; color: white; border-color: #28a745; cursor: pointer; }
+        .step.active { background: #007bff; color: white; border-color: #007bff; cursor: pointer; }
+        .step:hover:not(.disabled) { transform: translateY(-2px); box-shadow: 0 4px 8px rgba(0,0,0,0.1); }
+        .step.completed:hover { background: #218838; box-shadow: 0 4px 8px rgba(40, 167, 69, 0.3); }
+        .step-number { font-weight: bold; font-size: 18px; margin-bottom: 5px; }
+        .step-label { font-size: 13px; }
+    </style>
+</head>
+<body>
+    <header class="header" id="header">
+        <div class="container">
+            <div class="header-content">
+                <div class="logo">
+                    <a href="/frontend/pages/dashboard.php">
+                        <img src="/frontend/assets/images/logo-gdri.png" alt="GDR-Innovation Logo">
+                        <span class="logo-text">GDR-Innovation</span>
+                    </a>
+                </div>
+                <nav class="nav" id="nav">
+                    <ul class="nav-list">
+                        <li><a href="/frontend/pages/dashboard.php" class="nav-link">Dashboard</a></li>
+                        <li><a href="/frontend/pages/modules.php" class="nav-link">Modules</a></li>
+                        <li><a href="/frontend/auth/logout.php" class="nav-link">Déconnexion</a></li>
+                    </ul>
+                </nav>
+            </div>
+        </div>
+    </header>
+    <div style="height: var(--header-height);"></div>
 
-require_once '../../../config/config.php';
-require_once '../../../auth/session.php';
-require_once '../../../includes/functions.php';
+    <div class="container-xl">
+        <div class="card" id="legacy-admin-hero-card" style="display:flex;justify-content:space-between;align-items:center;">
+            <div>
+                <h1>UGAP Admin</h1>
+                <p style="color: #666; margin: 0;">Gestion des modèles, configurations et options</p>
+            </div>
+            <div>
+                <a href="/modules/ugap/frontend/index.html" class="btn btn-outline">Voir Configurateur</a>
+                <button id="btn-refresh" class="btn btn-primary">Rafraîchir</button>
+            </div>
+        </div>
 
-// Vérifier que l'utilisateur est connecté
-if (!isLoggedIn()) {
-    redirect(url('auth/login-process.php'));
-}
+        <div id="alert-container"></div>
 
-// Vérifier les permissions (ADMIN_GDRI ou ADMIN_ENTITY)
-if (!hasRole(ROLE_ADMIN_GDRI) && !hasRole(ROLE_ADMIN_ENTITY)) {
-    redirect(url('pages/dashboard.php'));
-}
+        <div class="card" id="legacy-import-card">
+            <h2 style="margin-top: 0;">Import Excel</h2>
+            <p style="color: #666;">Importez le fichier Excel pour extraire les modèles et options.</p>
+            <div style="display: flex; gap: 10px; align-items: center;">
+                <button id="btn-import" class="btn btn-success">Importer depuis Excel</button>
+                <span id="import-status" style="color: #666;"></span>
+            </div>
+        </div>
 
-// Lire et afficher le contenu HTML
-// Les cookies sont gérés automatiquement par le système GDRI via les middlewares d'authentification
-readfile(__DIR__ . '/admin.html');
-?>
+        <div class="card" id="legacy-stats-card">
+            <div class="stats" id="stats-container">
+                <div class="stat-card">
+                    <h3 id="stat-models">0</h3>
+                    <p>Modèles</p>
+                </div>
+                <div class="stat-card">
+                    <h3 id="stat-categories">0</h3>
+                    <p>Vues métier</p>
+                </div>
+                <div class="stat-card">
+                    <h3 id="stat-options">0</h3>
+                    <p>Options</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <?php require __DIR__ . '/partials/tabs/tab-navigation.php'; ?>
+
+            <?php require __DIR__ . '/partials/tabs/tab-models.php'; ?>
+            <?php require __DIR__ . '/partials/tabs/tab-categories.php'; ?>
+            <?php require __DIR__ . '/partials/tabs/tab-famille.php'; ?>
+            <?php require __DIR__ . '/partials/tabs/tab-subcategories.php'; ?>
+            <?php require __DIR__ . '/partials/tabs/tab-options.php'; ?>
+            <?php require __DIR__ . '/partials/tabs/tab-prompts.php'; ?>
+            <?php require __DIR__ . '/partials/tabs/tab-activity.php'; ?>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = '/api/ugap';
+        const UGAP_PROMPTS_UI_VERSION = '2026-03-31-llm-selects-v3';
+        let currentData = null;
+
+        function isEmbeddedMode() {
+            try {
+                const params = new URLSearchParams(window.location.search || '');
+                return params.get('embedded') === '1';
+            } catch (error) {
+                return false;
+            }
+        }
+
+        function applyEmbeddedLayout() {
+            if (!isEmbeddedMode()) return;
+
+            const header = document.getElementById('header');
+            if (header) header.style.display = 'none';
+
+            const spacer = header?.nextElementSibling;
+            if (spacer) spacer.style.display = 'none';
+
+            const container = document.querySelector('.container-xl');
+            if (container) container.style.paddingTop = '10px';
+        }
+        const EXTRACTION_PROMPT_SECTIONS = {
+            context: `Tu extrais les informations de base d'une ligne modèle UGAP.`,
+            prompt: `Découpe la ligne de base en 4 champs: modelName, motorizationBase, posteNumber, deliveryMode.
+Règles:
+- modelName: du début jusqu'à la motorisation.
+- motorizationBase: de la motorisation jusqu'à "Poste".
+- posteNumber: nombre après "Poste".
+- deliveryMode: "Départ usine" si présent.`,
+            lines: `LIGNE_EXEMPLE_1
+LIGNE_EXEMPLE_2`,
+            format: `{
+  "modelName": "string",
+  "motorizationBase": "string",
+  "posteNumber": 1,
+  "deliveryMode": "Départ usine"
+}`
+        };
+        const EXTRACTION_PROMPT_MARKERS = {
+            context: '### CONTEXTE (MODIFIABLE)',
+            prompt: '### PROMPT (MODIFIABLE)',
+            lines: '### LIGNES A INTERPRETER (NON MODIFIABLE)',
+            format: '### FORMAT ATTENDU (MODIFIABLE)'
+        };
+        const EXTRACTION_FORMAT_PRESETS = {
+            json_object: `{
+  "modelName": "string",
+  "motorizationBase": "string",
+  "posteNumber": 1,
+  "deliveryMode": "Départ usine"
+}`,
+            json_array: `[
+  {
+    "modelName": "string",
+    "motorizationBase": "string",
+    "posteNumber": 1,
+    "deliveryMode": "Départ usine"
+  }
+]`,
+            compact: `modelName|string; motorizationBase|string; posteNumber|number; deliveryMode|string`
+        };
+        const ADMIN_TRACKING_ENDPOINT = (() => {
+            const path = window.location.pathname || '/';
+            const modulesIndex = path.indexOf('/modules/');
+            let basePath = '/';
+            if (modulesIndex !== -1) {
+                basePath = path.slice(0, modulesIndex + 1);
+            } else if (path.indexOf('/frontend/') !== -1) {
+                basePath = path.slice(0, path.indexOf('/frontend/') + 1);
+            }
+            return basePath.replace(/\/+$/, '/') + 'frontend/auth/admin-activity.php';
+        })();
+        const ADMIN_LOGS_ENDPOINT = ADMIN_TRACKING_ENDPOINT.replace(/admin-activity\.php$/, 'admin-activity-logs.php');
+
+        function trackAdminEvent(eventType, data = {}) {
+            if (!ADMIN_TRACKING_ENDPOINT) return;
+            const payload = {
+                eventType,
+                page: 'GDRIadmin',
+                url: window.location.pathname,
+                referrer: document.referrer || null,
+                ...data
+            };
+            fetch(ADMIN_TRACKING_ENDPOINT, {
+                method: 'POST',
+                credentials: 'include',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(payload)
+            }).catch(() => {
+                // Tracking silencieux : ne pas bloquer l'UI
+            });
+        }
+
+        function buildSubCategoryPrompt({ contextText, promptText, linesText, formatText }) {
+            return [
+                EXTRACTION_PROMPT_MARKERS.context,
+                (contextText || EXTRACTION_PROMPT_SECTIONS.context).trim(),
+                EXTRACTION_PROMPT_MARKERS.prompt,
+                (promptText || EXTRACTION_PROMPT_SECTIONS.prompt).trim(),
+                EXTRACTION_PROMPT_MARKERS.lines,
+                (linesText || EXTRACTION_PROMPT_SECTIONS.lines).trim(),
+                EXTRACTION_PROMPT_MARKERS.format,
+                (formatText || EXTRACTION_PROMPT_SECTIONS.format).trim()
+            ].join('\n\n');
+        }
+
+        function parseSubCategoryPromptSections(fullPrompt) {
+            const safePrompt = String(fullPrompt || '');
+            const extractBetween = (fromMarker, toMarker) => {
+                const from = safePrompt.indexOf(fromMarker);
+                if (from === -1) return '';
+                const start = from + fromMarker.length;
+                const end = toMarker ? safePrompt.indexOf(toMarker, start) : -1;
+                if (end === -1) return safePrompt.slice(start).trim();
+                return safePrompt.slice(start, end).trim();
+            };
+            const contextText = extractBetween(EXTRACTION_PROMPT_MARKERS.context, EXTRACTION_PROMPT_MARKERS.prompt);
+            const promptText = extractBetween(EXTRACTION_PROMPT_MARKERS.prompt, EXTRACTION_PROMPT_MARKERS.lines);
+            const linesText = extractBetween(EXTRACTION_PROMPT_MARKERS.lines, EXTRACTION_PROMPT_MARKERS.format);
+            const formatText = extractBetween(EXTRACTION_PROMPT_MARKERS.format, null);
+
+            return {
+                contextText: contextText || EXTRACTION_PROMPT_SECTIONS.context,
+                promptText: promptText || EXTRACTION_PROMPT_SECTIONS.prompt,
+                linesText: linesText || EXTRACTION_PROMPT_SECTIONS.lines,
+                formatText: formatText || EXTRACTION_PROMPT_SECTIONS.format
+            };
+        }
+
+        function escapeHtml(value) {
+            return String(value ?? '')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        }
+
+        async function loadActivityLogs() {
+            const status = document.getElementById('activity-logs-status');
+            const tbody = document.querySelector('#activity-logs-table tbody');
+            if (!tbody) return;
+
+            if (status) status.textContent = 'Chargement...';
+            const params = new URLSearchParams();
+            params.set('limit', '50');
+
+            const eventType = document.getElementById('filter-log-event')?.value;
+            if (eventType) params.set('event_type', eventType);
+
+            const email = document.getElementById('filter-log-email')?.value?.trim();
+            if (email) params.set('user_email', email);
+
+            const fromValue = document.getElementById('filter-log-from')?.value;
+            if (fromValue) {
+                const fromDate = new Date(fromValue);
+                if (!isNaN(fromDate.getTime())) {
+                    params.set('from', fromDate.toISOString());
+                }
+            }
+
+            const toValue = document.getElementById('filter-log-to')?.value;
+            if (toValue) {
+                const toDate = new Date(toValue);
+                if (!isNaN(toDate.getTime())) {
+                    params.set('to', toDate.toISOString());
+                }
+            }
+
+            try {
+                const response = await fetch(`${ADMIN_LOGS_ENDPOINT}?${params.toString()}`, {
+                    method: 'GET',
+                    credentials: 'include'
+                });
+                const data = await response.json();
+
+                if (!response.ok || !data.success) {
+                    throw new Error(data.message || 'Erreur lors du chargement des logs');
+                }
+
+                const logs = Array.isArray(data.logs) ? data.logs : [];
+                if (!logs.length) {
+                    tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; color: #666;">Aucun résultat</td></tr>';
+                } else {
+                    tbody.innerHTML = logs.map(log => {
+                        const createdAt = log.created_at ? new Date(log.created_at).toLocaleString() : '-';
+                        let details = '';
+                        if (log.event_type === 'tab_view') {
+                            details = log.event_data?.tab ? `Onglet: ${log.event_data.tab}` : '';
+                        } else if (log.event_type === 'page_view') {
+                            details = log.event_data?.url || log.event_data?.page || '';
+                        } else if (log.event_type === 'login') {
+                            details = log.event_data?.source ? `Source: ${log.event_data.source}` : '';
+                        }
+                        return `
+                            <tr>
+                                <td>${escapeHtml(createdAt)}</td>
+                                <td>${escapeHtml(log.user_email || '-')}</td>
+                                <td>${escapeHtml(log.user_role || '-')}</td>
+                                <td>${escapeHtml(log.event_type || '-')}</td>
+                                <td>${escapeHtml(details || '-')}</td>
+                                <td>${escapeHtml(log.ip_address || '-')}</td>
+                            </tr>
+                        `;
+                    }).join('');
+                }
+
+                if (status) status.textContent = `${logs.length} log(s)`;
+            } catch (error) {
+                tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; color: #b00020;">Erreur de chargement</td></tr>';
+                if (status) status.textContent = error.message;
+            }
+        }
+
+        // Alert helper
+        function showAlert(message, type = 'info') {
+            const container = document.getElementById('alert-container');
+            container.innerHTML = `<div class="alert alert-${type}">${message}</div>`;
+            setTimeout(() => {
+                container.innerHTML = '';
+            }, 5000);
+        }
+
+        // API helpers
+        async function apiCall(endpoint, options = {}) {
+            try {
+                const response = await fetch(`${API_BASE}${endpoint}`, {
+                    ...options,
+                    credentials: 'include',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        ...options.headers
+                    }
+                });
+
+                // Vérifier le type de contenu
+                const contentType = response.headers.get('content-type');
+                if (!contentType || !contentType.includes('application/json')) {
+                    const text = await response.text();
+                    console.error('Réponse non-JSON reçue:', text.substring(0, 200));
+                    throw new Error(`L'API a retourné du HTML au lieu de JSON. Status: ${response.status}. Vérifiez que le backend est démarré et que vous êtes authentifié.`);
+                }
+
+                const data = await response.json();
+                
+                if (!response.ok) {
+                    throw new Error(data.message || `Erreur HTTP ${response.status}`);
+                }
+
+                if (!data.success) {
+                    throw new Error(data.message || 'Erreur API');
+                }
+                return data;
+            } catch (error) {
+                console.error('API Error:', error);
+                if (error.message.includes('JSON')) {
+                    throw new Error('Erreur de communication avec le serveur. Vérifiez que le backend est démarré.');
+                }
+                throw error;
+            }
+        }
+
+        // Load data
+        async function loadData(skipRender = false) {
+            try {
+                const result = await apiCall('/data');
+                
+                // Gérer le cas où il n'y a pas de données
+                if (!result.success && result.message === 'Aucune donnée configurée') {
+                    showAlert('Aucune donnée configurée. Veuillez importer un fichier Excel.', 'info');
+                    currentData = result.data || { models: [], categories: [] };
+                    updateStats();
+                    
+                    // Afficher un message dans chaque onglet
+                    if (!skipRender) {
+                        document.getElementById('tab-models').innerHTML = `
+                            <div style="padding: 40px; text-align: center; color: #666;">
+                                <h3 style="margin-bottom: 20px;">📊 Aucune donnée configurée</h3>
+                                <p style="margin-bottom: 20px;">Veuillez importer un fichier Excel pour commencer.</p>
+                                <button class="btn btn-primary" onclick="document.getElementById('file-input')?.click()">📁 Importer un fichier Excel</button>
+                            </div>
+                        `;
+                        document.getElementById('tab-categories').innerHTML = `
+                            <div style="padding: 40px; text-align: center; color: #666;">
+                                <h3 style="margin-bottom: 20px;">📊 Aucune donnée configurée</h3>
+                                <p style="margin-bottom: 20px;">Veuillez importer un fichier Excel pour commencer.</p>
+                                <button class="btn btn-primary" onclick="document.getElementById('file-input')?.click()">📁 Importer un fichier Excel</button>
+                            </div>
+                        `;
+                        document.getElementById('tab-subcategories').innerHTML = `
+                            <div style="padding: 40px; text-align: center; color: #666;">
+                                <h3 style="margin-bottom: 20px;">📊 Aucune donnée configurée</h3>
+                                <p style="margin-bottom: 20px;">Veuillez importer un fichier Excel pour commencer.</p>
+                                <button class="btn btn-primary" onclick="document.getElementById('file-input')?.click()">📁 Importer un fichier Excel</button>
+                            </div>
+                        `;
+                        document.getElementById('tab-options').innerHTML = `
+                            <div style="padding: 40px; text-align: center; color: #666;">
+                                <h3 style="margin-bottom: 20px;">📊 Aucune donnée configurée</h3>
+                                <p style="margin-bottom: 20px;">Veuillez importer un fichier Excel pour commencer.</p>
+                                <button class="btn btn-primary" onclick="document.getElementById('file-input')?.click()">📁 Importer un fichier Excel</button>
+                            </div>
+                        `;
+                    }
+                    return;
+                }
+                
+                currentData = result.data;
+                updateStats();
+                
+                // Ne pas re-rendre si on est en train de streamer
+                if (!skipRender) {
+                    // Ne rendre que l'onglet actif pour améliorer les performances
+                    const activeTab = document.querySelector('.tab.active');
+                    if (activeTab) {
+                        const tabName = activeTab.getAttribute('data-tab');
+                        renderActiveTab(tabName);
+                    } else {
+                        // Par défaut, rendre l'onglet "models"
+                        renderActiveTab('models');
+                    }
+                }
+                
+                // Ne pas mettre à jour le select si on est en train de streamer (évite les événements)
+                if (!skipRender) {
+                    populateCategorySelect();
+                }
+            } catch (error) {
+                if (error.message.includes('404') || error.message.includes('Aucune donnée')) {
+                    showAlert('Aucune donnée configurée. Veuillez importer un fichier Excel.', 'info');
+                    currentData = { models: [], categories: [] };
+                    updateStats();
+                } else {
+                    showAlert('Erreur lors du chargement: ' + error.message, 'error');
+                }
+            }
+        }
+        
+        // Rendre uniquement l'onglet actif
+        function renderActiveTab(tabName) {
+            switch(tabName) {
+                case 'models':
+                    renderModels();
+                    break;
+                case 'categories':
+                    renderCategoriesManagement();
+                    break;
+                case 'famille':
+                    renderExtractionInsights();
+                    break;
+                case 'subcategories':
+                    renderSubCategoriesAccordion();
+                    break;
+                case 'options':
+                    renderCategories();
+                    break;
+                case 'prompts':
+                    loadPrompts();
+                    break;
+                case 'activity':
+                    loadActivityLogs();
+                    break;
+            }
+        }
+
+        /** Blocs toujours insérés entre avant/après (alignés sur UgapDataService.js défauts). */
+        const FAMILLE_LISTE_INJECTION_BLOCK = '## DONNÉES (liste injectée automatiquement)\n{{LISTE_LIGNES}}';
+        const FAMILLE_FORMAT_EDITABLE_DEFAULT = `## FORMAT DE RETOUR (obligatoire)
+- Un **seul** tableau JSON (array), racine directe. Aucun texte avant \`[\` ni après \`]\` (pas de markdown, pas de \`\`\`json).
+- Chaque élément : \`familyLabel\` (string, non vide), \`optionIds\` (array de strings = valeurs \`id=\` **exactes** de la liste).
+- Optionnel : \`defaultOptionId\` (string) ∈ \`optionIds\`, seulement si une ligne est clairement la référence / standard.
+- **Choix unique** : pour un même équipement, toutes les variantes couleur / RAL / finition → **une** famille, **tous** les ids dans \`optionIds\` (on ne choisit qu'une teinte, pas plusieurs).
+- Pour un même équipement, plusieurs dimensions de choix peuvent coexister: créer une famille par dimension (exemple Console de pilotage: famille \`Console de pilotage (couleur)\` + famille \`Console de pilotage (type)\`).
+
+## Règles strictes
+- Chaque \`id\` présent dans les données apparaît **exactement une fois** au total dans tous les \`optionIds\`.
+- Pas de doublon d'id entre familles ; pas d'id inventé.
+- \`familyLabel\` : court, en français, décrit le **choix catalogue** (pas la couleur seule).
+- Couleurs du même produit : **une** famille, pas une famille par teinte.
+- Console de pilotage: ne pas mélanger les variantes de couleur avec les variantes de type/changement de console.
+- Liste longue : reste cohérent du début à la fin ; une seule réponse JSON couvrant **toutes** les lignes.`;
+        const FAMILLE_FORMAT_JSON_FIXED_BLOCK = `[
+  {"familyLabel":"Couleur du flotteur","optionIds":["opt_23","opt_24","opt_25"]},
+  {"familyLabel":"Console de pilotage (couleur)","optionIds":["opt_86","opt_87","opt_88"],"defaultOptionId":"opt_86"}
+]`;
+        const ASSIGNATION_PROMPT_DEFAULT = `Tu dois assigner UNE famille à UNE vue métier.
+
+Vues métier disponibles:
+{{businessViews}}
+
+Famille à classer:
+- familyLabel: {{familyLabel}}
+- assignation actuelle: {{assignation}}
+- sousFamille: {{subFamily}}
+- nombre options: {{optionsCount}}
+- exemples options:
+{{optionsList}}
+
+Règles:
+- Choisir exactement UNE vue métier parmi les id fournis.
+- Se baser sur le sens métier de la famille et les mots-clés des vues.
+- Répondre en JSON strict, sans texte autour.
+
+Format:
+{
+  "businessViewId": "id_exact_si_possible",
+  "businessViewLabel": "label_vue_metier",
+  "confidence": 0.0,
+  "reason": "explication courte"
+}`;
+
+        function splitFamillePromptForUi(full) {
+            const s = String(full ?? '');
+            const re = /\{\{\s*LISTE_LIGNES\s*\}\}|\{\{\s*lines\s*\}\}/i;
+            const m = re.exec(s);
+            if (!m) {
+                return { before: s.replace(/\s+$/, ''), formatEditable: FAMILLE_FORMAT_EDITABLE_DEFAULT, after: '' };
+            }
+            let before = s.slice(0, m.index);
+            let after = s.slice(m.index + m[0].length);
+            before = before.replace(/\n*#{1,3}\s*DONN[EÉ]ES[^\n]*\s*$/i, '').trimEnd();
+            let formatEditable = FAMILLE_FORMAT_EDITABLE_DEFAULT;
+            const fixedIdx = after.indexOf(FAMILLE_FORMAT_JSON_FIXED_BLOCK);
+            if (fixedIdx !== -1) {
+                const formatPart = after.slice(0, fixedIdx).trim();
+                if (formatPart) {
+                    formatEditable = formatPart;
+                }
+                after = after.slice(fixedIdx + FAMILLE_FORMAT_JSON_FIXED_BLOCK.length);
+            }
+            after = after.trimStart();
+            return { before, formatEditable, after };
+        }
+
+        function joinFamillePromptFromUi(before, formatEditable, after) {
+            const b = String(before ?? '').trimEnd();
+            const f = String(formatEditable ?? '').trim();
+            const a = String(after ?? '').trimStart();
+            const formatBlock = [f || FAMILLE_FORMAT_EDITABLE_DEFAULT, FAMILLE_FORMAT_JSON_FIXED_BLOCK].join('\n\n');
+            const core = [FAMILLE_LISTE_INJECTION_BLOCK, formatBlock].join('\n\n');
+            if (b && a) return `${b}\n\n${core}\n\n${a}`;
+            if (b) return `${b}\n\n${core}`;
+            if (a) return `${core}\n\n${a}`;
+            return core;
+        }
+
+        function decodePromptSelection(value) {
+            const raw = String(value || '').trim();
+            const m = raw.match(/^server:([^|]+)\|model:(.+)$/i);
+            if (!m) return { serverId: '', model: '' };
+            return {
+                serverId: decodeURIComponent(m[1] || '').trim(),
+                model: decodeURIComponent(m[2] || '').trim()
+            };
+        }
+
+        function buildPromptSelectionValue(serverId, model) {
+            const sid = String(serverId || '').trim();
+            const mdl = String(model || '').trim();
+            if (!sid || !mdl) return '';
+            return `server:${encodeURIComponent(sid)}|model:${encodeURIComponent(mdl)}`;
+        }
+
+        const PROMPT_TAB_TO_PREFIX = {
+            'extraction-base': 'subcategory',
+            categorization: 'categorization',
+            minoration: 'minoration',
+            famille: 'famille',
+            assignation: 'assignation'
+        };
+        let __ugapRuntimeChoices = { servers: [], serverModelChoices: [] };
+
+        function getActivePromptPrefix() {
+            const activeBtn = document.querySelector('#prompt-subtabs .subtab-btn.active');
+            const tabId = activeBtn?.getAttribute('data-prompt-subtab') || 'extraction-base';
+            return PROMPT_TAB_TO_PREFIX[tabId] || 'subcategory';
+        }
+
+        function syncRuntimeSelectorsFromActivePrompt() {
+            const serverSel = document.getElementById('prompt-runtime-server');
+            const modelSel = document.getElementById('prompt-runtime-model');
+            if (!serverSel || !modelSel) return;
+            const prefix = getActivePromptPrefix();
+            const promptServer = document.getElementById(`prompt-server-${prefix}`);
+            const promptModel = document.getElementById(`prompt-model-${prefix}`);
+            if (!promptServer || !promptModel) return;
+
+            const servers = __ugapRuntimeChoices.servers || [];
+            const choices = __ugapRuntimeChoices.serverModelChoices || [];
+            serverSel.innerHTML = servers.length
+                ? servers.map((s) => `<option value="${escapeHtml(String(s.id || ''))}">${escapeHtml(s.name || s.provider || 'Serveur')}</option>`).join('')
+                : '<option value="">Aucun serveur</option>';
+
+            const selectedServer = String(promptServer.value || serverSel.value || '').trim();
+            if (selectedServer) serverSel.value = selectedServer;
+
+            const models = choices
+                .filter((x) => String(x.serverId || '').trim() === String(serverSel.value || '').trim())
+                .map((x) => String(x.model || '').trim())
+                .filter(Boolean);
+            const uniqueModels = Array.from(new Set(models));
+            modelSel.innerHTML = uniqueModels.length
+                ? uniqueModels.map((m) => `<option value="${escapeHtml(m)}">${escapeHtml(m)}</option>`).join('')
+                : '<option value="">Aucun modèle</option>';
+            const selectedModel = String(promptModel.value || '').trim();
+            if (selectedModel && uniqueModels.includes(selectedModel)) {
+                modelSel.value = selectedModel;
+            }
+        }
+
+        function bindRuntimeSelectors() {
+            const serverSel = document.getElementById('prompt-runtime-server');
+            const modelSel = document.getElementById('prompt-runtime-model');
+            if (!serverSel || !modelSel) return;
+
+            serverSel.onchange = () => {
+                const prefix = getActivePromptPrefix();
+                const promptServer = document.getElementById(`prompt-server-${prefix}`);
+                const promptModel = document.getElementById(`prompt-model-${prefix}`);
+                if (!promptServer || !promptModel) return;
+                promptServer.value = serverSel.value;
+                promptServer.dispatchEvent(new Event('change'));
+                setTimeout(() => {
+                    const models = Array.from(promptModel.options || []).map((o) => o.value).filter(Boolean);
+                    modelSel.innerHTML = models.length
+                        ? models.map((m) => `<option value="${escapeHtml(m)}">${escapeHtml(m)}</option>`).join('')
+                        : '<option value="">Aucun modèle</option>';
+                    if (models.length) {
+                        modelSel.value = promptModel.value || models[0];
+                    }
+                }, 0);
+            };
+
+            modelSel.onchange = () => {
+                const prefix = getActivePromptPrefix();
+                const promptModel = document.getElementById(`prompt-model-${prefix}`);
+                if (!promptModel) return;
+                promptModel.value = modelSel.value;
+            };
+        }
+
+        function populatePromptServerModelPair(prefix, servers, serverModelChoices, selectedValue) {
+            const serverEl = document.getElementById(`prompt-server-${prefix}`);
+            const modelEl = document.getElementById(`prompt-model-${prefix}`);
+            if (!serverEl || !modelEl) return;
+
+            const selected = decodePromptSelection(selectedValue);
+            const choices = Array.isArray(serverModelChoices) ? serverModelChoices : [];
+            const serversMap = new Map();
+            (servers || []).forEach((s) => {
+                const id = String(s.id || '').trim();
+                if (!id) return;
+                serversMap.set(id, s.name || s.provider || 'Serveur');
+            });
+            choices.forEach((c) => {
+                const id = String(c.serverId || '').trim();
+                if (!id) return;
+                if (!serversMap.has(id)) serversMap.set(id, c.serverName || 'Serveur');
+            });
+
+            const serverIds = Array.from(serversMap.keys());
+            serverEl.innerHTML = serverIds.length
+                ? serverIds.map((id) => {
+                    const isSel = selected.serverId && selected.serverId === id ? ' selected' : '';
+                    return `<option value="${escapeHtml(id)}"${isSel}>${escapeHtml(serversMap.get(id))}</option>`;
+                }).join('')
+                : '<option value="">Aucun serveur disponible</option>';
+
+            const refreshModels = (wantedModel = '') => {
+                const sid = String(serverEl.value || '').trim();
+                const models = choices
+                    .filter((x) => String(x.serverId || '').trim() === sid)
+                    .map((x) => String(x.model || '').trim())
+                    .filter(Boolean);
+                const uniqueModels = Array.from(new Set(models));
+                modelEl.innerHTML = uniqueModels.length
+                    ? uniqueModels.map((m) => {
+                        const sel = wantedModel && wantedModel === m ? ' selected' : '';
+                        return `<option value="${escapeHtml(m)}"${sel}>${escapeHtml(m)}</option>`;
+                    }).join('')
+                    : '<option value="">Aucun modèle</option>';
+                if (wantedModel && !uniqueModels.includes(wantedModel)) {
+                    modelEl.insertAdjacentHTML('beforeend', `<option value="${escapeHtml(wantedModel)}" selected>Modèle non accessible (${escapeHtml(wantedModel)})</option>`);
+                } else if (!wantedModel && uniqueModels.length) {
+                    modelEl.selectedIndex = 0;
+                }
+            };
+
+            serverEl.onchange = () => refreshModels('');
+            if (serverIds.length && selected.serverId && !serverIds.includes(selected.serverId)) {
+                serverEl.insertAdjacentHTML('beforeend', `<option value="${escapeHtml(selected.serverId)}" selected>Serveur non accessible (${escapeHtml(selected.serverId)})</option>`);
+            } else if (!selected.serverId && serverIds.length) {
+                serverEl.selectedIndex = 0;
+            }
+            refreshModels(selected.model);
+        }
+
+        async function loadIaRuntimeBanner(promptData = {}) {
+            const el = document.getElementById('prompt-ia-runtime');
+            if (!el) return;
+            el.innerHTML = '<span style="color:#666;">Chargement de la config IA…</span>';
+            try {
+                const r = await apiCall('/ia-context');
+                const d = r.data || {};
+                const fetchIaApi = async (endpoint) => {
+                    const response = await fetch(`/api/ia${endpoint}`, {
+                        method: 'GET',
+                        credentials: 'include'
+                    });
+                    const data = await response.json();
+                    if (!response.ok || !data.success) {
+                        throw new Error(data.message || `Erreur API IA (${endpoint})`);
+                    }
+                    return data;
+                };
+
+                const [serversResp, llmsResp] = await Promise.all([
+                    fetchIaApi('/servers'),
+                    fetchIaApi('/llms')
+                ]);
+                const llms = Array.isArray(llmsResp.llms)
+                    ? llmsResp.llms.map((m) => ({
+                        id: String(m._id || ''),
+                        name: m.name || '',
+                        model: m.model || '',
+                        provider: m.provider || '',
+                        is_default: !!m.is_default
+                    }))
+                    : [];
+                const servers = Array.isArray(serversResp.servers)
+                    ? serversResp.servers.map((s) => ({
+                        id: String(s._id || ''),
+                        name: s.name || '',
+                        provider: s.provider || '',
+                        scope: s.scope || ''
+                    }))
+                    : [];
+                const runtimeDefaultLabel = [d.provider || '', d.model || ''].filter(Boolean).join(' · ');
+
+                let serverModelChoices = [];
+                if (servers.length > 0) {
+                    const modelsByServer = await Promise.all(servers.map(async (s) => {
+                        const sid = String(s.id || '');
+                        if (!sid) return [];
+                        try {
+                            const rsp = await fetchIaApi(`/servers/${encodeURIComponent(sid)}/models`);
+                            const models = Array.isArray(rsp.models) ? rsp.models : [];
+                            return models
+                                .map((m) => {
+                                    if (typeof m === 'string') return String(m).trim();
+                                    if (m && typeof m === 'object' && m.name) return String(m.name).trim();
+                                    return '';
+                                })
+                                .filter(Boolean)
+                                .map((model) => ({ serverId: sid, serverName: s.name || '', model }));
+                        } catch (_) {
+                            return [];
+                        }
+                    }));
+                    serverModelChoices = modelsByServer.flat();
+                }
+                __ugapRuntimeChoices = { servers, serverModelChoices };
+
+                populatePromptServerModelPair('subcategory', servers, serverModelChoices, promptData.subCategoryLlmId || d.promptLlmSelection?.subCategoryLlmId);
+                populatePromptServerModelPair('categorization', servers, serverModelChoices, promptData.categorizationLlmId || d.promptLlmSelection?.categorizationLlmId);
+                populatePromptServerModelPair('minoration', servers, serverModelChoices, promptData.minorationLlmId || d.promptLlmSelection?.minorationLlmId);
+                populatePromptServerModelPair('famille', servers, serverModelChoices, promptData.familleLlmId || d.promptLlmSelection?.familleLlmId);
+                populatePromptServerModelPair('assignation', servers, serverModelChoices, promptData.assignationLlmId || d.promptLlmSelection?.assignationLlmId);
+
+                const entityBlock = d.entityLlm
+                    ? `<div style="margin-top:10px; padding-top:10px; border-top:1px solid #bee5eb; font-size:13px; color:#555;">
+                        <strong>LLM enregistré (entité)</strong> : ${escapeHtml(d.entityLlm.name || '—')}
+                        — modèle <code style="background:#e9ecef;padding:1px 6px;border-radius:3px;">${escapeHtml(d.entityLlm.model || '—')}</code>
+                        ${d.entityLlm.serverName ? ` — serveur « ${escapeHtml(d.entityLlm.serverName)} »` : ''}
+                        ${d.entityLlm.is_default ? ' <span class="badge">défaut</span>' : ''}
+                       </div>`
+                    : '<div style="margin-top:10px; padding-top:10px; border-top:1px solid #bee5eb; font-size:13px; color:#666;">Sélectionnez explicitement un modèle serveur (même logique que le module Chat IA).</div>';
+                el.innerHTML = `
+                    <div style="display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:12px;">
+                        <div style="flex:1; min-width:220px;">
+                            <strong>🖥️ Serveur / modèle utilisés pour les appels IA UGAP</strong>
+                            <span class="badge" style="margin-left:6px; background:#0c5460; color:#fff;">${escapeHtml(d.sourceLabel || '')}</span>
+                            <div style="margin-top:8px; line-height:1.5; font-size:13px; color:#333;">
+                                Sélection active via les menus ci-dessous (serveur et modèle du prompt actif).
+                            </div>
+                            <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap:8px; margin-top:10px;">
+                                <div>
+                                    <label for="prompt-runtime-server" style="display:block; font-size:12px; color:#555; margin-bottom:4px;">Serveur (prompt actif)</label>
+                                    <select id="prompt-runtime-server" style="width:100%; padding:8px; border:1px solid #b8d7df; border-radius:4px; background:#fff;"></select>
+                                </div>
+                                <div>
+                                    <label for="prompt-runtime-model" style="display:block; font-size:12px; color:#555; margin-bottom:4px;">Modèle (prompt actif)</label>
+                                    <select id="prompt-runtime-model" style="width:100%; padding:8px; border:1px solid #b8d7df; border-radius:4px; background:#fff;"></select>
+                                </div>
+                            </div>
+                            <div style="margin-top:4px; font-size:13px; color:#333;">${escapeHtml(d.endpointSummary || '')}</div>
+                            ${d.llmName ? `<div style="margin-top:4px; font-size:13px;">Profil LLM : <em>${escapeHtml(d.llmName)}</em></div>` : ''}
+                        </div>
+                        <div style="min-width:320px; max-width:460px; font-size:12px; color:#555;">
+                            <div><strong>Serveurs IA autorisés (module IA) :</strong> ${servers.length}</div>
+                            <div><strong>Modèles détectés sur serveurs :</strong> ${serverModelChoices.length}</div>
+                            <div><strong>Choix disponibles par prompt :</strong> ${serverModelChoices.length} (modèles serveur)</div>
+                            <div style="margin-top:6px;">
+                                UGAP suit la même logique que Chat IA : choix uniquement parmi les modèles des serveurs autorisés.
+                            </div>
+                        </div>
+                    </div>
+                    <div style="margin-top:8px; font-size:11px; color:#5a6a70;">UI version: ${escapeHtml(UGAP_PROMPTS_UI_VERSION)}</div>
+                    ${entityBlock}
+                `;
+                bindRuntimeSelectors();
+                syncRuntimeSelectorsFromActivePrompt();
+            } catch (e) {
+                el.innerHTML = `<span style="color:#842029;">Impossible de charger la config IA : ${escapeHtml(e.message)}</span>`;
+            }
+        }
+
+        // Load prompts
+        async function loadPrompts() {
+            try {
+                const result = await apiCall('/prompts');
+                let subCategoryPrompt = result.data.subCategoryPrompt || '';
+                const categorizationPrompt = result.data.categorizationPrompt || '';
+                const minorationPrompt = result.data.minorationPrompt || '';
+                const famillePrompt = result.data.famillePrompt || '';
+                const familleContext = result.data.familleContext != null ? result.data.familleContext : '';
+                const assignationPrompt = String(result.data.assignationPrompt || '').trim() || ASSIGNATION_PROMPT_DEFAULT;
+                const subCategoryLlmId = result.data.subCategoryLlmId || '';
+                const categorizationLlmId = result.data.categorizationLlmId || '';
+                const minorationLlmId = result.data.minorationLlmId || '';
+                const familleLlmId = result.data.familleLlmId || '';
+                const assignationLlmId = result.data.assignationLlmId || '';
+
+                const hasMarkers =
+                    subCategoryPrompt.includes(EXTRACTION_PROMPT_MARKERS.context) &&
+                    subCategoryPrompt.includes(EXTRACTION_PROMPT_MARKERS.prompt) &&
+                    subCategoryPrompt.includes(EXTRACTION_PROMPT_MARKERS.lines) &&
+                    subCategoryPrompt.includes(EXTRACTION_PROMPT_MARKERS.format);
+
+                if (!hasMarkers) {
+                    const migratedPrompt = buildSubCategoryPrompt({
+                        contextText: EXTRACTION_PROMPT_SECTIONS.context,
+                        promptText: EXTRACTION_PROMPT_SECTIONS.prompt,
+                        linesText: EXTRACTION_PROMPT_SECTIONS.lines,
+                        formatText: EXTRACTION_PROMPT_SECTIONS.format
+                    });
+                    try {
+                        await apiCall('/prompts', {
+                            method: 'PUT',
+                            body: JSON.stringify({
+                                subCategoryPrompt: migratedPrompt,
+                                categorizationPrompt,
+                                minorationPrompt,
+                                famillePrompt,
+                                familleContext,
+                                subCategoryLlmId,
+                                categorizationLlmId,
+                                minorationLlmId,
+                                familleLlmId,
+                                assignationLlmId
+                            })
+                        });
+                        subCategoryPrompt = migratedPrompt;
+                        showAlert('Prompt extraction mis à jour avec la nouvelle structure.', 'success');
+                    } catch (error) {
+                        console.warn('Migration du prompt impossible:', error);
+                    }
+                }
+
+                const parsed = parseSubCategoryPromptSections(subCategoryPrompt);
+                const contextTarget = document.getElementById('prompt-extraction-context');
+                const bodyTarget = document.getElementById('prompt-extraction-body');
+                const formatTarget = document.getElementById('prompt-extraction-format-text');
+                if (contextTarget) contextTarget.value = parsed.contextText;
+                if (bodyTarget) bodyTarget.value = parsed.promptText;
+                if (formatTarget) formatTarget.value = parsed.formatText;
+
+                populatePromptLinesDropdown(parsed.linesText);
+                populatePromptFormatDropdown(parsed.formatText);
+
+                document.getElementById('prompt-categorization').value = categorizationPrompt;
+                const minorationTarget = document.getElementById('prompt-minoration');
+                if (minorationTarget) {
+                    minorationTarget.value = minorationPrompt;
+                }
+                const familleContextTarget = document.getElementById('prompt-famille-context');
+                if (familleContextTarget) {
+                    familleContextTarget.value = familleContext;
+                }
+                const familleInjectionPre = document.getElementById('prompt-famille-injection-pre');
+                if (familleInjectionPre) familleInjectionPre.textContent = FAMILLE_LISTE_INJECTION_BLOCK;
+                const familleFormatPre = document.getElementById('prompt-famille-format-pre');
+                if (familleFormatPre) familleFormatPre.textContent = FAMILLE_FORMAT_JSON_FIXED_BLOCK;
+                const { before: familleBefore, formatEditable: familleFormatEditable, after: familleAfter } = splitFamillePromptForUi(famillePrompt);
+                const familleBeforeEl = document.getElementById('prompt-famille-before');
+                const familleFormatEditableEl = document.getElementById('prompt-famille-format-editable');
+                const familleAfterEl = document.getElementById('prompt-famille-after');
+                if (familleBeforeEl) familleBeforeEl.value = familleBefore;
+                if (familleFormatEditableEl) familleFormatEditableEl.value = familleFormatEditable || FAMILLE_FORMAT_EDITABLE_DEFAULT;
+                if (familleAfterEl) familleAfterEl.value = familleAfter;
+                const assignationPromptEl = document.getElementById('prompt-assignation-body');
+                if (assignationPromptEl) assignationPromptEl.value = assignationPrompt;
+
+                const promptStatusDiv = document.getElementById('prompt-status');
+                if (promptStatusDiv) {
+                    promptStatusDiv.innerHTML = `
+                        <span style="color: #28a745;">✅ <strong>Prompts chargés</strong></span>
+                        <br>Extraction, catégorisation, minoration, famille (regroupement IA), assignation familles.
+                    `;
+                }
+                await loadIaRuntimeBanner({
+                    subCategoryLlmId,
+                    categorizationLlmId,
+                    minorationLlmId,
+                    familleLlmId,
+                    assignationLlmId
+                });
+            } catch (error) {
+                showAlert('Erreur lors du chargement des prompts: ' + error.message, 'error');
+            }
+        }
+
+        function switchPromptSubtab(tabId) {
+            document.querySelectorAll('#prompt-subtabs .subtab-btn').forEach(btn => {
+                btn.classList.toggle('active', btn.getAttribute('data-prompt-subtab') === tabId);
+            });
+            document.querySelectorAll('#tab-prompts .subtab-panel').forEach(panel => {
+                panel.classList.toggle('active', panel.id === `prompt-subtab-${tabId}`);
+            });
+            syncRuntimeSelectorsFromActivePrompt();
+        }
+
+        function populatePromptLinesDropdown(existingLinesText) {
+            const select = document.getElementById('prompt-extraction-lines-select');
+            const counter = document.getElementById('prompt-extraction-lines-count');
+            if (!select) return;
+            const modelLines = (currentData?.models || [])
+                .map((m, idx) => m.baseLabel || `${idx + 1}. ${m.name || ''}`)
+                .filter(Boolean);
+            const mergedLines = modelLines.length > 0 ? modelLines : String(existingLinesText || '').split('\n').filter(Boolean);
+            select.innerHTML = '';
+            mergedLines.forEach((line, index) => {
+                const option = document.createElement('option');
+                option.value = line;
+                option.textContent = `${index + 1}. ${line}`;
+                select.appendChild(option);
+            });
+            if (counter) {
+                counter.textContent = `${mergedLines.length} ligne(s) affichée(s)`;
+            }
+        }
+
+        function populatePromptFormatDropdown(currentFormatText) {
+            const select = document.getElementById('prompt-extraction-format');
+            if (!select) return;
+            const entries = Object.entries(EXTRACTION_FORMAT_PRESETS);
+            select.innerHTML = entries.map(([key]) => `<option value="${key}">${key}</option>`).join('');
+
+            const current = String(currentFormatText || '').trim();
+            let matched = entries.find(([, value]) => String(value).trim() === current)?.[0] || null;
+            if (!matched) {
+                select.insertAdjacentHTML('beforeend', '<option value="custom">custom</option>');
+                matched = 'custom';
+            }
+            select.value = matched;
+            select.dataset.previousValue = matched;
+        }
+
+        function getPromptLlmSelectionFromUi() {
+            const subCategoryLlmId = buildPromptSelectionValue(
+                document.getElementById('prompt-server-subcategory')?.value,
+                document.getElementById('prompt-model-subcategory')?.value
+            );
+            const categorizationLlmId = buildPromptSelectionValue(
+                document.getElementById('prompt-server-categorization')?.value,
+                document.getElementById('prompt-model-categorization')?.value
+            );
+            const minorationLlmId = buildPromptSelectionValue(
+                document.getElementById('prompt-server-minoration')?.value,
+                document.getElementById('prompt-model-minoration')?.value
+            );
+            const familleLlmId = buildPromptSelectionValue(
+                document.getElementById('prompt-server-famille')?.value,
+                document.getElementById('prompt-model-famille')?.value
+            );
+            const assignationLlmId = buildPromptSelectionValue(
+                document.getElementById('prompt-server-assignation')?.value,
+                document.getElementById('prompt-model-assignation')?.value
+            );
+            return {
+                subCategoryLlmId,
+                categorizationLlmId,
+                minorationLlmId,
+                familleLlmId,
+                assignationLlmId
+            };
+        }
+
+        function ensurePromptLlmSelection(selection) {
+            if (!selection.subCategoryLlmId || !selection.categorizationLlmId || !selection.minorationLlmId || !selection.familleLlmId || !selection.assignationLlmId) {
+                showAlert('Sélection LLM obligatoire pour chaque prompt (pas de fallback).', 'error');
+                return false;
+            }
+            return true;
+        }
+
+        async function saveExtractionPrompt() {
+            try {
+                const contextText = document.getElementById('prompt-extraction-context')?.value?.trim() || '';
+                const promptText = document.getElementById('prompt-extraction-body')?.value?.trim() || '';
+                const linesSelect = document.getElementById('prompt-extraction-lines-select');
+                const linesText = Array.from(linesSelect?.options || []).map(opt => opt.value).join('\n');
+                const formatText = document.getElementById('prompt-extraction-format-text')?.value?.trim() || '';
+                const subCategoryPrompt = buildSubCategoryPrompt({ contextText, promptText, linesText, formatText });
+
+                if (!contextText || !promptText || !formatText) {
+                    showAlert('Contexte, prompt et format attendu sont obligatoires.', 'error');
+                    return;
+                }
+
+                const currentPrompts = await apiCall('/prompts');
+                const llmSelection = getPromptLlmSelectionFromUi();
+                if (!ensurePromptLlmSelection(llmSelection)) return;
+                await apiCall('/prompts', {
+                    method: 'PUT',
+                    body: JSON.stringify({
+                        subCategoryPrompt,
+                        categorizationPrompt: currentPrompts.data.categorizationPrompt || '',
+                        minorationPrompt: currentPrompts.data.minorationPrompt || '',
+                        famillePrompt: currentPrompts.data.famillePrompt || '',
+                        assignationPrompt: currentPrompts.data.assignationPrompt || '',
+                        familleContext: currentPrompts.data.familleContext != null ? currentPrompts.data.familleContext : '',
+                        ...llmSelection
+                    })
+                });
+
+                showAlert('Prompt extraction enregistré avec succès', 'success');
+                await loadPrompts();
+            } catch (error) {
+                showAlert('Erreur lors de l\'enregistrement: ' + error.message, 'error');
+            }
+        }
+
+        // Save categorization prompt
+        async function saveCategorizationPrompt() {
+            try {
+                const categorizationPrompt = document.getElementById('prompt-categorization').value.trim();
+
+                if (!categorizationPrompt) {
+                    showAlert('Le prompt d\'amélioration de catégorisation ne peut pas être vide', 'error');
+                    return;
+                }
+
+                // Récupérer le prompt de sous-catégorie existant pour ne pas l'écraser
+                const currentPrompts = await apiCall('/prompts');
+                const subCategoryPrompt = currentPrompts.data.subCategoryPrompt || '';
+                const minorationPrompt = currentPrompts.data.minorationPrompt || '';
+                const famillePrompt = currentPrompts.data.famillePrompt || '';
+                const familleContext = currentPrompts.data.familleContext != null ? currentPrompts.data.familleContext : '';
+                const llmSelection = getPromptLlmSelectionFromUi();
+                if (!ensurePromptLlmSelection(llmSelection)) return;
+
+                await apiCall('/prompts', {
+                    method: 'PUT',
+                    body: JSON.stringify({
+                        subCategoryPrompt, // Garder l'existant
+                        categorizationPrompt,
+                        minorationPrompt, // Garder l'existant
+                        famillePrompt,
+                        assignationPrompt: currentPrompts.data.assignationPrompt || '',
+                        familleContext,
+                        ...llmSelection
+                    })
+                });
+
+                showAlert('Prompt d\'amélioration de catégorisation enregistré avec succès', 'success');
+            } catch (error) {
+                showAlert('Erreur lors de l\'enregistrement: ' + error.message, 'error');
+            }
+        }
+
+        async function saveMinorationPrompt() {
+            try {
+                const minorationPrompt = document.getElementById('prompt-minoration').value.trim();
+
+                if (!minorationPrompt) {
+                    showAlert('Le prompt de minoration ne peut pas être vide', 'error');
+                    return;
+                }
+
+                const currentPrompts = await apiCall('/prompts');
+                const subCategoryPrompt = currentPrompts.data.subCategoryPrompt || '';
+                const categorizationPrompt = currentPrompts.data.categorizationPrompt || '';
+                const famillePrompt = currentPrompts.data.famillePrompt || '';
+                const familleContext = currentPrompts.data.familleContext != null ? currentPrompts.data.familleContext : '';
+                const llmSelection = getPromptLlmSelectionFromUi();
+                if (!ensurePromptLlmSelection(llmSelection)) return;
+
+                await apiCall('/prompts', {
+                    method: 'PUT',
+                    body: JSON.stringify({
+                        subCategoryPrompt,
+                        categorizationPrompt,
+                        minorationPrompt,
+                        famillePrompt,
+                        assignationPrompt: currentPrompts.data.assignationPrompt || '',
+                        familleContext,
+                        ...llmSelection
+                    })
+                });
+
+                showAlert('Prompt minoration enregistré avec succès', 'success');
+            } catch (error) {
+                showAlert('Erreur lors de l\'enregistrement: ' + error.message, 'error');
+            }
+        }
+
+        async function saveFamillePrompt() {
+            try {
+                const familleContext = document.getElementById('prompt-famille-context')?.value ?? '';
+                const before = document.getElementById('prompt-famille-before')?.value ?? '';
+                const formatEditable = document.getElementById('prompt-famille-format-editable')?.value ?? '';
+                const after = document.getElementById('prompt-famille-after')?.value ?? '';
+                if (!String(before).trim() && !String(after).trim()) {
+                    showAlert('Renseignez au moins une des deux parties du prompt (avant ou après la liste des lignes).', 'error');
+                    return;
+                }
+                const famillePrompt = joinFamillePromptFromUi(before, formatEditable, after);
+                const currentPrompts = await apiCall('/prompts');
+                const llmSelection = getPromptLlmSelectionFromUi();
+                if (!ensurePromptLlmSelection(llmSelection)) return;
+                await apiCall('/prompts', {
+                    method: 'PUT',
+                    body: JSON.stringify({
+                        subCategoryPrompt: currentPrompts.data.subCategoryPrompt || '',
+                        categorizationPrompt: currentPrompts.data.categorizationPrompt || '',
+                        minorationPrompt: currentPrompts.data.minorationPrompt || '',
+                        famillePrompt,
+                        assignationPrompt: currentPrompts.data.assignationPrompt || '',
+                        familleContext,
+                        ...llmSelection
+                    })
+                });
+                showAlert('Prompt Famille enregistré avec succès', 'success');
+            } catch (error) {
+                showAlert('Erreur lors de l\'enregistrement: ' + error.message, 'error');
+            }
+        }
+
+        async function saveAssignationPrompt() {
+            try {
+                const currentPrompts = await apiCall('/prompts');
+                const assignationPrompt = document.getElementById('prompt-assignation-body')?.value?.trim() || ASSIGNATION_PROMPT_DEFAULT;
+                const llmSelection = getPromptLlmSelectionFromUi();
+                if (!ensurePromptLlmSelection(llmSelection)) return;
+
+                await apiCall('/prompts', {
+                    method: 'PUT',
+                    body: JSON.stringify({
+                        subCategoryPrompt: currentPrompts.data.subCategoryPrompt || '',
+                        categorizationPrompt: currentPrompts.data.categorizationPrompt || '',
+                        minorationPrompt: currentPrompts.data.minorationPrompt || '',
+                        famillePrompt: currentPrompts.data.famillePrompt || '',
+                        assignationPrompt,
+                        familleContext: currentPrompts.data.familleContext != null ? currentPrompts.data.familleContext : '',
+                        ...llmSelection
+                    })
+                });
+
+                showAlert('Prompt assignation enregistré avec succès', 'success');
+                await loadPrompts();
+                switchPromptSubtab('assignation');
+            } catch (error) {
+                showAlert('Erreur lors de l\'enregistrement assignation: ' + error.message, 'error');
+            }
+        }
+
+        // Reset prompts to default
+        async function resetPrompts() {
+            if (!confirm('Réinitialiser les prompts aux valeurs par défaut ? Cette action ne peut pas être annulée.')) {
+                return;
+            }
+
+            try {
+                const result = await apiCall('/prompts/reset', {
+                    method: 'POST'
+                });
+
+                await loadPrompts();
+                showAlert('Prompts réinitialisés aux valeurs par défaut', 'success');
+            } catch (error) {
+                showAlert('Erreur lors de la réinitialisation: ' + error.message, 'error');
+            }
+        }
+
+        // Populate category select for subcategories
+        function populateCategorySelect() {
+            const select = document.getElementById('select-category-for-sub');
+            if (!select) return;
+            
+            // Sauvegarder la valeur actuelle pour éviter de déclencher l'événement change
+            const currentValue = select.value;
+            
+            select.innerHTML = '<option value="">-- Choisir une catégorie --</option>';
+
+            if (!currentData || !currentData.categories) return;
+
+            currentData.categories.forEach(cat => {
+                const option = document.createElement('option');
+                option.value = cat.id;
+                option.textContent = cat.name;
+                select.appendChild(option);
+            });
+            
+            // Restaurer la valeur si elle existait (sans déclencher l'événement)
+            if (currentValue) {
+                select.value = currentValue;
+            }
+        }
+
+        // Update stats
+        function updateStats() {
+            if (!currentData) {
+                document.getElementById('stat-models').textContent = '0';
+                document.getElementById('stat-categories').textContent = '0';
+                document.getElementById('stat-options').textContent = '0';
+                return;
+            }
+
+            document.getElementById('stat-models').textContent = currentData.models?.length || 0;
+            document.getElementById('stat-categories').textContent = currentData.categories?.length || 0;
+            const optionsCount = currentData.categories?.reduce((sum, cat) => sum + (cat.options?.length || 0), 0) || 0;
+            document.getElementById('stat-options').textContent = optionsCount;
+        }
+
+        // Render models - OPTIMISÉ
+        function renderModels() {
+            const tbody = document.querySelector('#models-table tbody');
+            tbody.innerHTML = '';
+
+            if (!currentData || !currentData.models || currentData.models.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="10" style="text-align: center; color: #666;">Aucun modèle</td></tr>';
+                renderExtractionInsights();
+                return;
+            }
+
+            // Utiliser DocumentFragment pour améliorer les performances DOM
+            const fragment = document.createDocumentFragment();
+
+            currentData.models.forEach(model => {
+                const tr = document.createElement('tr');
+                tr.style.cursor = 'pointer';
+                const configsCount = (model.configurations || []).length;
+                const splitByType = splitModelOptionsByType(getModelOptionsForSummary(model.id));
+                const modelOptionsCount = splitByType.regularOptions.length;
+                const modelMinorationsCount = splitByType.minorationOptions.length;
+                tr.innerHTML = `
+                    <td><strong>${model.name}</strong></td>
+                    <td>${model.posteNumber ?? '-'}</td>
+                    <td style="max-width: 260px;">${escapeHtml(model.motorizationBase || '-')}</td>
+                    <td>${escapeHtml(model.defaultDeliveryMode || '-')}</td>
+                    <td>${(model.basePrice || 0).toFixed(2)} €</td>
+                    <td>${model.image ? `<img src="${model.image}" style="width: 60px; height: 40px; object-fit: cover; border-radius: 4px;">` : '<span style="color: #999;">Aucune</span>'}</td>
+                    <td><span class="badge">${configsCount} configuration(s)</span></td>
+                    <td><span class="badge">${modelOptionsCount}</span></td>
+                    <td><span class="badge">${modelMinorationsCount}</span></td>
+                    <td><button class="btn btn-primary" onclick="event.stopPropagation(); openModelModal('${model.id}')">Modifier</button></td>
+                `;
+                tr.addEventListener('click', () => openModelModal(model.id));
+                fragment.appendChild(tr);
+            });
+
+            // Ajouter toutes les lignes en une seule opération DOM
+            tbody.appendChild(fragment);
+            renderExtractionInsights();
+        }
+
+        // Render categories management - OPTIMISÉ
+        function renderCategoriesManagement() {
+            const tbody = document.querySelector('#categories-management-table tbody');
+            renderViewHeuristicRulesUi();
+            tbody.innerHTML = '';
+
+            if (!currentData || !currentData.categories || currentData.categories.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="4" style="text-align: center; color: #666;">Aucune vue métier</td></tr>';
+                return;
+            }
+
+            // Utiliser DocumentFragment pour améliorer les performances DOM
+            const fragment = document.createDocumentFragment();
+
+            currentData.categories.forEach((category, index) => {
+                const isFirst = index === 0;
+                const isLast = index === currentData.categories.length - 1;
+                const tr = document.createElement('tr');
+                tr.draggable = true;
+                tr.setAttribute('data-category-id', category.id);
+                const subCategoriesCount = (category.subCategories || []).length;
+                
+                tr.innerHTML = `
+                    <td><strong>${category.name}</strong> <span style="font-size:11px; color:#666; margin-left:6px;">(glisser-déposer)</span></td>
+                    <td><span class="badge">${subCategoriesCount} sous-catégorie(s)</span></td>
+                    <td>
+                        <button class="btn btn-outline" ${isFirst ? 'disabled' : ''} onclick="moveCategory('${category.id}', 'up')">↑</button>
+                        <button class="btn btn-outline" ${isLast ? 'disabled' : ''} onclick="moveCategory('${category.id}', 'down')">↓</button>
+                    </td>
+                    <td>
+                        <button class="btn btn-outline" onclick="editCategory('${category.id}')">Modifier</button>
+                        <button class="btn btn-danger" onclick="deleteCategory('${category.id}')">Supprimer</button>
+                    </td>
+                `;
+                tr.addEventListener('dragstart', (e) => {
+                    tr.style.opacity = '0.45';
+                    e.dataTransfer.effectAllowed = 'move';
+                    e.dataTransfer.setData('text/category-id', String(category.id));
+                });
+                tr.addEventListener('dragend', () => {
+                    tr.style.opacity = '';
+                });
+                tr.addEventListener('dragover', (e) => {
+                    e.preventDefault();
+                    tr.style.outline = '2px dashed #0d6efd';
+                    tr.style.outlineOffset = '-2px';
+                });
+                tr.addEventListener('dragleave', () => {
+                    tr.style.outline = '';
+                    tr.style.outlineOffset = '';
+                });
+                tr.addEventListener('drop', async (e) => {
+                    e.preventDefault();
+                    tr.style.outline = '';
+                    tr.style.outlineOffset = '';
+                    const fromId = String(e.dataTransfer.getData('text/category-id') || '').trim();
+                    const toId = String(category.id || '').trim();
+                    if (!fromId || !toId || fromId === toId) return;
+                    await reorderCategoriesByDrag(fromId, toId);
+                });
+                fragment.appendChild(tr);
+            });
+
+            // Ajouter toutes les lignes en une seule opération DOM
+            tbody.appendChild(fragment);
+        }
+
+        async function reorderCategoriesByDrag(fromCategoryId, toCategoryId) {
+            if (!currentData || !Array.isArray(currentData.categories)) return;
+            const categories = currentData.categories.slice();
+            const fromIndex = categories.findIndex((cat) => String(cat.id) === String(fromCategoryId));
+            const toIndex = categories.findIndex((cat) => String(cat.id) === String(toCategoryId));
+            if (fromIndex < 0 || toIndex < 0 || fromIndex === toIndex) return;
+
+            const [moved] = categories.splice(fromIndex, 1);
+            categories.splice(toIndex, 0, moved);
+
+            try {
+                currentData.categories = categories;
+                renderCategoriesManagement();
+                await apiCall('/categories/reorder', {
+                    method: 'PUT',
+                    body: JSON.stringify({ orderedCategoryIds: categories.map((cat) => cat.id) })
+                });
+                await loadData();
+            } catch (error) {
+                await loadData();
+                showAlert('Erreur de réorganisation des vues métier: ' + error.message, 'error');
+            }
+        }
+
+        function getViewHeuristicRules() {
+            try {
+                const raw = localStorage.getItem('ugap.vueMetier.heuristicRules');
+                const parsed = raw ? JSON.parse(raw) : [];
+                return Array.isArray(parsed) ? parsed : [];
+            } catch (_) {
+                return [];
+            }
+        }
+
+        function setViewHeuristicRules(rules) {
+            try {
+                localStorage.setItem('ugap.vueMetier.heuristicRules', JSON.stringify(Array.isArray(rules) ? rules : []));
+            } catch (_) {
+                // no-op
+            }
+        }
+
+        function renderViewHeuristicRulesUi() {
+            const list = document.getElementById('view-heur-list');
+            if (!list) return;
+            const rules = getViewHeuristicRules();
+            list.innerHTML = rules.length === 0
+                ? '<span style="color:#666;">Aucune règle vue métier pour le moment.</span>'
+                : rules.map((r, idx) => `
+                    <div class="view-heur-row" draggable="true" data-view-heur-index="${idx}" style="display:flex; justify-content:space-between; gap:8px; align-items:center; border-top:1px solid #eee; padding:8px 0; cursor:move;">
+                        <div style="display:flex; align-items:flex-start; gap:8px;">
+                            <span style="color:#999; font-size:14px; line-height:1.2;" title="Glisser pour réordonner">⋮⋮</span>
+                            <div>
+                                <strong>${escapeHtml(r.viewLabel || 'Vue métier')}</strong>
+                                <span style="color:#666;">(${escapeHtml(r.scope || 'all')})</span>
+                                <div style="color:#666; font-size:12px;">${escapeHtml(r.keywords || '')}</div>
+                            </div>
+                        </div>
+                        <div style="display:flex; gap:6px;">
+                            <button type="button" class="btn btn-outline" data-edit-view-heur="${idx}">Modifier</button>
+                            <button type="button" class="btn btn-outline" data-del-view-heur="${idx}">Supprimer</button>
+                        </div>
+                    </div>
+                `).join('');
+
+            const addBtn = document.getElementById('btn-add-view-heur');
+            const cancelBtn = document.getElementById('btn-cancel-view-heur-edit');
+            const editIdx = Number(addBtn?.getAttribute('data-edit-index'));
+            if (cancelBtn) {
+                cancelBtn.style.display = Number.isInteger(editIdx) && editIdx >= 0 ? '' : 'none';
+            }
+
+            document.querySelectorAll('[data-del-view-heur]').forEach((btnDel) => {
+                btnDel.onclick = null;
+                btnDel.addEventListener('click', () => {
+                    const idx = Number(btnDel.getAttribute('data-del-view-heur'));
+                    const all = getViewHeuristicRules();
+                    if (!Number.isInteger(idx) || idx < 0 || idx >= all.length) return;
+                    all.splice(idx, 1);
+                    setViewHeuristicRules(all);
+                    renderViewHeuristicRulesUi();
+                });
+            });
+            document.querySelectorAll('[data-edit-view-heur]').forEach((btnEdit) => {
+                btnEdit.onclick = null;
+                btnEdit.addEventListener('click', () => {
+                    const idx = Number(btnEdit.getAttribute('data-edit-view-heur'));
+                    const all = getViewHeuristicRules();
+                    const rule = all[idx];
+                    if (!rule) return;
+                    const labelEl = document.getElementById('view-heur-label');
+                    const kwEl = document.getElementById('view-heur-keywords');
+                    const scopeEl = document.getElementById('view-heur-scope');
+                    if (labelEl) labelEl.value = rule.viewLabel || '';
+                    if (kwEl) kwEl.value = rule.keywords || '';
+                    if (scopeEl) scopeEl.value = rule.scope || 'all';
+                    if (addBtn) addBtn.setAttribute('data-edit-index', String(idx));
+                    if (cancelBtn) cancelBtn.style.display = '';
+                });
+            });
+
+            // Drag & drop de l'ordre des règles de vues métier.
+            document.querySelectorAll('.view-heur-row').forEach((row) => {
+                row.addEventListener('dragstart', (e) => {
+                    row.style.opacity = '0.45';
+                    e.dataTransfer.effectAllowed = 'move';
+                    e.dataTransfer.setData('text/view-heur-index', row.getAttribute('data-view-heur-index') || '');
+                });
+                row.addEventListener('dragend', () => {
+                    row.style.opacity = '';
+                    row.style.outline = '';
+                });
+                row.addEventListener('dragover', (e) => {
+                    e.preventDefault();
+                    row.style.outline = '2px dashed #0d6efd';
+                    row.style.outlineOffset = '-2px';
+                });
+                row.addEventListener('dragleave', () => {
+                    row.style.outline = '';
+                    row.style.outlineOffset = '';
+                });
+                row.addEventListener('drop', (e) => {
+                    e.preventDefault();
+                    row.style.outline = '';
+                    row.style.outlineOffset = '';
+                    const fromIdx = Number(e.dataTransfer.getData('text/view-heur-index'));
+                    const toIdx = Number(row.getAttribute('data-view-heur-index'));
+                    const all = getViewHeuristicRules();
+                    if (!Number.isInteger(fromIdx) || !Number.isInteger(toIdx) || fromIdx < 0 || toIdx < 0 || fromIdx >= all.length || toIdx >= all.length || fromIdx === toIdx) return;
+                    const [moved] = all.splice(fromIdx, 1);
+                    all.splice(toIdx, 0, moved);
+                    setViewHeuristicRules(all);
+                    renderViewHeuristicRulesUi();
+                });
+            });
+        }
+
+        // Render subcategories
+        // Afficher les résultats SANS effacer le streaming
+        function displaySubCategoriesResults(categoryId, container) {
+            if (!currentData || !currentData.categories) {
+                return;
+            }
+
+            // Recharger les données puis afficher l'accordéon
+            loadData(true).then(() => {
+                renderSubCategoriesAccordion();
+            });
+
+            const category = currentData.categories.find(c => c.id === categoryId);
+            if (!category) {
+                return;
+            }
+
+            const subCategories = category.subCategories || [];
+            console.log(`📊 Affichage de ${subCategories.length} sous-catégorie(s) pour "${category.name}"`);
+            
+            if (subCategories.length === 0) {
+                return;
+            }
+
+            // Créer une zone de résultats en dessous du streaming
+            let resultsDiv = container.querySelector('#subcategories-results');
+            if (!resultsDiv) {
+                resultsDiv = document.createElement('div');
+                resultsDiv.id = 'subcategories-results';
+                resultsDiv.style.marginTop = '20px';
+                resultsDiv.style.padding = '20px';
+                resultsDiv.style.background = 'white';
+                resultsDiv.style.borderRadius = '8px';
+                resultsDiv.style.border = '2px solid #28a745';
+                container.appendChild(resultsDiv);
+            }
+
+            const table = document.createElement('table');
+            table.style.width = '100%';
+            table.style.borderCollapse = 'collapse';
+            table.innerHTML = `
+                <thead>
+                    <tr>
+                        <th style="padding: 8px; border-bottom: 1px solid #eee;">Nom</th>
+                        <th style="padding: 8px; border-bottom: 1px solid #eee;">Description</th>
+                        <th style="padding: 8px; border-bottom: 1px solid #eee;">Options</th>
+                        <th style="padding: 8px; border-bottom: 1px solid #eee;">Actions</th>
+                    </tr>
+                </thead>
+                <tbody></tbody>
+            `;
+
+            const tbody = table.querySelector('tbody');
+            subCategories.forEach(subCat => {
+                const tr = document.createElement('tr');
+                const optionCount = (subCat.optionIds || []).length;
+                tr.style.cursor = 'pointer';
+                tr.innerHTML = `
+                    <td style="padding: 8px; border-bottom: 1px solid #eee;"><strong>${subCat.name}</strong></td>
+                    <td style="padding: 8px; border-bottom: 1px solid #eee;">${subCat.description || '-'}</td>
+                    <td style="padding: 8px; border-bottom: 1px solid #eee;"><span class="badge">${optionCount} option(s)</span></td>
+                    <td style="padding: 8px; border-bottom: 1px solid #eee;" onclick="event.stopPropagation()">
+                        <button class="btn btn-outline" onclick="editSubCategory('${categoryId}', '${subCat.id}')">Modifier</button>
+                        <button class="btn btn-danger" onclick="deleteSubCategory('${categoryId}', '${subCat.id}')">Supprimer</button>
+                    </td>
+                `;
+                // Attacher l'événement APRÈS avoir défini innerHTML
+                tr.addEventListener('click', (e) => {
+                    if (e.target.tagName !== 'BUTTON' && e.target.closest('td')?.getAttribute('onclick') !== 'event.stopPropagation()') {
+                        showSubCategoryDetails(categoryId, subCat);
+                    }
+                });
+                tbody.appendChild(tr);
+            });
+
+            resultsDiv.innerHTML = `
+                <h3 style="margin: 0 0 15px 0; color: #28a745;">✅ ${subCategories.length} sous-catégorie(s) créée(s)</h3>
+            `;
+            resultsDiv.appendChild(table);
+        }
+
+        function getFamiliesForAssignationTab() {
+            const rows = getFamilleValidatedFamilies();
+            return (Array.isArray(rows) ? rows : []).map((f, idx) => ({
+                ...f,
+                __idx: idx,
+                optionIds: Array.isArray(f.optionIds) ? f.optionIds : []
+            }));
+        }
+
+        function slugifyBusinessViewLabel(label) {
+            return String(label || '')
+                .normalize('NFD')
+                .replace(/[\u0300-\u036f]/g, '')
+                .toLowerCase()
+                .replace(/[^a-z0-9]+/g, '-')
+                .replace(/^-+|-+$/g, '')
+                .trim();
+        }
+
+        function getBusinessViewsForAssignationTab() {
+            const rules = Array.isArray(getViewHeuristicRules()) ? getViewHeuristicRules() : [];
+            const ruleMap = new Map();
+            rules.forEach((r) => {
+                const label = String(r?.viewLabel || '').trim();
+                if (!label) return;
+                const key = slugifyBusinessViewLabel(label) || label.toLowerCase();
+                if (!ruleMap.has(key)) {
+                    ruleMap.set(key, {
+                        id: `rule:${key}`,
+                        label,
+                        source: 'rule',
+                        keywords: []
+                    });
+                }
+                const row = ruleMap.get(key);
+                const rawKeywords = String(r?.keywords || '')
+                    .split(/[\n,;|]+/g)
+                    .map((x) => String(x || '').trim())
+                    .filter(Boolean);
+                row.keywords.push(...rawKeywords);
+            });
+            const ruleViews = Array.from(ruleMap.values()).map((v) => ({
+                ...v,
+                keywords: Array.from(new Set(v.keywords)).join(', ')
+            }));
+            if (ruleViews.length > 0) {
+                return ruleViews;
+            }
+
+            const categories = Array.isArray(currentData?.categories) ? currentData.categories : [];
+            return categories.map((v) => ({
+                id: String(v?.id || '').trim(),
+                label: String(v?.name || 'Vue métier').trim(),
+                source: 'category',
+                keywords: ''
+            })).filter((v) => v.id && v.label);
+        }
+
+        function assignFamilyToBusinessView(savedIndex, viewId) {
+            const idx = Number(savedIndex);
+            const list = getFamilleValidatedFamilies();
+            if (!Number.isInteger(idx) || idx < 0 || idx >= list.length) return;
+            if (!String(viewId || '').trim()) {
+                list[idx].businessViewId = '';
+                list[idx].businessViewLabel = '';
+                setFamilleValidatedFamilies(list);
+                renderSubCategoriesAccordion();
+                return;
+            }
+            const target = getBusinessViewsForAssignationTab().find((v) => String(v.id) === String(viewId));
+            if (!target) {
+                showAlert('Vue métier introuvable.', 'error');
+                return;
+            }
+            list[idx].businessViewId = String(target.id || '');
+            list[idx].businessViewLabel = String(target.label || '');
+            setFamilleValidatedFamilies(list);
+            renderSubCategoriesAccordion();
+        }
+
+        async function autoAssignFamiliesToBusinessViews() {
+            const list = getFamilleValidatedFamilies();
+            const views = getBusinessViewsForAssignationTab();
+            if (!Array.isArray(list) || list.length === 0) {
+                showAlert('Aucune famille validée à assigner.', 'warning');
+                return;
+            }
+            if (!Array.isArray(views) || views.length === 0) {
+                showAlert('Aucune vue métier disponible pour l’assignation IA.', 'warning');
+                return;
+            }
+
+            const familiesPayload = list.map((f) => ({
+                familyLabel: String(f?.familyLabel || '').trim(),
+                assignation: String(f?.assignation || '').trim(),
+                subFamily: String(f?.subFamilyLabel || f?.subFamily || '').trim(),
+                optionIds: Array.isArray(f?.optionIds) ? f.optionIds : [],
+                optionLabels: f?.optionLabels && typeof f.optionLabels === 'object' ? f.optionLabels : {}
+            }));
+            const viewsPayload = views.map((v) => ({
+                id: String(v.id || '').trim(),
+                label: String(v.label || '').trim(),
+                keywords: String(v.keywords || '').trim()
+            }));
+
+            const runBtn = document.getElementById('btn-detect-subcategories');
+            const defaultBtnText = runBtn?.dataset.defaultLabel || runBtn?.textContent || '🤖 Assigner automatiquement les familles';
+            if (runBtn && !runBtn.dataset.defaultLabel) {
+                runBtn.dataset.defaultLabel = defaultBtnText;
+            }
+            const setBtnProgress = (done, total) => {
+                if (!runBtn) return;
+                runBtn.textContent = `⏳ Traitement en cours (${done}/${total})`;
+            };
+            const setBtnIdle = () => {
+                if (!runBtn) return;
+                runBtn.textContent = defaultBtnText;
+            };
+
+            try {
+                if (runBtn) runBtn.disabled = true;
+                const total = familiesPayload.length;
+                let done = 0;
+                setBtnProgress(done, total);
+                showAlert(`Assignation IA en cours (${done}/${total})...`, 'info');
+
+                const assignments = [];
+                for (let i = 0; i < familiesPayload.length; i += 1) {
+                    const oneFamily = familiesPayload[i];
+                    const result = await apiCall('/familles/assign-views-ia', {
+                        method: 'POST',
+                        body: JSON.stringify({
+                            families: [oneFamily],
+                            businessViews: viewsPayload
+                        })
+                    });
+                    const oneAssignment = Array.isArray(result?.data?.assignments) ? result.data.assignments[0] : null;
+                    if (oneAssignment) {
+                        assignments.push({
+                            ...oneAssignment,
+                            familyIndex: i
+                        });
+                    } else {
+                        assignments.push({
+                            familyIndex: i,
+                            familyLabel: oneFamily.familyLabel,
+                            businessViewId: '',
+                            businessViewLabel: '',
+                            confidence: null,
+                            reason: 'Aucune réponse IA',
+                            source: 'fallback'
+                        });
+                    }
+                    done += 1;
+                    setBtnProgress(done, total);
+                }
+
+                if (assignments.length === 0) {
+                    showAlert('Aucun résultat IA reçu.', 'warning');
+                    return;
+                }
+
+                const byIndex = new Map(assignments.map((a) => [Number(a.familyIndex), a]));
+                list.forEach((f, idx) => {
+                    const item = byIndex.get(idx);
+                    if (!item) return;
+                    f.businessViewId = String(item.businessViewId || '').trim();
+                    f.businessViewLabel = String(item.businessViewLabel || '').trim();
+                    f._iaAssignReason = String(item.reason || '').trim();
+                    f._iaAssignConfidence = item.confidence;
+                });
+                setFamilleValidatedFamilies(list);
+                renderSubCategoriesAccordion();
+
+                showAlert(`${assignments.length} famille(s) traitée(s) par l’IA.`, 'success');
+            } catch (error) {
+                showAlert(`Erreur assignation IA: ${error.message || error}`, 'error');
+            } finally {
+                if (runBtn) runBtn.disabled = false;
+                setBtnIdle();
+            }
+        }
+
+        function addSubCategory() {
+            // Bouton supprimé dans l'UI (conservé pour compatibilité).
+        }
+
+        function renderSubCategoriesAccordion() {
+            const container = document.getElementById('subcategories-accordion');
+            if (!container) return;
+
+            const views = getBusinessViewsForAssignationTab();
+            const families = getFamiliesForAssignationTab();
+            const validViewIds = new Set(
+                views.map((v) => String(v?.id || '').trim()).filter(Boolean)
+            );
+
+            if (views.length === 0) {
+                container.innerHTML = '<p style="color:#666;">Aucune vue métier disponible.</p>';
+                return;
+            }
+
+            if (families.length === 0) {
+                container.innerHTML = `
+                    <div style="padding:14px; border:1px solid #ffe69c; border-radius:6px; background:#fff8e1; color:#8a6d3b;">
+                        Aucune famille validée. Va d'abord dans l'onglet <strong>Famille</strong> puis clique sur <strong>Enregistrer</strong>.
+                    </div>
+                `;
+                return;
+            }
+
+            const html = views.map((view) => {
+                const assigned = families.filter((f) => {
+                    const familyViewId = String(f.businessViewId || '').trim();
+                    if (!familyViewId || !validViewIds.has(familyViewId)) return false;
+                    return familyViewId === String(view.id || '').trim();
+                });
+                const rows = assigned.length === 0
+                    ? '<tr><td colspan="5" style="padding:10px; color:#777;">Aucune famille assignée</td></tr>'
+                    : assigned.map((f) => `
+                        <tr>
+                            <td style="padding:8px; border-bottom:1px solid #eee;"><strong>${escapeHtml(f.familyLabel || 'Famille')}</strong></td>
+                            <td style="padding:8px; border-bottom:1px solid #eee;">${escapeHtml(f.assignation || '-')}</td>
+                            <td style="padding:8px; border-bottom:1px solid #eee;">${escapeHtml(f.subFamilyLabel || f.subFamily || '-')}</td>
+                            <td style="padding:8px; border-bottom:1px solid #eee;"><span class="badge">${(f.optionIds || []).length} option(s)</span></td>
+                            <td style="padding:8px; border-bottom:1px solid #eee;">
+                                <select onchange="assignFamilyToBusinessView(${f.__idx}, this.value)" style="min-width:180px; padding:6px; border:1px solid #ddd; border-radius:4px;">
+                                    <option value="">-- Non assignée --</option>
+                                    ${views.map((v) => `<option value="${escapeHtml(String(v.id || ''))}" ${String(f.businessViewId || '').trim() === String(v.id || '').trim() ? 'selected' : ''}>${escapeHtml(v.label || 'Vue métier')}</option>`).join('')}
+                                </select>
+                            </td>
+                        </tr>
+                    `).join('');
+
+                return `
+                    <div class="accordion">
+                        <div class="accordion-header active">
+                            <div style="flex:1;">
+                                <strong>${escapeHtml(view.label || 'Vue métier')}</strong>
+                                <span style="margin-left:10px; color:#666; font-size:14px;">${assigned.length} famille(s) assignée(s)</span>
+                            </div>
+                        </div>
+                        <div class="accordion-content active" style="display:block; padding:12px;">
+                            <table style="width:100%; border-collapse:collapse;">
+                                <thead>
+                                    <tr style="background:#f8f9fa;">
+                                        <th style="padding:8px; border-bottom:2px solid #dee2e6;">Famille</th>
+                                        <th style="padding:8px; border-bottom:2px solid #dee2e6;">Assignation</th>
+                                        <th style="padding:8px; border-bottom:2px solid #dee2e6;">Sous-famille</th>
+                                        <th style="padding:8px; border-bottom:2px solid #dee2e6;">Options</th>
+                                        <th style="padding:8px; border-bottom:2px solid #dee2e6;">Action</th>
+                                    </tr>
+                                </thead>
+                                <tbody>${rows}</tbody>
+                            </table>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+
+            const assignedIds = new Set(
+                families
+                    .filter((f) => {
+                        const id = String(f.businessViewId || '').trim();
+                        return id && validViewIds.has(id);
+                    })
+                    .map((f) => String(f.__idx))
+            );
+            const unassigned = families.filter((f) => !assignedIds.has(String(f.__idx)));
+            const unassignedRows = unassigned.length === 0
+                ? '<tr><td colspan="3" style="padding:8px; color:#666;">Toutes les familles sont assignées.</td></tr>'
+                : unassigned.map((f) => `
+                    <tr>
+                        <td style="padding:8px; border-bottom:1px solid #eee;"><strong>${escapeHtml(f.familyLabel || 'Famille')}</strong></td>
+                        <td style="padding:8px; border-bottom:1px solid #eee;">${escapeHtml(f.assignation || '-')}</td>
+                        <td style="padding:8px; border-bottom:1px solid #eee;">
+                            <select onchange="assignFamilyToBusinessView(${f.__idx}, this.value)" style="min-width:180px; padding:6px; border:1px solid #ddd; border-radius:4px;">
+                                <option value="">-- Choisir une vue métier --</option>
+                                ${views.map((v) => `<option value="${escapeHtml(String(v.id || ''))}">${escapeHtml(v.label || 'Vue métier')}</option>`).join('')}
+                            </select>
+                        </td>
+                    </tr>
+                `).join('');
+
+            container.innerHTML = `
+                <div style="margin-bottom:12px; padding:12px; background:#f8f9fa; border-radius:6px; color:#555;">
+                    Cet onglet assigne les <strong>familles</strong> aux <strong>vues métier</strong>.
+                </div>
+                <div style="margin-bottom:14px; border:1px solid #ddd; border-radius:6px; overflow:hidden;">
+                    <div style="padding:10px 12px; background:#f8f9fa; border-bottom:1px solid #eee; font-weight:600;">Familles non assignées</div>
+                    <table style="width:100%; border-collapse:collapse;">
+                        <thead>
+                            <tr style="background:#fff;">
+                                <th style="padding:8px; border-bottom:1px solid #eee;">Famille</th>
+                                <th style="padding:8px; border-bottom:1px solid #eee;">Assignation</th>
+                                <th style="padding:8px; border-bottom:1px solid #eee;">Affecter à</th>
+                            </tr>
+                        </thead>
+                        <tbody>${unassignedRows}</tbody>
+                    </table>
+                </div>
+                ${html}
+            `;
+        }
+
+        // Render categories (options view) - OPTIMISÉ
+        function renderCategories() {
+            const tbody = document.querySelector('#categories-table tbody');
+            const filterSelect = document.getElementById('filter-category');
+            const filterSubCategorySelect = document.getElementById('filter-subcategory');
+            const filterSubCategoryContainer = document.getElementById('filter-subcategory-container');
+            
+            // Vérifier que les éléments existent
+            if (!filterSubCategorySelect) {
+                console.error('❌ filter-subcategory select introuvable !');
+                return;
+            }
+            if (!filterSubCategoryContainer) {
+                console.error('❌ filter-subcategory-container introuvable !');
+                return;
+            }
+            
+            tbody.innerHTML = '';
+
+            if (!currentData || !currentData.categories || currentData.categories.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; color: #666;">Aucune catégorie</td></tr>';
+                return;
+            }
+
+            // Rafraîchir la liste des catégories pour garder le filtre à jour
+            const categories = currentData.categories;
+            const previousCategoryValue = filterSelect.value;
+            filterSelect.innerHTML = '<option value="">Toutes les catégories</option>';
+
+            categories
+                .slice()
+                .sort((a, b) => (a.name || '').localeCompare(b.name || '', 'fr', { sensitivity: 'base' }))
+                .forEach(cat => {
+                    const option = document.createElement('option');
+                    option.value = cat.name;
+                    option.textContent = cat.name;
+                    filterSelect.appendChild(option);
+                });
+
+            if (previousCategoryValue && categories.some(cat => cat.name === previousCategoryValue)) {
+                filterSelect.value = previousCategoryValue;
+            } else {
+                filterSelect.value = '';
+            }
+
+            const selectedCategory = filterSelect.value;
+            
+            // Afficher/masquer le filtre de sous-catégorie selon la catégorie sélectionnée
+            if (selectedCategory) {
+                const category = categories.find(c => c.name === selectedCategory);
+                console.log(`🔍 Catégorie sélectionnée: "${selectedCategory}"`, category);
+                if (category && category.subCategories && category.subCategories.length > 0) {
+                    console.log(`✅ ${category.subCategories.length} sous-catégorie(s) trouvée(s)`);
+                    filterSubCategoryContainer.style.display = 'block';
+                    
+                    // Sauvegarder la valeur actuelle si elle existe
+                    const currentValue = filterSubCategorySelect.value;
+                    
+                    // Remplir le filtre de sous-catégories
+                    filterSubCategorySelect.innerHTML = '<option value="">Toutes les sous-catégories</option>';
+                    
+                    // Ajouter l'option "Aucune sous-catégorie" pour filtrer les options sans sous-catégorie
+                    const noSubCatOption = document.createElement('option');
+                    noSubCatOption.value = 'Aucune sous-catégorie';
+                    noSubCatOption.textContent = 'Aucune sous-catégorie';
+                    filterSubCategorySelect.appendChild(noSubCatOption);
+                    console.log(`➕ Option "Aucune sous-catégorie" ajoutée au filtre`);
+                    
+                    category.subCategories.forEach(subCat => {
+                        console.log(`➕ Ajout sous-catégorie au filtre: "${subCat.name}"`);
+                        const option = document.createElement('option');
+                        option.value = subCat.name;
+                        option.textContent = subCat.name;
+                        filterSubCategorySelect.appendChild(option);
+                    });
+                    
+                    // Restaurer la valeur précédente si elle existe toujours dans les options
+                    if (currentValue) {
+                        const optionExists = Array.from(filterSubCategorySelect.options).some(opt => opt.value === currentValue);
+                        if (optionExists) {
+                            filterSubCategorySelect.value = currentValue;
+                            console.log(`🔄 Valeur restaurée: "${currentValue}"`);
+                        } else {
+                            console.log(`⚠️ Valeur "${currentValue}" n'existe plus dans les options, réinitialisation`);
+                            filterSubCategorySelect.value = '';
+                        }
+                    } else {
+                        // S'assurer que la valeur par défaut est bien sélectionnée
+                        filterSubCategorySelect.value = '';
+                    }
+                    
+                    console.log(`📋 Filtre rempli avec ${filterSubCategorySelect.options.length} option(s), valeur actuelle: "${filterSubCategorySelect.value}"`);
+                    console.log(`📋 Options disponibles:`, Array.from(filterSubCategorySelect.options).map(opt => `"${opt.value}"`).join(', '));
+                } else {
+                    console.log(`⚠️ Aucune sous-catégorie pour "${selectedCategory}"`);
+                    filterSubCategoryContainer.style.display = 'none';
+                    filterSubCategorySelect.innerHTML = '<option value="">Toutes les sous-catégories</option>';
+                    filterSubCategorySelect.value = '';
+                }
+            } else {
+                filterSubCategoryContainer.style.display = 'none';
+                filterSubCategorySelect.innerHTML = '<option value="">Toutes les sous-catégories</option>';
+                filterSubCategorySelect.value = '';
+            }
+            
+            const selectedSubCategory = filterSubCategorySelect.value;
+            console.log(`🎯 Sous-catégorie sélectionnée pour filtrage: "${selectedSubCategory}"`);
+
+            // Créer un index des sous-catégories par optionId pour éviter les recherches répétées
+            const subCategoryIndex = new Map();
+            categories.forEach(category => {
+                (category.subCategories || []).forEach(subCat => {
+                    console.log(`📋 Sous-catégorie "${subCat.name}" avec ${(subCat.optionIds || []).length} optionIds:`, subCat.optionIds);
+                    (subCat.optionIds || []).forEach(optionId => {
+                        subCategoryIndex.set(optionId, subCat.name);
+                    });
+                });
+            });
+            console.log(`📊 Index créé avec ${subCategoryIndex.size} entrées`);
+            console.log(`📋 Clés de l'index (optionIds):`, Array.from(subCategoryIndex.keys()).slice(0, 10));
+            
+            // Log des IDs des options pour comparaison
+            const allOptionIds = [];
+            categories.forEach(category => {
+                (category.options || []).forEach(option => {
+                    allOptionIds.push(option.id);
+                });
+            });
+            console.log(`📋 IDs des options (échantillon):`, allOptionIds.slice(0, 10));
+
+            // Utiliser DocumentFragment pour améliorer les performances DOM
+            const fragment = document.createDocumentFragment();
+            let rowCount = 0;
+
+            categories.forEach(category => {
+                if (selectedCategory && category.name !== selectedCategory) return;
+
+                (category.options || []).forEach(option => {
+                    // Utiliser l'index au lieu de find() - beaucoup plus rapide
+                    const subCategoryName = subCategoryIndex.get(option.id) || 'Aucune sous-catégorie';
+                    
+                    // Filtrer par sous-catégorie si sélectionnée
+                    // Si "Aucune sous-catégorie" est sélectionnée, afficher uniquement les options sans sous-catégorie
+                    if (selectedSubCategory) {
+                        if (selectedSubCategory === 'Aucune sous-catégorie' && subCategoryName !== 'Aucune sous-catégorie') return;
+                        if (selectedSubCategory !== 'Aucune sous-catégorie' && subCategoryName !== selectedSubCategory) return;
+                    }
+
+                    const tr = document.createElement('tr');
+                    tr.style.cursor = 'pointer';
+                    
+                    // Trouver la sous-catégorie pour obtenir le score de confiance
+                    const subCatForConfidence = (category.subCategories || []).find(sc => sc.name === subCategoryName);
+                    const confidence = subCatForConfidence && subCatForConfidence.confidence && subCatForConfidence.confidence[option.id];
+                    let confidenceBadge = '';
+                    let confidenceColor = '';
+                    
+                    if (confidence !== undefined && confidence !== null) {
+                        if (confidence >= 90) {
+                            confidenceColor = '#28a745'; // Vert
+                        } else if (confidence >= 50) {
+                            confidenceColor = '#ffc107'; // Orange
+                        } else {
+                            confidenceColor = '#dc3545'; // Rouge
+                        }
+                        confidenceBadge = `<span class="badge" style="background: ${confidenceColor}; color: white; margin-left: 5px;">${confidence}%</span>`;
+                    }
+                    
+                    const subCategoryDisplay = subCategoryName === 'Aucune sous-catégorie' 
+                        ? '<span style="color: #dc3545; font-style: italic;">Aucune sous-catégorie</span>'
+                        : subCategoryName;
+                    
+                    const isColorOption = option.type === 'couleur' || option.name.toLowerCase().includes('couleur');
+                    tr.innerHTML = `
+                        <td><strong>${category.name}</strong></td>
+                        <td>${subCategoryDisplay}${confidenceBadge}</td>
+                        <td>${option.name}${isColorOption ? ' 🎨' : ''}</td>
+                        <td>${(option.priceClient || 0).toFixed(2)} €</td>
+                        <td>${(option.priceUgap || 0).toFixed(2)} €</td>
+                        <td><span class="badge">${option.compatibleModels?.length || 0} modèle(s)</span></td>
+                        <td>
+                            <button class="btn btn-outline" onclick="event.stopPropagation(); showOptionDetails('${category.id}', ${JSON.stringify(option).replace(/"/g, '&quot;')})">Modifier</button>
+                        </td>
+                    `;
+                    // Attacher l'événement APRÈS avoir défini innerHTML
+                    tr.addEventListener('click', () => showOptionDetails(category.id, option));
+                    if (isColorOption) {
+                        tr.addEventListener('dblclick', (e) => {
+                            e.stopPropagation();
+                            modifyOptionColor(category.id, option);
+                        });
+                    }
+                    fragment.appendChild(tr);
+                    rowCount++;
+                });
+            });
+
+            // Ajouter toutes les lignes en une seule opération DOM
+            if (rowCount === 0) {
+                tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; color: #666;">Aucune option</td></tr>';
+            } else {
+                tbody.appendChild(fragment);
+            }
+        }
+
+        // Import Excel
+        async function importExcel() {
+            const statusEl = document.getElementById('import-status');
+            statusEl.textContent = 'Import en cours...';
+            statusEl.style.color = '#007bff';
+
+            try {
+                const result = await apiCall('/import', { method: 'POST' });
+                showAlert(`Import réussi ! ${result.data.modelsCount} modèles, ${result.data.categoriesCount} catégories, ${result.data.optionsCount} options.`, 'success');
+                statusEl.textContent = 'Import réussi';
+                statusEl.style.color = '#28a745';
+                await loadData();
+            } catch (error) {
+                showAlert('Erreur lors de l\'import: ' + error.message, 'error');
+                statusEl.textContent = 'Erreur';
+                statusEl.style.color = '#dc3545';
+            }
+        }
+
+        // Add category
+        async function addCategory() {
+            const name = prompt('Nom de la nouvelle catégorie:');
+            if (name === null) return;
+            const trimmedName = name.trim();
+            if (!trimmedName) {
+                showAlert('Le nom de catégorie est obligatoire', 'error');
+                return;
+            }
+
+            try {
+                await apiCall('/categories', {
+                    method: 'POST',
+                    body: JSON.stringify({ name: trimmedName })
+                });
+                showAlert('Catégorie créée avec succès', 'success');
+                await loadData();
+            } catch (error) {
+                showAlert('Erreur: ' + error.message, 'error');
+            }
+        }
+
+        // Delete category
+        async function deleteCategory(categoryId) {
+            if (!confirm('Êtes-vous sûr de vouloir supprimer cette catégorie ?')) return;
+
+            try {
+                await apiCall(`/categories/${categoryId}`, { method: 'DELETE' });
+                showAlert('Catégorie supprimée', 'success');
+                await loadData();
+            } catch (error) {
+                showAlert('Erreur: ' + error.message, 'error');
+            }
+        }
+
+        // Clear / reset categories (regroupe toutes les options dans "Non classées")
+        async function clearAllCategories() {
+            const warning =
+                `Cette action va RÉINITIALISER toutes les catégories :\n\n` +
+                `- Toutes les options seront regroupées dans une seule catégorie "Non classées"\n` +
+                `- Toutes les sous-catégories seront supprimées\n\n` +
+                `Continuer ?`;
+
+            if (!confirm(warning)) return;
+
+            try {
+                showAlert('Réinitialisation des catégories...', 'info');
+                await apiCall('/categories/clear', { method: 'POST' });
+                showAlert('Catégories réinitialisées', 'success');
+                await loadData();
+            } catch (error) {
+                showAlert('Erreur: ' + error.message, 'error');
+            }
+        }
+
+        // Move category order
+        async function moveCategory(categoryId, direction) {
+            if (!currentData || !currentData.categories) return;
+
+            const categories = currentData.categories.slice();
+            const index = categories.findIndex(cat => cat.id === categoryId);
+            if (index === -1) return;
+
+            const newIndex = direction === 'up' ? index - 1 : index + 1;
+            if (newIndex < 0 || newIndex >= categories.length) return;
+
+            const temp = categories[index];
+            categories[index] = categories[newIndex];
+            categories[newIndex] = temp;
+
+            try {
+                currentData.categories = categories;
+                renderCategoriesManagement();
+                await apiCall('/categories/reorder', {
+                    method: 'PUT',
+                    body: JSON.stringify({ orderedCategoryIds: categories.map(cat => cat.id) })
+                });
+                await loadData();
+            } catch (error) {
+                await loadData();
+                showAlert('Erreur: ' + error.message, 'error');
+            }
+        }
+
+        // Detect subcategories with AI (avec progression SSE)
+        async function detectSubCategories() {
+            // Utiliser la catégorie sélectionnée dans l'accordéon
+            if (!currentData || !currentData.categories || currentData.categories.length === 0) {
+                showAlert('Aucune catégorie disponible', 'error');
+                return;
+            }
+
+            // Trouver la catégorie avec l'accordéon actif
+            let category = null;
+            const activeAccordion = document.querySelector('.accordion-header.active');
+            if (activeAccordion) {
+                const accordionId = activeAccordion.closest('.accordion')?.id;
+                if (accordionId) {
+                    const categoryIdFromAccordion = accordionId.replace('accordion-', '');
+                    category = currentData.categories.find(c => c.id === categoryIdFromAccordion);
+                }
+            }
+
+            // Si aucune catégorie n'est sélectionnée, demander à l'utilisateur
+            if (!category) {
+                const categoryNames = currentData.categories.map(c => c.name);
+                const selectedName = prompt('Quelle catégorie analyser ?\n\n' + categoryNames.map((n, i) => `${i + 1}. ${n}`).join('\n') + '\n\nEntrez le numéro ou le nom:');
+                if (!selectedName) return;
+
+                category = currentData.categories.find(c => 
+                    c.name.toLowerCase() === selectedName.toLowerCase() || 
+                    categoryNames.indexOf(c.name) + 1 === parseInt(selectedName)
+                );
+                
+                if (!category) {
+                    showAlert('Catégorie non trouvée', 'error');
+                    return;
+                }
+            }
+
+            const categoryId = category.id;
+            
+            // Afficher le modal de validation du prompt
+            await showPromptValidationModal(categoryId, category.name, () => {
+                // Lancer la détection après validation
+                launchDetectSubCategories(categoryId);
+            });
+        }
+        
+        // Fonction interne pour lancer la détection (séparée pour être appelée après validation)
+        async function launchDetectSubCategories(categoryId) {
+            // Afficher la progression directement dans le conteneur des sous-catégories
+            const container = document.getElementById('subcategories-accordion');
+            const progressHtml = createProgressDisplay();
+            container.innerHTML = progressHtml;
+            
+            const progressContainer = container.querySelector('#progress-messages');
+            const progressBar = container.querySelector('.progress-bar-fill');
+            const timerDisplay = container.querySelector('#timer-display');
+            const streamContentDiv = container.querySelector('#stream-content');
+            const streamTextDiv = container.querySelector('#stream-text');
+            
+            // Debug: vérifier que les conteneurs existent
+            console.log('🔍 Conteneurs trouvés:', {
+                streamContentDiv: !!streamContentDiv,
+                streamTextDiv: !!streamTextDiv,
+                progressContainer: !!progressContainer
+            });
+            
+            let startTime = Date.now();
+            let streamContent = ''; // Déclarer ici pour être accessible dans le catch
+            
+            // Démarrer le timer
+            let seconds = 0;
+            const timerInterval = setInterval(() => {
+                seconds++;
+                const minutes = Math.floor(seconds / 60);
+                const secs = seconds % 60;
+                if (timerDisplay) {
+                    timerDisplay.textContent = `${String(minutes).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+                }
+            }, 1000);
+            
+            // Mettre à jour la barre de progression progressivement
+            let progressValue = 0;
+            const progressInterval = setInterval(() => {
+                if (progressValue < 90 && progressBar) {
+                    progressValue += Math.random() * 2;
+                    progressBar.style.width = Math.min(progressValue, 90) + '%';
+                }
+            }, 500);
+
+            try {
+                // Utiliser fetch avec streaming pour SSE (EventSource ne supporte pas POST)
+                const response = await fetch(
+                    `/api/ugap/categories/${categoryId}/detect-subcategories`,
+                    {
+                        method: 'POST',
+                        headers: {
+                            'Accept': 'text/event-stream',
+                            'Content-Type': 'application/json'
+                        },
+                        credentials: 'include'
+                    }
+                );
+
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+
+                // Vérifier le Content-Type
+                const contentType = response.headers.get('content-type');
+                console.log(`📡 Content-Type reçu: ${contentType}`);
+                console.log(`📡 Headers reçus:`, Object.fromEntries(response.headers.entries()));
+
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                let buffer = '';
+                let currentEvent = null;
+                
+                console.log(`✅ Reader créé, début de la lecture du stream...`);
+
+                // Timeout de sécurité pour détecter si le stream est bloqué
+                let lastDataTime = Date.now();
+                const streamTimeout = setTimeout(() => {
+                    const timeSinceLastData = ((Date.now() - lastDataTime) / 1000).toFixed(0);
+                    if (timeSinceLastData > 30) {
+                        addProgressMessage(`⚠️ Aucune donnée reçue depuis ${timeSinceLastData}s. Le serveur traite peut-être encore...`, 'info');
+                    }
+                }, 60000); // 60 secondes (augmenté pour éviter les faux positifs)
+                
+                // Mettre à jour lastDataTime à chaque message reçu
+                const originalAddProgressMessage = addProgressMessage;
+                addProgressMessage = function(message, type) {
+                    lastDataTime = Date.now();
+                    originalAddProgressMessage(message, type);
+                };
+
+                while (true) {
+                    let readResult;
+                    try {
+                        readResult = await reader.read();
+                    } catch (readError) {
+                        console.error('Erreur lors de la lecture du stream:', readError);
+                        
+                        // Si c'est juste une erreur de timeout/fermeture, ne pas arrêter immédiatement
+                        // Attendre un peu pour voir si la connexion se rétablit
+                        if (readError.message.includes('input stream') || readError.message.includes('timeout')) {
+                            addProgressMessage(`⚠️ Connexion interrompue: ${readError.message}. Tentative de reconnexion...`, 'error');
+                            
+                            // Attendre 2 secondes avant de considérer que c'est vraiment terminé
+                            await new Promise(resolve => setTimeout(resolve, 2000));
+                            
+                            // Si on arrive ici, la connexion est vraiment fermée
+                            clearTimeout(streamTimeout);
+                            addProgressMessage(`❌ Connexion fermée. Le serveur a peut-être terminé le traitement.`, 'error');
+                        } else {
+                            // Pour les autres erreurs, arrêter immédiatement
+                            clearTimeout(streamTimeout);
+                            addProgressMessage(`⚠️ Erreur de lecture du stream: ${readError.message}`, 'error');
+                        }
+                        
+                        // Afficher le contenu accumulé jusqu'ici
+                        if (streamContentDiv) streamContentDiv.style.display = 'block';
+                        if (streamTextDiv) {
+                            streamTextDiv.textContent += `\n\n[ERREUR] ${readError.message}\nContenu reçu: ${streamContent.substring(0, 2000)}`;
+                            streamTextDiv.scrollTop = streamTextDiv.scrollHeight;
+                        }
+                        
+                        // Arrêter le timer
+                        if (container._cleanup) {
+                            container._cleanup();
+                        }
+                        break;
+                    }
+                    
+                    const { done, value } = readResult;
+                    if (done) {
+                        clearTimeout(streamTimeout);
+                        break;
+                    }
+
+                    // Mettre à jour le temps de dernière donnée reçue
+                    lastDataTime = Date.now();
+
+                    try {
+                        let decoded;
+                        try {
+                            decoded = decoder.decode(value, { stream: true });
+                        } catch (decodeError) {
+                            console.error('Erreur de décodage avec stream:', decodeError);
+                            // Essayer de décoder sans stream
+                            try {
+                                decoded = decoder.decode(value);
+                            } catch (e2) {
+                                // Si ça échoue aussi, utiliser une conversion basique
+                                console.error('Erreur de décodage sans stream:', e2);
+                                decoded = String.fromCharCode.apply(null, new Uint8Array(value));
+                            }
+                        }
+                        
+                        // Debug: afficher chaque chunk reçu
+                        if (decoded.length > 0) {
+                            console.log(`📥 Chunk brut reçu (${decoded.length} chars):`, decoded.substring(0, 100).replace(/\n/g, '\\n'));
+                        }
+                        
+                        buffer += decoded;
+                        streamContent += decoded; // Accumuler le contenu pour affichage en cas d'erreur
+                        
+                        // Debug: afficher le buffer brut toutes les 50 lignes
+                        if (buffer.length > 0 && buffer.split('\n').length % 50 === 0) {
+                            console.log(`📋 Buffer SSE (${buffer.length} chars, ${buffer.split('\n').length} lignes):`, buffer.substring(0, 200));
+                        }
+                        
+                        const lines = buffer.split('\n');
+                        buffer = lines.pop() || '';
+
+                        for (const line of lines) {
+                            if (line.startsWith('event: ')) {
+                                currentEvent = { type: line.substring(7).trim(), data: null };
+                                console.log(`📨 Événement SSE détecté: ${currentEvent.type}`);
+                            } else if (line.startsWith('data: ')) {
+                                if (!currentEvent) {
+                                    currentEvent = { type: 'message', data: null };
+                                    console.log(`⚠️ Ligne data: sans event:, création event par défaut`);
+                                }
+                                currentEvent.data = line.substring(6).trim();
+                                console.log(`📝 Data ajoutée à event "${currentEvent.type}": ${currentEvent.data.substring(0, 50)}...`);
+                            } else if (line.trim() === '') {
+                                // Ligne vide = fin d'événement, traiter l'événement accumulé
+                                if (currentEvent && currentEvent.data) {
+                                    console.log(`📦 Traitement événement: type=${currentEvent.type}, data=${currentEvent.data.substring(0, 100)}...`);
+                                    try {
+                                        const data = JSON.parse(currentEvent.data);
+                                        
+                                        // Gérer les événements de streaming
+                                        if (currentEvent.type === 'stream') {
+                                            // Chunk de streaming pur - AFFICHER IMMÉDIATEMENT
+                                            if (data.chunk) {
+                                                console.log(`📥 Chunk reçu: "${data.chunk.substring(0, 50)}..." (${data.chunk.length} chars)`);
+                                                
+                                                // Afficher la zone de streaming
+                                                if (streamContentDiv) {
+                                                    streamContentDiv.style.display = 'block';
+                                                }
+                                                
+                                                // Ajouter le chunk au texte
+                                                if (streamTextDiv) {
+                                                    streamTextDiv.textContent += data.chunk;
+                                                    streamTextDiv.scrollTop = streamTextDiv.scrollHeight;
+                                                }
+                                                
+                                                lastDataTime = Date.now();
+                                            }
+                                        } else if (currentEvent.type === 'progress') {
+                                            // Messages de progression normaux
+                                            if (data.message) {
+                                                addProgressMessage(data.message, data.type || 'info');
+                                                lastDataTime = Date.now();
+                                            }
+                                            
+                                            // Si on a des sous-catégories partielles détectées en streaming, les afficher
+                                            if (data.partialSubCategories && Array.isArray(data.partialSubCategories)) {
+                                                const isFinal = data.isFinal === true;
+                                                const isPartial = data.isPartial === true;
+                                                const prefix = isFinal ? '✅' : (isPartial ? '🎯' : '🔄');
+                                                const status = isFinal ? '(final)' : (isPartial ? '(partiel)' : 'en temps réel');
+                                                addProgressMessage(`${prefix} ${data.partialSubCategories.length} sous-catégorie(s) détectée(s) ${status}: ${data.partialSubCategories.map(sc => sc.name).join(', ')}`, 'success');
+                                                
+                                                // Si c'est le résultat final, afficher le modal de validation
+                                                if (isFinal) {
+                                                    addProgressMessage(`✅ ${data.partialSubCategories.length} sous-catégorie(s) détectée(s) - Validation requise`, 'success');
+                                                    
+                                                    // Arrêter le timer et la progression
+                                                    if (container._cleanup) {
+                                                        container._cleanup();
+                                                    }
+                                                    
+                                                    // Mettre à jour la barre de progression à 100%
+                                                    if (progressBar) {
+                                                        progressBar.style.width = '100%';
+                                                    }
+                                                    
+                                                    // Afficher le modal de validation
+                                                    showSubCategoriesValidationModal(categoryId, data.partialSubCategories);
+                                                }
+                                            }
+                                        } else if (currentEvent.type === 'keepalive') {
+                                            // Les keep-alive maintiennent la connexion active
+                                            // Mettre à jour le temps de dernière activité
+                                            lastDataTime = Date.now();
+                                            // Afficher un indicateur visuel discret que la connexion est active
+                                            // (pas de message pour éviter le spam)
+                                        } else if (currentEvent.type === 'done') {
+                                            clearTimeout(streamTimeout);
+                                        
+                                        // Arrêter le timer et la progression
+                                        if (container._cleanup) {
+                                            container._cleanup();
+                                        }
+                                        if (progressBar) {
+                                            progressBar.style.width = '100%';
+                                        }
+                                        
+                                        const duration = ((Date.now() - startTime) / 1000).toFixed(2);
+                                        addProgressMessage(`✅ Terminé en ${duration}s !`, 'success');
+                                        
+                                        // Vérifier si les sous-catégories ont déjà été appliquées (via isFinal)
+                                        const alreadyApplied = container.dataset.subCategoriesApplied === 'true';
+                                        
+                                        if (!alreadyApplied && data.data && data.data.length > 0) {
+                                            addProgressMessage(`✅ ${data.data.length} sous-catégorie(s) détectée(s) - Validation requise`, 'success');
+                                            
+                                            // Afficher le modal de validation
+                                            showSubCategoriesValidationModal(categoryId, data.data);
+                                        } else if (alreadyApplied) {
+                                            addProgressMessage('✅ Les sous-catégories ont déjà été appliquées', 'success');
+                                        } else {
+                                            addProgressMessage('Aucune sous-catégorie détectée', 'info');
+                                        }
+                                        
+                                        // NE RIEN FAIRE D'AUTRE - PAS DE RENDER, PAS DE RESET
+                                    } else if (currentEvent.type === 'error') {
+                                        addProgressMessage(data.message || 'Erreur inconnue', 'error');
+                                        
+                                        // Arrêter le timer et la progression
+                                        if (container._cleanup) {
+                                            container._cleanup();
+                                        }
+                                        
+                                        // Afficher un message d'erreur
+                                        setTimeout(() => {
+                                            container.innerHTML = `<p style="color: #dc3545; padding: 20px; text-align: center;">❌ Erreur: ${data.message || 'Erreur inconnue'}</p>`;
+                                        }, 2000);
+                                    }
+                                } catch (e) {
+                                    console.error('Erreur parsing SSE:', e);
+                                }
+                            }
+                            currentEvent = null;
+                            continue;
+                        }
+                        }
+                    } catch (streamError) {
+                        // Si erreur de décodage, afficher le contenu brut
+                        console.error('Erreur de stream:', streamError);
+                        streamContent += buffer;
+                        addProgressMessage(`⚠️ Erreur de décodage: ${streamError.message}`, 'error');
+                        
+                        // Afficher le contenu brut dans la zone de stream
+                        if (streamContentDiv) streamContentDiv.style.display = 'block';
+                        if (streamTextDiv) {
+                            streamTextDiv.textContent += `\n[ERREUR DE DÉCODAGE] ${buffer.substring(0, 1000)}`;
+                            streamTextDiv.scrollTop = streamTextDiv.scrollHeight;
+                        }
+                        
+                        addProgressMessage(`📄 Contenu brut reçu: ${buffer.substring(0, 200)}...`, 'info');
+                        buffer = '';
+                        
+                        // Continuer à lire malgré l'erreur
+                        continue;
+                    }
+                }
+                
+                // Afficher le contenu final du stream si disponible
+                if (streamContent && streamTextDiv) {
+                    streamTextDiv.textContent += `\n\n[FIN DU STREAM - ${streamContent.length} caractères]`;
+                    streamTextDiv.scrollTop = streamTextDiv.scrollHeight;
+                }
+
+            } catch (error) {
+                console.error('Erreur complète:', error);
+                addProgressMessage('Erreur: ' + error.message, 'error');
+                
+                // Afficher le contenu du stream si disponible
+                if (streamContent && streamTextDiv) {
+                    streamTextDiv.textContent += `\n\n[ERREUR FINALE] ${error.message}`;
+                    streamTextDiv.scrollTop = streamTextDiv.scrollHeight;
+                    if (streamContentDiv) streamContentDiv.style.display = 'block';
+                }
+                
+                // Arrêter le timer et la progression
+                if (container._cleanup) {
+                    container._cleanup();
+                }
+                
+                // Afficher un message d'erreur avec le contenu du stream
+                setTimeout(() => {
+                    let errorHtml = `<div style="padding: 20px;">
+                        <p style="color: #dc3545; font-weight: 600; margin-bottom: 10px;">❌ Erreur: ${error.message}</p>`;
+                    if (streamContent) {
+                        errorHtml += `<details style="margin-top: 10px;">
+                            <summary style="cursor: pointer; color: #666;">Voir le contenu du stream reçu (${streamContent.length} caractères)</summary>
+                            <pre style="background: #f5f5f5; padding: 10px; border-radius: 4px; overflow-x: auto; margin-top: 10px; font-size: 11px; max-height: 300px; overflow-y: auto;">${streamContent.substring(0, 5000)}${streamContent.length > 5000 ? '...' : ''}</pre>
+                        </details>`;
+                    }
+                    errorHtml += `</div>`;
+                    container.innerHTML = errorHtml;
+                }, 2000);
+            }
+            
+            function addProgressMessage(message, type = 'info') {
+                if (!progressContainer) return;
+                const messageEl = document.createElement('div');
+                messageEl.className = `progress-message progress-${type}`;
+                messageEl.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+                progressContainer.appendChild(messageEl);
+                progressContainer.scrollTop = progressContainer.scrollHeight;
+            }
+            
+            // Nettoyer les intervals à la fin
+            const cleanup = () => {
+                clearInterval(timerInterval);
+                clearInterval(progressInterval);
+            };
+            
+            // Stocker cleanup pour l'utiliser plus tard
+            container._cleanup = cleanup;
+        }
+
+        // Créer l'affichage de progression dans le conteneur
+        function createProgressDisplay() {
+            // S'assurer que les styles CSS sont présents
+            if (!document.getElementById('ugap-progress-styles')) {
+                const style = document.createElement('style');
+                style.id = 'ugap-progress-styles';
+                style.textContent = `
+                    @keyframes shine {
+                        0% { left: -100%; }
+                        100% { left: 100%; }
+                    }
+                    @keyframes hourglass {
+                        0% { transform: rotate(0deg); }
+                        25% { transform: rotate(90deg); }
+                        50% { transform: rotate(180deg); }
+                        75% { transform: rotate(270deg); }
+                        100% { transform: rotate(360deg); }
+                    }
+                    @keyframes hourglassSand {
+                        0%, 100% { transform: scaleY(1); opacity: 1; }
+                        50% { transform: scaleY(0); opacity: 0.5; }
+                    }
+                    .spinner-container {
+                        width: 50px;
+                        height: 50px;
+                        position: relative;
+                    }
+                    .hourglass {
+                        width: 40px;
+                        height: 40px;
+                        position: relative;
+                        animation: hourglass 2s linear infinite;
+                    }
+                    .hourglass::before,
+                    .hourglass::after {
+                        content: '';
+                        position: absolute;
+                        width: 0;
+                        height: 0;
+                        border-style: solid;
+                    }
+                    .hourglass::before {
+                        top: 0;
+                        left: 0;
+                        border-width: 20px 20px 0 0;
+                        border-color: #007bff transparent transparent transparent;
+                    }
+                    .hourglass::after {
+                        bottom: 0;
+                        right: 0;
+                        border-width: 0 0 20px 20px;
+                        border-color: transparent transparent #007bff transparent;
+                        animation: hourglassSand 2s ease-in-out infinite;
+                    }
+                    .progress-message {
+                        margin-bottom: 4px;
+                        padding: 4px 0;
+                    }
+                    .progress-info { color: #0066cc; }
+                    .progress-success { color: #28a745; font-weight: 600; }
+                    .progress-error { color: #dc3545; font-weight: 600; }
+                    .progress-progress { color: #ffc107; }
+                `;
+                document.head.appendChild(style);
+            }
+            
+            return `
+                <div style="padding: 20px; background: #f8f9fa; border-radius: 8px; border: 1px solid #dee2e6;">
+                    <div style="display: flex; align-items: center; gap: 15px; margin-bottom: 15px;">
+                        <div class="spinner-container">
+                            <div class="hourglass"></div>
+                        </div>
+                        <div style="flex: 1;">
+                            <h3 style="margin: 0 0 5px 0; color: #333;">🤖 Détection IA en cours...</h3>
+                            <div style="display: flex; align-items: center; gap: 10px;">
+                                <span style="font-size: 14px; color: #666;">Temps écoulé:</span>
+                                <span id="timer-display" style="font-size: 18px; font-weight: 600; color: #007bff; font-family: monospace;">00:00</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div style="width: 100%; height: 6px; background: #e9ecef; border-radius: 3px; margin-bottom: 15px; overflow: hidden; position: relative;">
+                        <div class="progress-bar-fill" style="width: 0%; height: 100%; background: linear-gradient(90deg, #007bff, #0056b3); transition: width 0.3s;"></div>
+                        <div class="progress-bar-shine" style="position: absolute; top: 0; left: -100%; width: 100%; height: 100%; background: linear-gradient(90deg, transparent, rgba(255,255,255,0.5), transparent); animation: shine 2s infinite;"></div>
+                    </div>
+                    <div id="stream-content" style="display: block; margin-bottom: 15px;">
+                        <div style="font-size: 12px; color: #666; margin-bottom: 5px; font-weight: 600;">📝 Réponse IA en temps réel:</div>
+                        <div id="stream-text" style="min-height: 100px; max-height: 300px; overflow-y: auto; font-family: monospace; font-size: 12px; line-height: 1.6; padding: 15px; background: #f8f9fa; border-radius: 4px; border: 2px solid #007bff; white-space: pre-wrap; word-wrap: break-word; color: #333;">En attente des données...</div>
+                    </div>
+                    <div id="progress-messages" style="max-height: 300px; overflow-y: auto; font-family: monospace; font-size: 12px; line-height: 1.6; padding: 10px; background: white; border-radius: 4px; border: 1px solid #dee2e6;">
+                        <div class="progress-message progress-info">Initialisation...</div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function closePromptValidationModal() {
+            const modal = document.getElementById('prompt-validation-modal');
+            if (modal) modal.remove();
+        }
+
+        function confirmPromptValidation() {
+            const modal = document.getElementById('prompt-validation-modal');
+            if (modal && modal._onConfirm) {
+                closePromptValidationModal();
+                modal._onConfirm();
+            }
+        }
+
+        async function showPromptValidationModal(categoryId, categoryName, onConfirm) {
+            try {
+                const result = await apiCall('/prompts');
+                const prompt = result.data.subCategoryPrompt || '';
+                const category = currentData.categories.find(c => c.id === categoryId);
+                const optionsList = (category?.options || []).map(opt => opt.name || opt.label || '').filter(Boolean);
+                const totalOptions = optionsList.length;
+                const previewPrompt = prompt
+                    .replace(/\{\{categoryName\}\}/g, categoryName)
+                    .replace(/\{\{optionsList\}\}/g, optionsList.length ? optionsList.join(', ') : 'Aucune option')
+                    .replace(/\{\{totalOptions\}\}/g, totalOptions);
+
+                const modal = document.createElement('div');
+                modal.className = 'modal active';
+                modal.id = 'prompt-validation-modal';
+                modal.innerHTML = `
+                    <div class="modal-content" style="max-width: 1000px; max-height: 90vh; overflow-y: auto;">
+                        <div class="modal-header">
+                            <h2>📝 Validation du prompt IA</h2>
+                            <button class="btn btn-danger" onclick="closePromptValidationModal()">Fermer</button>
+                        </div>
+                        <div style="padding: 20px;">
+                            <p style="color: #666; margin-bottom: 15px;">
+                                Le prompt suivant sera utilisé pour analyser la catégorie <strong>${categoryName}</strong>
+                                (${totalOptions} option(s)).
+                            </p>
+                            <div style="margin-bottom: 20px;">
+                                <label style="display: block; margin-bottom: 5px; font-weight: bold;">Prompt à utiliser :</label>
+                                <textarea id="prompt-preview" readonly style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 4px; font-family: monospace; font-size: 12px; line-height: 1.5; min-height: 300px; background: #f8f9fa;">${previewPrompt}</textarea>
+                            </div>
+                            <div style="display: flex; gap: 10px; justify-content: flex-end; padding-top: 20px; border-top: 2px solid #dee2e6;">
+                                <button class="btn btn-outline" onclick="closePromptValidationModal()">Annuler</button>
+                                <button class="btn btn-primary" onclick="confirmPromptValidation()">✅ Valider et lancer l'IA</button>
+                            </div>
+                        </div>
+                    </div>
+                `;
+                document.body.appendChild(modal);
+
+                modal._onConfirm = onConfirm;
+
+                modal.addEventListener('click', (e) => {
+                    if (e.target.id === 'prompt-validation-modal') closePromptValidationModal();
+                });
+            } catch (error) {
+                console.error('Erreur lors du chargement du prompt:', error);
+                showAlert('Erreur lors du chargement du prompt: ' + error.message, 'error');
+            }
+        }
+
+        // Detect subcategories for all categories
+        async function detectSubCategoriesForAll() {
+            if (!currentData || !currentData.categories || currentData.categories.length === 0) {
+                showAlert('Aucune catégorie disponible', 'error');
+                return;
+            }
+
+            // Afficher le modal de validation du prompt
+            try {
+                const result = await apiCall('/prompts');
+                const prompt = result.data.subCategoryPrompt || '';
+                const totalOptions = currentData.categories.reduce((sum, cat) => sum + (cat.options || []).length, 0);
+                const previewPrompt = prompt
+                    .replace(/\{\{categoryName\}\}/g, 'TOUTES LES CATÉGORIES')
+                    .replace(/\{\{optionsList\}\}/g, `(${totalOptions} options au total)`)
+                    .replace(/\{\{totalOptions\}\}/g, totalOptions);
+                
+                const modal = document.createElement('div');
+                modal.className = 'modal active';
+                modal.id = 'prompt-validation-modal';
+                modal.innerHTML = `
+                    <div class="modal-content" style="max-width: 1000px; max-height: 90vh; overflow-y: auto;">
+                        <div class="modal-header">
+                            <h2>📝 Validation du prompt IA</h2>
+                            <button class="btn btn-danger" onclick="closePromptValidationModal()">Fermer</button>
+                        </div>
+                        <div style="padding: 20px;">
+                            <p style="color: #666; margin-bottom: 15px;">
+                                Le prompt suivant sera utilisé pour analyser <strong>${currentData.categories.length} catégorie(s)</strong> (${totalOptions} option(s) au total).
+                                <br>Cela peut prendre plusieurs minutes.
+                            </p>
+                            <div style="margin-bottom: 20px;">
+                                <label style="display: block; margin-bottom: 5px; font-weight: bold;">Prompt à utiliser :</label>
+                                <textarea id="prompt-preview" readonly style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 4px; font-family: monospace; font-size: 12px; line-height: 1.5; min-height: 300px; background: #f8f9fa;">${previewPrompt}</textarea>
+                            </div>
+                            <div style="display: flex; gap: 10px; justify-content: flex-end; padding-top: 20px; border-top: 2px solid #dee2e6;">
+                                <button class="btn btn-outline" onclick="closePromptValidationModal()">Annuler</button>
+                                <button class="btn btn-primary" onclick="confirmPromptValidationForAll()">✅ Valider et lancer l'IA</button>
+                            </div>
+                        </div>
+                    </div>
+                `;
+                document.body.appendChild(modal);
+                
+                // Stocker la fonction de callback
+                modal._onConfirm = () => launchDetectSubCategoriesForAll();
+                
+                // Fermer en cliquant en dehors
+                modal.addEventListener('click', (e) => {
+                    if (e.target.id === 'prompt-validation-modal') closePromptValidationModal();
+                });
+            } catch (error) {
+                console.error('Erreur lors du chargement du prompt:', error);
+                showAlert('Erreur lors du chargement du prompt: ' + error.message, 'error');
+            }
+        }
+        
+        function confirmPromptValidationForAll() {
+            const modal = document.getElementById('prompt-validation-modal');
+            if (modal && modal._onConfirm) {
+                closePromptValidationModal();
+                modal._onConfirm();
+            }
+        }
+        
+        // Fonction interne pour lancer la détection globale (séparée pour être appelée après validation)
+        async function launchDetectSubCategoriesForAll() {
+
+            // Afficher la progression
+            const container = document.getElementById('subcategories-accordion');
+            const progressHtml = createProgressDisplay();
+            container.innerHTML = progressHtml;
+            
+            const progressContainer = container.querySelector('#progress-messages');
+            const progressBar = container.querySelector('.progress-bar-fill');
+            const timerDisplay = container.querySelector('#timer-display');
+            const streamTextDiv = container.querySelector('#stream-text');
+            let startTime = Date.now();
+            let streamContent = '';
+            
+            // Démarrer le timer
+            let seconds = 0;
+            const timerInterval = setInterval(() => {
+                seconds++;
+                const minutes = Math.floor(seconds / 60);
+                const secs = seconds % 60;
+                if (timerDisplay) {
+                    timerDisplay.textContent = `${String(minutes).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+                }
+            }, 1000);
+            
+            // Mettre à jour la barre de progression
+            let progressValue = 0;
+            const progressInterval = setInterval(() => {
+                if (progressValue < 90 && progressBar) {
+                    progressValue += Math.random() * 2;
+                    progressBar.style.width = Math.min(progressValue, 90) + '%';
+                }
+            }, 500);
+
+            const addProgressMessage = (message, type = 'info') => {
+                if (!progressContainer) return;
+                const div = document.createElement('div');
+                div.className = `progress-message progress-${type}`;
+                div.textContent = message;
+                progressContainer.appendChild(div);
+                progressContainer.scrollTop = progressContainer.scrollHeight;
+            };
+
+            try {
+                // Traiter chaque catégorie une par une
+                const categories = currentData.categories;
+                let processedCount = 0;
+                
+                for (const category of categories) {
+                    addProgressMessage(`\n[${new Date().toLocaleTimeString()}] Analyse de la catégorie "${category.name}"...`, 'info');
+                    
+                    try {
+                        const response = await fetch(
+                            `/api/ugap/categories/${category.id}/detect-subcategories`,
+                            {
+                                method: 'POST',
+                                headers: {
+                                    'Accept': 'text/event-stream',
+                                    'Content-Type': 'application/json'
+                                },
+                                credentials: 'include'
+                            }
+                        );
+
+                        if (!response.ok) {
+                            throw new Error(`Erreur HTTP: ${response.status}`);
+                        }
+
+                        const reader = response.body.getReader();
+                        const decoder = new TextDecoder();
+                        let buffer = '';
+
+                        while (true) {
+                            const { done, value } = await reader.read();
+                            if (done) break;
+
+                            buffer += decoder.decode(value, { stream: true });
+                            const lines = buffer.split('\n');
+                            buffer = lines.pop() || '';
+
+                            for (const line of lines) {
+                                if (line.startsWith('data: ')) {
+                                    try {
+                                        const data = JSON.parse(line.substring(6));
+                                        
+                                        if (data.message) {
+                                            addProgressMessage(`[${new Date().toLocaleTimeString()}] ${data.message}`, data.type || 'info');
+                                        }
+                                        
+                                        if (data.chunk) {
+                                            streamContent += data.chunk;
+                                            if (streamTextDiv) {
+                                                streamTextDiv.textContent = streamContent;
+                                                streamTextDiv.scrollTop = streamTextDiv.scrollHeight;
+                                            }
+                                        }
+                                        
+                                        if (data.type === 'done') {
+                                            if (progressBar) progressBar.style.width = '100%';
+                                            addProgressMessage(`✅ Catégorie "${category.name}" terminée`, 'success');
+                                        }
+                                    } catch (e) {
+                                        console.error('Erreur parsing SSE:', e);
+                                    }
+                                }
+                            }
+                        }
+                        
+                        processedCount++;
+                        const progressPercent = Math.round((processedCount / categories.length) * 100);
+                        if (progressBar) {
+                            progressBar.style.width = `${progressPercent}%`;
+                        }
+                        
+                    } catch (error) {
+                        console.error(`Erreur pour la catégorie ${category.name}:`, error);
+                        addProgressMessage(`❌ Erreur pour "${category.name}": ${error.message}`, 'error');
+                    }
+                }
+
+                clearInterval(timerInterval);
+                clearInterval(progressInterval);
+                
+                if (progressBar) progressBar.style.width = '100%';
+                addProgressMessage(`\n✅ Analyse terminée pour ${processedCount}/${categories.length} catégorie(s)`, 'success');
+                
+                // Nettoyer les messages de progression et recharger les données
+                setTimeout(async () => {
+                    // Recharger les données
+                    await loadData(true); // skipRender = true pour éviter de réinitialiser l'onglet
+                    
+                    // Nettoyer les messages de progression résiduels
+                    const progressMessages = container.querySelector('#progress-messages');
+                    if (progressMessages) {
+                        progressMessages.remove();
+                    }
+                    
+                    // Re-rendre l'accordéon avec les nouvelles données
+                    console.log('🔄 Re-rendu de l\'accordéon après détection globale');
+                    renderSubCategoriesAccordion();
+                    
+                    // Afficher un message de succès
+                    showAlert(`✅ Analyse terminée ! ${processedCount} catégorie(s) traitée(s)`, 'success');
+                }, 2000);
+                
+            } catch (error) {
+                clearInterval(timerInterval);
+                clearInterval(progressInterval);
+                console.error('Erreur complète:', error);
+                addProgressMessage('Erreur: ' + error.message, 'error');
+                
+                // Même en cas d'erreur, essayer de recharger les données
+                setTimeout(async () => {
+                    try {
+                        await loadData(true);
+                        const progressMessages = container.querySelector('#progress-messages');
+                        if (progressMessages) {
+                            progressMessages.remove();
+                        }
+                        renderSubCategoriesAccordion();
+                    } catch (e) {
+                        console.error('Erreur lors du rechargement:', e);
+                    }
+                }, 2000);
+            }
+        }
+
+        // Show validation modal for detected subcategories
+        function showSubCategoriesValidationModal(categoryId, detectedSubCategories) {
+            // Récupérer les sous-catégories existantes
+            const category = currentData.categories.find(c => c.id === categoryId);
+            const existingSubCategories = (category?.subCategories || []).map(sc => ({
+                ...sc,
+                isExisting: true
+            }));
+            
+            // Préparer les nouvelles sous-catégories
+            const newSubCategories = detectedSubCategories.map(sc => ({
+                ...sc,
+                isExisting: false,
+                selected: true // Par défaut, toutes sélectionnées
+            }));
+            
+            const modal = document.createElement('div');
+            modal.className = 'modal active';
+            modal.id = 'subcategories-validation-modal';
+            modal.innerHTML = `
+                <div class="modal-content" style="max-width: 1200px; max-height: 90vh; overflow-y: auto;">
+                    <div class="modal-header">
+                        <h2>📋 Validation des sous-catégories détectées</h2>
+                        <button class="btn btn-danger" onclick="closeSubCategoriesValidationModal()">Fermer</button>
+                    </div>
+                    <div style="padding: 20px;">
+                        <div style="margin-bottom: 30px;">
+                            <h3 style="margin-bottom: 15px; color: #333;">Nouvelles sous-catégories détectées (${newSubCategories.length})</h3>
+                            <div style="margin-bottom: 10px;">
+                                <button class="btn btn-outline" onclick="selectAllNewSubCategories()">✓ Sélectionner tout</button>
+                                <button class="btn btn-outline" onclick="deselectAllNewSubCategories()" style="margin-left: 10px;">✗ Désélectionner tout</button>
+                            </div>
+                            <div id="new-subcategories-list" style="border: 1px solid #dee2e6; border-radius: 4px; padding: 15px; background: #f8f9fa; max-height: 400px; overflow-y: auto;">
+                                ${newSubCategories.map((sc, index) => {
+                                    const avgConfidence = sc.confidence && typeof sc.confidence === 'object' 
+                                        ? Math.round(Object.values(sc.confidence).reduce((a, b) => a + b, 0) / Object.values(sc.confidence).length)
+                                        : (sc.confidence || null);
+                                    const confidenceColor = avgConfidence >= 90 ? '🟢' : avgConfidence >= 50 ? '🟠' : '🔴';
+                                    return `
+                                    <div style="padding: 10px; margin-bottom: 10px; background: white; border-radius: 4px; border: 1px solid #dee2e6; display: flex; align-items: start; gap: 10px;">
+                                        <input type="checkbox" id="new-subcat-${index}" data-index="${index}" checked onchange="toggleNewSubCategory(${index})" style="margin-top: 5px;">
+                                        <div style="flex: 1;">
+                                            <strong>${sc.name}</strong>
+                                            ${sc.description ? `<p style="color: #666; margin: 5px 0; font-size: 14px;">${sc.description}</p>` : ''}
+                                            <p style="color: #999; margin: 5px 0; font-size: 12px;">
+                                                ${(sc.optionIds || []).length} option(s)${avgConfidence !== null ? ` • Confiance: ${confidenceColor} ${avgConfidence}%` : ''}
+                                            </p>
+                                        </div>
+                                    </div>
+                                `;
+                                }).join('')}
+                            </div>
+                        </div>
+                        
+                        ${existingSubCategories.length > 0 ? `
+                        <div style="margin-bottom: 30px;">
+                            <h3 style="margin-bottom: 15px; color: #333;">Sous-catégories existantes (${existingSubCategories.length})</h3>
+                            <div style="margin-bottom: 10px;">
+                                <button class="btn btn-danger" onclick="deleteSelectedExistingSubCategories('${categoryId}')">🗑️ Supprimer les sélectionnées</button>
+                            </div>
+                            <div id="existing-subcategories-list" style="border: 1px solid #dee2e6; border-radius: 4px; padding: 15px; background: #f8f9fa; max-height: 400px; overflow-y: auto;">
+                                ${existingSubCategories.map((sc, index) => `
+                                    <div style="padding: 10px; margin-bottom: 10px; background: white; border-radius: 4px; border: 1px solid #dee2e6; display: flex; align-items: start; gap: 10px;">
+                                        <input type="checkbox" id="existing-subcat-${index}" data-subcat-id="${sc.id}" style="margin-top: 5px;">
+                                        <div style="flex: 1;">
+                                            <strong>${sc.name}</strong>
+                                            ${sc.description ? `<p style="color: #666; margin: 5px 0; font-size: 14px;">${sc.description}</p>` : ''}
+                                            <p style="color: #999; margin: 5px 0; font-size: 12px;">
+                                                ${(sc.optionIds || []).length} option(s)
+                                            </p>
+                                        </div>
+                                    </div>
+                                `).join('')}
+                            </div>
+                        </div>
+                        ` : ''}
+                        
+                        <div style="display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px; padding-top: 20px; border-top: 2px solid #dee2e6;">
+                            <button class="btn btn-outline" onclick="closeSubCategoriesValidationModal()">Annuler</button>
+                            <button class="btn btn-primary" onclick="validateSubCategories('${categoryId}')">✅ Valider et appliquer</button>
+                        </div>
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(modal);
+            
+            // Stocker les données dans le modal pour y accéder plus tard
+            modal._newSubCategories = newSubCategories;
+            modal._existingSubCategories = existingSubCategories;
+            
+            modal.addEventListener('click', (e) => {
+                if (e.target.id === 'subcategories-validation-modal') closeSubCategoriesValidationModal();
+            });
+        }
+        
+        function closeSubCategoriesValidationModal() {
+            const modal = document.getElementById('subcategories-validation-modal');
+            if (modal) {
+                // Supprimer le modal du DOM
+                modal.remove();
+                // Vérifier qu'il n'y a pas de modal résiduel et le supprimer si présent
+                const remainingModal = document.getElementById('subcategories-validation-modal');
+                if (remainingModal) {
+                    remainingModal.remove();
+                }
+                // Supprimer aussi le backdrop si présent
+                const backdrop = document.querySelector('.modal-backdrop');
+                if (backdrop) {
+                    backdrop.remove();
+                }
+                // Supprimer la classe 'modal-open' du body si présente
+                document.body.classList.remove('modal-open');
+            }
+        }
+        
+        function selectAllNewSubCategories() {
+            const modal = document.getElementById('subcategories-validation-modal');
+            if (!modal || !modal._newSubCategories) return;
+            
+            modal._newSubCategories.forEach((sc, index) => {
+                sc.selected = true;
+                const checkbox = document.getElementById(`new-subcat-${index}`);
+                if (checkbox) checkbox.checked = true;
+            });
+        }
+        
+        function deselectAllNewSubCategories() {
+            const modal = document.getElementById('subcategories-validation-modal');
+            if (!modal || !modal._newSubCategories) return;
+            
+            modal._newSubCategories.forEach((sc, index) => {
+                sc.selected = false;
+                const checkbox = document.getElementById(`new-subcat-${index}`);
+                if (checkbox) checkbox.checked = false;
+            });
+        }
+        
+        function toggleNewSubCategory(index) {
+            const modal = document.getElementById('subcategories-validation-modal');
+            if (!modal || !modal._newSubCategories) return;
+            
+            const checkbox = document.getElementById(`new-subcat-${index}`);
+            if (checkbox && modal._newSubCategories[index]) {
+                modal._newSubCategories[index].selected = checkbox.checked;
+            }
+        }
+        
+        async function deleteSelectedExistingSubCategories(categoryId) {
+            const modal = document.getElementById('subcategories-validation-modal');
+            if (!modal || !modal._existingSubCategories) return;
+            
+            const checkboxes = document.querySelectorAll('#existing-subcategories-list input[type="checkbox"]:checked');
+            const selectedIds = Array.from(checkboxes).map(cb => cb.getAttribute('data-subcat-id'));
+            
+            if (selectedIds.length === 0) {
+                showAlert('Aucune sous-catégorie sélectionnée', 'info');
+                return;
+            }
+            
+            if (!confirm(`Supprimer ${selectedIds.length} sous-catégorie(s) existante(s) ?`)) {
+                return;
+            }
+            
+            try {
+                for (const subCatId of selectedIds) {
+                    await apiCall(`/categories/${categoryId}/subcategories/${subCatId}`, {
+                        method: 'DELETE'
+                    });
+                }
+                
+                showAlert(`${selectedIds.length} sous-catégorie(s) supprimée(s)`, 'success');
+                
+                // Recharger les données et mettre à jour le modal
+                await loadData(true);
+                const category = currentData.categories.find(c => c.id === categoryId);
+                const existingSubCategories = (category?.subCategories || []).map(sc => ({
+                    ...sc,
+                    isExisting: true
+                }));
+                modal._existingSubCategories = existingSubCategories;
+                
+                // Re-rendre la liste des existantes
+                const existingList = document.getElementById('existing-subcategories-list');
+                if (existingList) {
+                    existingList.innerHTML = existingSubCategories.map((sc, index) => `
+                        <div style="padding: 10px; margin-bottom: 10px; background: white; border-radius: 4px; border: 1px solid #dee2e6; display: flex; align-items: start; gap: 10px;">
+                            <input type="checkbox" id="existing-subcat-${index}" data-subcat-id="${sc.id}" style="margin-top: 5px;">
+                            <div style="flex: 1;">
+                                <strong>${sc.name}</strong>
+                                ${sc.description ? `<p style="color: #666; margin: 5px 0; font-size: 14px;">${sc.description}</p>` : ''}
+                                <p style="color: #999; margin: 5px 0; font-size: 12px;">
+                                    ${(sc.optionIds || []).length} option(s)
+                                </p>
+                            </div>
+                        </div>
+                    `).join('');
+                }
+            } catch (error) {
+                showAlert('Erreur lors de la suppression: ' + error.message, 'error');
+            }
+        }
+        
+        // Variable pour empêcher les appels multiples
+        let isValidatingSubCategories = false;
+        
+        async function validateSubCategories(categoryId) {
+            // Empêcher les appels multiples
+            if (isValidatingSubCategories) {
+                console.log('⚠️ Validation déjà en cours, ignore le clic');
+                return;
+            }
+            
+            const modal = document.getElementById('subcategories-validation-modal');
+            if (!modal || !modal._newSubCategories) return;
+            
+            const selectedNew = modal._newSubCategories.filter(sc => sc.selected);
+            
+            if (selectedNew.length === 0) {
+                showAlert('Aucune nouvelle sous-catégorie sélectionnée', 'info');
+                return;
+            }
+            
+            // Marquer comme en cours de traitement
+            isValidatingSubCategories = true;
+            
+            // Fermer le modal IMMÉDIATEMENT pour empêcher les doubles clics
+            closeSubCategoriesValidationModal();
+            
+            // Petite pause pour s'assurer que le modal est bien fermé
+            await new Promise(resolve => setTimeout(resolve, 50));
+            
+            try {
+                showAlert(`Création de ${selectedNew.length} sous-catégorie(s)...`, 'info');
+                
+                for (const subCat of selectedNew) {
+                    try {
+                        await apiCall(`/categories/${categoryId}/subcategories`, {
+                            method: 'POST',
+                            body: JSON.stringify({
+                                name: subCat.name,
+                                description: subCat.description,
+                                optionIds: subCat.optionIds || []
+                            })
+                        });
+                    } catch (error) {
+                        console.error(`Erreur pour "${subCat.name}":`, error);
+                    }
+                }
+                
+                showAlert(`${selectedNew.length} sous-catégorie(s) créée(s) avec succès !`, 'success');
+                
+                // Recharger les données
+                await loadData(true); // skipRender = true pour éviter de réinitialiser l'onglet
+                
+                // S'assurer qu'on est sur l'onglet sous-catégories
+                const subcategoriesTab = document.querySelector('.tab[data-tab="subcategories"]');
+                if (subcategoriesTab && !subcategoriesTab.classList.contains('active')) {
+                    // Activer l'onglet si ce n'est pas déjà fait
+                    document.querySelectorAll('.tab').forEach(tab => tab.classList.remove('active'));
+                    document.querySelectorAll('.tab-panel').forEach(panel => panel.classList.remove('active'));
+                    subcategoriesTab.classList.add('active');
+                    document.getElementById('tab-subcategories').classList.add('active');
+                }
+                
+                // Attendre un peu pour que le DOM soit prêt et que les données soient chargées
+                setTimeout(() => {
+                    // Nettoyer les messages de progression résiduels avant de re-rendre
+                    const container = document.getElementById('subcategories-accordion');
+                    if (container) {
+                        const progressMessages = container.querySelector('#progress-messages');
+                        if (progressMessages) {
+                            // Supprimer les messages de progression pour permettre le re-rendu
+                            progressMessages.remove();
+                        }
+                    }
+                    
+                    // Re-rendre l'accordéon des sous-catégories
+                    console.log('🔄 Re-rendu de l\'accordéon après validation');
+                    renderSubCategoriesAccordion();
+                }, 200);
+            } catch (error) {
+                showAlert('Erreur lors de la validation: ' + error.message, 'error');
+            } finally {
+                // Réinitialiser le flag pour permettre de nouvelles validations
+                isValidatingSubCategories = false;
+            }
+        }
+
+        // Gestion de la sélection en masse des sous-catégories dans l'accordéon
+        function selectAllSubCategoriesInCategory(categoryId) {
+            const checkboxes = document.querySelectorAll(`.subcategory-checkbox[data-category-id="${categoryId}"]`);
+            checkboxes.forEach(cb => {
+                cb.checked = true;
+            });
+            const selectAllCheckbox = document.getElementById(`select-all-${categoryId}`);
+            if (selectAllCheckbox) selectAllCheckbox.checked = true;
+            updateSelectedCount(categoryId);
+        }
+        
+        function deselectAllSubCategoriesInCategory(categoryId) {
+            const checkboxes = document.querySelectorAll(`.subcategory-checkbox[data-category-id="${categoryId}"]`);
+            checkboxes.forEach(cb => {
+                cb.checked = false;
+            });
+            const selectAllCheckbox = document.getElementById(`select-all-${categoryId}`);
+            if (selectAllCheckbox) selectAllCheckbox.checked = false;
+            updateSelectedCount(categoryId);
+        }
+        
+        function toggleSelectAllSubCategories(categoryId, checked) {
+            const checkboxes = document.querySelectorAll(`.subcategory-checkbox[data-category-id="${categoryId}"]`);
+            checkboxes.forEach(cb => {
+                cb.checked = checked;
+            });
+            updateSelectedCount(categoryId);
+        }
+        
+        function updateSelectedCount(categoryId) {
+            const checkboxes = document.querySelectorAll(`.subcategory-checkbox[data-category-id="${categoryId}"]:checked`);
+            const count = checkboxes.length;
+            const countSpan = document.getElementById(`selected-count-${categoryId}`);
+            if (countSpan) {
+                countSpan.textContent = `${count} sélectionnée(s)`;
+            }
+            
+            // Mettre à jour la checkbox "Sélectionner tout"
+            const selectAllCheckbox = document.getElementById(`select-all-${categoryId}`);
+            if (selectAllCheckbox) {
+                const allCheckboxes = document.querySelectorAll(`.subcategory-checkbox[data-category-id="${categoryId}"]`);
+                selectAllCheckbox.checked = allCheckboxes.length > 0 && checkboxes.length === allCheckboxes.length;
+            }
+        }
+        
+        async function deleteSelectedSubCategoriesInCategory(categoryId) {
+            const checkboxes = document.querySelectorAll(`.subcategory-checkbox[data-category-id="${categoryId}"]:checked`);
+            const selectedIds = Array.from(checkboxes).map(cb => cb.getAttribute('data-subcat-id'));
+            
+            if (selectedIds.length === 0) {
+                showAlert('Aucune sous-catégorie sélectionnée', 'info');
+                return;
+            }
+            
+            const category = currentData.categories.find(c => c.id === categoryId);
+            const subCatNames = selectedIds.map(id => {
+                const subCat = category?.subCategories?.find(sc => sc.id === id);
+                return subCat?.name || id;
+            });
+            
+            if (!confirm(`Supprimer ${selectedIds.length} sous-catégorie(s) ?\n\n${subCatNames.slice(0, 5).join(', ')}${subCatNames.length > 5 ? ` et ${subCatNames.length - 5} autre(s)...` : ''}`)) {
+                return;
+            }
+            
+            try {
+                showAlert(`Suppression de ${selectedIds.length} sous-catégorie(s)...`, 'info');
+                
+                let successCount = 0;
+                let errorCount = 0;
+                
+                for (const subCatId of selectedIds) {
+                    try {
+                        await apiCall(`/categories/${categoryId}/subcategories/${subCatId}`, {
+                            method: 'DELETE'
+                        });
+                        successCount++;
+                    } catch (error) {
+                        console.error(`Erreur suppression ${subCatId}:`, error);
+                        errorCount++;
+                    }
+                }
+                
+                if (errorCount === 0) {
+                    showAlert(`${successCount} sous-catégorie(s) supprimée(s) avec succès !`, 'success');
+                } else {
+                    showAlert(`${successCount} supprimée(s), ${errorCount} erreur(s)`, errorCount === selectedIds.length ? 'error' : 'warning');
+                }
+                
+                await loadData();
+                renderSubCategoriesAccordion();
+            } catch (error) {
+                showAlert('Erreur lors de la suppression: ' + error.message, 'error');
+            }
+        }
+
+        // addSubCategory() est redéfini plus haut pour gérer l'assignation famille -> vue métier.
+
+        // Improve categorization with AI (avec streaming SSE)
+        async function improveCategorization() {
+            if (!confirm('L\'IA va analyser toutes les options et améliorer leur catégorisation. Continuer ?')) return;
+
+            // Afficher la progression dans le conteneur des catégories
+            const container = document.querySelector('#categories-management-table').parentElement;
+            const originalContent = container.innerHTML;
+            let progressHtml = createProgressDisplay();
+            // Modifier le titre pour l'amélioration de catégorisation
+            progressHtml = progressHtml.replace('🤖 Détection IA en cours...', '🤖 Amélioration catégorisation en cours...');
+            container.innerHTML = progressHtml;
+            
+            const progressContainer = container.querySelector('#progress-messages');
+            const progressBar = container.querySelector('.progress-bar-fill');
+            const timerDisplay = container.querySelector('#timer-display');
+            const streamContentDiv = container.querySelector('#stream-content');
+            const streamTextDiv = container.querySelector('#stream-text');
+            let startTime = Date.now();
+            let streamContent = '';
+            
+            // Démarrer le timer
+            let seconds = 0;
+            const timerInterval = setInterval(() => {
+                seconds++;
+                const minutes = Math.floor(seconds / 60);
+                const secs = seconds % 60;
+                if (timerDisplay) {
+                    timerDisplay.textContent = `${String(minutes).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+                }
+            }, 1000);
+            
+            // Mettre à jour la barre de progression progressivement
+            let progressValue = 0;
+            const progressInterval = setInterval(() => {
+                if (progressValue < 90 && progressBar) {
+                    progressValue += Math.random() * 2;
+                    progressBar.style.width = Math.min(progressValue, 90) + '%';
+                }
+            }, 500);
+
+            try {
+                // Utiliser fetch avec streaming pour SSE
+                const response = await fetch(
+                    `/api/ugap/improve-categorization`,
+                    {
+                        method: 'POST',
+                        headers: {
+                            'Accept': 'text/event-stream',
+                            'Content-Type': 'application/json'
+                        },
+                        credentials: 'include'
+                    }
+                );
+
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                let buffer = '';
+                let currentEvent = null;
+
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+
+                    const decoded = decoder.decode(value, { stream: true });
+                    buffer += decoded;
+                    streamContent += decoded;
+                    const lines = buffer.split('\n');
+                    buffer = lines.pop() || '';
+
+                    for (const line of lines) {
+                        if (line.trim() === '') {
+                            if (currentEvent && currentEvent.data) {
+                                try {
+                                    const data = JSON.parse(currentEvent.data);
+                                    
+                                    if (currentEvent.type === 'progress') {
+                                        if (data.message) {
+                                            addProgressMessage(data.message, data.type || 'info');
+                                        }
+                                        
+                                        // Afficher le texte streamé en temps réel
+                                        if (data.streamText) {
+                                            if (streamContentDiv) streamContentDiv.style.display = 'block';
+                                            if (streamTextDiv) {
+                                                streamTextDiv.textContent = data.streamText;
+                                                streamTextDiv.scrollTop = streamTextDiv.scrollHeight;
+                                            }
+                                        }
+                                        
+                                        // Si on a un nouveau chunk, l'ajouter en temps réel
+                                        if (data.streamChunk) {
+                                            if (streamContentDiv) streamContentDiv.style.display = 'block';
+                                            if (streamTextDiv) {
+                                                streamTextDiv.textContent += data.streamChunk;
+                                                streamTextDiv.scrollTop = streamTextDiv.scrollHeight;
+                                            }
+                                        }
+                                        
+                                        if (data.partialCategorizations && Array.isArray(data.partialCategorizations)) {
+                                            const isFinal = data.isFinal === true;
+                                            const isPartial = data.isPartial === true;
+                                            const prefix = isFinal ? '✅' : (isPartial ? '🎯' : '🔄');
+                                            const status = isFinal ? '(final)' : (isPartial ? '(partiel)' : 'en temps réel');
+                                            addProgressMessage(`${prefix} ${data.partialCategorizations.length} catégorisation(s) détectée(s) ${status}`, 'success');
+                                            
+                                            if (isFinal) {
+                                                addProgressMessage(`Application de ${data.partialCategorizations.length} catégorisation(s)...`, 'info');
+                                                // Ici, on pourrait appliquer les catégorisations si nécessaire
+                                                addProgressMessage('Terminé !', 'success');
+                                                
+                                                if (container._cleanup) {
+                                                    container._cleanup();
+                                                }
+                                                
+                                                if (progressBar) {
+                                                    progressBar.style.width = '100%';
+                                                }
+                                                
+                                                setTimeout(async () => {
+                                                    await loadData();
+                                                    container.innerHTML = originalContent;
+                                                }, 1000);
+                                            }
+                                        }
+                                    } else if (currentEvent.type === 'done') {
+                                        addProgressMessage(data.message, 'success');
+                                        
+                                        if (data.data && data.data.length > 0) {
+                                            addProgressMessage(`Application de ${data.data.length} catégorisation(s)...`, 'info');
+                                            // Appliquer les catégorisations si nécessaire
+                                        }
+                                        
+                                        const duration = ((Date.now() - startTime) / 1000).toFixed(2);
+                                        addProgressMessage(`Durée totale: ${duration}s`, 'info');
+                                        
+                                        if (container._cleanup) {
+                                            container._cleanup();
+                                        }
+                                        
+                                        if (progressBar) {
+                                            progressBar.style.width = '100%';
+                                        }
+                                        
+                                        setTimeout(async () => {
+                                            await loadData();
+                                            container.innerHTML = originalContent;
+                                        }, 1000);
+                                    } else if (currentEvent.type === 'error') {
+                                        addProgressMessage(data.message || 'Erreur inconnue', 'error');
+                                        
+                                        if (container._cleanup) {
+                                            container._cleanup();
+                                        }
+                                        
+                                        setTimeout(() => {
+                                            container.innerHTML = `<p style="color: #dc3545; padding: 20px; text-align: center;">❌ Erreur: ${data.message || 'Erreur inconnue'}</p>`;
+                                        }, 2000);
+                                    }
+                                } catch (e) {
+                                    console.error('Erreur parsing SSE:', e);
+                                }
+                            }
+                            currentEvent = null;
+                            continue;
+                        }
+                        
+                        if (line.startsWith('event: ')) {
+                            currentEvent = { type: line.substring(7).trim(), data: null };
+                        } else if (line.startsWith('data: ')) {
+                            if (!currentEvent) currentEvent = { type: 'message', data: null };
+                            currentEvent.data = line.substring(6).trim();
+                        }
+                    }
+                }
+
+            } catch (error) {
+                console.error('Erreur complète:', error);
+                addProgressMessage('Erreur: ' + error.message, 'error');
+                
+                if (container._cleanup) {
+                    container._cleanup();
+                }
+                
+                setTimeout(() => {
+                    let errorHtml = `<div style="padding: 20px;">
+                        <p style="color: #dc3545; font-weight: 600; margin-bottom: 10px;">❌ Erreur: ${error.message}</p>`;
+                    if (streamContent) {
+                        errorHtml += `<details style="margin-top: 10px;">
+                            <summary style="cursor: pointer; color: #666;">Voir le contenu du stream reçu</summary>
+                            <pre style="background: #f5f5f5; padding: 10px; border-radius: 4px; overflow-x: auto; margin-top: 10px; font-size: 11px; max-height: 300px; overflow-y: auto;">${streamContent.substring(0, 5000)}${streamContent.length > 5000 ? '...' : ''}</pre>
+                        </details>`;
+                    }
+                    errorHtml += `</div>`;
+                    container.innerHTML = errorHtml;
+                }, 2000);
+            }
+            
+            function addProgressMessage(message, type = 'info') {
+                if (!progressContainer) return;
+                const messageEl = document.createElement('div');
+                messageEl.className = `progress-message progress-${type}`;
+                messageEl.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+                progressContainer.appendChild(messageEl);
+                progressContainer.scrollTop = progressContainer.scrollHeight;
+            }
+            
+            // Nettoyer les intervals à la fin
+            const cleanup = () => {
+                clearInterval(timerInterval);
+                clearInterval(progressInterval);
+                if (typeof streamTimeout !== 'undefined') {
+                    clearTimeout(streamTimeout);
+                }
+            };
+            
+            container._cleanup = cleanup;
+        }
+
+        // Edit category
+        async function editCategory(categoryId) {
+            const category = currentData?.categories?.find(cat => cat.id === categoryId);
+            if (!category) {
+                showAlert('Catégorie introuvable', 'error');
+                return;
+            }
+
+            const name = prompt('Modifier le nom de la catégorie:', category.name);
+            if (name === null) return;
+            const trimmedName = name.trim();
+            if (!trimmedName) {
+                showAlert('Le nom de catégorie est obligatoire', 'error');
+                return;
+            }
+            if (trimmedName === category.name) return;
+
+            try {
+                await apiCall(`/categories/${categoryId}`, {
+                    method: 'PUT',
+                    body: JSON.stringify({ name: trimmedName })
+                });
+                showAlert('Catégorie mise à jour', 'success');
+                await loadData();
+            } catch (error) {
+                showAlert('Erreur: ' + error.message, 'error');
+            }
+        }
+
+        // Afficher les détails d'une sous-catégorie avec menu de déplacement
+        function showSubCategoryDetails(categoryId, subCategory) {
+            const category = currentData.categories.find(c => c.id === categoryId);
+            if (!category) {
+                console.error('❌ Catégorie introuvable:', categoryId);
+                return;
+            }
+
+            console.log('🔍 showSubCategoryDetails:', {
+                categoryId,
+                subCategoryName: subCategory.name,
+                subCategoryOptionIds: subCategory.optionIds,
+                totalCategoryOptions: (category.options || []).length,
+                categoryOptionIds: (category.options || []).map(opt => opt.id).slice(0, 10)
+            });
+
+            // Filtrer les options qui correspondent aux optionIds de la sous-catégorie
+            const options = (category.options || []).filter(opt => {
+                const isIncluded = (subCategory.optionIds || []).includes(opt.id);
+                if (!isIncluded) {
+                    console.log(`⚠️ Option "${opt.name}" (ID: ${opt.id}) non trouvée dans optionIds:`, subCategory.optionIds);
+                }
+                return isIncluded;
+            });
+
+            console.log(`✅ ${options.length} option(s) trouvée(s) pour la sous-catégorie "${subCategory.name}"`);
+
+            const modal = document.createElement('div');
+            modal.style.cssText = 'position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 10000; display: flex; align-items: center; justify-content: center;';
+            modal.innerHTML = `
+                <div style="background: white; padding: 30px; border-radius: 8px; max-width: 800px; max-height: 90vh; overflow-y: auto; width: 90%;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                        <h2 style="margin: 0;">${subCategory.name}</h2>
+                        <button id="close-modal-btn" style="background: #dc3545; color: white; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer;">Fermer</button>
+                    </div>
+                    <p style="color: #666; margin-bottom: 20px;">${subCategory.description || 'Aucune description'}</p>
+                    <div style="margin-bottom: 20px; display: flex; gap: 10px;">
+                        <button onclick="createCollectionForSubCategory('${categoryId}', ${JSON.stringify(subCategory).replace(/"/g, '&quot;')})" 
+                                style="padding: 10px 16px; background: #28a745; color: white; border: none; border-radius: 4px; cursor: pointer;">
+                            📚 Créer collection
+                        </button>
+                        <button onclick="editSubCategory('${categoryId}', ${JSON.stringify(subCategory).replace(/"/g, '&quot;')})" 
+                                style="padding: 10px 16px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer;">
+                            ✏️ Modifier
+                        </button>
+                    </div>
+                    <h3 style="margin-bottom: 15px;">Options (${options.length} / ${(subCategory.optionIds || []).length} attendues)</h3>
+                    ${options.length === 0 ? `
+                        <div style="padding: 20px; background: #fff3cd; border: 1px solid #ffc107; border-radius: 4px; color: #856404;">
+                            <strong>⚠️ Aucune option trouvée</strong>
+                            <p style="margin: 10px 0 0 0;">
+                                La sous-catégorie indique ${(subCategory.optionIds || []).length} option(s), mais aucune option correspondante n'a été trouvée dans la catégorie.
+                                <br>Vérifiez que les IDs des options correspondent bien.
+                            </p>
+                            <p style="margin: 10px 0 0 0; font-size: 12px; color: #666;">
+                                OptionIds dans la sous-catégorie: ${(subCategory.optionIds || []).slice(0, 5).join(', ')}${(subCategory.optionIds || []).length > 5 ? '...' : ''}
+                                <br>IDs des options de la catégorie: ${(category.options || []).slice(0, 5).map(opt => opt.id).join(', ')}${(category.options || []).length > 5 ? '...' : ''}
+                            </p>
+                        </div>
+                    ` : `
+                    <table style="width: 100%; border-collapse: collapse;">
+                        <thead>
+                            <tr style="background: #f8f9fa;">
+                                <th style="padding: 10px; text-align: left; border-bottom: 2px solid #dee2e6; width: 40px;">
+                                    <input type="checkbox" id="select-all-options-${subCategory.id}" onclick="toggleAllOptionsInSubCategory('${subCategory.id}')">
+                                </th>
+                                <th style="padding: 10px; text-align: left; border-bottom: 2px solid #dee2e6;">Option</th>
+                                <th style="padding: 10px; text-align: left; border-bottom: 2px solid #dee2e6;">Prix Client</th>
+                                <th style="padding: 10px; text-align: left; border-bottom: 2px solid #dee2e6;">Prix UGAP</th>
+                                <th style="padding: 10px; text-align: left; border-bottom: 2px solid #dee2e6;">Catégorie</th>
+                                <th style="padding: 10px; text-align: left; border-bottom: 2px solid #dee2e6;">Déplacer vers</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${options.map(opt => `
+                                <tr>
+                                    <td style="padding: 10px; border-bottom: 1px solid #dee2e6;">
+                                        <input type="checkbox" class="option-checkbox-${subCategory.id}" data-option-id="${opt.id}">
+                                    </td>
+                                    <td style="padding: 10px; border-bottom: 1px solid #dee2e6;">${opt.name}</td>
+                                    <td style="padding: 10px; border-bottom: 1px solid #dee2e6;">${(opt.priceClient || 0).toFixed(2)} €</td>
+                                    <td style="padding: 10px; border-bottom: 1px solid #dee2e6;">${(opt.priceUgap || 0).toFixed(2)} €</td>
+                                    <td style="padding: 10px; border-bottom: 1px solid #dee2e6;">
+                                        <select id="category-select-${opt.id}" onchange="handleOptionCategoryChange('${categoryId}', '${subCategory.id}', '${opt.id}')" style="padding: 5px; border: 1px solid #ddd; border-radius: 4px;">
+                                            ${(currentData?.categories || [])
+                                                .map(cat => `<option value="${cat.id}" ${cat.id === categoryId ? 'selected' : ''}>${cat.name}</option>`)
+                                                .join('')}
+                                        </select>
+                                    </td>
+                                    <td style="padding: 10px; border-bottom: 1px solid #dee2e6;">
+                                        <select id="subcategory-select-${opt.id}" onchange="handleOptionMoveFromSubCategoryRow('${categoryId}', '${subCategory.id}', '${opt.id}')" style="padding: 5px; border: 1px solid #ddd; border-radius: 4px;">
+                                            <option value="">-- Choisir une destination --</option>
+                                            <option value="none">Retirer de la sous-catégorie</option>
+                                            ${(category.subCategories || [])
+                                                .filter(sc => sc.id !== subCategory.id)
+                                                .map(sc => `<option value="${sc.id}">${sc.name}</option>`)
+                                                .join('')}
+                                        </select>
+                                    </td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                    <div style="margin-top: 20px; padding-top: 15px; border-top: 1px solid #dee2e6;">
+                        <div style="font-weight: 600; margin-bottom: 10px;">Déplacer les options sélectionnées</div>
+                        <div style="display: flex; gap: 10px; flex-wrap: wrap; align-items: center;">
+                            <select id="bulk-category-select-${subCategory.id}" onchange="handleBulkCategoryChange('${categoryId}', '${subCategory.id}')" style="padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+                                ${(currentData?.categories || [])
+                                    .map(cat => `<option value="${cat.id}" ${cat.id === categoryId ? 'selected' : ''}>${cat.name}</option>`)
+                                    .join('')}
+                            </select>
+                            <select id="bulk-subcategory-select-${subCategory.id}" style="padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+                                <option value="">-- Choisir une sous-catégorie --</option>
+                                <option value="none">Retirer de la sous-catégorie</option>
+                                ${(category.subCategories || [])
+                                    .map(sc => `<option value="${sc.id}">${sc.name}</option>`)
+                                    .join('')}
+                            </select>
+                            <button onclick="applyBulkMove('${categoryId}', '${subCategory.id}')" style="padding: 8px 14px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer;">
+                                Déplacer la sélection
+                            </button>
+                        </div>
+                    </div>
+                    `}
+                </div>
+            `;
+            document.body.appendChild(modal);
+            
+            // Gérer la fermeture de la modal
+            const closeBtn = modal.querySelector('#close-modal-btn');
+            if (closeBtn) {
+                closeBtn.addEventListener('click', () => modal.remove());
+            }
+            modal.onclick = (e) => {
+                if (e.target === modal) modal.remove();
+            };
+        }
+
+        // Afficher les détails d'une option avec menu de déplacement
+        function showOptionDetails(categoryId, option) {
+            const category = currentData.categories.find(c => c.id === categoryId);
+            if (!category) return;
+
+            const currentSubCategory = (category.subCategories || []).find(sc => 
+                (sc.optionIds || []).includes(option.id)
+            );
+
+            const modal = document.createElement('div');
+            modal.style.cssText = 'position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 10000; display: flex; align-items: center; justify-content: center;';
+            modal.innerHTML = `
+                <div style="background: white; padding: 30px; border-radius: 8px; max-width: 600px; width: 90%;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                        <h2 style="margin: 0;">${option.name}</h2>
+                        <button id="close-option-modal-btn" style="background: #dc3545; color: white; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer;">Fermer</button>
+                    </div>
+                    <div style="margin-bottom: 20px;">
+                        <p><strong>Prix Client:</strong> ${(option.priceClient || 0).toFixed(2)} €</p>
+                        <p><strong>Prix UGAP:</strong> ${(option.priceUgap || 0).toFixed(2)} €</p>
+                        <p><strong>Modèles compatibles:</strong> ${(option.compatibleModels || []).length} modèle(s)</p>
+                        <p><strong>Sous-catégorie actuelle:</strong> ${currentSubCategory ? currentSubCategory.name : 'Aucune'}</p>
+                        ${option.type === 'couleur' || option.name.toLowerCase().includes('couleur') ? `
+                            <div style="margin-top: 15px;">
+                                <button onclick="modifyOptionColor('${categoryId}', ${JSON.stringify(option).replace(/"/g, '&quot;')})" 
+                                        style="padding: 10px 16px; background: #ffc107; color: #000; border: none; border-radius: 4px; cursor: pointer;">
+                                    🎨 Modifier la couleur
+                                </button>
+                            </div>
+                        ` : ''}
+                        ${currentSubCategory && currentSubCategory.idDocTemplate ? `
+                            <div style="margin-top: 15px;">
+                                <button onclick="addOptionToCollection('${categoryId}', ${JSON.stringify(option).replace(/"/g, '&quot;')}, ${JSON.stringify(currentSubCategory).replace(/"/g, '&quot;')})" 
+                                        style="padding: 10px 16px; background: #17a2b8; color: white; border: none; border-radius: 4px; cursor: pointer;">
+                                    📝 Ajouter à la collection
+                                </button>
+                            </div>
+                        ` : ''}
+                    </div>
+                    <div>
+                        <label style="display: block; margin-bottom: 10px; font-weight: bold;">Déplacer vers une sous-catégorie:</label>
+                        <select id="move-option-select" style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 4px; margin-bottom: 15px;">
+                            <option value="none">Retirer de la sous-catégorie</option>
+                            ${(category.subCategories || [])
+                                .filter(sc => sc.id !== (currentSubCategory?.id))
+                                .map(sc => `<option value="${sc.id}">${sc.name}</option>`)
+                                .join('')}
+                        </select>
+                        <button onclick="moveOption('${categoryId}', '${currentSubCategory?.id || ''}', '${option.id}', document.getElementById('move-option-select').value)" 
+                                style="width: 100%; padding: 10px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer;">
+                            Déplacer
+                        </button>
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(modal);
+            
+            // Gérer la fermeture de la modal
+            const closeBtn = modal.querySelector('#close-option-modal-btn');
+            if (closeBtn) {
+                closeBtn.addEventListener('click', () => modal.remove());
+            }
+            modal.onclick = (e) => {
+                if (e.target === modal) modal.remove();
+            };
+        }
+
+        function handleOptionCategoryChange(fromCategoryId, fromSubCategoryId, optionId) {
+            const categorySelect = document.getElementById(`category-select-${optionId}`);
+            const subCategorySelect = document.getElementById(`subcategory-select-${optionId}`);
+            if (!categorySelect || !subCategorySelect) return;
+
+            const targetCategoryId = categorySelect.value || fromCategoryId;
+            const targetCategory = currentData?.categories?.find(cat => cat.id === targetCategoryId);
+            const shouldExcludeCurrent = targetCategoryId === fromCategoryId ? fromSubCategoryId : null;
+
+            const optionsHtml = [
+                '<option value="">-- Choisir une destination --</option>',
+                '<option value="none">Retirer de la sous-catégorie</option>',
+                ...(targetCategory?.subCategories || [])
+                    .filter(sc => !shouldExcludeCurrent || sc.id !== shouldExcludeCurrent)
+                    .map(sc => `<option value="${sc.id}">${sc.name}</option>`)
+            ].join('');
+
+            subCategorySelect.innerHTML = optionsHtml;
+        }
+
+        function handleBulkCategoryChange(fromCategoryId, subCategoryId) {
+            const categorySelect = document.getElementById(`bulk-category-select-${subCategoryId}`);
+            const subCategorySelect = document.getElementById(`bulk-subcategory-select-${subCategoryId}`);
+            if (!categorySelect || !subCategorySelect) return;
+
+            const targetCategoryId = categorySelect.value || fromCategoryId;
+            const targetCategory = currentData?.categories?.find(cat => cat.id === targetCategoryId);
+
+            const optionsHtml = [
+                '<option value="">-- Choisir une sous-catégorie --</option>',
+                '<option value="none">Retirer de la sous-catégorie</option>',
+                ...(targetCategory?.subCategories || [])
+                    .map(sc => `<option value="${sc.id}">${sc.name}</option>`)
+            ].join('');
+
+            subCategorySelect.innerHTML = optionsHtml;
+        }
+
+        function toggleAllOptionsInSubCategory(subCategoryId) {
+            const master = document.getElementById(`select-all-options-${subCategoryId}`);
+            const checkboxes = document.querySelectorAll(`.option-checkbox-${subCategoryId}`);
+            if (!master) return;
+            checkboxes.forEach(cb => {
+                cb.checked = master.checked;
+            });
+        }
+
+        async function applyBulkMove(fromCategoryId, fromSubCategoryId) {
+            const categorySelect = document.getElementById(`bulk-category-select-${fromSubCategoryId}`);
+            const subCategorySelect = document.getElementById(`bulk-subcategory-select-${fromSubCategoryId}`);
+            if (!categorySelect || !subCategorySelect) return;
+
+            const toCategoryId = categorySelect.value || fromCategoryId;
+            const toSubCategoryId = subCategorySelect.value || '';
+            if (!toSubCategoryId) {
+                showAlert('Choisissez une sous-catégorie de destination', 'error');
+                return;
+            }
+
+            const selected = Array.from(document.querySelectorAll(`.option-checkbox-${fromSubCategoryId}:checked`))
+                .map(cb => cb.getAttribute('data-option-id'))
+                .filter(Boolean);
+
+            if (selected.length === 0) {
+                showAlert('Aucune option sélectionnée', 'error');
+                return;
+            }
+
+            try {
+                if (toCategoryId === fromCategoryId) {
+                    await moveOptionsWithinCategoryBulk(fromCategoryId, fromSubCategoryId, selected, toSubCategoryId);
+                } else {
+                    for (const optionId of selected) {
+                        await moveOptionToCategorySilent(fromCategoryId, optionId, toCategoryId, toSubCategoryId);
+                    }
+                }
+
+                showAlert(`${selected.length} option(s) déplacée(s)`, 'success');
+                await loadData();
+
+                const activeTab = document.querySelector('.tab-button.active');
+                if (activeTab) {
+                    const tabName = activeTab.getAttribute('data-tab');
+                    if (tabName === 'subcategories') {
+                        renderSubCategoriesAccordion();
+                    } else if (tabName === 'options') {
+                        renderCategories();
+                    }
+                }
+
+                document.querySelectorAll('div[style*="position: fixed"]').forEach(modal => modal.remove());
+            } catch (error) {
+                showAlert('Erreur: ' + error.message, 'error');
+            }
+        }
+
+        async function moveOptionToCategorySilent(fromCategoryId, optionId, toCategoryId, toSubCategoryId) {
+            await apiCall(`/categories/${fromCategoryId}/options/${optionId}/move`, {
+                method: 'POST',
+                body: JSON.stringify({ toCategoryId, toSubCategoryId })
+            });
+        }
+
+        async function moveOptionsWithinCategoryBulk(categoryId, fromSubCategoryId, optionIds, toSubCategoryId) {
+            const category = currentData?.categories?.find(cat => cat.id === categoryId);
+            if (!category) throw new Error('Catégorie introuvable');
+
+            const fromSubCat = (category.subCategories || []).find(sc => sc.id === fromSubCategoryId);
+            if (!fromSubCat) throw new Error('Sous-catégorie source introuvable');
+
+            const selectedSet = new Set(optionIds);
+            const updatedFromIds = (fromSubCat.optionIds || []).filter(id => !selectedSet.has(id));
+            await apiCall(`/categories/${categoryId}/subcategories/${fromSubCategoryId}`, {
+                method: 'PUT',
+                body: JSON.stringify({ optionIds: updatedFromIds })
+            });
+
+            if (toSubCategoryId && toSubCategoryId !== 'none') {
+                const toSubCat = (category.subCategories || []).find(sc => sc.id === toSubCategoryId);
+                if (!toSubCat) throw new Error('Sous-catégorie destination introuvable');
+
+                const updatedToIds = Array.from(new Set([...(toSubCat.optionIds || []), ...optionIds]));
+                await apiCall(`/categories/${categoryId}/subcategories/${toSubCategoryId}`, {
+                    method: 'PUT',
+                    body: JSON.stringify({ optionIds: updatedToIds })
+                });
+
+                const nonAssigned = (category.subCategories || []).find(sc =>
+                    /non attribu(e|ées)/i.test(sc.name || '')
+                );
+                if (nonAssigned && nonAssigned.id !== toSubCategoryId) {
+                    const cleanedIds = (nonAssigned.optionIds || []).filter(id => !selectedSet.has(id));
+                    if (cleanedIds.length !== (nonAssigned.optionIds || []).length) {
+                        await apiCall(`/categories/${categoryId}/subcategories/${nonAssigned.id}`, {
+                            method: 'PUT',
+                            body: JSON.stringify({ optionIds: cleanedIds })
+                        });
+                    }
+                }
+            }
+        }
+
+        function handleOptionMoveFromSubCategoryRow(fromCategoryId, fromSubCategoryId, optionId) {
+            const categorySelect = document.getElementById(`category-select-${optionId}`);
+            const subCategorySelect = document.getElementById(`subcategory-select-${optionId}`);
+            if (!categorySelect || !subCategorySelect) return;
+
+            const toCategoryId = categorySelect.value || fromCategoryId;
+            const toSubCategoryId = subCategorySelect.value || '';
+            if (!toSubCategoryId) return;
+
+            if (toCategoryId === fromCategoryId) {
+                moveOption(fromCategoryId, fromSubCategoryId, optionId, toSubCategoryId);
+                return;
+            }
+
+            moveOptionToCategory(fromCategoryId, fromSubCategoryId, optionId, toCategoryId, toSubCategoryId);
+        }
+
+        async function moveOptionToCategory(fromCategoryId, fromSubCategoryId, optionId, toCategoryId, toSubCategoryId) {
+            try {
+                await apiCall(`/categories/${fromCategoryId}/options/${optionId}/move`, {
+                    method: 'POST',
+                    body: JSON.stringify({ toCategoryId, toSubCategoryId })
+                });
+
+                showAlert('Option déplacée avec succès', 'success');
+                await loadData();
+
+                const activeTab = document.querySelector('.tab-button.active');
+                if (activeTab) {
+                    const tabName = activeTab.getAttribute('data-tab');
+                    if (tabName === 'subcategories') {
+                        renderSubCategoriesAccordion();
+                    } else if (tabName === 'options') {
+                        renderCategories();
+                    }
+                }
+
+                document.querySelectorAll('div[style*="position: fixed"]').forEach(modal => modal.remove());
+            } catch (error) {
+                showAlert('Erreur: ' + error.message, 'error');
+            }
+        }
+
+        // Déplacer une option entre sous-catégories
+        async function moveOption(categoryId, fromSubCategoryId, optionId, toSubCategoryId) {
+            try {
+                // Retirer de l'ancienne sous-catégorie si elle existe
+                if (fromSubCategoryId) {
+                    const category = currentData.categories.find(c => c.id === categoryId);
+                    const fromSubCat = (category?.subCategories || []).find(sc => sc.id === fromSubCategoryId);
+                    if (fromSubCat) {
+                        const updatedOptionIds = (fromSubCat.optionIds || []).filter(id => id !== optionId);
+                        await apiCall(`/categories/${categoryId}/subcategories/${fromSubCategoryId}`, {
+                            method: 'PUT',
+                            body: JSON.stringify({ optionIds: updatedOptionIds })
+                        });
+                    }
+                }
+
+                // Ajouter à la nouvelle sous-catégorie si elle existe
+                if (toSubCategoryId && toSubCategoryId !== 'none') {
+                    const category = currentData.categories.find(c => c.id === categoryId);
+                    const toSubCat = (category?.subCategories || []).find(sc => sc.id === toSubCategoryId);
+                    if (toSubCat) {
+                        const updatedOptionIds = [...(toSubCat.optionIds || []), optionId];
+                        await apiCall(`/categories/${categoryId}/subcategories/${toSubCategoryId}`, {
+                            method: 'PUT',
+                            body: JSON.stringify({ optionIds: updatedOptionIds })
+                        });
+                    }
+
+                    // Retirer de "Non attribuées" si besoin
+                    const nonAssigned = (category?.subCategories || []).find(sc =>
+                        /non attribu(e|ées)/i.test(sc.name || '')
+                    );
+                    if (nonAssigned && nonAssigned.id !== toSubCategoryId) {
+                        const cleanedIds = (nonAssigned.optionIds || []).filter(id => id !== optionId);
+                        if (cleanedIds.length !== (nonAssigned.optionIds || []).length) {
+                            await apiCall(`/categories/${categoryId}/subcategories/${nonAssigned.id}`, {
+                                method: 'PUT',
+                                body: JSON.stringify({ optionIds: cleanedIds })
+                            });
+                        }
+                    }
+                }
+
+                showAlert('Option déplacée avec succès', 'success');
+                await loadData();
+                
+                // Re-rendre les vues
+                const activeTab = document.querySelector('.tab-button.active');
+                if (activeTab) {
+                    const tabName = activeTab.getAttribute('data-tab');
+                    if (tabName === 'subcategories') {
+                        renderSubCategoriesAccordion();
+                    } else if (tabName === 'options') {
+                        renderCategories();
+                    }
+                }
+
+                // Fermer les modals
+                document.querySelectorAll('div[style*="position: fixed"]').forEach(modal => modal.remove());
+            } catch (error) {
+                showAlert('Erreur: ' + error.message, 'error');
+            }
+        }
+
+        // Modifier une sous-catégorie
+        async function editSubCategory(categoryId, subCategoryId) {
+            const category = currentData.categories.find(c => c.id === categoryId);
+            if (!category) return;
+            
+            const subCategory = (category.subCategories || []).find(sc => sc.id === subCategoryId);
+            if (!subCategory) return;
+
+            const modal = document.createElement('div');
+            modal.style.cssText = 'position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 10000; display: flex; align-items: center; justify-content: center;';
+            modal.innerHTML = `
+                <div style="background: white; padding: 30px; border-radius: 8px; max-width: 600px; width: 90%;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                        <h2 style="margin: 0;">Modifier la sous-catégorie</h2>
+                        <button id="close-edit-modal-btn" style="background: #dc3545; color: white; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer;">Fermer</button>
+                    </div>
+                    <form id="edit-subcategory-form" style="display: flex; flex-direction: column; gap: 15px;">
+                        <div>
+                            <label style="display: block; margin-bottom: 5px; font-weight: bold;">Nom:</label>
+                            <input type="text" id="edit-subcat-name" value="${subCategory.name || ''}" 
+                                   style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 4px;" required>
+                        </div>
+                        <div>
+                            <label style="display: block; margin-bottom: 5px; font-weight: bold;">Description:</label>
+                            <textarea id="edit-subcat-description" rows="4" 
+                                      style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 4px;">${subCategory.description || ''}</textarea>
+                        </div>
+                        <div style="display: flex; gap: 10px; justify-content: flex-end;">
+                            <button type="button" id="cancel-edit-btn" 
+                                    style="padding: 10px 20px; background: #6c757d; color: white; border: none; border-radius: 4px; cursor: pointer;">
+                                Annuler
+                            </button>
+                            <button type="submit" 
+                                    style="padding: 10px 20px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer;">
+                                Enregistrer
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            `;
+            document.body.appendChild(modal);
+            
+            // Gérer la fermeture de la modal
+            const closeBtn = modal.querySelector('#close-edit-modal-btn');
+            const cancelBtn = modal.querySelector('#cancel-edit-btn');
+            if (closeBtn) {
+                closeBtn.addEventListener('click', () => modal.remove());
+            }
+            if (cancelBtn) {
+                cancelBtn.addEventListener('click', () => modal.remove());
+            }
+            modal.onclick = (e) => {
+                if (e.target === modal) modal.remove();
+            };
+            
+            // Gérer la soumission du formulaire
+            const form = modal.querySelector('#edit-subcategory-form');
+            form.addEventListener('submit', async (e) => {
+                e.preventDefault();
+                const name = document.getElementById('edit-subcat-name').value.trim();
+                const description = document.getElementById('edit-subcat-description').value.trim();
+                
+                if (!name) {
+                    showAlert('Le nom est requis', 'error');
+                    return;
+                }
+                
+                try {
+                    await apiCall(`/categories/${categoryId}/subcategories/${subCategoryId}`, {
+                        method: 'PUT',
+                        body: JSON.stringify({ name, description })
+                    });
+                    showAlert('Sous-catégorie modifiée avec succès', 'success');
+                    modal.remove();
+                    await loadData();
+                    renderSubCategoriesAccordion();
+                } catch (error) {
+                    showAlert('Erreur: ' + error.message, 'error');
+                }
+            });
+        }
+
+        async function deleteSubCategory(categoryId, subCategoryId) {
+            if (!confirm('Supprimer cette sous-catégorie ?')) return;
+
+            try {
+                await apiCall(`/categories/${categoryId}/subcategories/${subCategoryId}`, {
+                    method: 'DELETE'
+                });
+                showAlert('Sous-catégorie supprimée', 'success');
+                await loadData();
+                renderSubCategoriesAccordion();
+            } catch (error) {
+                showAlert('Erreur: ' + error.message, 'error');
+            }
+        }
+
+        // Event listeners
+        document.getElementById('btn-import').addEventListener('click', importExcel);
+        document.getElementById('btn-refresh').addEventListener('click', loadData);
+        document.getElementById('filter-category').addEventListener('change', renderCategories);
+        document.getElementById('filter-subcategory').addEventListener('change', renderCategories);
+        document.getElementById('btn-add-view-heur')?.addEventListener('click', () => {
+            const labelEl = document.getElementById('view-heur-label');
+            const kwEl = document.getElementById('view-heur-keywords');
+            const scopeEl = document.getElementById('view-heur-scope');
+            const addBtn = document.getElementById('btn-add-view-heur');
+            const viewLabel = String(labelEl?.value || '').trim();
+            const keywords = String(kwEl?.value || '').trim();
+            const scope = String(scopeEl?.value || 'all').trim() || 'all';
+            const rawEditIdx = addBtn?.getAttribute('data-edit-index');
+            const editIdx = rawEditIdx !== null && rawEditIdx !== '' ? Number(rawEditIdx) : NaN;
+            if (!viewLabel) {
+                showAlert('Nom de vue métier requis.', 'warning');
+                return;
+            }
+            const rules = getViewHeuristicRules();
+            if (Number.isInteger(editIdx) && editIdx >= 0 && editIdx < rules.length) {
+                rules[editIdx] = { viewLabel, keywords, scope };
+            } else {
+                rules.push({ viewLabel, keywords, scope });
+            }
+            setViewHeuristicRules(rules);
+            if (labelEl) labelEl.value = '';
+            if (kwEl) kwEl.value = '';
+            if (scopeEl) scopeEl.value = 'all';
+            addBtn?.removeAttribute('data-edit-index');
+            const cancelBtn = document.getElementById('btn-cancel-view-heur-edit');
+            if (cancelBtn) cancelBtn.style.display = 'none';
+            renderViewHeuristicRulesUi();
+        });
+        document.getElementById('btn-cancel-view-heur-edit')?.addEventListener('click', () => {
+            const labelEl = document.getElementById('view-heur-label');
+            const kwEl = document.getElementById('view-heur-keywords');
+            const scopeEl = document.getElementById('view-heur-scope');
+            const addBtn = document.getElementById('btn-add-view-heur');
+            if (labelEl) labelEl.value = '';
+            if (kwEl) kwEl.value = '';
+            if (scopeEl) scopeEl.value = 'all';
+            addBtn?.removeAttribute('data-edit-index');
+            const cancelBtn = document.getElementById('btn-cancel-view-heur-edit');
+            if (cancelBtn) cancelBtn.style.display = 'none';
+            renderViewHeuristicRulesUi();
+        });
+        document.getElementById('btn-add-category').addEventListener('click', addCategory);
+        document.getElementById('btn-improve-categorization').addEventListener('click', improveCategorization);
+        document.getElementById('btn-clear-categories').addEventListener('click', clearAllCategories);
+        document.getElementById('btn-detect-subcategories').addEventListener('click', autoAssignFamiliesToBusinessViews);
+        document.getElementById('btn-add-subcategory')?.addEventListener('click', addSubCategory);
+        document.getElementById('btn-save-extraction-prompt').addEventListener('click', saveExtractionPrompt);
+        document.getElementById('btn-save-categorization-prompt').addEventListener('click', saveCategorizationPrompt);
+        document.getElementById('btn-save-minoration-prompt').addEventListener('click', saveMinorationPrompt);
+        document.getElementById('btn-save-famille-prompt')?.addEventListener('click', saveFamillePrompt);
+        document.getElementById('btn-save-assignation-prompt')?.addEventListener('click', saveAssignationPrompt);
+        document.getElementById('btn-reset-prompts').addEventListener('click', resetPrompts);
+        document.getElementById('prompt-extraction-format')?.addEventListener('change', (event) => {
+            const select = event.target;
+            const previous = select.dataset.previousValue || '';
+            const next = select.value;
+            if (next === previous) return;
+
+            const confirmed = confirm('Confirmer le changement du format attendu ?');
+            if (!confirmed) {
+                select.value = previous;
+                return;
+            }
+
+            const formatTarget = document.getElementById('prompt-extraction-format-text');
+            if (formatTarget && EXTRACTION_FORMAT_PRESETS[next]) {
+                formatTarget.value = EXTRACTION_FORMAT_PRESETS[next];
+            }
+            select.dataset.previousValue = next;
+        });
+        document.getElementById('btn-refresh-logs')?.addEventListener('click', loadActivityLogs);
+        document.getElementById('filter-log-event')?.addEventListener('change', loadActivityLogs);
+        document.getElementById('filter-log-from')?.addEventListener('change', loadActivityLogs);
+        document.getElementById('filter-log-to')?.addEventListener('change', loadActivityLogs);
+        document.getElementById('filter-log-email')?.addEventListener('keydown', (event) => {
+            if (event.key === 'Enter') {
+                loadActivityLogs();
+            }
+        });
+
+        // Tabs - avec chargement à la demande
+        document.querySelectorAll('.tab').forEach(tab => {
+            tab.addEventListener('click', () => {
+                document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+                document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+                tab.classList.add('active');
+                const tabName = tab.getAttribute('data-tab');
+                const panelId = 'tab-' + tabName;
+                document.getElementById(panelId).classList.add('active');
+                
+                // Charger les données uniquement pour l'onglet actif
+                if (currentData) {
+                    renderActiveTab(tabName);
+                }
+                syncFamilleColumnsDock();
+
+                trackAdminEvent('tab_view', { tab: tabName });
+            });
+        });
+
+        const initialTab = document.querySelector('.tab.active')?.getAttribute('data-tab');
+        trackAdminEvent('page_view', { tab: initialTab });
+        if (initialTab) {
+            trackAdminEvent('tab_view', { tab: initialTab });
+        }
+
+        // ========================================
+        // MODAL MODÈLE
+        // ========================================
+        function openModelModal(modelId) {
+            const model = currentData.models.find(m => m.id === modelId);
+            if (!model) return;
+
+            const optionsForModel = getModelOptionsForSummary(modelId);
+
+            const modal = document.createElement('div');
+            modal.className = 'modal active';
+            modal.id = 'model-modal';
+            modal.innerHTML = `
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h2>Modifier le modèle: ${model.name}</h2>
+                        <button class="btn btn-danger" onclick="closeModelModal()">Fermer</button>
+                    </div>
+                    <form id="model-form">
+                        <input type="hidden" id="model-id" value="${model.id}">
+                        <div class="subtabs" style="margin-bottom: 16px;">
+                            <button type="button" class="subtab-btn active" data-model-modal-tab="principal" onclick="switchModelModalTab('principal')">Principal</button>
+                            <button type="button" class="subtab-btn" data-model-modal-tab="base" onclick="switchModelModalTab('base')">Options de base</button>
+                            <button type="button" class="subtab-btn" data-model-modal-tab="options" onclick="switchModelModalTab('options')">Options</button>
+                        </div>
+
+                        <div id="model-modal-tab-principal" class="subtab-panel active">
+                            <div class="form-group">
+                                <label>Nom du modèle</label>
+                                <input type="text" id="model-name" value="${model.name}" required>
+                            </div>
+                            <div class="form-group">
+                                <label>Prix de base (€)</label>
+                                <input type="number" id="model-price" value="${model.basePrice || 0}" step="0.01" required>
+                            </div>
+                            <div class="form-group">
+                                <label>Image</label>
+                                <div class="image-upload-area" id="model-image-upload" onclick="document.getElementById('model-image-input').click()">
+                                    ${model.image ? `<img src="${model.image}" class="image-preview" id="model-image-preview">` : '<p>Cliquez pour télécharger une image</p>'}
+                                </div>
+                                <input type="file" id="model-image-input" accept="image/*" style="display: none;" onchange="handleModelImageUpload(event)">
+                            </div>
+                            <div class="form-group">
+                                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                                    <label style="margin: 0;">Configurations</label>
+                                    <button type="button" class="btn btn-success" onclick="addModelConfiguration()">+ Ajouter</button>
+                                </div>
+                                <div id="model-configurations-list"></div>
+                                <input type="file" id="config-pdf-input" accept="application/pdf" style="display: none;">
+                                <div id="config-pdf-controls" style="margin-top:10px; display:flex; gap:8px; align-items:center;">
+                                    <button type="button" class="btn btn-outline" onclick="triggerConfigPdfUploadNew()">1. Importer le PDF</button>
+                                    <span id="config-pdf-status" style="color:#666; margin-left:10px;">Aucun fichier importé</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div id="model-modal-tab-base" class="subtab-panel">
+                            <div class="form-group">
+                                <label>Motorisation de base</label>
+                                <input type="text" id="model-base-motorization" value="${escapeHtml(model.motorizationBase || '')}">
+                            </div>
+                            <div class="form-group">
+                                <label>Numéro de poste</label>
+                                <input type="number" id="model-poste-number" value="${model.posteNumber ?? ''}" min="1" step="1">
+                            </div>
+                            <div class="form-group">
+                                <label>Mode de livraison</label>
+                                <input type="text" id="model-delivery-mode" value="${escapeHtml(model.defaultDeliveryMode || '')}" placeholder="Ex: Départ usine">
+                            </div>
+                        </div>
+
+                        <div id="model-modal-tab-options" class="subtab-panel">
+                            <div style="margin-bottom: 10px; color: #666;">
+                                ${optionsForModel.length} option(s) disponible(s) pour ce modèle.
+                            </div>
+                            <table style="width:100%; border-collapse:collapse; border:1px solid #eee;">
+                                <thead>
+                                    <tr style="background:#f8f9fa;">
+                                        <th style="padding:8px; border-bottom:1px solid #eee;">Option</th>
+                                        <th style="padding:8px; border-bottom:1px solid #eee;">Catégorie</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    ${renderOptionRows(optionsForModel, 'Aucune option pour ce modèle')}
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <div style="display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px;">
+                            <button type="button" class="btn btn-outline" onclick="closeModelModal()">Annuler</button>
+                            <button type="submit" class="btn btn-primary">Enregistrer</button>
+                        </div>
+                    </form>
+                </div>
+            `;
+            document.body.appendChild(modal);
+            renderModelConfigurations(model.configurations || []);
+            const pdfInput = document.getElementById('config-pdf-input');
+            if (pdfInput) {
+                pdfInput.addEventListener('change', handleUploadPdfChange);
+            }
+            
+            document.getElementById('model-form').addEventListener('submit', async (e) => {
+                e.preventDefault();
+                await saveModel();
+            });
+
+            modal.addEventListener('click', (e) => {
+                if (e.target.id === 'model-modal') closeModelModal();
+            });
+        }
+
+        function switchModelModalTab(tabId) {
+            const modal = document.getElementById('model-modal');
+            if (!modal) return;
+            modal.querySelectorAll('[data-model-modal-tab]').forEach(btn => {
+                btn.classList.toggle('active', btn.getAttribute('data-model-modal-tab') === tabId);
+            });
+            modal.querySelectorAll('#model-modal .subtab-panel').forEach(panel => {
+                panel.classList.toggle('active', panel.id === `model-modal-tab-${tabId}`);
+            });
+        }
+
+        function closeModelModal() {
+            const modal = document.getElementById('model-modal');
+            if (modal) modal.remove();
+        }
+
+        function renderModelConfigurations(configurations) {
+            const container = document.getElementById('model-configurations-list');
+            if (!container) return;
+            container.innerHTML = '';
+
+            if (configurations.length === 0) {
+                container.innerHTML = '<p style="color: #666; text-align: center; padding: 20px;">Aucune configuration</p>';
+                return;
+            }
+
+            // Récupérer le modelId depuis le champ caché du formulaire
+            const modelId = document.getElementById('model-id')?.value || '';
+
+            configurations.forEach((config, index) => {
+                const item = document.createElement('div');
+                item.className = 'config-item';
+                item.dataset.configId = config.id;
+                
+                const pdfAnalysis = config.pdfAnalysis || null;
+                const hasFile = pdfAnalysis && (pdfAnalysis.pdfFilePath || pdfAnalysis.excelFilePath);
+                const hasMapping = pdfAnalysis && pdfAnalysis.mapped;
+                
+                // Déterminer l'état des étapes
+                const step1Completed = hasFile;
+                const step2Completed = hasMapping;
+                
+                item.innerHTML = `
+                    <div style="flex: 1;">
+                        <strong>${config.name}</strong>
+                        ${config.description ? `<p style="color: #666; margin: 5px 0; font-size: 14px;">${config.description}</p>` : ''}
+                        ${config.image ? `<img src="${config.image}" style="width: 60px; height: 40px; object-fit: cover; border-radius: 4px; margin-top: 5px;">` : ''}
+                        
+                        <div class="steps-container" style="margin-top: 15px;">
+                            <div class="step ${step1Completed ? 'completed' : ''}" onclick="triggerConfigFileImport('${config.id}')" title="${step1Completed ? 'Relancer l\'import' : 'Importer un fichier PDF ou Excel'}">
+                                <div class="step-number">${step1Completed ? '✓' : '1'}</div>
+                                <div class="step-label">Importer<br>PDF/Excel</div>
+                            </div>
+                            <div class="step ${step2Completed ? 'completed' : step1Completed ? 'active' : 'disabled'}" onclick="${step1Completed ? `mapConfigToJson('${config.id}')` : ''}" title="${step1Completed ? (step2Completed ? 'Relancer le mapping' : 'Mapper les données') : 'Importez d\'abord un fichier'}" style="${!step1Completed ? 'cursor: not-allowed;' : ''}">
+                                <div class="step-number">${step2Completed ? '✓' : '2'}</div>
+                                <div class="step-label">Mapper<br>les données</div>
+                            </div>
+                            <div class="step disabled" title="À venir">
+                                <div class="step-number">3</div>
+                                <div class="step-label">Comparer<br>avec IA</div>
+                            </div>
+                        </div>
+                        
+                        ${pdfAnalysis ? `
+                            <p style="color: #666; margin: 10px 0 0; font-size: 12px;">
+                                ${pdfAnalysis.fileName ? `Fichier: ${escapeHtml(pdfAnalysis.fileName)}` : ''}
+                                ${pdfAnalysis.excelFileName ? ` • Excel: ${escapeHtml(pdfAnalysis.excelFileName)}` : ''}
+                                ${pdfAnalysis.mapped ? ` • Mapping: ${pdfAnalysis.mapped?.stats?.totalCategories || 0} catégorie(s), ${pdfAnalysis.mapped?.stats?.totalItems || 0} élément(s)` : ''}
+                            </p>
+                        ` : ''}
+                    </div>
+                    <div style="display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-start;">
+                        <button type="button" class="btn btn-outline" onclick="editModelConfiguration(${index})">Modifier</button>
+                        ${pdfAnalysis ? `<button type="button" class="btn btn-outline" onclick="showConfigPdfResults('${config.id}')">Voir résultats</button>` : ''}
+                        <button type="button" class="btn btn-danger" onclick="deleteModelConfiguration(${index})">Supprimer</button>
+                    </div>
+                `;
+                container.appendChild(item);
+            });
+        }
+
+        async function addModelConfiguration() {
+            const modelId = document.getElementById('model-id').value;
+            const model = currentData.models.find(m => m.id === modelId);
+            if (!model) return;
+
+            const name = prompt('Nom de la configuration:', 'Nouvelle configuration');
+            if (name === null) return;
+
+            try {
+                await apiCall(`/models/${modelId}/configurations`, {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        name: name.trim() || 'Nouvelle configuration',
+                        description: '',
+                        image: null
+                    })
+                });
+                await loadData(true);
+                const refreshedModel = currentData.models.find(m => m.id === modelId);
+                renderModelConfigurations(refreshedModel?.configurations || []);
+                showAlert('Configuration ajoutée', 'success');
+            } catch (error) {
+                showAlert('Erreur: ' + error.message, 'error');
+            }
+        }
+
+        async function editModelConfiguration(index) {
+            const modelId = document.getElementById('model-id').value;
+            const model = currentData.models.find(m => m.id === modelId);
+            if (!model || !model.configurations) return;
+
+            const config = model.configurations[index];
+            const name = prompt('Nom de la configuration:', config.name);
+            if (name === null) return;
+            
+            const description = prompt('Description:', config.description || '');
+            if (description === null) return;
+
+            try {
+                await apiCall(`/models/${modelId}/configurations/${config.id}`, {
+                    method: 'PUT',
+                    body: JSON.stringify({
+                        name: name.trim(),
+                        description: description.trim()
+                    })
+                });
+                await loadData(true);
+                const refreshedModel = currentData.models.find(m => m.id === modelId);
+                renderModelConfigurations(refreshedModel?.configurations || []);
+                showAlert('Configuration modifiée', 'success');
+            } catch (error) {
+                showAlert('Erreur: ' + error.message, 'error');
+            }
+        }
+
+        async function deleteModelConfiguration(index) {
+            if (!confirm('Supprimer cette configuration ?')) return;
+            const modelId = document.getElementById('model-id').value;
+            const model = currentData.models.find(m => m.id === modelId);
+            if (!model || !model.configurations) return;
+
+            const config = model.configurations[index];
+            try {
+                await apiCall(`/models/${modelId}/configurations/${config.id}`, {
+                    method: 'DELETE'
+                });
+                await loadData(true);
+                const refreshedModel = currentData.models.find(m => m.id === modelId);
+                renderModelConfigurations(refreshedModel?.configurations || []);
+                showAlert('Configuration supprimée', 'success');
+            } catch (error) {
+                showAlert('Erreur: ' + error.message, 'error');
+            }
+        }
+
+        function triggerConfigPdfUpload(configId) {
+            const input = document.getElementById('config-pdf-input');
+            const modelId = document.getElementById('model-id')?.value;
+            if (!input || !modelId) return;
+            input.dataset.modelId = modelId;
+            input.dataset.configId = configId;
+            input.value = '';
+            input.click();
+        }
+
+        // Nouvelle fonction pour importer PDF ou Excel
+        function triggerConfigFileImport(configId) {
+            const modelId = document.getElementById('model-id')?.value;
+            if (!modelId) {
+                showAlert('Modèle introuvable', 'error');
+                return;
+            }
+
+            // Créer un input file qui accepte PDF et Excel
+            const input = document.createElement('input');
+            input.type = 'file';
+            input.accept = '.pdf,.xlsx,.xls,application/pdf,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel';
+            input.style.display = 'none';
+            input.onchange = async (e) => {
+                const file = e.target.files?.[0];
+                if (!file) return;
+
+                const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
+                const isExcel = file.type === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
+                               file.type === 'application/vnd.ms-excel' ||
+                               file.name.toLowerCase().endsWith('.xlsx') ||
+                               file.name.toLowerCase().endsWith('.xls');
+
+                if (!isPdf && !isExcel) {
+                    showAlert('Veuillez sélectionner un fichier PDF ou Excel.', 'error');
+                    return;
+                }
+
+                try {
+                    showAlert(`Import de ${isPdf ? 'PDF' : 'Excel'} en cours...`, 'info');
+                    
+                    const formData = new FormData();
+                    formData.append('file', file);
+
+                    const response = await fetch(`${API_BASE}/models/${modelId}/configurations/${configId}/import-file`, {
+                        method: 'POST',
+                        credentials: 'include',
+                        body: formData
+                    });
+
+                    const contentType = response.headers.get('content-type') || '';
+                    if (!contentType.includes('application/json')) {
+                        const text = await response.text();
+                        console.error('Réponse non-JSON reçue:', text.substring(0, 200));
+                        throw new Error(`L'API a retourné du HTML au lieu de JSON. Status: ${response.status}.`);
+                    }
+
+                    const result = await response.json();
+                    if (!response.ok || !result.success) {
+                        throw new Error(result.message || `Erreur HTTP ${response.status}`);
+                    }
+
+                    // Recharger les données
+                    await loadData(true);
+                    const refreshedModel = currentData.models.find(m => m.id === modelId);
+                    renderModelConfigurations(refreshedModel?.configurations || []);
+                    
+                    showAlert(
+                        isPdf 
+                            ? `PDF importé et converti en Excel avec succès !` 
+                            : `Fichier Excel importé avec succès !`,
+                        'success'
+                    );
+                } catch (error) {
+                    console.error('Erreur import fichier:', error);
+                    showAlert('Erreur lors de l\'import: ' + error.message, 'error');
+                } finally {
+                    document.body.removeChild(input);
+                }
+            };
+            
+            document.body.appendChild(input);
+            input.click();
+        }
+
+        async function handleConfigPdfUpload(event) {
+            const input = event.target;
+            const file = input.files?.[0];
+            if (!file) return;
+
+            if (file.type && file.type !== 'application/pdf') {
+                showAlert('Veuillez sélectionner un fichier PDF.', 'error');
+                return;
+            }
+
+            const { modelId, configId } = input.dataset || {};
+            if (!modelId || !configId) {
+                showAlert('Configuration introuvable pour l\'import PDF.', 'error');
+                return;
+            }
+
+            try {
+                const formData = new FormData();
+                formData.append('file', file);
+
+                const response = await fetch(`${API_BASE}/models/${modelId}/configurations/${configId}/import-pdf`, {
+                    method: 'POST',
+                    credentials: 'include',
+                    body: formData
+                });
+
+                const contentType = response.headers.get('content-type') || '';
+                if (!contentType.includes('application/json')) {
+                    const text = await response.text();
+                    console.error('Réponse non-JSON reçue:', text.substring(0, 200));
+                    throw new Error(`L'API a retourné du HTML au lieu de JSON. Status: ${response.status}.`);
+                }
+
+                const result = await response.json();
+                if (!response.ok || !result.success) {
+                    throw new Error(result.message || `Erreur HTTP ${response.status}`);
+                }
+
+                const refreshedModel = currentData.models.find(m => m.id === modelId);
+                const refreshedConfig = refreshedModel?.configurations?.find(c => c.id === configId);
+                if (refreshedConfig) {
+                    refreshedConfig.pdfAnalysis = {
+                        ...(refreshedConfig.pdfAnalysis || {}),
+                        ...result.data.analysis
+                    };
+                }
+
+                renderModelConfigurations(refreshedModel?.configurations || []);
+                showAlert('Import PDF réussi', 'success');
+                showConfigPdfResults(configId);
+            } catch (error) {
+                console.error('Erreur import PDF:', error);
+                showAlert('Erreur lors de l\'import PDF: ' + error.message, 'error');
+            }
+        }
+
+        // New: handle upload for stepwise flow (calls upload endpoint instead of import)
+        async function handleUploadPdfChange(event) {
+            const input = event.target;
+            const file = input.files?.[0];
+            if (!file) return;
+            if (file.type && file.type !== 'application/pdf') {
+                showAlert('Veuillez sélectionner un fichier PDF.', 'error');
+                return;
+            }
+            const { modelId, configId } = input.dataset || {};
+            if (!modelId || !configId) {
+                showAlert('Configuration introuvable pour l\'import PDF.', 'error');
+                return;
+            }
+            try {
+                const fd = new FormData();
+                fd.append('file', file);
+                const statusEl = document.getElementById('config-pdf-status');
+                if (statusEl) statusEl.textContent = 'Upload en cours...';
+                const res = await fetch(`${API_BASE}/models/${modelId}/configurations/${configId}/upload-pdf`, {
+                    method: 'POST',
+                    credentials: 'include',
+                    body: fd
+                });
+                const data = await res.json();
+                if (!res.ok || !data.success) throw new Error(data.message || 'Erreur upload');
+                // Update local currentData
+                const model = currentData.models.find(m => m.id === modelId);
+                const config = model?.configurations?.find(c => c.id === configId);
+                if (config) {
+                    config.pdfAnalysis = data.data.analysis;
+                }
+                renderModelConfigurations(model?.configurations || []);
+                if (statusEl) statusEl.textContent = `Fichier importé: ${file.name}`;
+                showAlert('PDF uploadé avec succès', 'success');
+            } catch (err) {
+                console.error('Upload error', err);
+                showAlert('Erreur lors de l\'upload: ' + err.message, 'error');
+                const statusEl = document.getElementById('config-pdf-status');
+                if (statusEl) statusEl.textContent = 'Erreur upload';
+            }
+        }
+
+        // New trigger for stepwise upload (selects first config in modal if none)
+        function triggerConfigPdfUploadNew() {
+            const modelId = document.getElementById('model-id')?.value;
+            const item = document.querySelector('#model-configurations-list .config-item');
+            const configId = item?.dataset?.configId;
+            const input = document.getElementById('config-pdf-input');
+            if (!input || !modelId) return;
+            if (configId) {
+                input.dataset.modelId = modelId;
+                input.dataset.configId = configId;
+            } else {
+                showAlert('Aucune configuration sélectionnée', 'error');
+                return;
+            }
+            input.value = '';
+            input.click();
+        }
+
+        // Extract text step
+        async function extractTextForConfigCurrent() {
+            const modelId = document.getElementById('model-id')?.value;
+            const configId = document.querySelector('#model-configurations-list .config-item')?.dataset?.configId;
+            if (!modelId || !configId) {
+                showAlert('Sélectionnez d\'abord une configuration.', 'error');
+                return;
+            }
+            try {
+                const statusEl = document.getElementById('config-pdf-status');
+                if (statusEl) statusEl.textContent = 'Extraction du texte...';
+                const res = await fetch(`${API_BASE}/models/${modelId}/configurations/${configId}/extract-text`, {
+                    method: 'POST',
+                    credentials: 'include'
+                });
+                const data = await res.json();
+                if (!res.ok || !data.success) throw new Error(data.message || 'Erreur extraction');
+
+                // Update local model config
+                const model = currentData.models.find(m => m.id === modelId);
+                const config = model?.configurations?.find(c => c.id === configId);
+                if (config) {
+                    config.pdfAnalysis = { ...(config.pdfAnalysis || {}), ...data.data.analysis };
+                }
+                renderModelConfigurations(model?.configurations || []);
+
+                // Show extracted lines in a modal (raw JSON + pretty)
+                const extracted = data.data.analysis?.extractedLines || [];
+                showExtractedTextModal(extracted, config?.name || 'Configuration');
+
+                if (statusEl) statusEl.textContent = 'Texte extrait';
+                showAlert('Extraction terminée', 'success');
+            } catch (err) {
+                console.error('Extraction error', err);
+                showAlert('Erreur lors de l\'extraction: ' + err.message, 'error');
+                const statusEl = document.getElementById('config-pdf-status');
+                if (statusEl) statusEl.textContent = 'Erreur extraction';
+            }
+        }
+
+        // Affiche un modal avec le texte extrait (JSON + preview)
+        function showExtractedTextModal(extractedLines, configName) {
+            const modal = document.createElement('div');
+            modal.className = 'modal active';
+            modal.id = 'extracted-text-modal';
+            const prettyJson = JSON.stringify({ extractedLines }, null, 2);
+            modal.innerHTML = `
+                <div class="modal-content" style="max-width: 900px; max-height: 80vh; overflow: auto;">
+                    <div class="modal-header">
+                        <h2>Texte extrait - ${escapeHtml(configName)}</h2>
+                        <button class="btn btn-danger" onclick="closeExtractedTextModal()">Fermer</button>
+                    </div>
+                    <div style="padding: 12px;">
+                        <div style="margin-bottom: 8px; display:flex; gap:8px; align-items:center;">
+                            <button class="btn btn-outline" id="copy-extracted-json">Copier JSON</button>
+                            <button class="btn btn-outline" id="download-extracted-json">Télécharger JSON</button>
+                        </div>
+                        <pre id="extracted-text-pre" style="white-space: pre-wrap; background: #f8f9fa; padding: 12px; border-radius:6px; border:1px solid #eee; max-height:60vh; overflow:auto;">${escapeHtml(prettyJson)}</pre>
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(modal);
+
+            document.getElementById('copy-extracted-json').addEventListener('click', async () => {
+                try {
+                    await navigator.clipboard.writeText(prettyJson);
+                    showAlert('JSON copié dans le presse-papiers', 'success');
+                } catch (e) {
+                    showAlert('Impossible de copier', 'error');
+                }
+            });
+
+            document.getElementById('download-extracted-json').addEventListener('click', () => {
+                const blob = new Blob([prettyJson], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `${configName.replace(/[^a-z0-9_-]/ig, '_')}_extracted.json`;
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+                URL.revokeObjectURL(url);
+            });
+        }
+
+        function closeExtractedTextModal() {
+            const m = document.getElementById('extracted-text-modal');
+            if (m) m.remove();
+        }
+
+        // Ouvrir la page de test d'extraction
+        function openTestExtractionPage(modelId, configId) {
+            const url = `${API_BASE}/test-extraction-page?modelId=${modelId}&configId=${configId}`;
+            window.open(url, '_blank');
+        }
+
+        // Fonctions obsolètes supprimées (extraction texte, vision OCR, conversion Excel)
+        // Le nouveau workflow utilise directement Camelot pour l'extraction et le mapping
+
+        // Map Excel -> JSON/YAML (mapping simple, sans IA)
+        async function mapConfigToJson(configId) {
+            const modelId = document.getElementById('model-id')?.value;
+            if (!modelId || !configId) {
+                showAlert('Sélectionnez d\'abord une configuration.', 'error');
+                return;
+            }
+            try {
+                const statusEl = document.getElementById('config-pdf-status');
+                
+                // Afficher le message de progression
+                if (statusEl) statusEl.textContent = '🔄 Mapping en cours...';
+                showAlert('🔄 Mapping en cours...', 'info');
+                
+                console.log('🚀 Démarrage du mapping...');
+                const startTime = Date.now();
+                
+                // Lancer le mapping
+                const res = await fetch(`${API_BASE}/models/${modelId}/configurations/${configId}/map-excel`, {
+                    method: 'POST',
+                    credentials: 'include',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({})
+                });
+                
+                const elapsedTime = ((Date.now() - startTime) / 1000).toFixed(1);
+                console.log(`⏱️ Temps écoulé: ${elapsedTime}s`);
+                
+                const data = await res.json();
+                if (!res.ok || !data.success) throw new Error(data.message || 'Erreur mapping');
+                
+                // Récupérer le mapping depuis la nouvelle structure
+                const mapped = data.data.mapped || null;
+                const yaml = data.data.yaml || null;
+                const excelPath = data.data.excelPath || null;
+                const excelFileName = data.data.excelFileName || null;
+                
+                console.log('📊 Données reçues du mapping:', {
+                    hasMapped: !!mapped,
+                    categoriesCount: mapped?.categories?.length || 0,
+                    excelPath: excelPath
+                });
+                
+                if (statusEl) statusEl.textContent = '✅ Mapping terminé';
+                const stats = mapped?.stats || {};
+                showAlert(`✅ Mapping terminé: ${stats.totalCategories || 0} catégorie(s), ${stats.totalItems || 0} élément(s)`, 'success');
+                
+                // Recharger les données pour avoir la configuration à jour depuis le serveur
+                await loadData();
+                
+                // Récupérer la configuration mise à jour après rechargement
+                const refreshedModel = currentData.models.find(m => m.id === modelId);
+                const refreshedConfig = refreshedModel?.configurations?.find(c => c.id === configId);
+                
+                // Afficher directement le modal de résultats (même si pas de mapping)
+                const pdfUrl = refreshedConfig?.pdfAnalysis?.pdfUrl || null;
+                showMappingResultsModal(pdfUrl, modelId, configId, mapped || { categories: [] }, yaml, null);
+            } catch (err) {
+                console.error('Mapping error', err);
+                showAlert('Erreur lors du mapping: ' + err.message, 'error');
+                const statusEl = document.getElementById('config-pdf-status');
+                if (statusEl) statusEl.textContent = '❌ Erreur mapping';
+            }
+        }
+
+        function showMappedJsonModal(mappedObj, yamlStr, configName) {
+            const modal = document.createElement('div');
+            modal.className = 'modal active';
+            modal.id = 'mapped-json-modal';
+            const prettyJson = JSON.stringify(mappedObj || {}, null, 2);
+            modal.innerHTML = `
+                <div class="modal-content" style="max-width: 900px; max-height: 80vh; overflow: auto;">
+                    <div class="modal-header">
+                        <h2>Mapping XLSX - ${escapeHtml(configName)}</h2>
+                        <button class="btn btn-danger" onclick="closeMappedJsonModal()">Fermer</button>
+                    </div>
+                    <div style="padding: 12px;">
+                        <div style="margin-bottom: 8px; display:flex; gap:8px; align-items:center;">
+                            <button class="btn btn-outline" id="copy-mapped-json">Copier JSON</button>
+                            <button class="btn btn-outline" id="download-mapped-json">Télécharger JSON</button>
+                            <button class="btn btn-outline" id="copy-mapped-yaml">Copier YAML</button>
+                            <button class="btn btn-outline" id="download-mapped-yaml">Télécharger YAML</button>
+                        </div>
+                        <pre id="mapped-json-pre" style="white-space: pre-wrap; background: #f8f9fa; padding: 12px; border-radius:6px; border:1px solid #eee; max-height:60vh; overflow:auto;">${escapeHtml(prettyJson)}</pre>
+                        ${yamlStr ? `<h3 style="margin-top:10px;">YAML</h3><pre id="mapped-yaml-pre" style="white-space: pre-wrap; background: #fff7e6; padding: 12px; border-radius:6px; border:1px solid #f0e6b6; max-height:200px; overflow:auto;">${escapeHtml(yamlStr)}</pre>` : ''}
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(modal);
+
+            document.getElementById('copy-mapped-json').addEventListener('click', async () => {
+                try {
+                    await navigator.clipboard.writeText(prettyJson);
+                    showAlert('JSON copié dans le presse-papiers', 'success');
+                } catch (e) { showAlert('Impossible de copier', 'error'); }
+            });
+            document.getElementById('download-mapped-json').addEventListener('click', () => {
+                const blob = new Blob([prettyJson], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a'); a.href = url; a.download = `${configName.replace(/[^a-z0-9_-]/ig, '_')}_mapped.json`; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+            });
+            const copyYamlBtn = document.getElementById('copy-mapped-yaml');
+            const dlYamlBtn = document.getElementById('download-mapped-yaml');
+            if (copyYamlBtn && dlYamlBtn) {
+                copyYamlBtn.addEventListener('click', async () => {
+                    try { await navigator.clipboard.writeText(yamlStr || ''); showAlert('YAML copié', 'success'); } catch (e) { showAlert('Impossible de copier YAML', 'error'); }
+                });
+                dlYamlBtn.addEventListener('click', () => {
+                    const blob = new Blob([yamlStr || ''], { type: 'text/yaml' });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a'); a.href = url; a.download = `${configName.replace(/[^a-z0-9_-]/ig, '_')}_mapped.yaml`; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+                });
+            }
+        }
+
+        function closeMappedJsonModal() {
+            const m = document.getElementById('mapped-json-modal'); if (m) m.remove();
+        }
+
+        // Détecter les couleurs et afficher le modal de sélection avec PDF
+        async function launchMappingWithDefaults(modelId, configId) {
+            try {
+                // Récupérer les infos de la configuration pour avoir l'URL du PDF
+                const model = currentData.models.find(m => m.id === modelId);
+                const config = model?.configurations?.find(c => c.id === configId);
+                const pdfUrl = config?.pdfAnalysis?.pdfUrl || null;
+                
+                // D'abord, détecter toutes les couleurs dans le fichier Excel
+                const detectRes = await fetch(`${API_BASE}/models/${modelId}/configurations/${configId}/detect-colors`, {
+                    method: 'GET',
+                    credentials: 'include'
+                });
+                const detectData = await detectRes.json();
+                
+                if (!detectRes.ok || !detectData.success) {
+                    console.warn('Color detection failed:', detectData);
+                    // Continuer quand même avec les couleurs par défaut
+                }
+                
+                const detectedColors = detectData.data?.colors || [];
+                
+                // Afficher le modal de sélection de couleurs avec le PDF
+                showColorSelectionModalWithPdf(modelId, configId, detectedColors, pdfUrl);
+            } catch (err) {
+                console.error('Color detection error', err);
+                // Afficher quand même le modal avec les couleurs par défaut
+                const model = currentData.models.find(m => m.id === modelId);
+                const config = model?.configurations?.find(c => c.id === configId);
+                const pdfUrl = config?.pdfAnalysis?.pdfUrl || null;
+                showColorSelectionModalWithPdf(modelId, configId, [], pdfUrl);
+            }
+        }
+
+        // Afficher le modal de sélection de couleurs avec PDF à côté
+        function showColorSelectionModalWithPdf(modelId, configId, detectedColors, pdfUrl) {
+            const modal = document.createElement('div');
+            modal.className = 'modal active';
+            modal.id = 'color-selection-modal';
+            
+            // Couleurs par défaut si aucune couleur détectée
+            const defaultColors = {
+                category: '0F4C81',
+                characteristic: 'B7D1F5',
+                value: 'FFD966'
+            };
+            
+            // Si aucune couleur détectée, utiliser les couleurs par défaut comme options
+            let colorOptions = '';
+            if (detectedColors.length > 0) {
+                colorOptions = detectedColors.map(c => 
+                    `<option value="${c.color}" data-count="${c.count}">#${c.color} (${c.count} occurrences)</option>`
+                ).join('');
+            } else {
+                // Ajouter les couleurs par défaut comme options si aucune couleur n'a été détectée
+                colorOptions = `
+                    <option value="${defaultColors.category}">#${defaultColors.category} (Par défaut - Catégorie)</option>
+                    <option value="${defaultColors.characteristic}">#${defaultColors.characteristic} (Par défaut - Caractéristique)</option>
+                    <option value="${defaultColors.value}">#${defaultColors.value} (Par défaut - Valeur)</option>
+                `;
+            }
+            
+            modal.innerHTML = `
+                <div class="modal-content" style="max-width: none; width: 95vw; height: 90vh;">
+                    <div class="modal-header" style="position: sticky; top: 0; background: white; z-index: 2;">
+                        <h2>Sélection des couleurs pour le mapping</h2>
+                        <button class="btn btn-danger" onclick="closeColorSelectionModal()">Fermer</button>
+                    </div>
+                    <div style="padding: 20px; height: calc(90vh - 70px); overflow: hidden;">
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; align-items: stretch; height: calc(90vh - 140px);">
+                            <div style="border: 1px solid #eee; border-radius: 6px; padding: 10px; background: #fafafa; height: 100%; overflow: hidden;">
+                                <div style="font-weight: 600; margin-bottom: 8px;">Aperçu PDF - Repérez les couleurs</div>
+                                ${pdfUrl ? `
+                                    <iframe src="${pdfUrl}" style="width: 100%; height: calc(100% - 30px); border: none;"></iframe>
+                                ` : `
+                                    <div style="color: #666; font-size: 13px; padding: 10px;">
+                                        Aperçu PDF indisponible. Consultez le PDF pour identifier les couleurs de fond des cellules.
+                                    </div>
+                                `}
+                            </div>
+                            <div style="height: 100%; overflow: auto; border: 1px solid #eee; border-radius: 6px; padding: 20px; background: #fff;">
+                                <p style="margin-bottom: 20px; color: #666; font-size: 14px;">
+                                    ${detectedColors.length > 0 
+                                        ? 'Sélectionnez les couleurs de fond correspondant à chaque type d\'élément dans le fichier Excel.' 
+                                        : '<strong style="color: #d32f2f;">⚠️ Aucune couleur détectée dans le fichier Excel.</strong><br>Vous pouvez saisir manuellement les codes couleur hexadécimaux (sans le #) ou utiliser les couleurs par défaut.'}
+                                </p>
+                                
+                                <div style="margin-bottom: 20px;">
+                                    <label style="display: block; margin-bottom: 8px; font-weight: 600;">
+                                        Couleur pour <strong>Catégorie</strong>:
+                                    </label>
+                                    <select id="select-color-category" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px;">
+                                        <option value="">-- Sélectionner une couleur --</option>
+                                        ${colorOptions}
+                                    </select>
+                                    <input type="text" id="input-color-category" placeholder="Ou saisir manuellement (ex: 0F4C81)" style="width: 100%; margin-top: 8px; padding: 8px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px; display: none;">
+                                    <div id="preview-category" style="margin-top: 8px; padding: 8px; border-radius: 4px; min-height: 40px; display: flex; align-items: center; justify-content: center; color: white; font-weight: 600; border: 2px solid #ddd;">
+                                        Aperçu
+                                    </div>
+                                </div>
+                                
+                                <div style="margin-bottom: 20px;">
+                                    <label style="display: block; margin-bottom: 8px; font-weight: 600;">
+                                        Couleur pour <strong>Caractéristique</strong>:
+                                    </label>
+                                    <select id="select-color-characteristic" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px;">
+                                        <option value="">-- Sélectionner une couleur --</option>
+                                        ${colorOptions}
+                                    </select>
+                                    <input type="text" id="input-color-characteristic" placeholder="Ou saisir manuellement (ex: B7D1F5)" style="width: 100%; margin-top: 8px; padding: 8px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px; display: none;">
+                                    <div id="preview-characteristic" style="margin-top: 8px; padding: 8px; border-radius: 4px; min-height: 40px; display: flex; align-items: center; justify-content: center; color: #333; font-weight: 600; border: 2px solid #ddd;">
+                                        Aperçu
+                                    </div>
+                                </div>
+                                
+                                <div style="margin-bottom: 20px;">
+                                    <label style="display: block; margin-bottom: 8px; font-weight: 600;">
+                                        Couleur pour <strong>Valeur</strong>:
+                                    </label>
+                                    <select id="select-color-value" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px;">
+                                        <option value="">-- Sélectionner une couleur --</option>
+                                        ${colorOptions}
+                                    </select>
+                                    <input type="text" id="input-color-value" placeholder="Ou saisir manuellement (ex: FFD966)" style="width: 100%; margin-top: 8px; padding: 8px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px; display: none;">
+                                    <div id="preview-value" style="margin-top: 8px; padding: 8px; border-radius: 4px; min-height: 40px; display: flex; align-items: center; justify-content: center; color: #333; font-weight: 600; border: 2px solid #ddd;">
+                                        Aperçu
+                                    </div>
+                                </div>
+                                
+                                ${detectedColors.length === 0 ? `
+                                    <div style="margin-bottom: 20px; padding: 12px; background: #fff3cd; border: 1px solid #ffc107; border-radius: 4px; font-size: 13px;">
+                                        <strong>💡 Astuce:</strong> Si les couleurs ne sont pas détectées automatiquement, vous pouvez :
+                                        <ul style="margin: 8px 0 0 20px;">
+                                            <li>Ouvrir le fichier Excel et noter les codes couleur hexadécimaux des cellules</li>
+                                            <li>Utiliser un outil de sélection de couleur pour obtenir le code hex</li>
+                                            <li>Utiliser les couleurs par défaut ci-dessus</li>
+                                        </ul>
+                                    </div>
+                                ` : ''}
+                                
+                                <div style="display: flex; gap: 10px; justify-content: flex-end; margin-top: 30px;">
+                                    <button class="btn btn-outline" onclick="closeColorSelectionModal()">Annuler</button>
+                                    <button class="btn btn-primary" id="btn-launch-mapping">Lancer le mapping</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+            
+            document.body.appendChild(modal);
+            
+            // Pré-sélectionner les couleurs par défaut si elles existent dans la liste
+            const categorySelect = document.getElementById('select-color-category');
+            const characteristicSelect = document.getElementById('select-color-characteristic');
+            const valueSelect = document.getElementById('select-color-value');
+            const categoryInput = document.getElementById('input-color-category');
+            const characteristicInput = document.getElementById('input-color-characteristic');
+            const valueInput = document.getElementById('input-color-value');
+            
+            // Afficher les champs de saisie manuelle si aucune couleur détectée
+            if (detectedColors.length === 0) {
+                categoryInput.style.display = 'block';
+                characteristicInput.style.display = 'block';
+                valueInput.style.display = 'block';
+            }
+            
+            // Fonction pour mettre à jour l'aperçu
+            const updatePreview = (selectId, inputId, previewId, defaultColor) => {
+                const select = document.getElementById(selectId);
+                const input = document.getElementById(inputId);
+                const preview = document.getElementById(previewId);
+                
+                let selectedColor = select.value || input.value.trim() || defaultColor;
+                
+                // Nettoyer le code couleur (enlever #, espaces, etc.)
+                selectedColor = selectedColor.replace(/^#/i, '').replace(/\s/g, '').toUpperCase();
+                
+                if (selectedColor && /^[0-9A-F]{6}$/.test(selectedColor)) {
+                    preview.style.backgroundColor = '#' + selectedColor;
+                    // Ajuster la couleur du texte selon la luminosité
+                    const rgb = hexToRgb('#' + selectedColor);
+                    if (rgb) {
+                        const brightness = (rgb.r * 299 + rgb.g * 587 + rgb.b * 114) / 1000;
+                        preview.style.color = brightness > 128 ? '#333' : '#fff';
+                        preview.textContent = 'Aperçu - #' + selectedColor;
+                    }
+                } else {
+                    preview.style.backgroundColor = '#f0f0f0';
+                    preview.style.color = '#666';
+                    preview.textContent = 'Aperçu';
+                }
+            };
+            
+            // Fonction helper pour convertir hex en RGB
+            function hexToRgb(hex) {
+                const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+                return result ? {
+                    r: parseInt(result[1], 16),
+                    g: parseInt(result[2], 16),
+                    b: parseInt(result[3], 16)
+                } : null;
+            }
+            
+            // Pré-sélectionner les couleurs par défaut
+            if (detectedColors.find(c => c.color === defaultColors.category)) {
+                categorySelect.value = defaultColors.category;
+            } else if (detectedColors.length === 0) {
+                categoryInput.value = defaultColors.category;
+            }
+            if (detectedColors.find(c => c.color === defaultColors.characteristic)) {
+                characteristicSelect.value = defaultColors.characteristic;
+            } else if (detectedColors.length === 0) {
+                characteristicInput.value = defaultColors.characteristic;
+            }
+            if (detectedColors.find(c => c.color === defaultColors.value)) {
+                valueSelect.value = defaultColors.value;
+            } else if (detectedColors.length === 0) {
+                valueInput.value = defaultColors.value;
+            }
+            
+            // Mettre à jour les aperçus
+            updatePreview('select-color-category', 'input-color-category', 'preview-category', defaultColors.category);
+            updatePreview('select-color-characteristic', 'input-color-characteristic', 'preview-characteristic', defaultColors.characteristic);
+            updatePreview('select-color-value', 'input-color-value', 'preview-value', defaultColors.value);
+            
+            // Écouter les changements de sélection et de saisie
+            categorySelect.addEventListener('change', () => {
+                if (categorySelect.value) categoryInput.value = '';
+                updatePreview('select-color-category', 'input-color-category', 'preview-category', defaultColors.category);
+            });
+            categoryInput.addEventListener('input', () => {
+                if (categoryInput.value) categorySelect.value = '';
+                updatePreview('select-color-category', 'input-color-category', 'preview-category', defaultColors.category);
+            });
+            
+            characteristicSelect.addEventListener('change', () => {
+                if (characteristicSelect.value) characteristicInput.value = '';
+                updatePreview('select-color-characteristic', 'input-color-characteristic', 'preview-characteristic', defaultColors.characteristic);
+            });
+            characteristicInput.addEventListener('input', () => {
+                if (characteristicInput.value) characteristicSelect.value = '';
+                updatePreview('select-color-characteristic', 'input-color-characteristic', 'preview-characteristic', defaultColors.characteristic);
+            });
+            
+            valueSelect.addEventListener('change', () => {
+                if (valueSelect.value) valueInput.value = '';
+                updatePreview('select-color-value', 'input-color-value', 'preview-value', defaultColors.value);
+            });
+            valueInput.addEventListener('input', () => {
+                if (valueInput.value) valueSelect.value = '';
+                updatePreview('select-color-value', 'input-color-value', 'preview-value', defaultColors.value);
+            });
+            
+            // Lancer le mapping avec les couleurs sélectionnées
+            document.getElementById('btn-launch-mapping').addEventListener('click', async () => {
+                const selectedColors = {
+                    category: categorySelect.value || categoryInput.value.trim().replace(/^#/i, '') || defaultColors.category,
+                    characteristic: characteristicSelect.value || characteristicInput.value.trim().replace(/^#/i, '') || defaultColors.characteristic,
+                    value: valueSelect.value || valueInput.value.trim().replace(/^#/i, '') || defaultColors.value
+                };
+                
+                // Nettoyer les codes couleur
+                selectedColors.category = selectedColors.category.replace(/^#/i, '').replace(/\s/g, '').toUpperCase();
+                selectedColors.characteristic = selectedColors.characteristic.replace(/^#/i, '').replace(/\s/g, '').toUpperCase();
+                selectedColors.value = selectedColors.value.replace(/^#/i, '').replace(/\s/g, '').toUpperCase();
+                
+                // Vérifier que les codes couleur sont valides
+                const isValidHex = (color) => /^[0-9A-F]{6}$/.test(color);
+                if (!isValidHex(selectedColors.category) || !isValidHex(selectedColors.characteristic) || !isValidHex(selectedColors.value)) {
+                    showAlert('Veuillez saisir des codes couleur hexadécimaux valides (6 caractères, ex: 0F4C81)', 'error');
+                    return;
+                }
+                
+                // Fermer le modal de sélection
+                closeColorSelectionModal();
+                
+                // Lancer le mapping
+                try {
+                    const res = await fetch(`${API_BASE}/models/${modelId}/configurations/${configId}/map-excel`, {
+                        method: 'POST',
+                        credentials: 'include',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ colors: selectedColors })
+                    });
+                    const data = await res.json();
+                    if (!res.ok || !data.success) throw new Error(data.message || 'Erreur mapping');
+                    
+                    // Afficher le modal avec PDF à gauche et résultats à droite
+                    const model = currentData.models.find(m => m.id === modelId);
+                    const config = model?.configurations?.find(c => c.id === configId);
+                    const finalPdfUrl = config?.pdfAnalysis?.pdfUrl || pdfUrl || null;
+                    showMappingResultsModal(finalPdfUrl, modelId, configId, data.data.analysis?.mapped || {}, data.data.yaml || '', selectedColors);
+                } catch (err) {
+                    console.error('Mapping error', err);
+                    showAlert('Erreur lors du mapping: ' + err.message, 'error');
+                }
+            });
+        }
+
+        // Afficher le modal de sélection de couleurs (ancienne version, gardée pour compatibilité)
+        function showColorSelectionModal(modelId, configId, detectedColors) {
+            const modal = document.createElement('div');
+            modal.className = 'modal active';
+            modal.id = 'color-selection-modal';
+            
+            // Couleurs par défaut si aucune couleur détectée
+            const defaultColors = {
+                category: '0F4C81',
+                characteristic: 'B7D1F5',
+                value: 'FFD966'
+            };
+            
+            // Créer les options pour les sélecteurs
+            const colorOptions = detectedColors.map(c => 
+                `<option value="${c.color}" data-count="${c.count}">#${c.color} (${c.count} occurrences)</option>`
+            ).join('');
+            
+            modal.innerHTML = `
+                <div class="modal-content" style="max-width: 600px;">
+                    <div class="modal-header">
+                        <h2>Sélection des couleurs pour le mapping</h2>
+                        <button class="btn btn-danger" onclick="closeColorSelectionModal()">Fermer</button>
+                    </div>
+                    <div style="padding: 20px;">
+                        <p style="margin-bottom: 20px; color: #666; font-size: 14px;">
+                            Sélectionnez les couleurs de fond correspondant à chaque type d'élément dans le fichier Excel.
+                        </p>
+                        
+                        <div style="margin-bottom: 20px;">
+                            <label style="display: block; margin-bottom: 8px; font-weight: 600;">
+                                Couleur pour <strong>Catégorie</strong>:
+                            </label>
+                            <select id="select-color-category" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px;">
+                                <option value="">-- Sélectionner une couleur --</option>
+                                ${colorOptions}
+                            </select>
+                            <div id="preview-category" style="margin-top: 8px; padding: 8px; border-radius: 4px; min-height: 40px; display: flex; align-items: center; justify-content: center; color: white; font-weight: 600;">
+                                Aperçu
+                            </div>
+                        </div>
+                        
+                        <div style="margin-bottom: 20px;">
+                            <label style="display: block; margin-bottom: 8px; font-weight: 600;">
+                                Couleur pour <strong>Caractéristique</strong>:
+                            </label>
+                            <select id="select-color-characteristic" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px;">
+                                <option value="">-- Sélectionner une couleur --</option>
+                                ${colorOptions}
+                            </select>
+                            <div id="preview-characteristic" style="margin-top: 8px; padding: 8px; border-radius: 4px; min-height: 40px; display: flex; align-items: center; justify-content: center; color: #333; font-weight: 600;">
+                                Aperçu
+                            </div>
+                        </div>
+                        
+                        <div style="margin-bottom: 20px;">
+                            <label style="display: block; margin-bottom: 8px; font-weight: 600;">
+                                Couleur pour <strong>Valeur</strong>:
+                            </label>
+                            <select id="select-color-value" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px;">
+                                <option value="">-- Sélectionner une couleur --</option>
+                                ${colorOptions}
+                            </select>
+                            <div id="preview-value" style="margin-top: 8px; padding: 8px; border-radius: 4px; min-height: 40px; display: flex; align-items: center; justify-content: center; color: #333; font-weight: 600;">
+                                Aperçu
+                            </div>
+                        </div>
+                        
+                        <div style="display: flex; gap: 10px; justify-content: flex-end; margin-top: 30px;">
+                            <button class="btn btn-outline" onclick="closeColorSelectionModal()">Annuler</button>
+                            <button class="btn btn-primary" id="btn-launch-mapping">Lancer le mapping</button>
+                        </div>
+                    </div>
+                </div>
+            `;
+            
+            document.body.appendChild(modal);
+            
+            // Pré-sélectionner les couleurs par défaut si elles existent dans la liste
+            const categorySelect = document.getElementById('select-color-category');
+            const characteristicSelect = document.getElementById('select-color-characteristic');
+            const valueSelect = document.getElementById('select-color-value');
+            
+            // Fonction pour mettre à jour l'aperçu
+            const updatePreview = (selectId, previewId, defaultColor) => {
+                const select = document.getElementById(selectId);
+                const preview = document.getElementById(previewId);
+                const selectedColor = select.value || defaultColor;
+                
+                if (selectedColor) {
+                    preview.style.backgroundColor = '#' + selectedColor;
+                    // Ajuster la couleur du texte selon la luminosité
+                    const rgb = hexToRgb('#' + selectedColor);
+                    if (rgb) {
+                        const brightness = (rgb.r * 299 + rgb.g * 587 + rgb.b * 114) / 1000;
+                        preview.style.color = brightness > 128 ? '#333' : '#fff';
+                    }
+                } else {
+                    preview.style.backgroundColor = '#f0f0f0';
+                    preview.style.color = '#666';
+                }
+            };
+            
+            // Fonction helper pour convertir hex en RGB
+            function hexToRgb(hex) {
+                const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+                return result ? {
+                    r: parseInt(result[1], 16),
+                    g: parseInt(result[2], 16),
+                    b: parseInt(result[3], 16)
+                } : null;
+            }
+            
+            // Pré-sélectionner les couleurs par défaut
+            if (detectedColors.find(c => c.color === defaultColors.category)) {
+                categorySelect.value = defaultColors.category;
+            }
+            if (detectedColors.find(c => c.color === defaultColors.characteristic)) {
+                characteristicSelect.value = defaultColors.characteristic;
+            }
+            if (detectedColors.find(c => c.color === defaultColors.value)) {
+                valueSelect.value = defaultColors.value;
+            }
+            
+            // Mettre à jour les aperçus
+            updatePreview('select-color-category', 'preview-category', defaultColors.category);
+            updatePreview('select-color-characteristic', 'preview-characteristic', defaultColors.characteristic);
+            updatePreview('select-color-value', 'preview-value', defaultColors.value);
+            
+            // Écouter les changements de sélection
+            categorySelect.addEventListener('change', () => updatePreview('select-color-category', 'preview-category', defaultColors.category));
+            characteristicSelect.addEventListener('change', () => updatePreview('select-color-characteristic', 'preview-characteristic', defaultColors.characteristic));
+            valueSelect.addEventListener('change', () => updatePreview('select-color-value', 'preview-value', defaultColors.value));
+            
+            // Lancer le mapping avec les couleurs sélectionnées
+            document.getElementById('btn-launch-mapping').addEventListener('click', async () => {
+                const selectedColors = {
+                    category: categorySelect.value || defaultColors.category,
+                    characteristic: characteristicSelect.value || defaultColors.characteristic,
+                    value: valueSelect.value || defaultColors.value
+                };
+                
+                // Vérifier que toutes les couleurs sont sélectionnées
+                if (!selectedColors.category || !selectedColors.characteristic || !selectedColors.value) {
+                    showAlert('Veuillez sélectionner une couleur pour chaque type (catégorie, caractéristique, valeur)', 'error');
+                    return;
+                }
+                
+                // Fermer le modal de sélection
+                closeColorSelectionModal();
+                
+                // Lancer le mapping
+                try {
+                    const res = await fetch(`${API_BASE}/models/${modelId}/configurations/${configId}/map-excel`, {
+                        method: 'POST',
+                        credentials: 'include',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ colors: selectedColors })
+                    });
+                    const data = await res.json();
+                    if (!res.ok || !data.success) throw new Error(data.message || 'Erreur mapping');
+                    
+                    // Afficher le modal avec PDF à gauche et résultats à droite
+                    const model = currentData.models.find(m => m.id === modelId);
+                    const config = model?.configurations?.find(c => c.id === configId);
+                    const pdfUrl = config?.pdfAnalysis?.pdfUrl || null;
+                    showMappingResultsModal(pdfUrl, modelId, configId, data.data.analysis?.mapped || {}, data.data.yaml || '', selectedColors);
+                } catch (err) {
+                    console.error('Mapping error', err);
+                    showAlert('Erreur lors du mapping: ' + err.message, 'error');
+                }
+            });
+        }
+
+        function closeColorSelectionModal() {
+            const m = document.getElementById('color-selection-modal');
+            if (m) m.remove();
+        }
+
+        function getModelOptionsForSummary(modelId) {
+            if (!currentData || !Array.isArray(currentData.categories)) {
+                return [];
+            }
+
+            const extractRowOrder = (option) => {
+                if (typeof option?.rowIndex === 'number') return option.rowIndex;
+                const match = String(option?.id || '').match(/^opt_(\d+)$/i);
+                return match ? Number(match[1]) : Number.MAX_SAFE_INTEGER;
+            };
+
+            const options = [];
+            currentData.categories.forEach(category => {
+                (category.options || []).forEach(option => {
+                    const compatibleModels = Array.isArray(option.compatibleModels) ? option.compatibleModels : [];
+                    const isCompatible = compatibleModels.length === 0 || compatibleModels.includes(modelId);
+                    if (isCompatible) {
+                        options.push({
+                            id: option.id,
+                            name: option.name || '',
+                            refUgap: option.refUgap || '',
+                            categoryName: category.name || 'Sans catégorie',
+                            rowOrder: extractRowOrder(option),
+                            optionFamilyKey: option.optionFamilyKey || '',
+                            compatibleModels: Array.isArray(option.compatibleModels) ? [...option.compatibleModels] : [],
+                            initialProduct: option.initialProduct || '',
+                            finalProduct: option.finalProduct || '',
+                            baseAiConfidence: option.baseAiConfidence
+                        });
+                    }
+                });
+            });
+
+            return options.sort((a, b) => a.rowOrder - b.rowOrder);
+        }
+
+        function getAllOptionsForSummary() {
+            if (!currentData || !Array.isArray(currentData.categories)) {
+                return [];
+            }
+
+            const extractRowOrder = (option) => {
+                if (typeof option?.rowIndex === 'number') return option.rowIndex;
+                const match = String(option?.id || '').match(/^opt_(\d+)$/i);
+                return match ? Number(match[1]) : Number.MAX_SAFE_INTEGER;
+            };
+
+            const options = [];
+            currentData.categories.forEach(category => {
+                (category.options || []).forEach(option => {
+                    options.push({
+                        id: option.id,
+                        name: option.name || '',
+                        refUgap: option.refUgap || '',
+                        categoryName: category.name || 'Sans catégorie',
+                        rowOrder: extractRowOrder(option),
+                        optionFamilyKey: option.optionFamilyKey || '',
+                        priceClient: typeof option.priceClient === 'number' ? option.priceClient : null,
+                        priceUgap: typeof option.priceUgap === 'number' ? option.priceUgap : null
+                    });
+                });
+            });
+            return options.sort((a, b) => a.rowOrder - b.rowOrder);
+        }
+
+        function findOptionRecordById(optionId) {
+            const targetId = String(optionId || '').trim();
+            if (!targetId || !currentData?.categories) return null;
+            for (const category of (currentData.categories || [])) {
+                const option = (category.options || []).find((o) => String(o?.id || '').trim() === targetId);
+                if (option) return { category, option };
+            }
+            return null;
+        }
+
+        function formatOptionFamilyKeyLabel(key) {
+            const parts = String(key || '').split('|');
+            if (parts.length < 3) return escapeHtml(key || '');
+            const base = parts[0] || '';
+            const postes = parts[1] || '';
+            const skel = parts[2] || '';
+            const postesLabel = postes ? `postes ${postes.replace(/,/g, ', ')}` : 'postes non précisés';
+            return escapeHtml(`${base} — ${postesLabel} — ${skel}`);
+        }
+
+        function formatOptionFamilyKeyPlain(key) {
+            const parts = String(key || '').split('|');
+            if (parts.length < 3) return String(key || '');
+            const base = parts[0] || '';
+            const postes = parts[1] || '';
+            const skel = parts[2] || '';
+            const postesLabel = postes ? `postes ${postes.replace(/,/g, ', ')}` : 'postes non précisés';
+            return `${base} — ${postesLabel} — ${skel}`;
+        }
+
+        /** Regroupe les lignes MV/PV partageant une optionFamilyKey (≥ 2 = incompatibles entre elles). */
+        function buildMvPvFamilyGroupsFromOptions(options) {
+            const map = new Map();
+            for (const o of options || []) {
+                const k = o.optionFamilyKey;
+                if (!k) continue;
+                if (!map.has(k)) map.set(k, []);
+                map.get(k).push(o);
+            }
+            return [...map.entries()]
+                .filter(([, arr]) => arr.length > 1)
+                .map(([familyKey, opts]) => ({ familyKey, options: opts }));
+        }
+
+        /** Taille par clé de famille (pour affichage « doublon »). */
+        function buildFamilyKeyCounts(options) {
+            const counts = new Map();
+            for (const o of options || []) {
+                const k = o.optionFamilyKey;
+                if (!k) continue;
+                counts.set(k, (counts.get(k) || 0) + 1);
+            }
+            return counts;
+        }
+
+        /** Trie par famille (même clé regroupée), puis ordre de ligne. Sans clé en dernier. */
+        function sortMinorationOptionsByFamily(options) {
+            const list = [...(options || [])];
+            list.sort((a, b) => {
+                const ka = a.optionFamilyKey || '';
+                const kb = b.optionFamilyKey || '';
+                if (ka !== kb) {
+                    if (!ka) return 1;
+                    if (!kb) return -1;
+                    return ka.localeCompare(kb);
+                }
+                return (a.rowOrder || 0) - (b.rowOrder || 0);
+            });
+            return list;
+        }
+
+        function shortFamilyCellHtml(key) {
+            if (!key) {
+                return '<span style="color:#999;">—</span>';
+            }
+            const parts = String(key).split('|');
+            const line = parts.length >= 2
+                ? `${parts[0]} · ${parts[1] || '?'}`
+                : key;
+            const fullPlain = formatOptionFamilyKeyPlain(key);
+            return `<span style="font-size:12px; color:#333;" title="${escapeHtml(fullPlain)}">${escapeHtml(line)}</span>`;
+        }
+
+        /** Résumé au-dessus du tableau : familles avec doublons. */
+        function renderMinorationDoublonSummaryLine(groups) {
+            if (!Array.isArray(groups) || groups.length === 0) {
+                return '<p style="margin:0 0 10px 0; color:#666; font-size:13px;">Aucun doublon détecté par famille (clé d’équipement/postes identique sur au moins 2 lignes).</p>';
+            }
+            const lineCount = groups.reduce((n, g) => n + (g.options?.length || 0), 0);
+            return `<p style="margin:0 0 10px 0; padding:8px 12px; background:#e8f4f8; border-radius:6px; font-size:13px; color:#0F4C81;">
+                <strong>${groups.length}</strong> famille(s) avec <strong>doublons</strong> — <strong>${lineCount}</strong> ligne(s) concernées (voir colonnes ci-dessous).
+            </p>`;
+        }
+
+        /**
+         * Tableau minoration / MV / PV : tri par famille, colonnes Famille + Doublon pour voir les doublons sans autre bloc.
+         */
+        function renderMinorationOptionRows(options, emptyLabel) {
+            if (!Array.isArray(options) || options.length === 0) {
+                return `<tr><td colspan="4" style="padding:10px; color:#666; text-align:center;">${escapeHtml(emptyLabel || 'Aucune donnée')}</td></tr>`;
+            }
+            const sorted = sortMinorationOptionsByFamily(options);
+            const counts = buildFamilyKeyCounts(options);
+            return sorted.map(opt => {
+                const key = opt.optionFamilyKey || '';
+                const n = key ? (counts.get(key) || 0) : 0;
+                const dupCell = key && n > 1
+                    ? `<span style="display:inline-block; padding:2px 8px; background:#fff3cd; border:1px solid #f0d78c; border-radius:4px; font-size:12px; font-weight:600; color:#856404;">Doublon ×${n}</span>`
+                    : '<span style="color:#bbb;">—</span>';
+                return `
+                <tr>
+                    <td style="padding:8px; border-bottom:1px solid #eee; vertical-align:top; max-width:220px;">${shortFamilyCellHtml(key)}</td>
+                    <td style="padding:8px; border-bottom:1px solid #eee; vertical-align:top; white-space:nowrap;">${dupCell}</td>
+                    <td style="padding:8px; border-bottom:1px solid #eee;">${escapeHtml(opt.name || '-')}</td>
+                    <td style="padding:8px; border-bottom:1px solid #eee; color:#666;">${escapeHtml(opt.categoryName || '-')}</td>
+                </tr>`;
+            }).join('');
+        }
+
+        function splitModelOptionsByType(options) {
+            const normalized = Array.isArray(options) ? options : [];
+            const minorationRegex = /minorat/i;
+
+            const isPrLabel = (label) => {
+                const raw = String(label || '').trim();
+                if (!raw) return false;
+                return /^PR\s/i.test(raw);
+            };
+            const isMinorationByRef = (refUgap) => {
+                const rawRef = String(refUgap || '').trim().toUpperCase();
+                return rawRef.startsWith('MINO');
+            };
+            const isPlusOrMoinsTarifLine = (label) => {
+                const raw = String(label || '').trim();
+                return /^(moins-value|plus-value|plus\s+value)\b/i.test(raw);
+            };
+
+            const prOptions = normalized.filter(opt => isPrLabel(opt?.name || ''));
+            const minorationOptions = normalized.filter(opt =>
+                isMinorationByRef(opt?.refUgap) ||
+                minorationRegex.test((opt?.name || '').trim()) ||
+                isPlusOrMoinsTarifLine(opt?.name)
+            );
+            const regularOptions = normalized.filter(opt => {
+                const label = (opt?.name || '').trim();
+                return !isPrLabel(label);
+            });
+
+            return {
+                all: normalized,
+                regularOptions,
+                minorationOptions,
+                prOptions
+            };
+        }
+
+        /**
+         * Heuristique : libellés souvent liés au détail « de base » (remplacement, lieu et place, non-fourniture, fourni de base).
+         * Affichage exploratoire — à affiner ensuite (règles ou IA).
+         */
+        function isHeuristicBaseRelatedOptionLine(label) {
+            const raw = String(label || '').trim();
+            if (!raw) return false;
+            const s = raw.toLowerCase();
+            if (
+                /\ben\s+remplacement\s+de\b/.test(s) ||
+                /\ben\s+lieu\s+et\s+place\b/.test(s) ||
+                /\bau\s+lieu\s+et\s+place\b/.test(s) ||
+                /\bnon\s+fourniture\b/.test(s) ||
+                /\bnon\s+fourni\b/.test(s) ||
+                /\bfourni\s+de\s+base\b/.test(s) ||
+                /\bfourniture\s+de\s+base\b/.test(s) ||
+                /\bfourni\s+en\s+standard\b/.test(s) ||
+                /\béquipement\s+en\s+standard\b/.test(s) ||
+                /\béquipement\s+de\s+base\b/.test(s) ||
+                /\bconfiguration\s+de\s+base\b/.test(s)
+            ) {
+                return true;
+            }
+            // Lignes tarifaires type UGAP : souvent le détail « base / remplacement » sans les mots-clés ci-dessus.
+            if (/^(moins-value|plus-value|plus\s+value)\b/i.test(raw)) {
+                return true;
+            }
+            return false;
+        }
+
+        /**
+         * Extraction heuristique locale (fallback d'affichage) du produit initial/final.
+         * Utilise d'abord les champs déjà extraits par le backend si présents.
+         */
+        function extractBaseReplacementProductsForUi(opt) {
+            const backendInitial = String(opt?.initialProduct || '').trim();
+            const backendFinal = String(opt?.finalProduct || '').trim();
+            const backendType = String(opt?.changeType || '').trim();
+            if (backendInitial || backendFinal || backendType) {
+                return {
+                    changeType: backendType,
+                    initialProduct: backendInitial,
+                    finalProduct: backendFinal
+                };
+            }
+
+            const raw = String(opt?.name || '').replace(/\s+/g, ' ').trim();
+            if (!raw) return { changeType: '', initialProduct: '', finalProduct: '' };
+            const cleaned = raw.replace(/\s*-\s*postes?\s+[\d\s,etàa\-–—]+$/i, '').trim();
+
+            if (/\bnon\s+fourniture\s+du\s+moteur\s+de\s+base\b/i.test(cleaned)) {
+                return {
+                    changeType: 'motor_base_non_supply',
+                    initialProduct: 'moteur de base',
+                    finalProduct: 'moteur choisi'
+                };
+            }
+
+            const nonSupplyMatch = cleaned.match(/^non\s+fourniture\s+(?:du|de\s+la|des|de\s+l['’])\s+(.+)$/i);
+            if (nonSupplyMatch) {
+                return {
+                    changeType: 'non_supply',
+                    initialProduct: String(nonSupplyMatch[1] || '')
+                        .replace(/\s*-\s*postes?\s+[\d\s,etàa\-–—]+$/i, '')
+                        .trim(),
+                    finalProduct: ''
+                };
+            }
+
+            const replacementMatch = cleaned.match(/^(.*?)\s+en\s+remplacement\s+de\s+(?:l['’]|la\s+|le\s+|les\s+)?(.+?)\s+fourni\s+de\s+base\b/i);
+            if (replacementMatch) {
+                const before = String(replacementMatch[1] || '').trim().replace(/^(moins-value|plus-value|plus\s+value)\s+/i, '').trim();
+                const replaced = String(replacementMatch[2] || '').trim();
+                const finalProduct = before.replace(/^(module\s+sondeur|combin[ée]|motorisation|moteur|pack|option)\s+/i, '').trim() || before;
+                const initialProduct = /^celui\s+de\s+base$/i.test(replaced)
+                    ? ((before.match(/\b(flotteur|moteur|combin[ée]|sondeur|module|coque|console)\b/i)?.[1] || 'produit') + ' de base')
+                    : replaced;
+                return {
+                    changeType: 'replacement',
+                    initialProduct,
+                    finalProduct
+                };
+            }
+
+            return { changeType: '', initialProduct: '', finalProduct: '' };
+        }
+
+        /** Détecte « poste 10 », « postes 8, 10 et 12 », etc. pour un numéro donné. */
+        function labelMentionsPosteNumber(label, posteNum) {
+            const n = Number(posteNum);
+            if (!Number.isFinite(n)) return false;
+            const raw = String(label || '');
+            if (new RegExp(`\\bpostes?\\s*(?:n°|n\\s*°|:)?\\s*${n}\\b`, 'i').test(raw)) return true;
+            const m = raw.match(/\bpostes?\s+([\d\s,]+(?:et\s+\d+)?)/i);
+            if (m) {
+                const nums = m[1].match(/\d+/g);
+                if (nums && nums.some((x) => parseInt(x, 10) === n)) return true;
+            }
+            return false;
+        }
+
+        /**
+         * Ensemble des postes explicitement cités (plages « Postes 5 à 7 », listes « 1, 5 et 8 », etc.).
+         * null = aucune contrainte de poste détectée dans le libellé.
+         */
+        function getExplicitPosteSetFromLabel(label) {
+            const raw = String(label || '');
+            if (!raw.trim()) return null;
+            const set = new Set();
+            let found = false;
+
+            const rangeRe = /\bpostes?\s+(\d+)\s*(?:à|a|-|–|—)\s*(\d+)\b/gi;
+            let m;
+            while ((m = rangeRe.exec(raw)) !== null) {
+                found = true;
+                let a = parseInt(m[1], 10);
+                let b = parseInt(m[2], 10);
+                if (!Number.isFinite(a) || !Number.isFinite(b)) continue;
+                if (b < a) [a, b] = [b, a];
+                for (let i = a; i <= b; i++) set.add(i);
+            }
+
+            const scratch = raw.replace(/\bpostes?\s+\d+\s*(?:à|a|-|–|—)\s*\d+\b/gi, ' ');
+
+            const singlePosteRe = /\bposte\s+n°?\s*(\d+)\b/gi;
+            while ((m = singlePosteRe.exec(raw)) !== null) {
+                found = true;
+                set.add(parseInt(m[1], 10));
+            }
+
+            const listRe = /\bpostes?\s+([\d,\s]+(?:et\s+\d+)*)/gi;
+            while ((m = listRe.exec(scratch)) !== null) {
+                const chunk = m[1] || '';
+                if (/\d\s*(?:à|a|-|–|—)\s*\d/.test(chunk)) continue;
+                found = true;
+                const nums = chunk.match(/\d+/g);
+                if (nums) nums.forEach((x) => set.add(parseInt(x, 10)));
+            }
+
+            if (!found) return null;
+            return set;
+        }
+
+        /** Numéros de poste extraits du libellé, triés par ordre croissant (affichage). */
+        function getSortedExplicitPosteNumbersFromLabel(label) {
+            const s = getExplicitPosteSetFromLabel(label);
+            if (!s || s.size === 0) return [];
+            return [...s].sort((a, b) => a - b);
+        }
+
+        /** Pour tri des lignes : plus petit poste explicite, sinon fin de liste. */
+        function getMinExplicitPosteForSortLabel(label) {
+            const arr = getSortedExplicitPosteNumbersFromLabel(label);
+            return arr.length ? arr[0] : null;
+        }
+
+        /**
+         * Le libellé cite des postes numérotés (détecté par parse ou motifs typiques).
+         * Dans ce cas on n’utilise pas la croix Excel ni « tous modèles » pour inclure la ligne.
+         */
+        function labelHasPosteNumberingContext(label) {
+            if (getExplicitPosteSetFromLabel(label) !== null) return true;
+            const raw = String(label || '');
+            return (
+                /\bpostes?\s+(?:n°|n\s*°|:)?\s*\d/i.test(raw) ||
+                /\bpostes?\s+\d+\s*(?:à|a|-|–|—)\s*\d/i.test(raw) ||
+                /\bpostes?\s+[\d,\s]{2,80}(?:et\s+\d+)?/i.test(raw)
+            );
+        }
+
+        /** Croix sur la colonne du modèle : compatibilité explicite (liste non vide et contient ce modèle). */
+        function optionHasExplicitXForModel(opt, modelId) {
+            const cm = opt.compatibleModels;
+            return Array.isArray(cm) && cm.length > 0 && cm.includes(modelId);
+        }
+
+        /**
+         * Liste/plage de postes dans le libellé → seul ce sous-ensemble compte (jamais la croix).
+         * Libellé avec numéros de postes détectés mais sans parse complète → uniquement mention « poste N ».
+         * Sinon → mention « poste N », ou X colonne modèle, ou ligne tous modèles.
+         */
+        function passesPosteScopeForBaseOption(opt, model) {
+            const pn = model.posteNumber;
+            if (pn == null || pn === '') return true;
+
+            const name = opt.name || '';
+            const explicit = getExplicitPosteSetFromLabel(name);
+            if (explicit !== null && explicit.size > 0) {
+                return explicit.has(Number(pn));
+            }
+
+            if (labelHasPosteNumberingContext(name)) {
+                return labelMentionsPosteNumber(name, pn);
+            }
+
+            if (labelMentionsPosteNumber(name, pn)) return true;
+            if (optionHasExplicitXForModel(opt, model.id)) return true;
+            const cm = opt.compatibleModels;
+            if (!Array.isArray(cm) || cm.length === 0) return true;
+            return false;
+        }
+
+        function posteLinkSummaryForRow(opt, model) {
+            const pn = model.posteNumber;
+            if (pn == null || pn === '') return '—';
+            const name = opt.name || '';
+            const explicit = getExplicitPosteSetFromLabel(name);
+            if (explicit !== null && explicit.size > 0) {
+                const sorted = getSortedExplicitPosteNumbersFromLabel(name);
+                return `postes ${sorted.join(', ')}`;
+            }
+            const strictPoste = labelHasPosteNumberingContext(name);
+            const cm = opt.compatibleModels;
+            const universal = !Array.isArray(cm) || cm.length === 0;
+            const byText = labelMentionsPosteNumber(name, pn);
+            const byX = optionHasExplicitXForModel(opt, model.id);
+            const parts = [];
+            if (byText) parts.push('libellé');
+            if (!strictPoste && byX) parts.push('colonne modèle (X)');
+            if (!strictPoste && universal && !byText) parts.push('tous modèles');
+            return parts.length ? parts.join(' + ') : '—';
+        }
+
+        function getBaseRelatedOptionsForModel(model) {
+            const rows = getModelOptionsForSummary(model.id);
+            return rows.filter((r) =>
+                isHeuristicBaseRelatedOptionLine(r.name) && passesPosteScopeForBaseOption(r, model)
+            );
+        }
+
+        function renderExtractionBaseOptionsByModelHtml(models) {
+            const sorted = [...models].sort((a, b) => {
+                const pa = a.posteNumber;
+                const pb = b.posteNumber;
+                const na = Number(pa);
+                const nb = Number(pb);
+                const aOk = pa != null && pa !== '' && Number.isFinite(na);
+                const bOk = pb != null && pb !== '' && Number.isFinite(nb);
+                if (aOk && bOk) return na - nb;
+                if (aOk && !bOk) return -1;
+                if (!aOk && bOk) return 1;
+                return String(a.name || '').localeCompare(String(b.name || ''), 'fr', { sensitivity: 'base' });
+            });
+            let totalLines = 0;
+            const blocks = sorted.map((model) => {
+                const baseOpts = [...getBaseRelatedOptionsForModel(model)].sort((a, b) => {
+                    const ma = getMinExplicitPosteForSortLabel(a.name);
+                    const mb = getMinExplicitPosteForSortLabel(b.name);
+                    if (ma != null && mb != null && ma !== mb) return ma - mb;
+                    if (ma != null && mb == null) return -1;
+                    if (ma == null && mb != null) return 1;
+                    return (a.rowOrder ?? 0) - (b.rowOrder ?? 0);
+                });
+                totalLines += baseOpts.length;
+                const hasPosteOnModel = model.posteNumber != null && model.posteNumber !== '';
+                const suspectIds = buildSuspectIncoherenceSetForModelRows(baseOpts);
+                const unresolvedSuspectIds = new Set(
+                    [...suspectIds].filter((optId) => !isBaseIncoherenceValidated(model.id, optId))
+                );
+                const filterMode = getBaseIncoherenceFilterMode();
+                const shownBaseOpts = filterMode === 'only'
+                    ? baseOpts.filter((o) => unresolvedSuspectIds.has(String(o.id || '').trim()))
+                    : baseOpts;
+                const emptyMsg = hasPosteOnModel
+                    ? `Aucune ligne « option de base » pour ce modèle (mots-clés + filtre poste <strong>${escapeHtml(String(model.posteNumber))}</strong>). Vérifiez les libellés ou le n° de poste du modèle.`
+                    : 'Aucune ligne détectée pour ce modèle (heuristique sur le libellé : remplacement, fourni de base, moins-value / plus-value, etc.).';
+                const rowsHtml = shownBaseOpts.length === 0
+                    ? `<div style="color:#888;font-size:13px;">${emptyMsg}</div>`
+                    : `<table style="width:100%; border-collapse:collapse; font-size:13px;">
+                        <thead>
+                            <tr style="background:#f8f9fa;">
+                                <th style="padding:6px 8px; border-bottom:1px solid #eee; text-align:left;">ID</th>
+                                <th style="padding:6px 8px; border-bottom:1px solid #eee; text-align:left;">Réf.</th>
+                                <th style="padding:6px 8px; border-bottom:1px solid #eee; text-align:left;">Libellé (brut)</th>
+                                <th style="padding:6px 8px; border-bottom:1px solid #eee; text-align:left;">Produit initial</th>
+                                <th style="padding:6px 8px; border-bottom:1px solid #eee; text-align:left;">Produit final</th>
+                                <th style="padding:6px 8px; border-bottom:1px solid #eee; text-align:left;">Confiance IA</th>
+                                <th style="padding:6px 8px; border-bottom:1px solid #eee; text-align:left;">Action</th>
+                                <th style="padding:6px 8px; border-bottom:1px solid #eee; text-align:left;">Catégorie</th>
+                                <th style="padding:6px 8px; border-bottom:1px solid #eee; text-align:left;">Poste</th>
+                                <th style="padding:6px 8px; border-bottom:1px solid #eee; text-align:center;">✕</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${shownBaseOpts.map((opt) => `
+                                ${(() => {
+                                    const parsed = extractBaseReplacementProductsForUi(opt);
+                                    const optId = String(opt.id || '').trim();
+                                    const isSuspect = suspectIds.has(optId);
+                                    const isValidated = isBaseIncoherenceValidated(model.id, optId);
+                                    const isUnresolved = isSuspect && !isValidated;
+                                    return `
+                                <tr>
+                                    <td style="padding:6px 8px; border-bottom:1px solid #eee; font-family:monospace; white-space:nowrap;">${escapeHtml(opt.id || '')}</td>
+                                    <td style="padding:6px 8px; border-bottom:1px solid #eee; font-family:monospace;">${escapeHtml(opt.refUgap || '—')}</td>
+                                    <td style="padding:6px 8px; border-bottom:1px solid #eee;">${escapeHtml(opt.name || '')}</td>
+                                    <td style="padding:6px 8px; border-bottom:1px solid #eee; color:#444;">
+                                        <input id="base-initial-${opt.id || ''}" value="${escapeHtml(parsed.initialProduct || '')}" placeholder="Produit initial" style="width:220px; max-width:100%; padding:4px 6px; border:1px solid #ddd; border-radius:4px;">
+                                    </td>
+                                    <td style="padding:6px 8px; border-bottom:1px solid #eee; color:#111; font-weight:600;">
+                                        <input id="base-final-${opt.id || ''}" value="${escapeHtml(parsed.finalProduct || '')}" placeholder="Produit final" style="width:220px; max-width:100%; padding:4px 6px; border:1px solid #ddd; border-radius:4px;">
+                                    </td>
+                                    <td style="padding:6px 8px; border-bottom:1px solid #eee; white-space:nowrap;">${escapeHtml(formatBaseConfidence(opt.baseAiConfidence))}</td>
+                                    <td style="padding:6px 8px; border-bottom:1px solid #eee;">
+                                        <button class="btn btn-secondary" style="padding:4px 8px; font-size:12px;" onclick="saveBaseProducts('${opt.id || ''}')">Enregistrer</button>
+                                        ${isUnresolved ? `<span style="margin-left:8px; padding:2px 6px; border-radius:4px; background:#fff3cd; color:#856404; font-size:11px;">Incohérence ?</span>` : ''}
+                                        ${isValidated ? `<span style="margin-left:8px; padding:2px 6px; border-radius:4px; background:#d1e7dd; color:#0f5132; font-size:11px;">Validée</span>` : ''}
+                                    </td>
+                                    <td style="padding:6px 8px; border-bottom:1px solid #eee; color:#666;">${escapeHtml(opt.categoryName || '')}</td>
+                                    <td style="padding:6px 8px; border-bottom:1px solid #eee; color:#555; font-size:12px; white-space:nowrap;">${escapeHtml(posteLinkSummaryForRow(opt, model))}</td>
+                                    <td style="padding:6px 8px; border-bottom:1px solid #eee; text-align:center;">
+                                        ${isSuspect ? `
+                                            <div style="display:flex; gap:4px; justify-content:center;">
+                                                <button title="Retirer cette ligne pour ce modèle" style="border:none; background:#dc3545; color:#fff; border-radius:4px; width:22px; height:22px; cursor:pointer;" onclick="removeBaseOptionForModel('${opt.id || ''}', '${model.id || ''}')">✕</button>
+                                                <button title="Valider et conserver cette ligne" style="border:none; background:#198754; color:#fff; border-radius:4px; padding:0 6px; height:22px; cursor:pointer; font-size:11px;" onclick="validateBaseIncoherenceForModel('${opt.id || ''}', '${model.id || ''}')">✓</button>
+                                            </div>
+                                        ` : '<span style="color:#bbb;">—</span>'}
+                                    </td>
+                                </tr>
+                                `;
+                                })()}
+                            `).join('')}
+                        </tbody>
+                    </table>`;
+                const posteLabel = (model.posteNumber != null && model.posteNumber !== '')
+                    ? escapeHtml(String(model.posteNumber))
+                    : '—';
+                return `
+                <div style="margin-bottom:14px; border:1px solid #e9ecef; border-radius:8px; padding:12px; background:#fff;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; margin-bottom:8px; flex-wrap:wrap;">
+                        <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
+                            <strong style="font-size:15px;">${escapeHtml(model.name || model.id || 'Modèle')}</strong>
+                            <span style="font-size:13px; color:#555;">Poste : <strong>${posteLabel}</strong></span>
+                        </div>
+                        <span class="badge">${baseOpts.length} ligne(s)</span>
+                    </div>
+                    ${rowsHtml}
+                </div>`;
+            }).join('');
+            return `
+                <div style="margin-bottom:12px; padding:10px; background:#f0f7ff; border:1px solid #cfe8ff; border-radius:6px; font-size:13px; color:#333;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:6px;">
+                        <strong>Options de base (par modèle)</strong>
+                        <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+                            <label style="display:flex; align-items:center; gap:6px; font-size:12px;">
+                                <span>Filtre :</span>
+                                <select onchange="onChangeBaseIncoherenceFilter(this.value)" style="padding:4px 6px; border:1px solid #ddd; border-radius:4px;">
+                                    <option value="all" ${getBaseIncoherenceFilterMode() === 'all' ? 'selected' : ''}>Toutes</option>
+                                    <option value="only" ${getBaseIncoherenceFilterMode() === 'only' ? 'selected' : ''}>Incohérences uniquement</option>
+                                </select>
+                            </label>
+                            <button id="btn-base-options-complete-ia" class="btn btn-primary" onclick="runBaseOptionsAiCompletion()">Compléter avec l'IA</button>
+                        </div>
+                    </div>
+                    <div id="base-options-ai-progress" style="display:none; margin-bottom:8px; padding:8px 10px; border-radius:6px; background:#fff; border:1px solid #b6d4fe; color:#084298;">
+                        Traitement IA en cours...
+                    </div>
+                    mots-clés dans le libellé :
+                    <em>en remplacement de</em>, <em>en lieu et place</em>, <em>non fourniture</em> / <em>non fourni</em>, <em>fourni de base</em>, <em>équipement de base</em>, <em>configuration de base</em>.
+                    <span style="display:block; margin-top:6px; color:#555;">
+                        Filtre <strong>poste</strong> : dès que le libellé cite des <strong>numéros de poste</strong> (liste, plage, « poste N »), la <strong>croix Excel</strong> et la ligne <strong>tous modèles</strong> ne comptent pas : seuls le texte (poste du modèle inclus dans la liste) ou la mention directe de votre poste. Sans numéro de poste dans le libellé : X sur la colonne du modèle ou compatibilité tous modèles possibles.
+                    </span>
+                    <span style="display:block; margin-top:6px; color:#555;">Total : <strong>${totalLines}</strong> ligne(s) sur <strong>${sorted.length}</strong> modèle(s).</span>
+                </div>
+                ${blocks}
+            `;
+        }
+
+        function getBaseLikeOptionsForAiRun() {
+            const all = getAllOptionsForSummary();
+            const out = [];
+            const seen = new Set();
+            (all || []).forEach((opt) => {
+                const id = String(opt?.id || '').trim();
+                if (!id || seen.has(id)) return;
+                if (!isHeuristicBaseRelatedOptionLine(opt?.name || '')) return;
+                seen.add(id);
+                out.push(opt);
+            });
+            out.sort((a, b) => (a.rowOrder || 0) - (b.rowOrder || 0));
+            return out;
+        }
+
+        function patchOptionInCurrentData(updatedOption) {
+            const id = String(updatedOption?.id || '').trim();
+            if (!id || !currentData?.categories) return;
+            (currentData.categories || []).forEach((cat) => {
+                const idx = (cat.options || []).findIndex((o) => String(o?.id || '').trim() === id);
+                if (idx >= 0) {
+                    cat.options[idx] = { ...(cat.options[idx] || {}), ...(updatedOption || {}) };
+                }
+            });
+        }
+
+        function updateBaseOptionsAiProgressUi() {
+            const run = window.__baseOptionsAiRun || null;
+            const box = document.getElementById('base-options-ai-progress');
+            const btn = document.getElementById('btn-base-options-complete-ia');
+            if (!box || !btn) return;
+            if (!run || !run.running) {
+                box.style.display = 'none';
+                btn.disabled = false;
+                btn.textContent = "Compléter avec l'IA";
+                return;
+            }
+            box.style.display = 'block';
+            const i = Number(run.processed || 0);
+            const total = Number(run.total || 0);
+            const currentLabel = String(run.currentLabel || '').trim();
+            box.innerHTML = `⏳ Traitement IA en cours... <strong>${i}/${total}</strong><br><span style="font-size:12px; color:#0b5ed7;">Ligne: ${escapeHtml(currentLabel || '...')}</span>`;
+            btn.disabled = true;
+            btn.textContent = `⏳ Traitement IA en cours... ${i}/${total}`;
+        }
+
+        function formatBaseConfidence(confidenceValue) {
+            const n = Number(confidenceValue);
+            if (!Number.isFinite(n)) return '—';
+            const pct = Math.max(0, Math.min(100, Math.round(n * 100)));
+            return `${pct}%`;
+        }
+
+        function getOptionFamilyParts(optionFamilyKey) {
+            const parts = String(optionFamilyKey || '').split('|');
+            return {
+                baseReplaced: String(parts[0] || '').trim().toLowerCase(),
+                postesKey: String(parts[1] || '').trim(),
+                skeleton: String(parts[2] || '').trim().toLowerCase()
+            };
+        }
+
+        function buildSuspectIncoherenceSetForModelRows(rows) {
+            const bySlot = new Map();
+            (rows || []).forEach((r) => {
+                const fp = getOptionFamilyParts(r.optionFamilyKey || '');
+                if (!fp.skeleton) return;
+                const slotKey = `${fp.skeleton}|${fp.postesKey || ''}`;
+                if (!bySlot.has(slotKey)) bySlot.set(slotKey, new Set());
+                if (fp.baseReplaced) bySlot.get(slotKey).add(fp.baseReplaced);
+            });
+            const suspectSlots = new Set(
+                [...bySlot.entries()]
+                    .filter(([, bases]) => bases.size > 1)
+                    .map(([k]) => k)
+            );
+            const out = new Set();
+            (rows || []).forEach((r) => {
+                const fp = getOptionFamilyParts(r.optionFamilyKey || '');
+                const slotKey = `${fp.skeleton}|${fp.postesKey || ''}`;
+                if (fp.skeleton && suspectSlots.has(slotKey)) out.add(String(r.id || '').trim());
+            });
+            return out;
+        }
+
+        async function removeBaseOptionForModel(optionId, modelId) {
+            try {
+                const rec = findOptionRecordById(optionId);
+                if (!rec || !rec.option) {
+                    showAlert(`Option introuvable (${optionId})`, 'error');
+                    return;
+                }
+                const option = rec.option;
+                const allModelIds = (currentData?.models || []).map((m) => m.id);
+                const currentCompatible = Array.isArray(option.compatibleModels) ? [...option.compatibleModels] : [];
+                let nextCompatible;
+                if (currentCompatible.length === 0) {
+                    nextCompatible = allModelIds.filter((id) => id !== modelId);
+                } else {
+                    nextCompatible = currentCompatible.filter((id) => id !== modelId);
+                }
+                const payload = { ...option, compatibleModels: nextCompatible };
+                await apiCall(`/options/${encodeURIComponent(optionId)}`, {
+                    method: 'PUT',
+                    body: JSON.stringify(payload)
+                });
+                option.compatibleModels = nextCompatible;
+                renderExtractionInsights();
+                showAlert('Ligne retirée de ce modèle', 'success');
+            } catch (error) {
+                showAlert('Erreur suppression incohérence: ' + error.message, 'error');
+            }
+        }
+
+        function getBaseIncoherenceValidatedMap() {
+            try {
+                const raw = localStorage.getItem('ugap.base.incoherence.validated');
+                const parsed = raw ? JSON.parse(raw) : {};
+                return parsed && typeof parsed === 'object' ? parsed : {};
+            } catch (_) {
+                return {};
+            }
+        }
+
+        function setBaseIncoherenceValidatedMap(mapObj) {
+            try {
+                localStorage.setItem('ugap.base.incoherence.validated', JSON.stringify(mapObj || {}));
+            } catch (_) {
+                // no-op
+            }
+        }
+
+        function getIncoherenceValidationKey(modelId, optionId) {
+            return `${String(modelId || '').trim()}::${String(optionId || '').trim()}`;
+        }
+
+        function isBaseIncoherenceValidated(modelId, optionId) {
+            const map = getBaseIncoherenceValidatedMap();
+            return !!map[getIncoherenceValidationKey(modelId, optionId)];
+        }
+
+        function validateBaseIncoherenceForModel(optionId, modelId) {
+            const key = getIncoherenceValidationKey(modelId, optionId);
+            const map = getBaseIncoherenceValidatedMap();
+            map[key] = true;
+            setBaseIncoherenceValidatedMap(map);
+            renderExtractionInsights();
+            showAlert('Incohérence validée (ligne conservée)', 'success');
+        }
+
+        function getBaseIncoherenceFilterMode() {
+            try {
+                const v = localStorage.getItem('ugap.base.incoherence.filterMode');
+                return v === 'only' ? 'only' : 'all';
+            } catch (_) {
+                return 'all';
+            }
+        }
+
+        function onChangeBaseIncoherenceFilter(mode) {
+            try {
+                localStorage.setItem('ugap.base.incoherence.filterMode', mode === 'only' ? 'only' : 'all');
+            } catch (_) {
+                // no-op
+            }
+            renderExtractionInsights();
+        }
+
+        async function saveBaseProducts(optionId) {
+            try {
+                const id = String(optionId || '').trim();
+                if (!id) return;
+                const rec = findOptionRecordById(id);
+                if (!rec || !rec.option) {
+                    showAlert(`Option introuvable (${id})`, 'error');
+                    return;
+                }
+
+                const initialInput = document.getElementById(`base-initial-${id}`);
+                const finalInput = document.getElementById(`base-final-${id}`);
+                const initialProduct = String(initialInput?.value || '').trim();
+                const finalProduct = String(finalInput?.value || '').trim();
+
+                const payload = { ...rec.option, initialProduct, finalProduct };
+                await apiCall(`/options/${encodeURIComponent(id)}`, {
+                    method: 'PUT',
+                    body: JSON.stringify(payload)
+                });
+
+                rec.option.initialProduct = initialProduct;
+                rec.option.finalProduct = finalProduct;
+                renderExtractionInsights();
+                showAlert('Valeurs enregistrées', 'success');
+            } catch (error) {
+                showAlert('Erreur enregistrement option de base: ' + error.message, 'error');
+            }
+        }
+
+        async function runBaseOptionsAiCompletion() {
+            try {
+                const lines = getBaseLikeOptionsForAiRun();
+                if (!lines.length) {
+                    showAlert("Aucune ligne d'option de base à traiter.", 'info');
+                    return;
+                }
+                window.__baseOptionsAiRun = {
+                    running: true,
+                    processed: 0,
+                    total: lines.length,
+                    currentId: '',
+                    currentLabel: ''
+                };
+                renderExtractionInsights();
+                updateBaseOptionsAiProgressUi();
+
+                let enriched = 0;
+                for (let idx = 0; idx < lines.length; idx += 1) {
+                    const line = lines[idx];
+                    window.__baseOptionsAiRun.processed = idx;
+                    window.__baseOptionsAiRun.currentId = String(line?.id || '');
+                    window.__baseOptionsAiRun.currentLabel = `${line?.id || ''} — ${line?.name || ''}`;
+                    updateBaseOptionsAiProgressUi();
+
+                    const result = await apiCall('/base-options/complete-ia-line', {
+                        method: 'POST',
+                        body: JSON.stringify({ optionId: line.id })
+                    });
+                    console.log('[UGAP][BASE-OPTIONS][FRONT][LINE-RESULT]', {
+                        optionId: line.id,
+                        label: line?.name || '',
+                        result: result?.data || null
+                    });
+                    if (result?.data?.updatedOption) {
+                        patchOptionInCurrentData(result.data.updatedOption);
+                    }
+                    if (result?.data?.accepted) enriched += 1;
+
+                    window.__baseOptionsAiRun.processed = idx + 1;
+                    updateBaseOptionsAiProgressUi();
+                    renderExtractionInsights();
+                }
+
+                showAlert(`Complétion terminée: ${enriched}/${lines.length} lignes enrichies.`, 'success');
+            } catch (error) {
+                showAlert('Erreur complétion IA options de base: ' + error.message, 'error');
+            } finally {
+                window.__baseOptionsAiRun = null;
+                renderExtractionInsights();
+                updateBaseOptionsAiProgressUi();
+            }
+        }
+
+        function renderOptionRows(options, emptyLabel) {
+            if (!Array.isArray(options) || options.length === 0) {
+                return `<tr><td colspan="2" style="padding:10px; color:#666; text-align:center;">${escapeHtml(emptyLabel || 'Aucune donnée')}</td></tr>`;
+            }
+
+            return options.map(opt => `
+                <tr>
+                    <td style="padding: 8px; border-bottom: 1px solid #eee;">${escapeHtml(opt.name || '-')}</td>
+                    <td style="padding: 8px; border-bottom: 1px solid #eee; color: #666;">${escapeHtml(opt.categoryName || '-')}</td>
+                </tr>
+            `).join('');
+        }
+
+        function formatPriceUgapCell(v) {
+            if (v == null || v === '' || (typeof v === 'number' && Number.isNaN(v))) return '—';
+            const n = Number(v);
+            if (Number.isNaN(n)) return '—';
+            return escapeHtml(n.toLocaleString('fr-FR', { minimumFractionDigits: 0, maximumFractionDigits: 2 }));
+        }
+
+        /** Rendu des cartes familles renvoyées par l’IA (optionIds → lignes affichables). */
+        function renderFamilleIaGroupCards(iaData, byId) {
+            if (!iaData || !Array.isArray(iaData.families) || iaData.families.length === 0) {
+                return '<p style="color:#666;">Aucune famille dans la réponse IA.</p>';
+            }
+            return iaData.families.map((f) => {
+                const label = f.familyLabel || 'Famille';
+                const ids = Array.isArray(f.optionIds) ? f.optionIds : [];
+                const lockBadge = isFamNameOptionsLocked(f)
+                    ? '<span style="display:inline-block; padding:2px 8px; border-radius:999px; background:#fff3cd; color:#856404; font-size:10px; font-weight:700; border:1px solid #ffe69c;">Verrouillée</span>'
+                    : '';
+                const defId = f.defaultOptionId != null && String(f.defaultOptionId).trim() !== '' ? String(f.defaultOptionId).trim() : null;
+                const rows = ids.map((id) => byId.get(id)).filter(Boolean);
+                const dupBadge = rows.length > 1
+                    ? `<span style="margin-left:8px; padding:2px 8px; border-radius:4px; font-size:12px; background:#d1e7dd; color:#0f5132;">${rows.length} lignes</span>`
+                    : '';
+                const defaultBadge = defId && ids.includes(defId)
+                    ? `<span style="margin-left:8px; padding:2px 8px; border-radius:4px; font-size:12px; background:#fff3cd; color:#664d03; border:1px solid #ffecb5;">Option par défaut : ${escapeHtml(defId)}</span>`
+                    : '';
+                const rowsHtml = rows.map((row) => {
+                    const isDefault = defId && row.id === defId;
+                    const defMark = isDefault ? ' <span style="font-size:11px; color:#664d03;">(défaut)</span>' : '';
+                    return `
+                        <tr>
+                            <td style="padding:8px; border-bottom:1px solid #eee; white-space:nowrap;">
+                                <span style="display:inline-block; padding:2px 8px; border-radius:4px; font-size:12px; font-weight:600; color:#fff; background:${row.lineKind === 'mino' ? '#6f42c1' : '#0d6efd'};">${escapeHtml(row.lineKindLabel)}</span>
+                            </td>
+                            <td style="padding:8px; border-bottom:1px solid #eee;">${escapeHtml(row.name || '—')}${defMark}</td>
+                            <td style="padding:8px; border-bottom:1px solid #eee; color:#666;">${escapeHtml(row.categoryName || '—')}</td>
+                            <td style="padding:8px; border-bottom:1px solid #eee; text-align:right;">${formatPriceUgapCell(row.priceClient)}</td>
+                            <td style="padding:8px; border-bottom:1px solid #eee; text-align:right;">${formatPriceUgapCell(row.priceUgap)}</td>
+                            <td style="padding:8px; border-bottom:1px solid #eee; color:#666; font-size:12px;">${escapeHtml(row.refUgap || '—')}</td>
+                        </tr>
+                    `;
+                }).join('');
+                return `
+                        <div style="margin-bottom:14px; border:1px solid #0d6efd; border-radius:8px; overflow:hidden;">
+                            <div style="background:#e7f1ff; padding:10px 12px; border-bottom:1px solid #b6d4fe;">
+                                <span style="font-weight:600; color:#084298;">${escapeHtml(label)}</span>
+                                ${dupBadge}
+                                ${defaultBadge}
+                            </div>
+                            <table style="width:100%; border-collapse:collapse;">
+                                <thead>
+                                    <tr style="background:#fff;">
+                                        <th style="padding:8px; border-bottom:1px solid #eee; text-align:left; font-size:12px;">Type</th>
+                                        <th style="padding:8px; border-bottom:1px solid #eee; text-align:left; font-size:12px;">Libellé</th>
+                                        <th style="padding:8px; border-bottom:1px solid #eee; text-align:left; font-size:12px;">Catégorie</th>
+                                        <th style="padding:8px; border-bottom:1px solid #eee; text-align:right; font-size:12px;">Prix client</th>
+                                        <th style="padding:8px; border-bottom:1px solid #eee; text-align:right; font-size:12px;">Prix UGAP</th>
+                                        <th style="padding:8px; border-bottom:1px solid #eee; text-align:left; font-size:12px;">Réf.</th>
+                                    </tr>
+                                </thead>
+                                <tbody>${rowsHtml}</tbody>
+                            </table>
+                        </div>
+                    `;
+            }).join('');
+        }
+
+        /** Options « standard » + minorations / MV / PV dans l’ordre des lignes Excel (pour onglet Famille). */
+        function buildFamilleCombinedRows(splitOptions) {
+            const rows = [];
+            (splitOptions.regularOptions || []).forEach((o) => {
+                rows.push({ ...o, lineKind: 'option', lineKindLabel: 'Option' });
+            });
+            (splitOptions.minorationOptions || []).forEach((o) => {
+                rows.push({ ...o, lineKind: 'mino', lineKindLabel: 'Minoration / MV / PV' });
+            });
+            rows.sort((a, b) => (a.rowOrder || 0) - (b.rowOrder || 0));
+            return rows;
+        }
+
+        function buildFamilleModalByIdMap() {
+            const all = getAllOptionsForSummary();
+            const split = splitModelOptionsByType(all);
+            const minoIds = new Set((split.minorationOptions || []).map((o) => String(o.id || '').trim()));
+            const prIds = new Set((split.prOptions || []).map((o) => String(o.id || '').trim()));
+            const rows = (all || []).map((o) => {
+                const id = String(o?.id || '').trim();
+                let lineKindLabel = 'Option';
+                if (prIds.has(id)) lineKindLabel = 'PR';
+                else if (minoIds.has(id)) lineKindLabel = 'Minoration / MV / PV';
+                return { ...o, id, lineKindLabel };
+            });
+            return new Map(rows.map((r) => [r.id, r]));
+        }
+
+        function getFamilleHeuristicRules() {
+            try {
+                const raw = localStorage.getItem('ugap.famille.heuristicRules');
+                const parsed = raw ? JSON.parse(raw) : [];
+                return Array.isArray(parsed) ? parsed : [];
+            } catch (_) {
+                return [];
+            }
+        }
+
+        function setFamilleHeuristicRules(rules) {
+            try {
+                localStorage.setItem('ugap.famille.heuristicRules', JSON.stringify(Array.isArray(rules) ? rules : []));
+            } catch (_) {
+                // no-op
+            }
+        }
+
+        function getFamilleValidatedFamilies() {
+            try {
+                const raw = localStorage.getItem('ugap.famille.validatedFamilies');
+                const parsed = raw ? JSON.parse(raw) : [];
+                return Array.isArray(parsed) ? parsed : [];
+            } catch (_) {
+                return [];
+            }
+        }
+
+        function setFamilleValidatedFamilies(families) {
+            try {
+                localStorage.setItem('ugap.famille.validatedFamilies', JSON.stringify(Array.isArray(families) ? families : []));
+            } catch (_) {
+                // no-op
+            }
+        }
+
+        function normalizeHeuristicText(value) {
+            return String(value || '')
+                .normalize('NFD')
+                .replace(/[\u0300-\u036f]/g, '')
+                .toLowerCase()
+                .replace(/[^a-z0-9]+/g, ' ')
+                .trim();
+        }
+
+        function splitHeuristicKeywords(keywordsText) {
+            return String(keywordsText || '')
+                .split(/[\n,;|]+/g)
+                .map((k) => normalizeHeuristicText(k))
+                .filter(Boolean);
+        }
+
+        function heuristicRuleMatchesRow(rule, row) {
+            const scope = String(rule?.scope || 'all');
+            if (scope === 'option' && row.lineKind !== 'option') return false;
+            if (scope === 'minoration' && row.lineKind !== 'mino') return false;
+            const keywords = splitHeuristicKeywords(rule?.keywords || '');
+            if (keywords.length === 0) return false;
+            const haystack = normalizeHeuristicText(`${row.name || ''} ${row.categoryName || ''}`);
+            return keywords.some((kw) => haystack.includes(kw));
+        }
+
+        function buildHeuristicFamilies(rules, combinedRows) {
+            const assigned = new Set();
+            const families = [];
+            (Array.isArray(rules) ? rules : []).forEach((rule) => {
+                const label = String(rule?.familyLabel || '').trim();
+                if (!label) return;
+                const matched = combinedRows
+                    .filter((row) => !assigned.has(row.id))
+                    .filter((row) => heuristicRuleMatchesRow(rule, row));
+                if (matched.length === 0) return;
+                const optionIds = matched.map((r) => r.id);
+                optionIds.forEach((id) => assigned.add(id));
+                const wantedDefault = String(rule?.defaultOptionId || '').trim();
+                const family = { familyLabel: label, optionIds };
+                if (wantedDefault && optionIds.includes(wantedDefault)) {
+                    family.defaultOptionId = wantedDefault;
+                } else if (optionIds.length > 0) {
+                    family.defaultOptionId = optionIds[0];
+                }
+                families.push(family);
+            });
+            return { families, assignedIds: assigned };
+        }
+
+        function mergeFamiliesUnique(baseFamilies, extraFamilies) {
+            const assigned = new Set();
+            const out = [];
+            const pushFamily = (f) => {
+                const label = String(f?.familyLabel || 'Famille').trim() || 'Famille';
+                const ids = (Array.isArray(f?.optionIds) ? f.optionIds : [])
+                    .map((id) => String(id || '').trim())
+                    .filter((id) => id && !assigned.has(id));
+                if (ids.length === 0) return;
+                ids.forEach((id) => assigned.add(id));
+                const entry = { familyLabel: label, optionIds: ids };
+                const def = String(f?.defaultOptionId || '').trim();
+                if (def && ids.includes(def)) entry.defaultOptionId = def;
+                out.push(entry);
+            };
+            (Array.isArray(baseFamilies) ? baseFamilies : []).forEach(pushFamily);
+            (Array.isArray(extraFamilies) ? extraFamilies : []).forEach(pushFamily);
+            return out;
+        }
+
+        function buildOptionNameIndexFromCurrentData() {
+            const out = new Map();
+            try {
+                const rows = getAllOptionsForSummary();
+                (Array.isArray(rows) ? rows : []).forEach((r) => {
+                    const id = String(r?.id || '').trim();
+                    const name = String(r?.name || r?.label || r?.title || '').trim();
+                    if (id && name && !out.has(id)) out.set(id, name);
+                });
+            } catch (_) {
+                // no-op
+            }
+            const categories = Array.isArray(currentData?.categories) ? currentData.categories : [];
+            categories.forEach((cat) => {
+                const opts = Array.isArray(cat?.options) ? cat.options : [];
+                opts.forEach((o) => {
+                    const id = String(o?.id || '').trim();
+                    const name = String(o?.name || o?.label || o?.title || '').trim();
+                    if (id && name && !out.has(id)) out.set(id, name);
+                });
+            });
+            return out;
+        }
+
+        function buildSavedFamiliesFromReview(editFamilies) {
+            const nameIndex = buildOptionNameIndexFromCurrentData();
+            const viewNameById = new Map(
+                getBusinessViewsForAssignationTab()
+                    .map((v) => [String(v?.id || '').trim(), String(v?.label || '').trim()])
+                    .filter(([id]) => !!id)
+            );
+            return mergeFamiliesUnique([], (Array.isArray(editFamilies) ? editFamilies : []).map((f) => {
+                const selected = Array.isArray(f.selectedOptionIds) ? f.selectedOptionIds : [];
+                const labelBase = String(f.familyLabel || 'Famille').trim() || 'Famille';
+                const sub = String(f.subFamilyLabel || '').trim();
+                const label = sub ? `${labelBase} / ${sub}` : labelBase;
+                const optionLabels = {};
+                selected.forEach((id) => {
+                    const sid = String(id || '').trim();
+                    if (!sid) return;
+                    const nm = nameIndex.get(sid) || '';
+                    if (nm) optionLabels[sid] = nm;
+                });
+                return {
+                    familyLabel: label,
+                    optionIds: selected,
+                    optionLabels,
+                    defaultOptionId: f.defaultOptionId,
+                    businessViewId: String(f.businessViewId || '').trim(),
+                    businessViewLabel: viewNameById.get(String(f.businessViewId || '').trim()) || ''
+                };
+            }));
+        }
+
+        function makeReviewFamilies(heuristicFamilies, aiFamilies) {
+            let seq = 1;
+            const mk = (f, source) => {
+                const ids = (Array.isArray(f?.optionIds) ? f.optionIds : []).map((x) => String(x || '').trim()).filter(Boolean);
+                return {
+                    reviewId: `rf_${source}_${seq++}`,
+                    source,
+                    column: '',
+                    parentReviewId: null,
+                    familyLabel: String(f?.familyLabel || 'Famille').trim() || 'Famille',
+                    subFamilyLabel: String(f?.subFamilyLabel || '').trim(),
+                    optionIds: ids.slice(),
+                    selectedOptionIds: ids.slice(),
+                    defaultOptionId: String(f?.defaultOptionId || '').trim() || (ids[0] || '')
+                };
+            };
+            return [
+                ...(Array.isArray(heuristicFamilies) ? heuristicFamilies : []).map((f) => mk(f, 'heur')),
+                ...(Array.isArray(aiFamilies) ? aiFamilies : []).map((f) => mk(f, 'ia'))
+            ];
+        }
+
+        function syncReviewStateIntoIaResult() {
+            const review = window.__ugapFamilleReview || null;
+            if (!review || !Array.isArray(review.editFamilies)) return;
+            const merged = [];
+            const seen = new Set();
+            review.editFamilies.forEach((f) => {
+                const selected = (Array.isArray(f.selectedOptionIds) ? f.selectedOptionIds : [])
+                    .map((x) => String(x || '').trim())
+                    .filter((id) => id && !seen.has(id));
+                if (selected.length === 0) return;
+                selected.forEach((id) => seen.add(id));
+                const labelBase = String(f.familyLabel || 'Famille').trim() || 'Famille';
+                const sub = String(f.subFamilyLabel || '').trim();
+                const label = sub ? `${labelBase} / ${sub}` : labelBase;
+                const entry = { familyLabel: label, optionIds: selected };
+                const def = String(f.defaultOptionId || '').trim();
+                if (def && selected.includes(def)) entry.defaultOptionId = def;
+                merged.push(entry);
+            });
+            window.__ugapFamilleIa = { families: merged };
+        }
+
+        function getFamilleUiState() {
+            if (!window.__ugapFamilleUiState) {
+                window.__ugapFamilleUiState = {
+                    hiddenIds: []
+                };
+            }
+            return window.__ugapFamilleUiState;
+        }
+
+        function getFamilleValidatedFilterState() {
+            if (!window.__ugapFamilleValidatedFilter) {
+                window.__ugapFamilleValidatedFilter = {
+                    businessViewId: '',
+                    showNonAssigned: true,
+                    familyName: '',
+                    subFamilyName: ''
+                };
+            }
+            return window.__ugapFamilleValidatedFilter;
+        }
+
+        function parseValidatedFamilyLabel(rawLabel) {
+            const fullLabel = String(rawLabel || '').trim();
+            if (!fullLabel) {
+                return { fullLabel: '', familyName: '', subFamilyName: '' };
+            }
+            const parts = fullLabel
+                .split('/')
+                .map((p) => String(p || '').trim())
+                .filter(Boolean);
+            if (parts.length <= 1) {
+                return { fullLabel, familyName: fullLabel, subFamilyName: '' };
+            }
+            return {
+                fullLabel,
+                familyName: parts[0],
+                subFamilyName: parts.slice(1).join(' / ')
+            };
+        }
+
+        function getFamilyLabelAncestors(label) {
+            const parts = String(label || '')
+                .split('/')
+                .map((p) => String(p || '').trim())
+                .filter(Boolean);
+            if (parts.length <= 1) return [];
+            const ancestors = [];
+            for (let i = 1; i < parts.length; i += 1) {
+                ancestors.push(parts.slice(0, i).join(' / '));
+            }
+            return ancestors;
+        }
+
+        function ensureNonAttribueeFamily(reviewState) {
+            if (!reviewState || !Array.isArray(reviewState.editFamilies)) return null;
+            let fam = reviewState.editFamilies.find((f) => String(f.familyLabel || '').toLowerCase() === 'non attribuée');
+            if (!fam) {
+                fam = {
+                    reviewId: `rf_manual_non_attrib_${Date.now()}`,
+                    source: 'manual',
+                    column: 'heur',
+                    parentReviewId: null,
+                    familyLabel: 'Non attribuée',
+                    subFamilyLabel: '',
+                    optionIds: [],
+                    selectedOptionIds: [],
+                    defaultOptionId: ''
+                };
+                reviewState.editFamilies.push(fam);
+            }
+            return fam;
+        }
+
+        function ensureReviewFamilyFromSavedIndex(savedIndex) {
+            const idx = Number(savedIndex);
+            if (!Number.isInteger(idx) || idx < 0) return null;
+            const saved = getFamilleValidatedFamilies();
+            const entry = saved[idx];
+            if (!entry) return null;
+            if (!window.__ugapFamilleReview || !Array.isArray(window.__ugapFamilleReview.editFamilies)) {
+                window.__ugapFamilleReview = { heuristicFamilies: [], aiFamilies: [], editFamilies: [] };
+            }
+            const review = window.__ugapFamilleReview;
+            const ids = (Array.isArray(entry.optionIds) ? entry.optionIds : []).map((x) => String(x || '').trim()).filter(Boolean);
+            let fam = review.editFamilies.find((f) => {
+                const sameLabel = String(f.familyLabel || '').trim() === String(entry.familyLabel || '').trim();
+                const famIds = new Set((Array.isArray(f.optionIds) ? f.optionIds : []).map((x) => String(x || '').trim()));
+                const sameIds = ids.length === famIds.size && ids.every((id) => famIds.has(id));
+                return sameLabel && sameIds;
+            });
+            const fromSavedLabels = entry.optionLabels && typeof entry.optionLabels === 'object' ? entry.optionLabels : {};
+            const rebuiltLabels = {};
+            ids.forEach((id) => {
+                const sid = String(id || '').trim();
+                const saved = String(fromSavedLabels[sid] || '').trim();
+                const live = getOptionLabelById(sid);
+                if (saved || live) rebuiltLabels[sid] = saved || live;
+            });
+            if (!fam) {
+                fam = {
+                    reviewId: `rf_saved_${Date.now()}_${idx}`,
+                    source: 'saved',
+                    column: 'heur',
+                    parentReviewId: null,
+                    familyLabel: String(entry.familyLabel || 'Famille').trim() || 'Famille',
+                    subFamilyLabel: '',
+                    optionIds: ids.slice(),
+                    selectedOptionIds: ids.slice(),
+                    defaultOptionId: String(entry.defaultOptionId || '').trim() || (ids[0] || ''),
+                    optionLabels: rebuiltLabels,
+                    businessViewId: String(entry.businessViewId || '').trim(),
+                    businessViewIds: String(entry.businessViewId || '').trim() ? [String(entry.businessViewId || '').trim()] : []
+                };
+                review.editFamilies.push(fam);
+            } else if (!fam.optionLabels || Object.keys(fam.optionLabels).length === 0) {
+                fam.optionLabels = rebuiltLabels;
+            }
+            return fam;
+        }
+
+        function getOptionLabelById(optionId) {
+            const wanted = String(optionId || '').trim();
+            if (!wanted) return '';
+            try {
+                const raw = localStorage.getItem('ugap.famille.optionLabelCache');
+                const parsed = raw ? JSON.parse(raw) : {};
+                const cached = parsed && typeof parsed === 'object' ? String(parsed[wanted] || '').trim() : '';
+                if (cached) return cached;
+            } catch (_) {
+                // no-op
+            }
+            try {
+                const all = getAllOptionsForSummary();
+                const row = (Array.isArray(all) ? all : []).find((o) => String(o?.id || '').trim() === wanted);
+                if (row) {
+                    return String(row.name || row.label || row.title || '').trim();
+                }
+            } catch (_) {
+                // no-op
+            }
+            const categories = Array.isArray(currentData?.categories) ? currentData.categories : [];
+            for (const cat of categories) {
+                const opts = Array.isArray(cat?.options) ? cat.options : [];
+                const found = opts.find((o) => String(o?.id || '').trim() === wanted);
+                if (found) {
+                    return String(found.name || found.label || found.title || '').trim();
+                }
+            }
+            return '';
+        }
+
+        function normalizeOptionIdForMatch(value) {
+            const s = String(value || '').trim().toLowerCase();
+            if (!s) return '';
+            const numMatch = s.match(/(\d+)/g);
+            const lastNum = numMatch && numMatch.length ? numMatch[numMatch.length - 1] : '';
+            const soft = s.replace(/[^a-z0-9]/g, '');
+            return `${soft}::${lastNum}`;
+        }
+
+        function resolveOptionRowById(byId, optionId) {
+            if (!byId || !(byId instanceof Map)) return null;
+            const raw = String(optionId || '');
+            const trimmed = raw.trim();
+            if (!trimmed) return null;
+
+            // 1) Match direct.
+            let row = byId.get(raw) || byId.get(trimmed);
+            if (row) return row;
+
+            // 2) Match normalisé (préfixes/punctuations différents: opt_116 / option-116 / 116).
+            const wantedNorm = normalizeOptionIdForMatch(trimmed);
+            const wantedNum = wantedNorm.split('::')[1] || '';
+            const values = Array.from(byId.values());
+            const normMatches = values.filter((r) => normalizeOptionIdForMatch(r?.id) === wantedNorm);
+            if (normMatches.length === 1) return normMatches[0];
+
+            // 3) Fallback numérique: même suffixe numérique si unique.
+            if (wantedNum) {
+                const numMatches = values.filter((r) => {
+                    const n = normalizeOptionIdForMatch(r?.id).split('::')[1] || '';
+                    return n && n === wantedNum;
+                });
+                if (numMatches.length === 1) return numMatches[0];
+            }
+
+            return null;
+        }
+
+        function upsertFamilleOptionLabelCache(entries) {
+            try {
+                const raw = localStorage.getItem('ugap.famille.optionLabelCache');
+                const parsed = raw ? JSON.parse(raw) : {};
+                const cache = parsed && typeof parsed === 'object' ? parsed : {};
+                (Array.isArray(entries) ? entries : []).forEach((e) => {
+                    const id = String(e?.id || '').trim();
+                    const name = String(e?.name || '').trim();
+                    if (id && name) cache[id] = name;
+                });
+                localStorage.setItem('ugap.famille.optionLabelCache', JSON.stringify(cache));
+            } catch (_) {
+                // no-op
+            }
+        }
+
+        function isFamNameOptionsLocked(fam) {
+            return !!(fam && fam.nameOptionsLocked === true);
+        }
+
+        /** Fusionne la famille source dans la cible (options + sélections ; la source est retirée). */
+        function mergeEditFamilies(sourceReviewId, targetReviewId) {
+            const state = window.__ugapFamilleReview;
+            if (!state || !Array.isArray(state.editFamilies)) return false;
+            const sid = String(sourceReviewId || '').trim();
+            const tid = String(targetReviewId || '').trim();
+            if (!sid || !tid || sid === tid) return false;
+            const fams = state.editFamilies;
+            const src = fams.find((x) => x.reviewId === sid);
+            const tgt = fams.find((x) => x.reviewId === tid);
+            if (!src || !tgt) return false;
+
+            const uniq = (arr) => Array.from(new Set((arr || []).map((x) => String(x || '').trim()).filter(Boolean)));
+
+            tgt.optionIds = uniq([...(tgt.optionIds || []), ...(src.optionIds || [])]);
+            tgt.selectedOptionIds = uniq([...(tgt.selectedOptionIds || []), ...(src.selectedOptionIds || [])]);
+
+            const subT = { ...(tgt.optionSubFamilies || {}) };
+            const subS = src.optionSubFamilies || {};
+            Object.keys(subS).forEach((k) => {
+                if (!(k in subT)) subT[k] = subS[k];
+            });
+            tgt.optionSubFamilies = subT;
+
+            const def = String(tgt.defaultOptionId || '').trim();
+            if (!def || !tgt.optionIds.includes(def)) {
+                tgt.defaultOptionId = tgt.optionIds[0] || '';
+            }
+
+            if (String(tgt.parentReviewId || '') === sid) {
+                tgt.parentReviewId = null;
+            }
+
+            fams.forEach((f) => {
+                if (String(f.parentReviewId || '') === sid) {
+                    f.parentReviewId = tid;
+                }
+            });
+
+            state.editFamilies = fams.filter((x) => x.reviewId !== sid);
+            syncReviewStateIntoIaResult();
+            return true;
+        }
+
+        function getFamilleMergePick() {
+            if (!window.__ugapFamilleMergePick) {
+                window.__ugapFamilleMergePick = { grid: new Set(), heur: new Set(), ia: new Set() };
+            }
+            return window.__ugapFamilleMergePick;
+        }
+
+        function pruneFamilleMergePick() {
+            const pick = getFamilleMergePick();
+            const valid = new Set((window.__ugapFamilleReview?.editFamilies || []).map((f) => f.reviewId));
+            ['grid', 'heur', 'ia'].forEach((k) => {
+                [...pick[k]].forEach((id) => {
+                    if (!valid.has(id)) pick[k].delete(id);
+                });
+            });
+        }
+
+        function sortReviewIdsByEditOrder(reviewIds) {
+            const editFamilies = window.__ugapFamilleReview?.editFamilies || [];
+            const indexMap = new Map(editFamilies.map((f, i) => [f.reviewId, i]));
+            return [...reviewIds].sort((a, b) => (indexMap.get(a) ?? 1e9) - (indexMap.get(b) ?? 1e9));
+        }
+
+        /** Fusionne toutes les familles listées dans la première (ordre liste d’édition). */
+        function mergeManyFamiliesIntoFirst(selectedReviewIds) {
+            const ids = Array.from(new Set((selectedReviewIds || []).map((x) => String(x || '').trim()).filter(Boolean)));
+            if (ids.length < 2) return false;
+            const ordered = sortReviewIdsByEditOrder(ids);
+            const target = ordered[0];
+            for (let i = 1; i < ordered.length; i++) {
+                mergeEditFamilies(ordered[i], target);
+            }
+            return true;
+        }
+
+        function collectMergeIdsByScope(scope) {
+            const pick = getFamilleMergePick();
+            if (scope === 'heur') return [...pick.heur];
+            if (scope === 'ia') return [...pick.ia];
+            if (scope === 'grid') return [...pick.grid];
+            const u = new Set([...pick.grid, ...pick.heur, ...pick.ia]);
+            return [...u];
+        }
+
+        /**
+         * Fusionne vers la première famille (ordre édition), applique le nom final et les sous-catégories
+         * (optionSubFamilies) pour les options issues des familles cochées.
+         */
+        function mergeFamiliesWithModalResult(orderedReviewIds, finalFamilyLabel, preserveSubForReviewId) {
+            const state = window.__ugapFamilleReview;
+            if (!state?.editFamilies) return false;
+            const ordered = sortReviewIdsByEditOrder(orderedReviewIds);
+            if (ordered.length < 2) return false;
+            const snapshots = ordered.map((rid) => {
+                const f = state.editFamilies.find((x) => x.reviewId === rid);
+                if (!f) return null;
+                return {
+                    reviewId: rid,
+                    label: String(f.familyLabel || 'Famille').trim() || 'Famille',
+                    optionIds: [...(f.optionIds || [])].map((x) => String(x).trim()).filter(Boolean)
+                };
+            }).filter(Boolean);
+            if (snapshots.length < 2) return false;
+            const targetId = snapshots[0].reviewId;
+            for (let i = 1; i < ordered.length; i++) {
+                mergeEditFamilies(ordered[i], targetId);
+            }
+            const tgt = state.editFamilies.find((x) => x.reviewId === targetId);
+            if (!tgt) return false;
+            tgt.familyLabel = String(finalFamilyLabel || '').trim() || snapshots[0].label;
+            if (!tgt.optionSubFamilies) tgt.optionSubFamilies = {};
+            snapshots.forEach((sn) => {
+                sn.optionIds.forEach((oid) => {
+                    if (preserveSubForReviewId[sn.reviewId]) {
+                        tgt.optionSubFamilies[oid] = sn.label;
+                    } else {
+                        delete tgt.optionSubFamilies[oid];
+                    }
+                });
+            });
+            syncReviewStateIntoIaResult();
+            return true;
+        }
+
+        function openFamilleMergeModal(scope) {
+            const ids = collectMergeIdsByScope(scope);
+            if (ids.length < 2) {
+                showAlert('Sélectionnez au moins deux familles (cases dans la grille et/ou colonnes A et B).', 'warning');
+                return;
+            }
+            const ordered = sortReviewIdsByEditOrder(ids);
+            const state = window.__ugapFamilleReview;
+            const snapshots = ordered.map((rid) => {
+                const f = state?.editFamilies?.find((x) => x.reviewId === rid);
+                if (!f) return null;
+                const label = String(f.familyLabel || 'Famille').trim() || 'Famille';
+                const n = (f.optionIds || []).length;
+                return { reviewId: rid, label, n };
+            }).filter(Boolean);
+            if (snapshots.length < 2) return;
+            const defaultName = snapshots.map((s) => s.label).join(' / ');
+            const modalId = 'fam-merge-categories-modal';
+            document.getElementById(modalId)?.remove();
+            const wrap = document.createElement('div');
+            wrap.id = modalId;
+            wrap.style.cssText = 'position:fixed; inset:0; background:rgba(0,0,0,.5); z-index:10050; display:flex; align-items:center; justify-content:center; padding:12px;';
+            const subRows = snapshots.map((s, i) => `
+                <label style="display:flex; align-items:flex-start; gap:10px; padding:10px; border:1px solid #e9ecef; border-radius:8px; margin-bottom:8px; cursor:pointer; background:${i === 0 ? '#f8fbff' : '#fff'};">
+                    <input type="checkbox" class="fam-merge-modal-sub-cb" data-review-id="${escapeHtml(s.reviewId)}" checked style="margin-top:3px; flex-shrink:0;">
+                    <span style="font-size:13px; line-height:1.4;">
+                        ${i === 0 ? '<span style="color:#084298; font-weight:600;">Famille cible · </span>' : ''}
+                        Garder le libellé <strong>« ${escapeHtml(s.label)} »</strong> comme <strong>sous-catégorie</strong> pour les options d’origine de cette famille (${s.n} ligne(s)).
+                    </span>
+                </label>
+            `).join('');
+            wrap.innerHTML = `
+                <div style="width:min(560px,100%); max-height:90vh; overflow:auto; background:#fff; border-radius:12px; border:1px solid #dee2e6; box-shadow:0 8px 32px rgba(0,0,0,.15);">
+                    <div style="padding:14px 16px; border-bottom:1px solid #eee; display:flex; justify-content:space-between; align-items:center; gap:10px;">
+                        <strong style="font-size:16px;">Fusionner les familles</strong>
+                        <button type="button" class="btn btn-outline fam-merge-modal-close" style="padding:6px 12px;">Fermer</button>
+                    </div>
+                    <div style="padding:16px;">
+                        <label style="display:block; font-size:12px; color:#555; margin-bottom:6px;">Nom de la catégorie fusionnée</label>
+                        <input type="text" id="fam-merge-modal-cat-name" value="${escapeHtml(defaultName)}" style="width:100%; padding:10px 12px; border:1px solid #ced4da; border-radius:8px; font-size:14px; box-sizing:border-box;">
+                        <p style="margin:12px 0 8px; font-size:12px; color:#666;">Cochez les familles dont vous voulez <strong>conserver le nom comme sous-catégorie</strong> (attribution par option). La première famille de la liste est la cible qui reçoit toutes les options.</p>
+                        <div id="fam-merge-modal-sub-list">${subRows}</div>
+                        <div style="display:flex; justify-content:flex-end; gap:10px; margin-top:16px; flex-wrap:wrap;">
+                            <button type="button" class="btn btn-outline fam-merge-modal-close">Annuler</button>
+                            <button type="button" class="btn btn-primary" id="fam-merge-modal-confirm">Fusionner</button>
+                        </div>
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(wrap);
+            const close = () => wrap.remove();
+            wrap.querySelectorAll('.fam-merge-modal-close').forEach((b) => b.addEventListener('click', close));
+            wrap.addEventListener('click', (e) => { if (e.target === wrap) close(); });
+            wrap.querySelector('#fam-merge-modal-confirm')?.addEventListener('click', () => {
+                const nameInp = wrap.querySelector('#fam-merge-modal-cat-name');
+                const finalName = String(nameInp?.value || '').trim();
+                const preserve = {};
+                wrap.querySelectorAll('.fam-merge-modal-sub-cb').forEach((cb) => {
+                    const rid = cb.getAttribute('data-review-id');
+                    if (rid) preserve[rid] = !!cb.checked;
+                });
+                if (mergeFamiliesWithModalResult(ordered, finalName, preserve)) {
+                    const pick = getFamilleMergePick();
+                    pick.grid.clear();
+                    pick.heur.clear();
+                    pick.ia.clear();
+                    showAlert('Familles fusionnées.', 'success');
+                    close();
+                    renderExtractionInsights();
+                } else {
+                    showAlert('Fusion impossible.', 'error');
+                }
+            });
+        }
+
+        function applyFamilleMergePickToDom() {
+            pruneFamilleMergePick();
+            const pick = getFamilleMergePick();
+            document.querySelectorAll('.fam-grid-merge-cb').forEach((cb) => {
+                const id = cb.getAttribute('data-review-id');
+                if (id) cb.checked = pick.grid.has(id);
+            });
+            document.querySelectorAll('.fam-col-merge-cb').forEach((cb) => {
+                const id = cb.getAttribute('data-review-id');
+                const col = cb.getAttribute('data-merge-col');
+                if (!id || !col) return;
+                cb.checked = col === 'heur' ? pick.heur.has(id) : pick.ia.has(id);
+            });
+        }
+
+        /** Corps seul (options + sous-familles indentées), sans titre — lignes d’options draggables vers l’autre famille. */
+        function renderFamilleSimplifiedFamilyBodyHtml(fam, byId, reviewId) {
+            if (!fam) return '<span style="color:#999;">—</span>';
+            const rid = escapeHtml(String(reviewId || fam.reviewId || ''));
+            const subs = fam.optionSubFamilies && typeof fam.optionSubFamilies === 'object' ? fam.optionSubFamilies : {};
+            const ids = Array.isArray(fam.optionIds) ? fam.optionIds.map((x) => String(x || '').trim()).filter(Boolean) : [];
+            if (ids.length === 0) {
+                return '<span style="color:#888; font-size:12px;">Aucune option</span>';
+            }
+            const runs = [];
+            ids.forEach((id) => {
+                const sub = String(subs[id] || '').trim();
+                const last = runs[runs.length - 1];
+                if (last && last.sub === sub) last.ids.push(id);
+                else runs.push({ sub, ids: [id] });
+            });
+            let html = '';
+            const indentOpt = 10;
+            const indentSub = 6;
+            runs.forEach((run) => {
+                if (run.sub) {
+                    html += `<div style="margin-top:6px; padding-left:${indentSub}px; font-size:11px; color:#1565c0; font-weight:600;">${escapeHtml(run.sub)}</div>`;
+                    run.ids.forEach((id) => {
+                        const row = resolveOptionRowById(byId, id);
+                        const label = row ? String(row.name || '').trim() : String(getOptionLabelById(id) || id).trim();
+                        const eid = escapeHtml(id);
+                        html += `<div class="fam-simplified-opt-line" draggable="true" data-option-id="${eid}" data-from-review-id="${rid}" style="padding-left:${indentSub + indentOpt}px; font-size:12px; color:#333; line-height:1.45; cursor:grab; border-radius:4px; margin:2px 0; padding-top:3px;padding-bottom:3px;padding-right:4px; border:1px solid transparent;" title="Glisser vers l’autre famille">· ${escapeHtml(label || id)}</div>`;
+                    });
+                } else {
+                    run.ids.forEach((id) => {
+                        const row = resolveOptionRowById(byId, id);
+                        const label = row ? String(row.name || '').trim() : String(getOptionLabelById(id) || id).trim();
+                        const eid = escapeHtml(id);
+                        html += `<div class="fam-simplified-opt-line" draggable="true" data-option-id="${eid}" data-from-review-id="${rid}" style="margin-top:4px; padding-left:${indentSub}px; font-size:12px; color:#333; line-height:1.45; cursor:grab; border-radius:4px; margin:2px 0; padding-top:3px;padding-bottom:3px;padding-right:4px; border:1px solid transparent;" title="Glisser vers l’autre famille">· ${escapeHtml(label || id)}</div>`;
+                    });
+                }
+            });
+            return html;
+        }
+
+        function moveFamilleOptionBetweenReviewFamilies(fromReviewId, toReviewId, optionId) {
+            const oid = String(optionId || '').trim();
+            const state = window.__ugapFamilleReview;
+            const fams = Array.isArray(state?.editFamilies) ? state.editFamilies : [];
+            const from = fams.find((f) => String(f.reviewId) === String(fromReviewId));
+            const to = fams.find((f) => String(f.reviewId) === String(toReviewId));
+            if (!from || !to || !oid || String(fromReviewId) === String(toReviewId)) return false;
+            if (!(from.optionIds || []).some((id) => String(id) === String(oid))) return false;
+            if (isFamNameOptionsLocked(from)) {
+                const locked = new Set((Array.isArray(from.lockedOptionIds) ? from.lockedOptionIds : []).map((id) => String(id)));
+                if (locked.has(oid)) {
+                    showAlert('Option verrouillée : déplacement interdit depuis cette famille.', 'warning');
+                    return false;
+                }
+            }
+            from.optionIds = (from.optionIds || []).filter((id) => String(id) !== String(oid));
+            from.selectedOptionIds = (from.selectedOptionIds || []).filter((id) => String(id) !== String(oid));
+            if (from.optionSubFamilies && typeof from.optionSubFamilies === 'object' && from.optionSubFamilies[oid]) {
+                delete from.optionSubFamilies[oid];
+            }
+            if (!to.optionIds) to.optionIds = [];
+            if (!to.selectedOptionIds) to.selectedOptionIds = [];
+            if (!to.optionIds.some((id) => String(id) === String(oid))) to.optionIds.push(oid);
+            if (!to.selectedOptionIds.some((id) => String(id) === String(oid))) to.selectedOptionIds.push(oid);
+            syncReviewStateIntoIaResult();
+            return true;
+        }
+
+        function mountFamilleInlineEditorSimplifiedTwo(mount, famA, famB, byId) {
+            const placeholderHtml = '<p style="margin:0; color:#888; font-size:13px;">Double-cliquez une carte famille dans la grille ou la liste pour afficher l’édition ici.</p>';
+            const rawIdA = famA.reviewId || '';
+            const rawIdB = famB.reviewId || '';
+            const titleA = escapeHtml(famA.familyLabel || 'Famille');
+            const titleB = escapeHtml(famB.familyLabel || 'Famille');
+            const bodyA = renderFamilleSimplifiedFamilyBodyHtml(famA, byId, rawIdA);
+            const bodyB = renderFamilleSimplifiedFamilyBodyHtml(famB, byId, rawIdB);
+            const idA = escapeHtml(rawIdA);
+            const idB = escapeHtml(rawIdB);
+            mount.innerHTML = `
+                <div class="fam-inline-editor-inner" style="background:#fff; border-radius:10px; border:1px solid #cfd8dc; overflow:hidden; box-shadow:0 2px 8px rgba(0,0,0,.06);">
+                    <div style="padding:10px 14px; border-bottom:1px solid #eee; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
+                        <span style="font-size:12px; color:#64748b;">En-tête : glisser pour inverser les blocs · ligne d’option : glisser vers l’autre famille pour corriger.</span>
+                        <button type="button" class="btn btn-outline" id="fam-inline-pair-close">Fermer</button>
+                    </div>
+                    <div style="padding:14px; max-height:min(68vh,820px); overflow:auto;">
+                        <div id="fam-simplified-pair-row" style="display:grid; grid-template-columns:1fr 1fr; gap:14px; align-items:stretch;">
+                            <div class="fam-simplified-drag-panel" data-review-id="${idA}" style="border:2px solid #cbd5e1; border-radius:10px; background:#fff; box-shadow:0 2px 8px rgba(15,23,42,.07); overflow:hidden; display:flex; flex-direction:column; min-height:120px;">
+                                <div class="fam-simplified-drag-head" draggable="true" style="cursor:grab; flex-shrink:0; padding:10px 12px; background:linear-gradient(180deg,#f1f5f9 0%,#e2e8f0 100%); border-bottom:1px solid #cbd5e1; display:flex; align-items:center; justify-content:space-between; gap:8px;">
+                                    <span style="font-weight:700; font-size:13px; color:#0f172a; line-height:1.3;">${titleA}</span>
+                                    <span title="Glisser pour échanger les colonnes" style="font-size:14px; color:#64748b; letter-spacing:1px; user-select:none;">⠿</span>
+                                </div>
+                                <div class="fam-simplified-drag-body" style="padding:10px 12px; flex:1; overflow:auto; max-height:52vh; background:#fafbfc;">${bodyA}</div>
+                            </div>
+                            <div class="fam-simplified-drag-panel" data-review-id="${idB}" style="border:2px solid #cbd5e1; border-radius:10px; background:#fff; box-shadow:0 2px 8px rgba(15,23,42,.07); overflow:hidden; display:flex; flex-direction:column; min-height:120px;">
+                                <div class="fam-simplified-drag-head" draggable="true" style="cursor:grab; flex-shrink:0; padding:10px 12px; background:linear-gradient(180deg,#f1f5f9 0%,#e2e8f0 100%); border-bottom:1px solid #cbd5e1; display:flex; align-items:center; justify-content:space-between; gap:8px;">
+                                    <span style="font-weight:700; font-size:13px; color:#0f172a; line-height:1.3;">${titleB}</span>
+                                    <span title="Glisser pour échanger les colonnes" style="font-size:14px; color:#64748b; letter-spacing:1px; user-select:none;">⠿</span>
+                                </div>
+                                <div class="fam-simplified-drag-body" style="padding:10px 12px; flex:1; overflow:auto; max-height:52vh; background:#fafbfc;">${bodyB}</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>`;
+            const row = mount.querySelector('#fam-simplified-pair-row');
+            const panels = () => Array.from(mount.querySelectorAll('.fam-simplified-drag-panel'));
+            const clearOver = () => {
+                mount.querySelectorAll('.fam-simplified-drag-panel').forEach((el) => el.classList.remove('fam-simplified-drag-over'));
+                mount.querySelectorAll('.fam-simplified-drag-body').forEach((el) => el.classList.remove('fam-simplified-body-over'));
+            };
+            mount.querySelectorAll('.fam-simplified-drag-head').forEach((head) => {
+                head.addEventListener('dragstart', (e) => {
+                    e.stopPropagation();
+                    clearOver();
+                    const pan = head.closest('.fam-simplified-drag-panel');
+                    const rid = String(pan?.getAttribute('data-review-id') || '').trim();
+                    e.dataTransfer.setData('text/fam-simplified-review', rid);
+                    e.dataTransfer.effectAllowed = 'move';
+                    head.style.opacity = '0.88';
+                });
+                head.addEventListener('dragend', () => {
+                    head.style.opacity = '';
+                    clearOver();
+                });
+            });
+            mount.querySelectorAll('.fam-simplified-opt-line').forEach((line) => {
+                line.addEventListener('dragstart', (e) => {
+                    e.stopPropagation();
+                    clearOver();
+                    const oid = String(line.getAttribute('data-option-id') || '').trim();
+                    const fr = String(line.getAttribute('data-from-review-id') || '').trim();
+                    e.dataTransfer.setData('text/fam-simplified-option-id', oid);
+                    e.dataTransfer.setData('text/fam-simplified-from-review', fr);
+                    e.dataTransfer.effectAllowed = 'move';
+                    line.style.opacity = '0.65';
+                });
+                line.addEventListener('dragend', () => {
+                    line.style.opacity = '';
+                    clearOver();
+                });
+            });
+            mount.querySelectorAll('.fam-simplified-drag-body').forEach((body) => {
+                body.addEventListener('dragenter', (e) => {
+                    e.preventDefault();
+                    if (e.dataTransfer.types && [...e.dataTransfer.types].includes('text/fam-simplified-option-id')) {
+                        body.classList.add('fam-simplified-body-over');
+                    }
+                });
+                body.addEventListener('dragleave', (e) => {
+                    if (!body.contains(e.relatedTarget)) body.classList.remove('fam-simplified-body-over');
+                });
+            });
+            panels().forEach((panel) => {
+                panel.addEventListener('dragenter', (e) => {
+                    e.preventDefault();
+                    if (e.target.closest('.fam-simplified-drag-panel') === panel) panel.classList.add('fam-simplified-drag-over');
+                });
+                panel.addEventListener('dragleave', (e) => {
+                    if (!panel.contains(e.relatedTarget)) panel.classList.remove('fam-simplified-drag-over');
+                });
+                panel.addEventListener('dragover', (e) => {
+                    e.preventDefault();
+                    e.dataTransfer.dropEffect = 'move';
+                });
+                panel.addEventListener('drop', (e) => {
+                    e.preventDefault();
+                    const toIdRaw = String(panel.getAttribute('data-review-id') || '').trim();
+                    const optId = String(e.dataTransfer.getData('text/fam-simplified-option-id') || '').trim();
+                    const fromR = String(e.dataTransfer.getData('text/fam-simplified-from-review') || '').trim();
+                    if (optId && fromR && toIdRaw && fromR !== toIdRaw) {
+                        if (moveFamilleOptionBetweenReviewFamilies(fromR, toIdRaw, optId)) {
+                            const r = window.__ugapFamilleReview;
+                            const na = r.editFamilies.find((x) => String(x.reviewId) === String(rawIdA));
+                            const nb = r.editFamilies.find((x) => String(x.reviewId) === String(rawIdB));
+                            if (na && nb) {
+                                mountFamilleInlineEditorSimplifiedTwo(mount, na, nb, buildFamilleModalByIdMap());
+                            }
+                        }
+                        clearOver();
+                        return;
+                    }
+                    clearOver();
+                    const fromPan = String(e.dataTransfer.getData('text/fam-simplified-review') || '').trim();
+                    if (!fromPan || !toIdRaw || fromPan === toIdRaw) return;
+                    const kids = row ? [...row.children] : [];
+                    if (kids.length === 2) {
+                        row.insertBefore(kids[1], kids[0]);
+                    }
+                });
+            });
+            if (!document.getElementById('fam-simplified-pair-style')) {
+                const st = document.createElement('style');
+                st.id = 'fam-simplified-pair-style';
+                st.textContent = '.fam-simplified-drag-panel.fam-simplified-drag-over{outline:2px dashed #2563eb;outline-offset:2px;background:#eff6ff!important;}.fam-simplified-drag-body.fam-simplified-body-over{background:#e8f4fc!important;outline:1px dashed #0284c7;}.fam-simplified-opt-line:hover{background:#f1f5f9;border-color:#cbd5e1!important;}';
+                document.head.appendChild(st);
+            }
+            mount.querySelector('#fam-inline-pair-close')?.addEventListener('click', () => {
+                mount.innerHTML = placeholderHtml;
+                window.__ugapFamilleEditorPendingCompareId = null;
+            });
+            try {
+                mount.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            } catch (_) {}
+        }
+
+        function mountFamilleInlineEditor(reviewId, byId) {
+            const mount = document.getElementById('fam-inline-editor-mount');
+            if (!mount) return;
+            const review = window.__ugapFamilleReview || {};
+            const fam = (review.editFamilies || []).find((x) => x.reviewId === reviewId);
+            if (!fam) return;
+            const pending = window.__ugapFamilleEditorPendingCompareId;
+            if (pending && pending !== reviewId) {
+                const famPending = (review.editFamilies || []).find((x) => x.reviewId === pending);
+                if (famPending) {
+                    window.__ugapFamilleEditorPendingCompareId = null;
+                    mountFamilleInlineEditorSimplifiedTwo(mount, famPending, fam, byId);
+                    return;
+                }
+            }
+            window.__ugapFamilleEditorPendingCompareId = reviewId;
+            const rows = (fam.optionIds || []).map((id) => {
+                const row = resolveOptionRowById(byId, id);
+                if (row) return row;
+                // Fallback: garder une ligne visible même si l'ID n'est plus résolu dans le contexte courant.
+                const fromFam = fam?.optionLabels && typeof fam.optionLabels === 'object'
+                    ? String(fam.optionLabels[String(id || '').trim()] || '').trim()
+                    : '';
+                const resolvedLabel = fromFam || getOptionLabelById(id);
+                return {
+                    id: String(id || ''),
+                    name: resolvedLabel || `Option non résolue (${String(id || '')})`,
+                    lineKindLabel: 'Option',
+                    categoryName: '—'
+                };
+            }).filter(Boolean);
+            const allFamilyNames = Array.from(new Set(
+                (review.editFamilies || [])
+                    .map((x) => String(x.familyLabel || '').trim())
+                    .filter(Boolean)
+            ));
+            const existingSubs = Array.from(new Set(
+                Object.values(fam.optionSubFamilies || {}).map((x) => String(x || '').trim()).filter(Boolean)
+            ));
+            const subChoices = Array.from(new Set([...allFamilyNames, ...existingSubs])).sort((a, b) => a.localeCompare(b, 'fr', { sensitivity: 'base' }));
+            const optionSubFamilies = { ...(fam.optionSubFamilies || {}) };
+            const htmlRows = rows.map((r) => {
+                const curSub = String(optionSubFamilies[r.id] || '').trim();
+                const hasSub = !!curSub;
+                const selBorder = hasSub ? '2px solid #1976d2' : '1px solid #cfd8dc';
+                const selBg = hasSub ? '#f5f9ff' : '#fff';
+                return `
+                <tr class="fam-modal-row" data-option-id="${escapeHtml(r.id || '')}" data-has-sub="${hasSub ? '1' : '0'}" draggable="true" style="white-space:nowrap; ${hasSub ? 'background:linear-gradient(90deg, rgba(227,242,253,.25) 0%, transparent 55%);' : ''}">
+                    <td style="padding:8px; border-bottom:1px solid #e0e0e0; text-align:center; vertical-align:middle;">
+                        <input type="checkbox" class="fam-modal-opt-cb" data-option-id="${escapeHtml(r.id || '')}" ${(Array.isArray(fam.selectedOptionIds) ? fam.selectedOptionIds : []).includes(r.id) ? 'checked' : ''}>
+                    </td>
+                    <td style="padding:8px; border-bottom:1px solid #e0e0e0; vertical-align:middle;">${escapeHtml(r.lineKindLabel || '')}</td>
+                    <td style="padding:8px; border-bottom:1px solid #e0e0e0; vertical-align:middle; font-weight:500;">${escapeHtml(r.name || '—')}</td>
+                    <td class="fam-modal-sub-cell" style="padding:8px 10px; border-bottom:1px solid #e0e0e0; vertical-align:middle; min-width:200px; max-width:320px; background:${hasSub ? 'rgba(227,242,253,.35)' : '#fafafa'};">
+                        <select class="fam-modal-sub-select" data-option-id="${escapeHtml(r.id || '')}" style="width:100%; max-width:100%; padding:6px 8px; border:${selBorder}; border-radius:6px; font-size:13px; font-weight:500; background:${selBg}; color:#1565c0; box-sizing:border-box;">
+                            <option value="">Aucune</option>
+                            ${subChoices.map((s) => `<option value="${escapeHtml(s)}" ${optionSubFamilies[r.id] === s ? 'selected' : ''}>${escapeHtml(s)}</option>`).join('')}
+                        </select>
+                    </td>
+                </tr>`;
+            }).join('');
+            const placeholderHtml = '<p style="margin:0; color:#888; font-size:13px;">Double-cliquez une carte famille dans la grille ou la liste pour afficher l’édition ici.</p>';
+            const close = () => {
+                mount.innerHTML = placeholderHtml;
+                window.__ugapFamilleEditorPendingCompareId = null;
+            };
+            mount.innerHTML = `
+                <div class="fam-inline-editor-inner" style="background:#fff; border-radius:10px; border:1px solid #cfd8dc; overflow:hidden; box-shadow:0 2px 8px rgba(0,0,0,.06);">
+                    <div style="padding:12px 14px; border-bottom:1px solid #eee; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
+                        <strong>Éditer la famille</strong>
+                        <div style="display:flex; gap:6px; flex-wrap:wrap;">
+                            <button class="btn btn-primary" id="fam-review-modal-lock" title="Verrouille le nom + les options actuelles (ajout futur autorisé)">Valider nom + options</button>
+                            <button class="btn btn-success" id="fam-review-modal-save">Valider</button>
+                            <button class="btn btn-outline" id="fam-review-modal-close">Fermer</button>
+                        </div>
+                    </div>
+                    <div style="padding:12px 14px; max-height:min(70vh,900px); overflow:auto;">
+                        <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:10px;">
+                            <div>
+                                <label style="display:block; font-size:12px; color:#666; margin-bottom:4px;">Nom de la famille</label>
+                                <input id="fam-modal-label" type="text" value="${escapeHtml(fam.familyLabel || 'Famille')}" style="width:100%; padding:8px; border:1px solid #ddd; border-radius:4px;">
+                            </div>
+                            <div>
+                                <label style="display:block; font-size:12px; color:#666; margin-bottom:4px;">Créer une sous-famille (libellé)</label>
+                                <div style="display:flex; gap:6px;">
+                                    <input id="fam-modal-new-sub" type="text" placeholder="Ex: Couleur console" style="flex:1; padding:8px; border:1px solid #ddd; border-radius:4px;">
+                                    <button type="button" class="btn btn-outline" id="fam-modal-add-sub">Ajouter</button>
+                                </div>
+                            </div>
+                        </div>
+                        <div id="fam-modal-split" style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:12px; align-items:stretch;">
+                            <div style="border:1px solid #dee2e6; border-radius:8px; padding:10px; background:#f8f9fa; min-height:72px;">
+                                <div id="fam-modal-col-left" style="font-size:12px; color:#333; min-height:28px;"></div>
+                            </div>
+                            <div style="border:1px solid #dee2e6; border-radius:8px; padding:10px; background:#f8f9fa; min-height:72px;">
+                                <div id="fam-modal-col-right" class="fam-modal-col-right-drop" style="min-height:40px; padding:4px; border:1px dashed #ced4da; border-radius:6px; background:#fff;"></div>
+                            </div>
+                        </div>
+                        <table class="fam-modal-opts-table" style="width:100%; border-collapse:collapse; border:1px solid #e0e0e0; border-radius:8px; overflow:hidden;">
+                            <thead>
+                                <tr>
+                                    <th style="padding:10px 8px; border-bottom:2px solid #dee2e6; text-align:center; background:#f5f5f5; font-size:12px;">Valider</th>
+                                    <th style="padding:10px 8px; border-bottom:2px solid #dee2e6; text-align:left; background:#f5f5f5; font-size:12px;">Type</th>
+                                    <th style="padding:10px 8px; border-bottom:2px solid #dee2e6; text-align:left; background:#f5f5f5; font-size:12px;">Libellé</th>
+                                    <th style="padding:10px 8px; border-bottom:2px solid #dee2e6; text-align:left; background:#f5f5f5; font-size:12px;">Sous-famille</th>
+                                </tr>
+                            </thead>
+                            <tbody>${htmlRows || '<tr><td colspan="4" style="padding:10px; color:#999;">Aucun élément</td></tr>'}</tbody>
+                        </table>
+                        <p style="margin-top:12px; color:#666; font-size:12px; line-height:1.5;">Sous-famille : liste <strong>Aucune</strong> par défaut. <strong>1ᵉʳ</strong> double-clic sur une ligne : zone droite · <strong>2ᵉ</strong> double-clic : zone gauche. Double-clic sur une <strong>autre famille</strong> (carte) : vue simplifiée des deux familles.</p>
+                        <p style="margin-top:8px; color:#666; font-size:12px;">Les options décochées iront dans la famille <strong>Non attribuée</strong> après validation.</p>
+                    </div>
+                </div>
+            `;
+            const wrap = mount;
+            mount.querySelector('#fam-review-modal-close')?.addEventListener('click', close);
+            const syncFamModalSubRow = (sel) => {
+                const val = String(sel.value || '').trim();
+                const tr = sel.closest('tr');
+                if (!tr) return;
+                sel.style.border = val ? '2px solid #1976d2' : '1px solid #cfd8dc';
+                sel.style.background = val ? '#f5f9ff' : '#fff';
+                tr.style.background = val ? 'linear-gradient(90deg, rgba(227,242,253,.25) 0%, transparent 55%)' : '';
+                tr.setAttribute('data-has-sub', val ? '1' : '0');
+                const cell = tr.querySelector('.fam-modal-sub-cell');
+                if (cell) cell.style.background = val ? 'rgba(227,242,253,.35)' : '#fafafa';
+            };
+            wrap.querySelectorAll('.fam-modal-sub-select').forEach((sel) => {
+                sel.addEventListener('change', () => syncFamModalSubRow(sel));
+                syncFamModalSubRow(sel);
+            });
+            const rowById = new Map(rows.map((r) => [r.id, r]));
+            const lineOne = (r) => {
+                if (!r) return '';
+                const t = escapeHtml(r.lineKindLabel || '');
+                const n = escapeHtml(r.name || '—');
+                return `<span style="display:block; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="${n}">${t} · ${n}</span>`;
+            };
+            let rightOrder = [];
+            let leftFocusId = null;
+            let dblclickCount = 0;
+            const applyFamModalSequenceToFamily = () => {
+                if (!Array.isArray(rightOrder) || rightOrder.length === 0) return;
+                const ord = rightOrder.map((x) => String(x || '').trim()).filter(Boolean);
+                const seen = new Set(ord);
+                const rest = (fam.optionIds || []).map((x) => String(x || '').trim()).filter((id) => id && !seen.has(id));
+                fam.optionIds = [...ord, ...rest];
+            };
+            const colLeft = wrap.querySelector('#fam-modal-col-left');
+            const colRight = wrap.querySelector('#fam-modal-col-right');
+            const renderFamModalLeft = () => {
+                if (!colLeft) return;
+                if (!leftFocusId) {
+                    colLeft.innerHTML = '<span style="color:#999;">—</span>';
+                    return;
+                }
+                const focusRow = rowById.get(leftFocusId);
+                const ids = (fam.optionIds || []).map((x) => String(x || '').trim()).filter(Boolean);
+                const rest = ids.filter((id) => id !== leftFocusId);
+                const above = rest.map((id) => {
+                    const rr = rowById.get(id);
+                    return rr ? `<div style="padding:3px 0; opacity:.9;">${lineOne(rr)}</div>` : '';
+                }).join('');
+                const focusBlock = focusRow
+                    ? `<div style="margin-top:8px; padding-top:8px; border-top:2px solid #90caf9; font-weight:600;">${lineOne(focusRow)}</div>`
+                    : '';
+                colLeft.innerHTML = `
+                    <div style="border:1px solid #dbeafe; border-radius:8px; background:#fff; overflow:hidden;">
+                        <div style="padding:6px 10px; background:#eff6ff; border-bottom:1px solid #dbeafe; display:flex; justify-content:space-between; align-items:center;">
+                            <strong style="font-size:12px; color:#1e3a8a;">${escapeHtml(fam.familyLabel || 'Famille')}</strong>
+                            <button type="button" class="btn btn-outline" id="fam-col-left-clear" style="padding:2px 8px; font-size:11px;">Fermer</button>
+                        </div>
+                        <div style="padding:8px 10px; max-height:26vh; overflow:auto; font-size:12px;">
+                            ${above || '<span style="color:#bbb; font-size:11px;">(autres lignes)</span>'}
+                            ${focusBlock}
+                        </div>
+                    </div>`;
+                wrap.querySelector('#fam-col-left-clear')?.addEventListener('click', () => {
+                    leftFocusId = null;
+                    renderFamModalLeft();
+                });
+            };
+            const renderFamModalRight = () => {
+                if (!colRight) return;
+                if (rightOrder.length === 0) {
+                    colRight.innerHTML = '<span style="color:#999; font-size:12px;">—</span>';
+                    return;
+                }
+                const listHtml = rightOrder.map((oid, idx) => {
+                    const rr = rowById.get(oid);
+                    const label = rr ? lineOne(rr) : `<span>${escapeHtml(oid)}</span>`;
+                    return `
+                        <div class="fam-modal-seq-item" draggable="true" data-seq-idx="${idx}" data-option-id="${escapeHtml(oid)}"
+                             style="padding:6px 8px; margin-bottom:4px; border:1px solid #e0e0e0; border-radius:6px; background:#fff; cursor:grab; font-size:12px;">
+                            ${label}
+                        </div>`;
+                }).join('');
+                colRight.innerHTML = `
+                    <div style="border:1px solid #dbeafe; border-radius:8px; background:#fff; overflow:hidden;">
+                        <div style="padding:6px 10px; background:#eff6ff; border-bottom:1px solid #dbeafe; display:flex; justify-content:space-between; align-items:center;">
+                            <strong style="font-size:12px; color:#1e3a8a;">${escapeHtml(fam.familyLabel || 'Famille')}</strong>
+                            <button type="button" class="btn btn-outline" id="fam-col-right-clear" style="padding:2px 8px; font-size:11px;">Fermer</button>
+                        </div>
+                        <div style="padding:8px 10px; max-height:26vh; overflow:auto;">${listHtml}</div>
+                    </div>`;
+                colRight.querySelectorAll('.fam-modal-seq-item').forEach((el) => {
+                    el.addEventListener('dragstart', (ev) => {
+                        ev.dataTransfer.setData('text/fam-modal-seq-from', String(el.getAttribute('data-seq-idx') || ''));
+                        ev.dataTransfer.setData('text/fam-modal-option-id', String(el.getAttribute('data-option-id') || ''));
+                        ev.dataTransfer.effectAllowed = 'move';
+                    });
+                });
+                wrap.querySelector('#fam-col-right-clear')?.addEventListener('click', () => {
+                    rightOrder = [];
+                    renderFamModalRight();
+                });
+            };
+            renderFamModalLeft();
+            renderFamModalRight();
+            wrap.querySelector('.fam-modal-opts-table')?.addEventListener('dblclick', (e) => {
+                const tr = e.target.closest?.('tr.fam-modal-row');
+                if (!tr || e.target.closest?.('input, select, button, label')) return;
+                const oid = String(tr.getAttribute('data-option-id') || '').trim();
+                if (!oid) return;
+                dblclickCount += 1;
+                if (dblclickCount === 1) {
+                    rightOrder = [oid];
+                    leftFocusId = null;
+                } else {
+                    leftFocusId = oid;
+                }
+                renderFamModalLeft();
+                renderFamModalRight();
+            });
+            wrap.querySelectorAll('.fam-modal-row').forEach((tr) => {
+                tr.addEventListener('dragstart', (e) => {
+                    if (e.target && e.target.closest && e.target.closest('input, select')) {
+                        e.preventDefault();
+                        return;
+                    }
+                    const oid = String(tr.getAttribute('data-option-id') || '').trim();
+                    if (!oid || !e.dataTransfer) return;
+                    e.dataTransfer.setData('text/fam-modal-option-id', oid);
+                    e.dataTransfer.effectAllowed = 'copy';
+                });
+            });
+            colRight?.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                e.dataTransfer.dropEffect = 'copy';
+            });
+            colRight?.addEventListener('drop', (e) => {
+                e.preventDefault();
+                const fromSeq = e.dataTransfer.getData('text/fam-modal-seq-from');
+                const oid = String(e.dataTransfer.getData('text/fam-modal-option-id') || '').trim();
+                if (fromSeq !== '' && fromSeq !== undefined) {
+                    const fromIdx = parseInt(fromSeq, 10);
+                    if (Number.isNaN(fromIdx) || fromIdx < 0 || fromIdx >= rightOrder.length) {
+                        renderFamModalRight();
+                        return;
+                    }
+                    const targetItem = e.target.closest?.('.fam-modal-seq-item');
+                    const arr = [...rightOrder];
+                    const [moved] = arr.splice(fromIdx, 1);
+                    if (!targetItem) {
+                        arr.push(moved);
+                    } else {
+                        let toIdx = parseInt(targetItem.getAttribute('data-seq-idx') || '0', 10);
+                        if (fromIdx < toIdx) toIdx -= 1;
+                        toIdx = Math.max(0, Math.min(toIdx, arr.length));
+                        arr.splice(toIdx, 0, moved);
+                    }
+                    rightOrder = arr;
+                    renderFamModalRight();
+                    return;
+                }
+                if (!oid || !fam.optionIds?.includes(oid)) return;
+                if (!rightOrder.includes(oid)) rightOrder.push(oid);
+                renderFamModalRight();
+            });
+            wrap.querySelector('#fam-modal-add-sub')?.addEventListener('click', () => {
+                const input = wrap.querySelector('#fam-modal-new-sub');
+                const newSub = String(input?.value || '').trim();
+                if (!newSub) return;
+                wrap.querySelectorAll('.fam-modal-sub-select').forEach((sel) => {
+                    const exists = Array.from(sel.options).some((o) => o.value === newSub);
+                    if (!exists) {
+                        const opt = document.createElement('option');
+                        opt.value = newSub;
+                        opt.textContent = newSub;
+                        sel.appendChild(opt);
+                    }
+                });
+                if (input) input.value = '';
+            });
+            wrap.querySelector('#fam-review-modal-lock')?.addEventListener('click', () => {
+                applyFamModalSequenceToFamily();
+                const updatedLabel = String(wrap.querySelector('#fam-modal-label')?.value || '').trim() || 'Famille';
+                fam.familyLabel = updatedLabel;
+                if (!fam.optionSubFamilies) fam.optionSubFamilies = {};
+                const checkedIds = new Set();
+                wrap.querySelectorAll('.fam-modal-opt-cb').forEach((cb) => {
+                    const optionId = cb.getAttribute('data-option-id');
+                    if (cb.checked && optionId) checkedIds.add(optionId);
+                });
+                wrap.querySelectorAll('.fam-modal-sub-select').forEach((sel) => {
+                    const optionId = sel.getAttribute('data-option-id');
+                    if (!optionId) return;
+                    const v = String(sel.value || '').trim();
+                    if (v) fam.optionSubFamilies[optionId] = v;
+                    else delete fam.optionSubFamilies[optionId];
+                });
+                // Verrouille le nom + les options actuellement validées.
+                fam.selectedOptionIds = (fam.optionIds || []).filter((id) => checkedIds.has(id));
+                fam.nameOptionsLocked = true;
+                fam.lockedOptionIds = Array.from(new Set(fam.selectedOptionIds || []));
+                syncReviewStateIntoIaResult();
+                showAlert('Nom + options verrouillés. Vous pouvez ajouter des éléments ensuite, mais pas retirer cette base.', 'success');
+                close();
+                renderExtractionInsights();
+            });
+            wrap.querySelector('#fam-review-modal-save')?.addEventListener('click', () => {
+                applyFamModalSequenceToFamily();
+                const updatedLabel = String(wrap.querySelector('#fam-modal-label')?.value || '').trim() || 'Famille';
+                fam.familyLabel = updatedLabel;
+                if (!fam.optionSubFamilies) fam.optionSubFamilies = {};
+                const checkedIds = new Set();
+                wrap.querySelectorAll('.fam-modal-opt-cb').forEach((cb) => {
+                    const optionId = cb.getAttribute('data-option-id');
+                    if (cb.checked && optionId) checkedIds.add(optionId);
+                });
+                wrap.querySelectorAll('.fam-modal-sub-select').forEach((sel) => {
+                    const optionId = sel.getAttribute('data-option-id');
+                    if (!optionId) return;
+                    const v = String(sel.value || '').trim();
+                    if (v) fam.optionSubFamilies[optionId] = v;
+                    else delete fam.optionSubFamilies[optionId];
+                });
+                fam.selectedOptionIds = (fam.optionIds || []).filter((id) => checkedIds.has(id));
+                if (isFamNameOptionsLocked(fam)) {
+                    const locked = new Set((Array.isArray(fam.lockedOptionIds) ? fam.lockedOptionIds : []).map((id) => String(id)));
+                    const current = new Set((Array.isArray(fam.selectedOptionIds) ? fam.selectedOptionIds : []).map((id) => String(id)));
+                    locked.forEach((id) => current.add(id));
+                    fam.selectedOptionIds = Array.from(current);
+                }
+                const unchecked = (fam.optionIds || []).filter((id) => !checkedIds.has(id));
+                if (unchecked.length > 0) {
+                    if (isFamNameOptionsLocked(fam)) {
+                        const locked = new Set((Array.isArray(fam.lockedOptionIds) ? fam.lockedOptionIds : []).map((id) => String(id)));
+                        const denied = unchecked.filter((id) => locked.has(String(id)));
+                        if (denied.length > 0) {
+                            showAlert('Cette famille est verrouillée: impossible de retirer les options validées.', 'warning');
+                            return;
+                        }
+                    }
+                    const nonAttrib = ensureNonAttribueeFamily(review);
+                    unchecked.forEach((id) => {
+                        if (!nonAttrib.optionIds.includes(id)) nonAttrib.optionIds.push(id);
+                        if (!nonAttrib.selectedOptionIds.includes(id)) nonAttrib.selectedOptionIds.push(id);
+                    });
+                    // Retirer de la famille courante
+                    fam.optionIds = (fam.optionIds || []).filter((id) => checkedIds.has(id));
+                    fam.selectedOptionIds = fam.selectedOptionIds.filter((id) => fam.optionIds.includes(id));
+                }
+                syncReviewStateIntoIaResult();
+                close();
+                renderExtractionInsights();
+            });
+            try {
+                mount.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            } catch (_) {}
+        }
+
+        function renderFamilyCardsList(families, byId, sourceKey, allFamilies) {
+            if (!Array.isArray(families) || families.length === 0) {
+                return '<p style="color:#666; margin:0;">Aucune famille.</p>';
+            }
+            const ui = getFamilleUiState();
+            const familyStageValidated = true;
+            const review = window.__ugapFamilleReview || {};
+            const allNames = Array.from(new Set((review.editFamilies || []).map((x) => String(x.familyLabel || '').trim()).filter(Boolean)));
+            return families.map((f) => {
+                if ((ui.hiddenIds || []).includes(f.reviewId)) return '';
+                const label = f.familyLabel || 'Famille';
+                const lockBadge = isFamNameOptionsLocked(f)
+                    ? '<span style="display:inline-block; padding:2px 6px; border-radius:999px; background:#fff3cd; color:#856404; font-size:9px; font-weight:700; border:1px solid #ffe69c;">Verrouillée</span>'
+                    : '';
+                const ids = Array.isArray(f.optionIds) ? f.optionIds : [];
+                const defId = f.defaultOptionId != null && String(f.defaultOptionId).trim() !== '' ? String(f.defaultOptionId).trim() : null;
+                const rows = ids.map((id) => byId.get(id)).filter(Boolean);
+                const isChild = !!f.parentReviewId;
+                const childOffset = isChild ? 'margin-left:14px;' : '';
+                const existingSubs = Array.from(new Set(Object.values(f.optionSubFamilies || {}).map((x) => String(x || '').trim()).filter(Boolean)));
+                const subChoices = Array.from(new Set([...allNames, ...existingSubs])).sort((a, b) => a.localeCompare(b, 'fr', { sensitivity: 'base' }));
+                const rowsHtml = rows.map((row) => {
+                    const curSub = String((f.optionSubFamilies && f.optionSubFamilies[row.id]) || '').trim();
+                    return `
+                    <tr style="white-space:nowrap;">
+                        <td style="padding:4px 6px; border-bottom:1px solid #eee; font-size:11px; width:26px; text-align:center; vertical-align:middle;">
+                            ${familyStageValidated ? `<input type="checkbox" class="fam-option-cb" data-review-id="${escapeHtml(f.reviewId || '')}" data-option-id="${escapeHtml(row.id || '')}" ${(Array.isArray(f.selectedOptionIds) ? f.selectedOptionIds : []).includes(row.id) ? 'checked' : ''}>` : ''}
+                        </td>
+                        <td style="padding:4px 6px; border-bottom:1px solid #eee; font-size:11px; overflow:hidden; text-overflow:ellipsis; max-width:min(380px,50vw); vertical-align:middle;" draggable="${familyStageValidated ? 'true' : 'false'}" data-option-drag-id="${escapeHtml(row.id || '')}" data-option-from-family="${escapeHtml(f.reviewId || '')}" title="${escapeHtml(row.name || '')}">${escapeHtml(row.lineKindLabel || '')} · ${escapeHtml(row.name || '—')}${defId === row.id ? ' <span style="font-size:10px; color:#664d03;">(défaut)</span>' : ''}</td>
+                        <td style="padding:4px 6px; border-bottom:1px solid #eee; font-size:11px; width:130px; vertical-align:middle;">
+                            <select class="fam-card-sub-select" data-review-id="${escapeHtml(f.reviewId || '')}" data-option-id="${escapeHtml(row.id || '')}" style="width:100%; max-width:124px; padding:3px 4px; font-size:11px; border:1px solid #ddd; border-radius:4px; box-sizing:border-box;">
+                                <option value="">Aucune</option>
+                                ${subChoices.map((s) => `<option value="${escapeHtml(s)}" ${curSub === s ? 'selected' : ''}>${escapeHtml(s)}</option>`).join('')}
+                            </select>
+                        </td>
+                    </tr>`;
+                }).join('');
+                const labelReadonly = f.source === 'ia' ? '' : 'readonly';
+                return `
+                    <div class="fam-review-card" draggable="true" data-review-id="${escapeHtml(f.reviewId || '')}" style="margin-bottom:8px; border:1px solid #ddd; border-radius:6px; overflow:hidden; background:#fff; ${childOffset}">
+                        <div class="fam-card-header" style="padding:6px 8px; background:#f8f9fa; border-bottom:1px solid #eee; display:flex; justify-content:space-between; align-items:center; gap:6px; flex-wrap:wrap;">
+                            <label style="display:flex; align-items:center; gap:6px; margin:0; cursor:pointer; flex-shrink:0;" title="Fusion">
+                                <input type="checkbox" class="fam-col-merge-cb" data-merge-col="${escapeHtml(sourceKey)}" data-review-id="${escapeHtml(f.reviewId || '')}" value="${escapeHtml(f.reviewId || '')}">
+                            </label>
+                            <div style="display:flex; align-items:center; gap:6px; margin:0; flex:1; flex-wrap:wrap; min-width:0;">
+                                <strong style="font-size:11px; flex-shrink:0;">Famille</strong>
+                                ${lockBadge}
+                                <input type="text" class="fam-label-input" data-review-id="${escapeHtml(f.reviewId || '')}" value="${escapeHtml(label)}" style="padding:3px 6px; border:1px solid #ddd; border-radius:4px; font-size:11px; min-width:120px; flex:1;" ${labelReadonly}>
+                            </div>
+                            <span style="font-size:10px; color:#666; white-space:nowrap;">${ids.length} ligne(s)</span>
+                        </div>
+                        <div style="padding:6px 8px; max-height:26vh; overflow:auto;">
+                            <table style="width:100%; border-collapse:collapse;"><tbody>${rowsHtml || '<tr><td colspan="3" style="padding:6px; color:#999;">Aucune ligne</td></tr>'}</tbody></table>
+                        </div>
+                        <p style="margin:0; padding:3px 8px 5px; font-size:9px; color:#888;">Glisser carte sur carte : sous-famille · double-clic : panneau d’édition</p>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function renderFamilleTabInner(splitOptions) {
+            pruneFamilleMergePick();
+            if (!window.__ugapFamilleRepassIndices) window.__ugapFamilleRepassIndices = new Set();
+            const combined = buildFamilleCombinedRows(splitOptions);
+            upsertFamilleOptionLabelCache(combined.map((r) => ({ id: r.id, name: r.name })));
+            const byId = new Map(combined.map((r) => [r.id, r]));
+            const nOpt = (splitOptions.regularOptions || []).length;
+            const nMino = (splitOptions.minorationOptions || []).length;
+            const iaData = window.__ugapFamilleIa || null;
+            const nFamIa = iaData && Array.isArray(iaData.families) ? iaData.families.length : 0;
+            const rules = getFamilleHeuristicRules();
+            const nRules = rules.length;
+            const validatedFamilies = getFamilleValidatedFamilies();
+            const businessViews = getBusinessViewsForAssignationTab();
+            const filterState = getFamilleValidatedFilterState();
+            const selectedBusinessViewId = String(filterState.businessViewId || '').trim();
+            const showNonAssigned = !!filterState.showNonAssigned;
+            const selectedFamilyName = String(filterState.familyName || '').trim();
+            const selectedSubFamilyName = String(filterState.subFamilyName || '').trim();
+            const parsedValidatedFamilies = validatedFamilies.map((f) => parseValidatedFamilyLabel(f?.familyLabel || ''));
+            const familyChoices = Array.from(
+                new Set(parsedValidatedFamilies.map((x) => x.familyName).filter(Boolean))
+            ).sort((a, b) => a.localeCompare(b, 'fr', { sensitivity: 'base' }));
+            const subFamilyChoices = Array.from(
+                new Set(
+                    parsedValidatedFamilies
+                        .filter((x) => !selectedFamilyName || x.familyName === selectedFamilyName)
+                        .map((x) => x.subFamilyName)
+                        .filter(Boolean)
+                )
+            ).sort((a, b) => a.localeCompare(b, 'fr', { sensitivity: 'base' }));
+            const assignedViewFamilyLabels = new Set(
+                validatedFamilies
+                    .filter((f) => String(f?.businessViewId || '').trim() === selectedBusinessViewId)
+                    .map((f) => String(f?.familyLabel || '').trim())
+                    .filter(Boolean)
+            );
+            [...window.__ugapFamilleRepassIndices].forEach((ix) => {
+                if (!Number.isInteger(ix) || ix < 0 || ix >= validatedFamilies.length) window.__ugapFamilleRepassIndices.delete(ix);
+            });
+            const review = window.__ugapFamilleReview || null;
+            const editFamilies = Array.isArray(review?.editFamilies) ? review.editFamilies : [];
+            const mergeOpts = editFamilies.map((f) => {
+                const n = (f.optionIds || []).length;
+                return `<option value="${escapeHtml(f.reviewId)}">${escapeHtml(f.familyLabel || 'Famille')} (${n} él.)</option>`;
+            }).join('');
+
+            const flatBody = combined.length === 0
+                ? '<tr><td colspan="6" style="padding:14px; color:#666;">Aucune ligne.</td></tr>'
+                : combined.map((row) => `
+                    <tr>
+                        <td style="padding:8px; border-bottom:1px solid #eee; white-space:nowrap;">
+                            <span style="display:inline-block; padding:2px 8px; border-radius:4px; font-size:12px; font-weight:600; color:#fff; background:${row.lineKind === 'mino' ? '#6f42c1' : '#0d6efd'};">${escapeHtml(row.lineKindLabel)}</span>
+                        </td>
+                        <td style="padding:8px; border-bottom:1px solid #eee;">${escapeHtml(row.name || '—')}</td>
+                        <td style="padding:8px; border-bottom:1px solid #eee; color:#666;">${escapeHtml(row.categoryName || '—')}</td>
+                        <td style="padding:8px; border-bottom:1px solid #eee; text-align:right;">${formatPriceUgapCell(row.priceClient)}</td>
+                        <td style="padding:8px; border-bottom:1px solid #eee; text-align:right;">${formatPriceUgapCell(row.priceUgap)}</td>
+                        <td style="padding:8px; border-bottom:1px solid #eee; color:#666; font-size:12px;">${escapeHtml(row.refUgap || '—')}</td>
+                    </tr>
+                `).join('');
+
+            const iaBlock = iaData
+                ? renderFamilleIaGroupCards(iaData, byId)
+                : '<p style="color:#666; margin:0;">Aucun regroupement encore : cliquez sur <strong>Lancer le regroupement IA</strong> (utilise la config IA entreprise : Ollama / OpenAI, etc.).</p>';
+            const validatedRows = validatedFamilies
+                .map((f, i) => ({ f, i }))
+                .filter(({ f }) => {
+                    const fv = String(f?.businessViewId || '').trim();
+                    const parsed = parseValidatedFamilyLabel(f?.familyLabel || '');
+                    if (selectedFamilyName && parsed.familyName !== selectedFamilyName) return false;
+                    if (selectedSubFamilyName && parsed.subFamilyName !== selectedSubFamilyName) return false;
+                    if (selectedBusinessViewId) {
+                        if (fv === selectedBusinessViewId) return true;
+                        if (!parsed.fullLabel) return false;
+                        // Règle métier: parent assigné -> afficher ses enfants; l'inverse n'est pas vrai.
+                        const hasAssignedAncestor = getFamilyLabelAncestors(parsed.fullLabel)
+                            .some((ancestorLabel) => assignedViewFamilyLabels.has(ancestorLabel));
+                        return hasAssignedAncestor;
+                    }
+                    if (!showNonAssigned && !fv) return false;
+                    return true;
+                });
+
+            return `
+                <div class="famille-tab-root" style="padding-bottom:32px;">
+                <div style="padding:4px 0 14px 0; color:#444; font-size:14px; line-height:1.5;">
+                    <p style="margin:0 0 10px 0;">Les onglets <em>Option</em> et <em>Minoration</em> restent inchangés. Ici, vous pouvez créer des <strong>familles heuristiques</strong> (mots-clés) puis compléter avec l’IA.</p>
+                </div>
+                <div style="margin-bottom:12px; border:1px solid #e9ecef; border-radius:8px; padding:10px; background:#fafbfc;">
+                    <div style="display:flex; flex-wrap:wrap; gap:8px; align-items:end; margin-bottom:8px;">
+                        <div style="min-width:220px; flex:1;">
+                            <label style="display:block; font-size:12px; color:#555; margin-bottom:4px;">Nom de famille</label>
+                            <input id="fam-heur-label" type="text" placeholder="Ex: Couleur du flotteur" style="width:100%; padding:8px; border:1px solid #ddd; border-radius:4px;">
+                        </div>
+                        <div style="min-width:260px; flex:2;">
+                            <label style="display:block; font-size:12px; color:#555; margin-bottom:4px;">Mots-clés (séparés par virgule)</label>
+                            <input id="fam-heur-keywords" type="text" placeholder="Ex: coloris flotteur, rouge etna, vert army" style="width:100%; padding:8px; border:1px solid #ddd; border-radius:4px;">
+                        </div>
+                        <div style="min-width:160px;">
+                            <label style="display:block; font-size:12px; color:#555; margin-bottom:4px;">Scope</label>
+                            <select id="fam-heur-scope" style="width:100%; padding:8px; border:1px solid #ddd; border-radius:4px;">
+                                <option value="all">Toutes les lignes</option>
+                                <option value="option">Options uniquement</option>
+                                <option value="minoration">Minorations uniquement</option>
+                            </select>
+                        </div>
+                        <button type="button" class="btn btn-outline" id="btn-add-fam-heur">Créer / Enregistrer</button>
+                        <button type="button" class="btn btn-outline" id="btn-cancel-fam-heur-edit" style="display:none;">Annuler édition</button>
+                    </div>
+                    <div id="fam-heur-list" style="font-size:13px; color:#444;">
+                        ${nRules === 0
+                            ? '<span style="color:#666;">Aucune règle heuristique pour le moment.</span>'
+                            : rules.map((r, idx) => `
+                                <div style="display:flex; justify-content:space-between; gap:8px; align-items:center; border-top:1px solid #eee; padding:8px 0;">
+                                    <div>
+                                        <strong>${escapeHtml(r.familyLabel || 'Famille')}</strong>
+                                        <span style="color:#666;">(${escapeHtml(r.scope || 'all')})</span>
+                                        <div style="color:#666; font-size:12px;">${escapeHtml(r.keywords || '')}</div>
+                                    </div>
+                                    <div style="display:flex; gap:6px;">
+                                        <button type="button" class="btn btn-outline" data-edit-fam-heur="${idx}">Modifier</button>
+                                        <button type="button" class="btn btn-outline" data-del-fam-heur="${idx}">Supprimer</button>
+                                    </div>
+                                </div>
+                            `).join('')}
+                    </div>
+                </div>
+                <div style="display:flex; flex-wrap:wrap; align-items:center; gap:10px; margin-bottom:12px;">
+                    <span class="badge">${nOpt} option(s)</span>
+                    <span class="badge" style="background:#6f42c1;">${nMino} minoration / MV / PV</span>
+                    <span class="badge" style="background:#198754;">${combined.length} ligne(s) envoyées à l’IA</span>
+                    <span class="badge" style="background:#6c757d;">${nRules} règle(s)</span>
+                    ${nFamIa ? `<span class="badge" style="background:#0d6efd;">${nFamIa} famille(s) IA</span>` : ''}
+                    <button type="button" class="btn btn-primary" id="btn-run-famille-traitement">Détecter familles</button>
+                    <button type="button" class="btn btn-success" id="btn-validate-family-stage" title="Enregistre heuristique + IA + réglages manuels (familles affichées ci-dessous)">Enregistrer</button>
+                    <button type="button" class="btn btn-outline" id="btn-fam-show-all">Afficher tout</button>
+                    <button type="button" class="btn btn-outline" id="btn-fam-reset-view">Réinitialiser affichage</button>
+                    <button type="button" class="btn btn-outline" onclick="window.__ugapFamilleIa=null; renderExtractionInsights();" title="Effacer le résultat IA affiché">Réinitialiser l’affichage IA</button>
+                </div>
+                <div style="display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:10px; margin:16px 0 10px 0;">
+                    <h4 style="margin:0; font-size:15px; color:#333;">Zone familles (grille + liste)</h4>
+                    <button type="button" class="btn btn-outline" id="btn-fam-merge-grid-selection" style="font-size:12px;">Fusionner la sélection (grille)…</button>
+                </div>
+                <p style="margin:0 0 8px 0; font-size:12px; color:#666;">Cochez la case pour la fusion ; double-clic sur une carte pour ouvrir l’édition dans le panneau ci-dessous.</p>
+                <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(260px, 1fr)); gap:10px; margin-bottom:12px; align-items:stretch;">
+                    ${editFamilies.length === 0
+                        ? '<span style="color:#666;">Aucune famille détectée.</span>'
+                        : editFamilies.map((f) => `
+                            <div class="fam-name-card" data-review-id="${escapeHtml(f.reviewId || '')}" title="Case à cocher = fusion · Double-clic = éditer" draggable="true"
+                                 style="position:relative; padding:10px 12px 10px 36px; border:1px solid #ddd; border-radius:8px; background:#fff; cursor:pointer; user-select:none; min-height:64px; display:flex; flex-direction:column; justify-content:space-between; gap:6px;">
+                                <label class="fam-grid-merge-label" style="position:absolute; left:8px; top:10px; margin:0; cursor:pointer;">
+                                    <input type="checkbox" class="fam-grid-merge-cb" data-review-id="${escapeHtml(f.reviewId || '')}" value="${escapeHtml(f.reviewId || '')}">
+                                </label>
+                                <strong style="font-size:13px; line-height:1.3;">${escapeHtml(f.familyLabel || 'Famille')}</strong>
+                                <span style="font-size:11px; color:#666;">${(f.optionIds || []).length} élément(s)</span>
+                            </div>
+                        `).join('')}
+                </div>
+                <div style="margin:16px 0;">
+                    <h4 style="margin:0 0 8px 0; font-size:14px; color:#333;">Familles en cours (révision)</h4>
+                    <p style="margin:0 0 8px 0; font-size:12px; color:#666;">Une ligne par option ; sous-catégorie compacte. Glisser-déposer les cartes ou les lignes comme avant.</p>
+                    <div id="fam-unified-revision-list" style="max-height:40vh; overflow:auto; border:1px solid #dee2e6; border-radius:8px; padding:8px; background:#fff;">
+                        ${editFamilies.length ? renderFamilyCardsList(editFamilies, byId, 'heur', editFamilies) : '<span style="color:#666; font-size:13px;">Aucune famille dans la révision.</span>'}
+                    </div>
+                </div>
+                <div id="fam-inline-editor-wrap" style="margin:16px 0;">
+                    <h4 style="margin:0 0 8px 0; font-size:14px; color:#333;">Édition détaillée (double-clic sur une famille)</h4>
+                    <div id="fam-inline-editor-mount" style="border:1px solid #dee2e6; border-radius:10px; padding:12px; background:#f8f9fa; min-height:100px;">
+                        <p style="margin:0; color:#888; font-size:13px;">Double-cliquez une carte famille dans la grille ou la liste pour afficher l’édition ici.</p>
+                    </div>
+                </div>
+                <div style="margin:0 0 14px 0; padding:12px; border:1px solid #e3f2fd; border-radius:8px; background:#f8fbff;">
+                    <div style="font-size:14px; font-weight:600; color:#0d47a1; margin-bottom:6px;">Fusionner deux familles</div>
+                    <p style="margin:0 0 10px 0; font-size:12px; color:#555;">Les options de la <strong>source</strong> sont ajoutées à la <strong>cible</strong> ; la source est supprimée. Le nom et la colonne conservés sont ceux de la cible.</p>
+                    ${editFamilies.length < 2
+                        ? '<p style="margin:0; font-size:12px; color:#666;">Au moins deux familles sont nécessaires pour fusionner.</p>'
+                        : `<div style="display:flex; flex-wrap:wrap; gap:10px; align-items:flex-end;">
+                            <div style="min-width:200px; flex:1;">
+                                <label style="display:block; font-size:12px; color:#555; margin-bottom:4px;">Source (supprimée)</label>
+                                <select id="fam-merge-source" style="width:100%; padding:8px; border:1px solid #ddd; border-radius:4px; font-size:13px;">${mergeOpts}</select>
+                            </div>
+                            <div style="min-width:200px; flex:1;">
+                                <label style="display:block; font-size:12px; color:#555; margin-bottom:4px;">Cible (conservée)</label>
+                                <select id="fam-merge-target" style="width:100%; padding:8px; border:1px solid #ddd; border-radius:4px; font-size:13px;">${mergeOpts}</select>
+                            </div>
+                            <button type="button" class="btn btn-primary" id="btn-fam-merge">Fusionner</button>
+                        </div>`}
+                </div>
+                <div style="margin:20px 0 16px; padding:14px; border:1px solid #dee2e6; border-radius:10px; background:#f8f9fa;">
+                    <div style="display:flex; flex-wrap:wrap; justify-content:space-between; align-items:center; gap:10px; margin-bottom:10px;">
+                        <div>
+                            <strong style="font-size:15px; color:#333;">Familles enregistrées</strong>
+                            <p style="margin:4px 0 0; font-size:12px; color:#555; max-width:920px;">Glissez une famille enregistrée sur une carte <strong>vue métier</strong> (colonne gauche sticky) pour l’assigner. Cliquez une vue métier pour filtrer instantanément.</p>
+                        </div>
+                    </div>
+                    <div style="display:grid; grid-template-columns:minmax(220px,260px) 1fr; gap:14px; align-items:start;">
+                        <aside style="position:sticky; top:12px; align-self:start; border:1px solid #dbe3ea; border-radius:8px; background:#fff; padding:10px; max-height:66vh; overflow:auto;">
+                            <div style="font-size:12px; font-weight:700; color:#334155; margin-bottom:8px;">Vues métier</div>
+                            ${businessViews.length === 0
+                                ? '<div style="font-size:12px; color:#888;">Aucune vue métier disponible.</div>'
+                                : businessViews.map((v) => `
+                                    <div class="fam-business-view-card" data-view-id="${escapeHtml(v.id)}" title="Cliquer = filtrer · déposer famille = assigner"
+                                         style="margin-bottom:8px; padding:8px 10px; border:1px solid ${selectedBusinessViewId === v.id ? '#2563eb' : '#cbd5e1'}; border-radius:8px; background:${selectedBusinessViewId === v.id ? '#eff6ff' : '#f8fafc'}; cursor:pointer;">
+                                        <strong style="display:block; font-size:12px; color:#0f172a;">${escapeHtml(v.label)}</strong>
+                                    </div>
+                                `).join('')}
+                        </aside>
+                        <div>
+                            <div style="display:flex; flex-wrap:wrap; gap:10px; align-items:flex-end; margin-bottom:10px;">
+                                <div style="min-width:230px;">
+                                    <label style="display:block; font-size:12px; color:#555; margin-bottom:4px;">Filtrer par vue métier</label>
+                                    <select id="fam-validated-filter-view" style="width:100%; padding:7px 8px; border:1px solid #cbd5e1; border-radius:6px; font-size:12px;">
+                                        <option value="">Toutes les vues métier</option>
+                                        ${businessViews.map((v) => `<option value="${escapeHtml(v.id)}" ${selectedBusinessViewId === v.id ? 'selected' : ''}>${escapeHtml(v.label)}</option>`).join('')}
+                                    </select>
+                                </div>
+                                <div style="min-width:230px;">
+                                    <label style="display:block; font-size:12px; color:#555; margin-bottom:4px;">Filtrer par famille</label>
+                                    <select id="fam-validated-filter-family" style="width:100%; padding:7px 8px; border:1px solid #cbd5e1; border-radius:6px; font-size:12px;">
+                                        <option value="">Toutes les familles</option>
+                                        ${familyChoices.map((name) => `<option value="${escapeHtml(name)}" ${selectedFamilyName === name ? 'selected' : ''}>${escapeHtml(name)}</option>`).join('')}
+                                    </select>
+                                </div>
+                                <div style="min-width:230px;">
+                                    <label style="display:block; font-size:12px; color:#555; margin-bottom:4px;">Filtrer par sous-famille</label>
+                                    <select id="fam-validated-filter-subfamily" style="width:100%; padding:7px 8px; border:1px solid #cbd5e1; border-radius:6px; font-size:12px;">
+                                        <option value="">Toutes les sous-familles</option>
+                                        ${subFamilyChoices.map((name) => `<option value="${escapeHtml(name)}" ${selectedSubFamilyName === name ? 'selected' : ''}>${escapeHtml(name)}</option>`).join('')}
+                                    </select>
+                                </div>
+                                <label style="display:flex; align-items:center; gap:6px; margin:0 0 2px; font-size:12px; color:#475569;">
+                                    <input type="checkbox" id="fam-validated-filter-non-assigned" ${showNonAssigned ? 'checked' : ''}>
+                                    Afficher non attribuées
+                                </label>
+                            </div>
+                            <div id="fam-validated-list" style="display:grid; grid-template-columns:repeat(auto-fill, minmax(240px, 1fr)); gap:10px;">
+                                ${validatedRows.length === 0
+                                    ? '<span style="color:#666; font-size:13px; grid-column:1/-1;">Aucune famille enregistrée pour ce filtre.</span>'
+                                    : validatedRows.map(({ f, i }) => {
+                                        const repassOn = window.__ugapFamilleRepassIndices.has(i);
+                                        const repassStyle = repassOn ? 'background:#fff8e1;border-color:#f0ad4e;color:#856404;font-weight:600;' : '';
+                                        const viewLabel = businessViews.find((v) => v.id === String(f.businessViewId || '').trim())?.label || String(f.businessViewLabel || '').trim() || '';
+                                        const viewBadge = viewLabel
+                                            ? `<span style="display:inline-block; margin-top:2px; font-size:11px; color:#155e75; background:#ecfeff; border:1px solid #a5f3fc; border-radius:999px; padding:2px 8px;">${escapeHtml(viewLabel)}</span>`
+                                            : '<span style="display:inline-block; margin-top:2px; font-size:11px; color:#64748b; background:#f1f5f9; border:1px solid #cbd5e1; border-radius:999px; padding:2px 8px;">Non attribuée</span>';
+                                        return `
+                                        <div class="fam-validated-card" data-validated-index="${i}" draggable="true" title="Double-clic pour ouvrir le détail · glisser vers vue métier pour assigner" style="border:1px solid #dee2e6; border-radius:8px; padding:12px; background:#fff; box-shadow:0 1px 3px rgba(0,0,0,.06); display:flex; flex-direction:column; gap:10px; min-height:120px; cursor:pointer;">
+                                            <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:8px;">
+                                                <div style="flex:1; min-width:0;">
+                                                    <strong style="font-size:13px; line-height:1.35; color:#333; display:block;">${escapeHtml(f.familyLabel || 'Famille')}</strong>
+                                                    ${viewBadge}
+                                                </div>
+                                                <button type="button" class="btn btn-outline fam-validated-del-btn" data-validated-index="${i}" style="padding:4px 10px; font-size:11px; white-space:nowrap; border-color:#dc3545; color:#c82333;">Effacer</button>
+                                            </div>
+                                            <span style="font-size:11px; color:#666;">${(f.optionIds || []).length} ligne(s) figée(s)</span>
+                                            <div style="margin-top:auto; padding-top:8px; border-top:1px dashed #dee2e6;">
+                                                <button type="button" class="btn btn-outline fam-repass-ia-btn" data-validated-index="${i}" style="width:100%; font-size:12px; padding:8px; ${repassStyle}">${repassOn ? '✓ Repasser l’IA (activé)' : 'Repasser l’IA'}</button>
+                                            </div>
+                                        </div>`;
+                                    }).join('')}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <h4 style="margin:24px 0 10px 0; font-size:15px; color:#333;">Liste brute (référence)</h4>
+                <table style="width:100%; border-collapse:collapse; border:1px solid #eee;">
+                    <thead>
+                        <tr style="background:#f8f9fa;">
+                            <th style="padding:8px; border-bottom:1px solid #eee;">Type</th>
+                            <th style="padding:8px; border-bottom:1px solid #eee;">Libellé</th>
+                            <th style="padding:8px; border-bottom:1px solid #eee;">Catégorie</th>
+                            <th style="padding:8px; border-bottom:1px solid #eee; text-align:right;">Prix client</th>
+                            <th style="padding:8px; border-bottom:1px solid #eee; text-align:right;">Prix UGAP</th>
+                            <th style="padding:8px; border-bottom:1px solid #eee;">Réf.</th>
+                        </tr>
+                    </thead>
+                    <tbody>${flatBody}</tbody>
+                </table>
+                <div style="margin:12px 0; display:flex; flex-wrap:wrap; align-items:center; justify-content:center; gap:10px;">
+                    <button type="button" class="btn btn-primary" id="btn-fam-merge-selection-fixed" style="font-size:14px; padding:10px 20px; white-space:nowrap;">Fusionner la sélection…</button>
+                    <span style="font-size:12px; color:#444; text-align:center; max-width:520px;">Utilise la sélection <strong>grille + liste de révision</strong>.</span>
+                </div>
+                </div>
+            `;
+        }
+
+        async function runFamilleTraitement() {
+            const btn = document.getElementById('btn-run-famille-traitement');
+            showAlert('Lancement du regroupement IA…', 'info');
+            const splitOptions = splitModelOptionsByType(getAllOptionsForSummary());
+            const combined = buildFamilleCombinedRows(splitOptions);
+            upsertFamilleOptionLabelCache(combined.map((r) => ({ id: r.id, name: r.name })));
+            const payloadAll = combined.map((o) => ({
+                id: o.id,
+                name: o.name,
+                category: o.categoryName || 'Autre',
+                lineKind: o.lineKind === 'mino' ? 'minoration' : 'option'
+            }));
+            const rules = getFamilleHeuristicRules();
+            const heur = buildHeuristicFamilies(rules, combined);
+            const validated = getFamilleValidatedFamilies();
+            const existingReviewFamilies = Array.isArray(window.__ugapFamilleReview?.editFamilies)
+                ? window.__ugapFamilleReview.editFamilies.map((f) => ({
+                    reviewId: f.reviewId,
+                    familyLabel: f.familyLabel,
+                    subFamilyLabel: f.subFamilyLabel || '',
+                    optionIds: Array.isArray(f.optionIds) ? f.optionIds : [],
+                    selectedOptionIds: Array.isArray(f.selectedOptionIds) ? f.selectedOptionIds : [],
+                    businessViewIds: Array.isArray(f.businessViewIds) ? f.businessViewIds : [],
+                    businessViewId: f.businessViewId || ''
+                }))
+                : [];
+            if (!window.__ugapFamilleRepassIndices) window.__ugapFamilleRepassIndices = new Set();
+            const repassIdx = [...window.__ugapFamilleRepassIndices].filter((n) => Number.isInteger(n) && n >= 0 && n < validated.length);
+            const repassIds = new Set();
+            repassIdx.forEach((i) => {
+                const fam = validated[i];
+                (fam?.optionIds || []).forEach((id) => repassIds.add(String(id)));
+            });
+            const validatedFrozenIds = new Set();
+            validated.forEach((f) => {
+                (f?.optionIds || []).forEach((id) => validatedFrozenIds.add(String(id)));
+            });
+            // On retire du gel les familles qu'on veut repasser.
+            repassIds.forEach((id) => validatedFrozenIds.delete(id));
+
+            // Les familles heuristiques n'incluent pas les ids déjà validés (sauf repasse).
+            const heurFamiliesFiltered = mergeFamiliesUnique([], heur.families.filter((f) => {
+                const ids = Array.isArray(f.optionIds) ? f.optionIds : [];
+                return ids.some((id) => !validatedFrozenIds.has(String(id)));
+            }));
+            const heurAssignedIds = new Set();
+            heurFamiliesFiltered.forEach((f) => (f.optionIds || []).forEach((id) => heurAssignedIds.add(String(id))));
+
+            const payload = payloadAll.filter((o) => !heurAssignedIds.has(o.id) && !validatedFrozenIds.has(o.id));
+            if (payload.length === 0) {
+                window.__ugapFamilleReview = { heuristicFamilies: heurFamiliesFiltered, aiFamilies: [], editFamilies: makeReviewFamilies(heurFamiliesFiltered, []) };
+                window.__ugapFamilleIa = { families: mergeFamiliesUnique(validated, heurFamiliesFiltered) };
+                window.__ugapFamilleRepassIndices = new Set();
+                showAlert(`Aucune ligne restante pour l'IA. ${heurFamiliesFiltered.length} famille(s) heuristique(s) appliquée(s).`, 'success');
+                renderExtractionInsights();
+                return;
+            }
+            if (btn) {
+                btn.disabled = true;
+                btn.textContent = 'Détection en cours…';
+            }
+            try {
+                const result = await apiCall('/familles/suggest-ia', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        options: payload,
+                        knownFamilies: validated,
+                        currentReviewFamilies: existingReviewFamilies
+                    })
+                });
+                const aiFamilies = Array.isArray(result?.data?.families) ? result.data.families : [];
+                window.__ugapFamilleReview = { heuristicFamilies: heurFamiliesFiltered, aiFamilies, editFamilies: makeReviewFamilies(heurFamiliesFiltered, aiFamilies) };
+                window.__ugapFamilleIa = { families: mergeFamiliesUnique(validated, mergeFamiliesUnique(heurFamiliesFiltered, aiFamilies)) };
+                window.__ugapFamilleRepassIndices = new Set();
+                showAlert(`Regroupement IA terminé : ${(window.__ugapFamilleIa?.families || []).length} famille(s).`, 'success');
+            } catch (err) {
+                showAlert(err.message || 'Erreur IA', 'error');
+            } finally {
+                if (btn) {
+                    btn.disabled = false;
+                    btn.textContent = 'Détecter familles (Heuristique + IA)';
+                }
+            }
+            renderExtractionInsights();
+        }
+
+        let extractionActiveSubtab = 'model';
+        let extractionSelectedModelId = null;
+
+        function switchExtractionSubtab(tabId) {
+            extractionActiveSubtab = tabId;
+            document.querySelectorAll('#extraction-subtabs .subtab-btn').forEach(btn => {
+                btn.classList.toggle('active', btn.getAttribute('data-extraction-subtab') === tabId);
+            });
+            document.querySelectorAll('#tab-models .subtab-panel').forEach(panel => {
+                panel.classList.toggle('active', panel.id === `extraction-subtab-${tabId}`);
+            });
+            renderExtractionInsights();
+        }
+
+        /** Ancienne barre fixe colonnes A/B — supprimée ; fonction conservée pour les appels existants. */
+        function syncFamilleColumnsDock() {}
+
+        // Fallback global: garantit drag + double-clic des cartes famille après tout re-render.
+        function ensureFamilleCardGlobalInteractions() {
+            if (window.__familleCardGlobalInteractionsBound) return;
+            window.__familleCardGlobalInteractionsBound = true;
+
+            document.addEventListener('dragstart', (e) => {
+                const card = e.target?.closest?.('.fam-name-card, .fam-review-card, .fam-validated-card');
+                if (!card) return;
+                let reviewId = card.getAttribute('data-review-id');
+                if (!reviewId && card.classList.contains('fam-validated-card')) {
+                    const savedIdx = card.getAttribute('data-validated-index');
+                    const fam = ensureReviewFamilyFromSavedIndex(savedIdx);
+                    reviewId = fam?.reviewId || '';
+                }
+                if (!reviewId || !e.dataTransfer) return;
+                e.dataTransfer.effectAllowed = 'move';
+                e.dataTransfer.setData('text/family-review-id', reviewId);
+            }, true);
+
+            document.addEventListener('dblclick', (e) => {
+                const card = e.target?.closest?.('.fam-name-card, .fam-review-card, .fam-validated-card');
+                if (!card) return;
+                const mainTab = document.querySelector('.tab.active')?.getAttribute('data-tab');
+                if (mainTab !== 'famille') return;
+                if (e.target?.closest?.('button, input, select, textarea, label')) return;
+                let reviewId = card.getAttribute('data-review-id');
+                if (!reviewId && card.classList.contains('fam-validated-card')) {
+                    const savedIdx = card.getAttribute('data-validated-index');
+                    const fam = ensureReviewFamilyFromSavedIndex(savedIdx);
+                    reviewId = fam?.reviewId || '';
+                }
+                if (!reviewId) return;
+                const byId = buildFamilleModalByIdMap();
+                mountFamilleInlineEditor(reviewId, byId);
+            }, true);
+
+            // Drag & drop global pour rester stable malgré les rerenders.
+            document.addEventListener('dragover', (e) => {
+                if (e.target?.closest?.('.fam-review-card, .fam-modal-col-right-drop')) {
+                    e.preventDefault();
+                }
+            }, true);
+
+            document.addEventListener('drop', (e) => {
+                const mainTab = document.querySelector('.tab.active')?.getAttribute('data-tab');
+                if (mainTab !== 'famille') return;
+
+                const state = window.__ugapFamilleReview;
+                const fams = Array.isArray(state?.editFamilies) ? state.editFamilies : [];
+                if (fams.length === 0) return;
+
+                const familyDraggedId = String(e.dataTransfer?.getData('text/family-review-id') || '').trim();
+                const optionId = String(e.dataTransfer?.getData('text/option-id') || '').trim();
+                const optionFromFamily = String(e.dataTransfer?.getData('text/option-from-family') || '').trim();
+                const dropOnCard = e.target?.closest?.('.fam-review-card');
+
+                // Dépôt d'une famille sur une autre => sous-famille.
+                if (familyDraggedId && dropOnCard) {
+                    e.preventDefault();
+                    const targetId = dropOnCard.getAttribute('data-review-id');
+                    if (!targetId || targetId === familyDraggedId) return;
+                    const dragged = fams.find((x) => x.reviewId === familyDraggedId);
+                    if (!dragged) return;
+                    dragged.parentReviewId = targetId;
+                    syncReviewStateIntoIaResult();
+                    renderExtractionInsights();
+                    return;
+                }
+
+                // Dépôt d'une option sur une famille.
+                if (optionId && optionFromFamily && dropOnCard) {
+                    e.preventDefault();
+                    const targetFamily = dropOnCard.getAttribute('data-review-id');
+                    if (!targetFamily || targetFamily === optionFromFamily) return;
+                    const from = fams.find((x) => x.reviewId === optionFromFamily);
+                    const to = fams.find((x) => x.reviewId === targetFamily);
+                    if (!from || !to) return;
+                    if (isFamNameOptionsLocked(from)) {
+                        const locked = new Set((Array.isArray(from.lockedOptionIds) ? from.lockedOptionIds : []).map((id) => String(id)));
+                        if (locked.has(optionId)) {
+                            showAlert('Option verrouillée: déplacement interdit depuis cette famille.', 'warning');
+                            return;
+                        }
+                    }
+                    from.optionIds = (from.optionIds || []).filter((id) => id !== optionId);
+                    from.selectedOptionIds = (from.selectedOptionIds || []).filter((id) => id !== optionId);
+                    if (!to.optionIds.includes(optionId)) to.optionIds.push(optionId);
+                    if (!to.selectedOptionIds.includes(optionId)) to.selectedOptionIds.push(optionId);
+                    syncReviewStateIntoIaResult();
+                    renderExtractionInsights();
+                }
+            }, true);
+        }
+
+        function renderExtractionInsights() {
+            ensureFamilleCardGlobalInteractions();
+            const optionRoot = document.getElementById('extraction-options-content');
+            const minorationRoot = document.getElementById('extraction-minoration-content');
+            const prRoot = document.getElementById('extraction-pr-content');
+            const baseOptionsRoot = document.getElementById('extraction-base-options-content');
+            const familleRoot = document.getElementById('extraction-famille-content');
+            if (!optionRoot || !minorationRoot || !prRoot) return;
+
+            const models = Array.isArray(currentData?.models) ? currentData.models : [];
+            if (models.length === 0) {
+                const empty = '<div style="padding:14px; color:#666; border:1px solid #eee; border-radius:6px;">Aucun modèle extrait pour le moment.</div>';
+                optionRoot.innerHTML = empty;
+                minorationRoot.innerHTML = empty;
+                prRoot.innerHTML = empty;
+                if (baseOptionsRoot) baseOptionsRoot.innerHTML = empty;
+                if (familleRoot) familleRoot.innerHTML = empty;
+                return;
+            }
+
+            const splitOptions = splitModelOptionsByType(getAllOptionsForSummary());
+            const optionsCount = splitOptions.regularOptions.length;
+            const minorationsCount = splitOptions.minorationOptions.length;
+            const mvPvFamilyGroups = buildMvPvFamilyGroupsFromOptions(splitOptions.minorationOptions);
+
+            optionRoot.innerHTML = `
+                <div style="display:flex; align-items:center; gap:8px; margin-bottom:10px;">
+                    <span class="badge">${optionsCount} option(s) globales</span>
+                </div>
+                <table style="width:100%; border-collapse:collapse; border:1px solid #eee;">
+                    <thead>
+                        <tr style="background:#f8f9fa;">
+                            <th style="padding:8px; border-bottom:1px solid #eee;">Option trouvée</th>
+                            <th style="padding:8px; border-bottom:1px solid #eee;">Catégorie</th>
+                        </tr>
+                    </thead>
+                    <tbody>${renderOptionRows(splitOptions.regularOptions, 'Aucune option standard trouvée')}</tbody>
+                </table>
+            `;
+
+            minorationRoot.innerHTML = `
+                <div style="display:flex; align-items:center; gap:8px; margin-bottom:10px;">
+                    <span class="badge">${minorationsCount} ligne(s) moins-value / plus-value / minoration</span>
+                </div>
+                ${renderMinorationDoublonSummaryLine(mvPvFamilyGroups)}
+                <div style="margin-bottom:10px; display:flex; justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap;">
+                    <div style="color:#666; font-size:13px;">Liste triée par <strong>famille</strong> — les doublons apparaissent en colonne (même famille, plusieurs lignes).</div>
+                    <button class="btn btn-primary" onclick="showAlert('Assignation IA des minorations à implémenter', 'info')">Assigner les minorations</button>
+                </div>
+                <table style="width:100%; border-collapse:collapse; border:1px solid #eee;">
+                    <thead>
+                        <tr style="background:#f8f9fa;">
+                            <th style="padding:8px; border-bottom:1px solid #eee;">Famille</th>
+                            <th style="padding:8px; border-bottom:1px solid #eee;">Doublon</th>
+                            <th style="padding:8px; border-bottom:1px solid #eee;">Libellé</th>
+                            <th style="padding:8px; border-bottom:1px solid #eee;">Catégorie</th>
+                        </tr>
+                    </thead>
+                    <tbody>${renderMinorationOptionRows(splitOptions.minorationOptions, 'Aucune minoration détectée')}</tbody>
+                </table>
+            `;
+
+            prRoot.innerHTML = `
+                <div style="display:flex; align-items:center; gap:8px; margin-bottom:10px;">
+                    <span class="badge">${splitOptions.prOptions.length} pièce(s) détachée(s) PR</span>
+                </div>
+                <p style="color:#666; font-size:13px; margin-top:0;">Pièces détachées commençant par PR.</p>
+                <table style="width:100%; border-collapse:collapse; border:1px solid #eee;">
+                    <thead>
+                        <tr style="background:#f8f9fa;">
+                            <th style="padding:8px; border-bottom:1px solid #eee;">Libellé PR</th>
+                            <th style="padding:8px; border-bottom:1px solid #eee;">Catégorie</th>
+                        </tr>
+                    </thead>
+                    <tbody>${renderOptionRows(splitOptions.prOptions, 'Aucune ligne PR détectée')}</tbody>
+                </table>
+            `;
+
+            if (baseOptionsRoot) {
+                baseOptionsRoot.innerHTML = renderExtractionBaseOptionsByModelHtml(models);
+                updateBaseOptionsAiProgressUi();
+            }
+
+            if (familleRoot) {
+                familleRoot.innerHTML = renderFamilleTabInner(splitOptions);
+                applyFamilleMergePickToDom();
+            }
+
+            // Liaison robuste du bouton (évite de dépendre de onclick inline).
+            const runBtn = document.getElementById('btn-run-famille-traitement');
+            if (runBtn) {
+                runBtn.onclick = null;
+                runBtn.addEventListener('click', runFamilleTraitement, { once: false });
+            }
+            const addRuleBtn = document.getElementById('btn-add-fam-heur');
+            const cancelEditBtn = document.getElementById('btn-cancel-fam-heur-edit');
+            if (addRuleBtn) {
+                addRuleBtn.onclick = null;
+                addRuleBtn.addEventListener('click', () => {
+                    const labelEl = document.getElementById('fam-heur-label');
+                    const kwEl = document.getElementById('fam-heur-keywords');
+                    const scopeEl = document.getElementById('fam-heur-scope');
+                    const familyLabel = String(labelEl?.value || '').trim();
+                    const keywords = String(kwEl?.value || '').trim();
+                    const scope = String(scopeEl?.value || 'all').trim() || 'all';
+                    // Sans édition actuelle, l'attribut est absent : ne pas utiliser Number(null) → 0 (écrasait rules[0]).
+                    const rawEditIdx = addRuleBtn.getAttribute('data-edit-index');
+                    const editIdx = rawEditIdx !== null && rawEditIdx !== '' ? Number(rawEditIdx) : NaN;
+                    if (!familyLabel || !keywords) {
+                        showAlert('Nom de famille + mots-clés requis.', 'warning');
+                        return;
+                    }
+                    const rules = getFamilleHeuristicRules();
+                    if (Number.isInteger(editIdx) && editIdx >= 0 && editIdx < rules.length) {
+                        rules[editIdx] = { familyLabel, keywords, scope };
+                    } else {
+                        rules.push({ familyLabel, keywords, scope });
+                    }
+                    setFamilleHeuristicRules(rules);
+                    if (labelEl) labelEl.value = '';
+                    if (kwEl) kwEl.value = '';
+                    if (scopeEl) scopeEl.value = 'all';
+                    addRuleBtn.removeAttribute('data-edit-index');
+                    if (cancelEditBtn) cancelEditBtn.style.display = 'none';
+                    renderExtractionInsights();
+                }, { once: false });
+            }
+            if (cancelEditBtn) {
+                cancelEditBtn.onclick = null;
+                cancelEditBtn.addEventListener('click', () => {
+                    const labelEl = document.getElementById('fam-heur-label');
+                    const kwEl = document.getElementById('fam-heur-keywords');
+                    const scopeEl = document.getElementById('fam-heur-scope');
+                    const addBtn = document.getElementById('btn-add-fam-heur');
+                    if (labelEl) labelEl.value = '';
+                    if (kwEl) kwEl.value = '';
+                    if (scopeEl) scopeEl.value = 'all';
+                    if (addBtn) addBtn.removeAttribute('data-edit-index');
+                    cancelEditBtn.style.display = 'none';
+                }, { once: false });
+            }
+            const mergeBtn = document.getElementById('btn-fam-merge');
+            if (mergeBtn) {
+                mergeBtn.onclick = null;
+                mergeBtn.addEventListener('click', () => {
+                    const srcEl = document.getElementById('fam-merge-source');
+                    const tgtEl = document.getElementById('fam-merge-target');
+                    const sid = srcEl?.value;
+                    const tid = tgtEl?.value;
+                    if (!sid || !tid || sid === tid) {
+                        showAlert('Choisissez deux familles distinctes (source et cible).', 'warning');
+                        return;
+                    }
+                    if (mergeEditFamilies(sid, tid)) {
+                        showAlert('Familles fusionnées : tout est regroupé dans la cible.', 'success');
+                        renderExtractionInsights();
+                    } else {
+                        showAlert('Fusion impossible.', 'error');
+                    }
+                }, { once: false });
+            }
+            document.querySelectorAll('.fam-col-merge-cb').forEach((cb) => {
+                cb.addEventListener('change', () => {
+                    const pick = getFamilleMergePick();
+                    const col = cb.getAttribute('data-merge-col');
+                    const id = cb.getAttribute('data-review-id');
+                    if (!id || !col) return;
+                    const set = col === 'heur' ? pick.heur : pick.ia;
+                    if (cb.checked) set.add(id);
+                    else set.delete(id);
+                });
+            });
+            document.querySelectorAll('.fam-grid-merge-cb').forEach((cb) => {
+                cb.addEventListener('change', () => {
+                    const pick = getFamilleMergePick();
+                    const id = cb.getAttribute('data-review-id');
+                    if (!id) return;
+                    if (cb.checked) pick.grid.add(id);
+                    else pick.grid.delete(id);
+                });
+            });
+            document.querySelectorAll('.fam-merge-col-btn').forEach((btn) => {
+                btn.addEventListener('click', () => {
+                    const col = btn.getAttribute('data-merge-col');
+                    openFamilleMergeModal(col === 'heur' ? 'heur' : 'ia');
+                });
+            });
+            const mergeGridBtn = document.getElementById('btn-fam-merge-grid-selection');
+            if (mergeGridBtn) {
+                mergeGridBtn.addEventListener('click', () => {
+                    openFamilleMergeModal('grid');
+                });
+            }
+            const mergeFixedBtn = document.getElementById('btn-fam-merge-selection-fixed');
+            if (mergeFixedBtn) {
+                mergeFixedBtn.addEventListener('click', () => {
+                    openFamilleMergeModal('all');
+                });
+            }
+            document.querySelectorAll('[data-del-fam-heur]').forEach((btnDel) => {
+                btnDel.onclick = null;
+                btnDel.addEventListener('click', () => {
+                    const idx = Number(btnDel.getAttribute('data-del-fam-heur'));
+                    const rules = getFamilleHeuristicRules();
+                    if (Number.isInteger(idx) && idx >= 0 && idx < rules.length) {
+                        rules.splice(idx, 1);
+                        setFamilleHeuristicRules(rules);
+                        renderExtractionInsights();
+                    }
+                }, { once: false });
+            });
+            document.querySelectorAll('[data-edit-fam-heur]').forEach((btnEdit) => {
+                btnEdit.onclick = null;
+                btnEdit.addEventListener('click', () => {
+                    const idx = Number(btnEdit.getAttribute('data-edit-fam-heur'));
+                    const rules = getFamilleHeuristicRules();
+                    const rule = rules[idx];
+                    if (!rule) return;
+                    const labelEl = document.getElementById('fam-heur-label');
+                    const kwEl = document.getElementById('fam-heur-keywords');
+                    const scopeEl = document.getElementById('fam-heur-scope');
+                    const addBtn = document.getElementById('btn-add-fam-heur');
+                    const cancelBtn = document.getElementById('btn-cancel-fam-heur-edit');
+                    if (labelEl) labelEl.value = rule.familyLabel || '';
+                    if (kwEl) kwEl.value = rule.keywords || '';
+                    if (scopeEl) scopeEl.value = rule.scope || 'all';
+                    if (addBtn) addBtn.setAttribute('data-edit-index', String(idx));
+                    if (cancelBtn) cancelBtn.style.display = '';
+                }, { once: false });
+            });
+            const validateFamilyBtn = document.getElementById('btn-validate-family-stage');
+            const showAllBtn = document.getElementById('btn-fam-show-all');
+            const resetViewBtn = document.getElementById('btn-fam-reset-view');
+            if (showAllBtn) {
+                showAllBtn.onclick = null;
+                showAllBtn.addEventListener('click', () => {
+                    const ui = getFamilleUiState();
+                    ui.hiddenIds = [];
+                    renderExtractionInsights();
+                });
+            }
+            if (resetViewBtn) {
+                resetViewBtn.onclick = null;
+                resetViewBtn.addEventListener('click', () => {
+                    window.__ugapFamilleUiState = { hiddenIds: [] };
+                    const state = window.__ugapFamilleReview;
+                    if (state && Array.isArray(state.editFamilies)) {
+                        state.editFamilies.forEach((f) => { f.parentReviewId = null; f.column = f.source === 'ia' ? 'ia' : 'heur'; });
+                    }
+                    renderExtractionInsights();
+                });
+            }
+            if (validateFamilyBtn) {
+                validateFamilyBtn.onclick = null;
+                validateFamilyBtn.addEventListener('click', () => {
+                    const reviewState = window.__ugapFamilleReview || { editFamilies: [] };
+                    const editFamilies = Array.isArray(reviewState.editFamilies) ? reviewState.editFamilies : [];
+                    if (editFamilies.length === 0) {
+                        showAlert('Aucune famille à enregistrer. Lancez « Détecter familles » ou composez vos familles.', 'warning');
+                        return;
+                    }
+                    const merged = buildSavedFamiliesFromReview(editFamilies);
+                    setFamilleValidatedFamilies(merged);
+                    window.__ugapFamilleIa = { families: merged };
+                    showAlert(`Passe enregistrée : ${merged.length} famille(s) — heuristique, IA et réglages manuels sont pris en compte (cartes ci-dessous).`, 'success');
+                    renderExtractionInsights();
+                });
+            }
+            const validatedViewFilter = document.getElementById('fam-validated-filter-view');
+            const validatedFamilyFilter = document.getElementById('fam-validated-filter-family');
+            const validatedSubFamilyFilter = document.getElementById('fam-validated-filter-subfamily');
+            const validatedNonAssignedCb = document.getElementById('fam-validated-filter-non-assigned');
+            if (validatedViewFilter) {
+                validatedViewFilter.onchange = null;
+                validatedViewFilter.addEventListener('change', () => {
+                    const st = getFamilleValidatedFilterState();
+                    st.businessViewId = String(validatedViewFilter.value || '').trim();
+                    renderExtractionInsights();
+                });
+            }
+            if (validatedFamilyFilter) {
+                validatedFamilyFilter.onchange = null;
+                validatedFamilyFilter.addEventListener('change', () => {
+                    const st = getFamilleValidatedFilterState();
+                    st.familyName = String(validatedFamilyFilter.value || '').trim();
+                    const selectedFamily = st.familyName;
+                    if (selectedFamily && validatedSubFamilyFilter) {
+                        const availableSubFamilies = new Set(
+                            getFamilleValidatedFamilies()
+                                .map((f) => parseValidatedFamilyLabel(f?.familyLabel || ''))
+                                .filter((x) => x.familyName === selectedFamily && x.subFamilyName)
+                                .map((x) => x.subFamilyName)
+                        );
+                        if (!availableSubFamilies.has(String(st.subFamilyName || '').trim())) {
+                            st.subFamilyName = '';
+                        }
+                    }
+                    renderExtractionInsights();
+                });
+            }
+            if (validatedSubFamilyFilter) {
+                validatedSubFamilyFilter.onchange = null;
+                validatedSubFamilyFilter.addEventListener('change', () => {
+                    const st = getFamilleValidatedFilterState();
+                    st.subFamilyName = String(validatedSubFamilyFilter.value || '').trim();
+                    renderExtractionInsights();
+                });
+            }
+            if (validatedNonAssignedCb) {
+                validatedNonAssignedCb.onchange = null;
+                validatedNonAssignedCb.addEventListener('change', () => {
+                    const st = getFamilleValidatedFilterState();
+                    st.showNonAssigned = !!validatedNonAssignedCb.checked;
+                    renderExtractionInsights();
+                });
+            }
+            document.querySelectorAll('.fam-business-view-card').forEach((card) => {
+                card.addEventListener('click', () => {
+                    const vid = String(card.getAttribute('data-view-id') || '').trim();
+                    const st = getFamilleValidatedFilterState();
+                    st.businessViewId = vid;
+                    renderExtractionInsights();
+                });
+                card.addEventListener('dragover', (e) => e.preventDefault());
+                card.addEventListener('drop', (e) => {
+                    e.preventDefault();
+                    const vid = String(card.getAttribute('data-view-id') || '').trim();
+                    const idx = Number(e.dataTransfer?.getData('text/validated-index'));
+                    const list = getFamilleValidatedFamilies();
+                    if (!Number.isInteger(idx) || idx < 0 || idx >= list.length) return;
+                    const viewLabel = String(card.textContent || '').trim();
+                    list[idx].businessViewId = vid;
+                    list[idx].businessViewLabel = viewLabel;
+                    setFamilleValidatedFamilies(list);
+                    showAlert('Vue métier assignée à la famille.', 'success');
+                    renderExtractionInsights();
+                });
+            });
+            document.querySelectorAll('.fam-validated-card').forEach((card) => {
+                card.addEventListener('dragstart', (e) => {
+                    const idx = String(card.getAttribute('data-validated-index') || '').trim();
+                    if (e.dataTransfer && idx !== '') {
+                        e.dataTransfer.setData('text/validated-index', idx);
+                    }
+                });
+            });
+            document.querySelectorAll('.fam-validated-del-btn').forEach((btnDel) => {
+                btnDel.onclick = null;
+                btnDel.addEventListener('click', () => {
+                    const idx = Number(btnDel.getAttribute('data-validated-index'));
+                    const list = getFamilleValidatedFamilies();
+                    if (!Number.isInteger(idx) || idx < 0 || idx >= list.length) return;
+                    list.splice(idx, 1);
+                    setFamilleValidatedFamilies(list);
+                    if (!window.__ugapFamilleRepassIndices) window.__ugapFamilleRepassIndices = new Set();
+                    const newSet = new Set();
+                    window.__ugapFamilleRepassIndices.forEach((i) => {
+                        if (i < idx) newSet.add(i);
+                        else if (i > idx) newSet.add(i - 1);
+                    });
+                    window.__ugapFamilleRepassIndices = newSet;
+                    showAlert('Famille retirée de la liste validée.', 'info');
+                    renderExtractionInsights();
+                });
+            });
+            document.querySelectorAll('.fam-repass-ia-btn').forEach((btn) => {
+                btn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    const idx = Number(btn.getAttribute('data-validated-index'));
+                    const list = getFamilleValidatedFamilies();
+                    if (!Number.isInteger(idx) || idx < 0 || idx >= list.length) return;
+                    if (!window.__ugapFamilleRepassIndices) window.__ugapFamilleRepassIndices = new Set();
+                    if (window.__ugapFamilleRepassIndices.has(idx)) {
+                        window.__ugapFamilleRepassIndices.delete(idx);
+                    } else {
+                        window.__ugapFamilleRepassIndices.add(idx);
+                    }
+                    renderExtractionInsights();
+                });
+            });
+
+            document.querySelectorAll('.fam-option-cb').forEach((cb) => {
+                cb.addEventListener('change', () => {
+                    const reviewId = cb.getAttribute('data-review-id');
+                    const optionId = cb.getAttribute('data-option-id');
+                    const state = window.__ugapFamilleReview;
+                    const fam = state?.editFamilies?.find((x) => x.reviewId === reviewId);
+                    if (!fam) return;
+                    if (!cb.checked && isFamNameOptionsLocked(fam)) {
+                        const locked = new Set((Array.isArray(fam.lockedOptionIds) ? fam.lockedOptionIds : []).map((id) => String(id)));
+                        if (locked.has(String(optionId || ''))) {
+                            cb.checked = true;
+                            showAlert('Option verrouillée: retrait interdit pour cette famille.', 'warning');
+                            return;
+                        }
+                    }
+                    const selected = new Set(Array.isArray(fam.selectedOptionIds) ? fam.selectedOptionIds : []);
+                    if (cb.checked) selected.add(optionId); else selected.delete(optionId);
+                    fam.selectedOptionIds = Array.from(selected);
+                    syncReviewStateIntoIaResult();
+                });
+            });
+            document.querySelectorAll('.fam-label-input').forEach((inp) => {
+                inp.addEventListener('input', () => {
+                    const reviewId = inp.getAttribute('data-review-id');
+                    const state = window.__ugapFamilleReview;
+                    const fam = state?.editFamilies?.find((x) => x.reviewId === reviewId);
+                    if (!fam) return;
+                    if (isFamNameOptionsLocked(fam)) {
+                        inp.value = String(fam.familyLabel || 'Famille');
+                        showAlert('Nom verrouillé pour cette famille.', 'warning');
+                        return;
+                    }
+                    fam.familyLabel = String(inp.value || '').trim() || 'Famille';
+                    syncReviewStateIntoIaResult();
+                });
+            });
+            document.querySelectorAll('.fam-sub-label-input').forEach((inp) => {
+                inp.addEventListener('input', () => {
+                    const reviewId = inp.getAttribute('data-review-id');
+                    const state = window.__ugapFamilleReview;
+                    const fam = state?.editFamilies?.find((x) => x.reviewId === reviewId);
+                    if (!fam) return;
+                    fam.subFamilyLabel = String(inp.value || '').trim();
+                    syncReviewStateIntoIaResult();
+                });
+            });
+            document.querySelectorAll('.fam-move-btn').forEach((btnMove) => {
+                btnMove.addEventListener('click', () => {
+                    const fromId = btnMove.getAttribute('data-review-id');
+                    const optionId = btnMove.getAttribute('data-option-id');
+                    const select = document.querySelector(`.fam-move-select[data-review-id="${fromId}"][data-option-id="${optionId}"]`);
+                    const toId = select?.value;
+                    if (!toId || toId === fromId) return;
+                    const state = window.__ugapFamilleReview;
+                    const fams = Array.isArray(state?.editFamilies) ? state.editFamilies : [];
+                    const fromFam = fams.find((x) => x.reviewId === fromId);
+                    const toFam = fams.find((x) => x.reviewId === toId);
+                    if (!fromFam || !toFam) return;
+                    if (isFamNameOptionsLocked(fromFam)) {
+                        const locked = new Set((Array.isArray(fromFam.lockedOptionIds) ? fromFam.lockedOptionIds : []).map((id) => String(id)));
+                        if (locked.has(String(optionId || ''))) {
+                            showAlert('Option verrouillée: déplacement interdit depuis cette famille.', 'warning');
+                            return;
+                        }
+                    }
+                    fromFam.optionIds = (fromFam.optionIds || []).filter((id) => id !== optionId);
+                    fromFam.selectedOptionIds = (fromFam.selectedOptionIds || []).filter((id) => id !== optionId);
+                    if (!Array.isArray(toFam.optionIds)) toFam.optionIds = [];
+                    if (!toFam.optionIds.includes(optionId)) toFam.optionIds.push(optionId);
+                    if (!Array.isArray(toFam.selectedOptionIds)) toFam.selectedOptionIds = [];
+                    if (!toFam.selectedOptionIds.includes(optionId)) toFam.selectedOptionIds.push(optionId);
+                    syncReviewStateIntoIaResult();
+                    renderExtractionInsights();
+                });
+            });
+            // Drag families between columns / nested as subfamily.
+            document.querySelectorAll('.fam-review-card').forEach((card) => {
+                card.addEventListener('dragstart', (e) => {
+                    e.dataTransfer.setData('text/family-review-id', card.getAttribute('data-review-id'));
+                });
+                card.addEventListener('dblclick', () => {
+                    const reviewId = card.getAttribute('data-review-id');
+                    const byId = buildFamilleModalByIdMap();
+                    mountFamilleInlineEditor(reviewId, byId);
+                });
+                card.addEventListener('dragover', (e) => e.preventDefault());
+                card.addEventListener('drop', (e) => {
+                    e.preventDefault();
+                    const draggedId = e.dataTransfer.getData('text/family-review-id');
+                    const targetId = card.getAttribute('data-review-id');
+                    if (!draggedId || !targetId || draggedId === targetId) return;
+                    const state = window.__ugapFamilleReview;
+                    const fams = Array.isArray(state?.editFamilies) ? state.editFamilies : [];
+                    const dragged = fams.find((x) => x.reviewId === draggedId);
+                    if (!dragged) return;
+                    dragged.parentReviewId = targetId;
+                    syncReviewStateIntoIaResult();
+                    renderExtractionInsights();
+                });
+            });
+            document.querySelectorAll('[data-option-drag-id]').forEach((cell) => {
+                cell.addEventListener('dragstart', (e) => {
+                    e.dataTransfer.setData('text/option-id', cell.getAttribute('data-option-drag-id'));
+                    e.dataTransfer.setData('text/option-from-family', cell.getAttribute('data-option-from-family'));
+                });
+            });
+            document.querySelectorAll('.fam-review-card').forEach((card) => {
+                card.addEventListener('dragover', (e) => e.preventDefault());
+                card.addEventListener('drop', (e) => {
+                    const optionId = e.dataTransfer.getData('text/option-id');
+                    const fromFamily = e.dataTransfer.getData('text/option-from-family');
+                    const targetFamily = card.getAttribute('data-review-id');
+                    if (!optionId || !fromFamily || !targetFamily || fromFamily === targetFamily) return;
+                    const state = window.__ugapFamilleReview;
+                    const fams = Array.isArray(state?.editFamilies) ? state.editFamilies : [];
+                    const from = fams.find((x) => x.reviewId === fromFamily);
+                    const to = fams.find((x) => x.reviewId === targetFamily);
+                    if (!from || !to) return;
+                    if (isFamNameOptionsLocked(from)) {
+                        const locked = new Set((Array.isArray(from.lockedOptionIds) ? from.lockedOptionIds : []).map((id) => String(id)));
+                        if (locked.has(String(optionId || ''))) {
+                            showAlert('Option verrouillée: déplacement interdit depuis cette famille.', 'warning');
+                            return;
+                        }
+                    }
+                    from.optionIds = (from.optionIds || []).filter((id) => id !== optionId);
+                    from.selectedOptionIds = (from.selectedOptionIds || []).filter((id) => id !== optionId);
+                    if (!to.optionIds.includes(optionId)) to.optionIds.push(optionId);
+                    if (!to.selectedOptionIds.includes(optionId)) to.selectedOptionIds.push(optionId);
+                    syncReviewStateIntoIaResult();
+                    renderExtractionInsights();
+                });
+            });
+            document.querySelectorAll('.fam-name-card').forEach((card) => {
+                card.addEventListener('dragstart', (e) => {
+                    e.dataTransfer.setData('text/family-review-id', card.getAttribute('data-review-id'));
+                });
+                card.addEventListener('dblclick', (e) => {
+                    e.preventDefault();
+                    const reviewId = card.getAttribute('data-review-id');
+                    const byId = buildFamilleModalByIdMap();
+                    mountFamilleInlineEditor(reviewId, byId);
+                });
+            });
+            document.querySelectorAll('.fam-card-sub-select').forEach((sel) => {
+                sel.addEventListener('change', () => {
+                    const rid = sel.getAttribute('data-review-id');
+                    const oid = sel.getAttribute('data-option-id');
+                    const v = String(sel.value || '').trim();
+                    const state = window.__ugapFamilleReview;
+                    const fam = state?.editFamilies?.find((x) => x.reviewId === rid);
+                    if (!fam || !oid) return;
+                    if (!fam.optionSubFamilies) fam.optionSubFamilies = {};
+                    if (v) fam.optionSubFamilies[oid] = v;
+                    else delete fam.optionSubFamilies[oid];
+                    syncReviewStateIntoIaResult();
+                });
+            });
+            syncFamilleColumnsDock();
+        }
+
+        function switchMappedSummaryTab(tabId) {
+            const root = document.getElementById('mapped-summary-root');
+            if (!root) return;
+
+            root.querySelectorAll('.mapped-subtab').forEach(tab => {
+                tab.classList.toggle('active', tab.dataset.target === tabId);
+            });
+            root.querySelectorAll('.mapped-subpanel').forEach(panel => {
+                panel.style.display = panel.id === `mapped-subpanel-${tabId}` ? 'block' : 'none';
+            });
+        }
+
+        // Fonction pour rendre la vue structurée des résultats
+        function renderStructuredView(mappedData, modelId) {
+            // Statistiques (affichées même si aucune catégorie)
+            const totalCategories = mappedData?.categories?.length || 0;
+            const totalItems = mappedData?.categories?.reduce((sum, cat) => {
+                const itemsCount = cat.items?.length || 0;
+                const subItemsCount = cat.subCategories?.reduce((s, sc) => s + (sc.items?.length || 0), 0) || 0;
+                return sum + itemsCount + subItemsCount;
+            }, 0) || 0;
+            const totalSubCategories = mappedData?.categories?.reduce((sum, cat) => sum + (cat.subCategories?.length || 0), 0) || 0;
+            const totalTables = mappedData?.stats?.totalTables ?? null;
+
+            const statsBanner = `
+                <div style="margin-bottom: 12px; padding: 10px; background: #e8f4f8; border-radius: 6px; font-size: 13px;">
+                    <strong>Statistiques:</strong>
+                    ${totalTables !== null ? `${totalTables} tableau(x), ` : ''}${totalCategories} catégorie(s), ${totalSubCategories} sous-catégorie(s), ${totalItems} élément(s)
+                </div>
+            `;
+
+            const modelOptions = getModelOptionsForSummary(modelId);
+            const splitOptions = splitModelOptionsByType(modelOptions);
+            const optionsCount = splitOptions.regularOptions.length;
+            const minorationsCount = splitOptions.minorationOptions.length;
+            const mappedMvPvFamilyGroups = buildMvPvFamilyGroupsFromOptions(splitOptions.minorationOptions);
+
+            const hasMappedCategories = Array.isArray(mappedData?.categories) && mappedData.categories.length > 0;
+            
+            let html = '<div style="max-height: calc(90vh - 200px); overflow-y: auto;">';
+            
+            (mappedData?.categories || []).forEach((category, catIndex) => {
+                const categoryBg = '#0F4C81';
+                const categoryTextColor = '#FFFFFF';
+                
+                html += `
+                    <div style="margin-bottom: 16px; border: 1px solid #ddd; border-radius: 6px; overflow: hidden;">
+                        <div style="background: ${categoryBg}; color: ${categoryTextColor}; padding: 12px; font-weight: 600; font-size: 15px;">
+                            📁 ${escapeHtml(category.title || 'Sans titre')}
+                        </div>
+                        <div style="padding: 8px; background: #f9f9f9;">
+                `;
+                
+                // Afficher les sous-catégories si elles existent
+                if (category.subCategories && category.subCategories.length > 0) {
+                    category.subCategories.forEach((subCategory, subIndex) => {
+                        html += `
+                            <div style="margin-bottom: 12px; padding: 8px; background: #e8f4f8; border-left: 3px solid #17a2b8; border-radius: 4px;">
+                                <div style="font-weight: 600; color: #0F4C81; margin-bottom: 6px; font-size: 14px;">
+                                    📂 ${escapeHtml(subCategory.title || 'Sans titre')}
+                                </div>
+                                <div style="padding-left: 12px;">
+                        `;
+                        
+                        if (!subCategory.items || subCategory.items.length === 0) {
+                            html += '<div style="padding: 4px; color: #999; font-style: italic; font-size: 12px;">Aucun élément</div>';
+                        } else {
+                            subCategory.items.forEach((item, itemIndex) => {
+                                const hasCharacteristic = item.characteristic && item.characteristic.trim();
+                                const hasValue = item.value && item.value.trim();
+                                
+                                if (hasCharacteristic && hasValue) {
+                                    html += `
+                                        <div style="margin-bottom: 4px; padding: 6px; background: white; border-left: 2px solid #B7D1F5; border-radius: 3px; font-size: 12px;">
+                                            <span style="font-weight: 500; color: #0F4C81;">🔹 ${escapeHtml(item.characteristic)}</span>
+                                            <span style="color: #666; margin-left: 8px;">= ${escapeHtml(item.value)}</span>
+                                        </div>
+                                    `;
+                                } else if (hasCharacteristic) {
+                                    html += `
+                                        <div style="margin-bottom: 4px; padding: 6px; background: white; border-left: 2px solid #B7D1F5; border-radius: 3px; font-size: 12px;">
+                                            <span style="font-weight: 500; color: #0F4C81;">🔹 ${escapeHtml(item.characteristic)}</span>
+                                        </div>
+                                    `;
+                                } else if (hasValue) {
+                                    html += `
+                                        <div style="margin-bottom: 4px; padding: 6px; background: white; border-left: 2px solid #FFD966; border-radius: 3px; font-size: 12px;">
+                                            <span style="color: #666;">💛 ${escapeHtml(item.value)}</span>
+                                        </div>
+                                    `;
+                                }
+                            });
+                        }
+                        
+                        html += `
+                                </div>
+                            </div>
+                        `;
+                    });
+                }
+                
+                // Afficher les éléments directs de la catégorie
+                if (!category.items || category.items.length === 0) {
+                    if (!category.subCategories || category.subCategories.length === 0) {
+                        html += '<div style="padding: 8px; color: #999; font-style: italic;">Aucun élément</div>';
+                    }
+                } else {
+                    category.items.forEach((item, itemIndex) => {
+                        const hasCharacteristic = item.characteristic && item.characteristic.trim();
+                        const hasValue = item.value && item.value.trim();
+                        
+                        if (hasCharacteristic && hasValue) {
+                            // Caractéristique + Valeur
+                            html += `
+                                <div style="margin-bottom: 6px; padding: 8px; background: white; border-left: 3px solid #B7D1F5; border-radius: 4px;">
+                                    <div style="font-weight: 500; color: #0F4C81; margin-bottom: 4px;">
+                                        🔹 ${escapeHtml(item.characteristic)}
+                                    </div>
+                                    <div style="color: #666; font-size: 13px; padding-left: 20px;">
+                                        = ${escapeHtml(item.value)}
+                                    </div>
+                                </div>
+                            `;
+                        } else if (hasCharacteristic) {
+                            // Caractéristique seule
+                            html += `
+                                <div style="margin-bottom: 6px; padding: 8px; background: white; border-left: 3px solid #B7D1F5; border-radius: 4px;">
+                                    <div style="font-weight: 500; color: #0F4C81;">
+                                        🔹 ${escapeHtml(item.characteristic)}
+                                    </div>
+                                </div>
+                            `;
+                        } else if (hasValue) {
+                            // Valeur seule
+                            html += `
+                                <div style="margin-bottom: 6px; padding: 8px; background: white; border-left: 3px solid #FFD966; border-radius: 4px;">
+                                    <div style="color: #666;">
+                                        💛 ${escapeHtml(item.value)}
+                                    </div>
+                                </div>
+                            `;
+                        }
+                    });
+                }
+                
+                html += `
+                        </div>
+                    </div>
+                `;
+            });
+            
+            html += '</div>';
+
+            return `
+                ${statsBanner}
+                <div id="mapped-summary-root">
+                    <div style="display:flex; gap:8px; border-bottom:1px solid #eee; margin-bottom:12px; flex-wrap:wrap;">
+                        <button class="btn btn-outline mapped-subtab active" data-target="model" onclick="switchMappedSummaryTab('model')">Model</button>
+                        <button class="btn btn-outline mapped-subtab" data-target="option" onclick="switchMappedSummaryTab('option')">Option</button>
+                        <button class="btn btn-outline mapped-subtab" data-target="minoration" onclick="switchMappedSummaryTab('minoration')">Minoration</button>
+                        <button class="btn btn-outline mapped-subtab" data-target="pr" onclick="switchMappedSummaryTab('pr')">PR</button>
+                    </div>
+
+                    <div id="mapped-subpanel-model" class="mapped-subpanel" style="display:block;">
+                        <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap:10px; margin-bottom:12px;">
+                            <div style="padding:10px; border:1px solid #e2e8f0; border-radius:6px; background:#f8fafc;">
+                                <div style="font-size:12px; color:#666;">Options disponibles (croix)</div>
+                                <div style="font-size:20px; font-weight:700; color:#0F4C81;">${optionsCount}</div>
+                            </div>
+                            <div style="padding:10px; border:1px solid #e2e8f0; border-radius:6px; background:#f8fafc;">
+                                <div style="font-size:12px; color:#666;">Minorations</div>
+                                <div style="font-size:20px; font-weight:700; color:#0F4C81;">${minorationsCount}</div>
+                            </div>
+                            <div style="padding:10px; border:1px solid #e2e8f0; border-radius:6px; background:#f8fafc;">
+                                <div style="font-size:12px; color:#666;">Total lignes compatibles modèle</div>
+                                <div style="font-size:20px; font-weight:700; color:#0F4C81;">${splitOptions.all.length}</div>
+                            </div>
+                        </div>
+                        <p style="margin:0; color:#666; font-size:12px;">Le nombre d'options est calculé sur les compatibilités du modèle détectées (croix).</p>
+                    </div>
+
+                    <div id="mapped-subpanel-option" class="mapped-subpanel" style="display:none;">
+                        <table style="width:100%; border-collapse:collapse; border:1px solid #eee;">
+                            <thead>
+                                <tr style="background:#f8f9fa;">
+                                    <th style="padding:8px; border-bottom:1px solid #eee;">Option trouvée</th>
+                                    <th style="padding:8px; border-bottom:1px solid #eee;">Catégorie</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${renderOptionRows(splitOptions.regularOptions, 'Aucune option standard trouvée')}
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <div id="mapped-subpanel-minoration" class="mapped-subpanel" style="display:none;">
+                        ${renderMinorationDoublonSummaryLine(mappedMvPvFamilyGroups)}
+                        <div style="margin-bottom:10px; display:flex; justify-content:space-between; gap:8px; align-items:center; flex-wrap:wrap;">
+                            <div style="color:#666; font-size:13px;">Par famille (modèle) — doublons en colonne</div>
+                            <button class="btn btn-primary" onclick="showAlert('Assignation IA des minorations à implémenter', 'info')">Assigner les minorations</button>
+                        </div>
+                        <table style="width:100%; border-collapse:collapse; border:1px solid #eee;">
+                            <thead>
+                                <tr style="background:#f8f9fa;">
+                                    <th style="padding:8px; border-bottom:1px solid #eee;">Famille</th>
+                                    <th style="padding:8px; border-bottom:1px solid #eee;">Doublon</th>
+                                    <th style="padding:8px; border-bottom:1px solid #eee;">Libellé</th>
+                                    <th style="padding:8px; border-bottom:1px solid #eee;">Catégorie</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${renderMinorationOptionRows(splitOptions.minorationOptions, 'Aucune ligne détectée')}
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <div id="mapped-subpanel-pr" class="mapped-subpanel" style="display:none;">
+                        <p style="color:#666; font-size:13px; margin-top:0;">Pièces de rechange dont le libellé commence par PR (non traitées pour le moment).</p>
+                        <table style="width:100%; border-collapse:collapse; border:1px solid #eee;">
+                            <thead>
+                                <tr style="background:#f8f9fa;">
+                                    <th style="padding:8px; border-bottom:1px solid #eee;">Libellé PR</th>
+                                    <th style="padding:8px; border-bottom:1px solid #eee;">Catégorie</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${renderOptionRows(splitOptions.prOptions, 'Aucune ligne PR détectée')}
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <div id="mapped-subpanel-structure" class="mapped-subpanel" style="display:none;">
+                        ${hasMappedCategories
+                            ? html
+                            : '<div style="padding: 20px; text-align: center; color: #666;">Aucune donnée mappée</div>'}
+                    </div>
+                </div>
+            `;
+        }
+
+        // Show mapping results modal (PDF left, results + color swap buttons on right)
+        function showMappingResultsModal(pdfUrl, modelId, configId, mappedData, yamlStr, currentColors) {
+            const modal = document.createElement('div');
+            modal.className = 'modal active';
+            modal.id = 'mapping-results-modal';
+            const prettyJson = JSON.stringify(mappedData || {}, null, 2);
+            
+            // Récupérer le chemin Excel depuis la configuration si disponible
+            const model = currentData.models.find(m => m.id === modelId);
+            const config = model?.configurations?.find(c => c.id === configId);
+            const excelFileName = config?.pdfAnalysis?.camelotExcelFileName || null;
+            const hasExcelFile = !!(excelFileName);
+            const excelUrl = excelFileName ? `${API_BASE}/download-excel/${encodeURIComponent(excelFileName)}` : null;
+            
+            // Déterminer ce qu'on affiche : Excel en priorité, sinon PDF
+            const displayType = hasExcelFile ? 'excel' : (pdfUrl ? 'pdf' : 'none');
+            
+            console.log('🔍 showMappingResultsModal - Fichiers disponibles:', {
+                hasExcelFile: hasExcelFile,
+                excelFileName: excelFileName,
+                excelUrl: excelUrl,
+                pdfUrl: pdfUrl,
+                displayType: displayType
+            });
+            
+            // Valeurs par défaut pour les couleurs
+            const catColor = (currentColors && currentColors.category) || '0F4C81';
+            const charColor = (currentColors && currentColors.characteristic) || 'B7D1F5';
+            const valColor = (currentColors && currentColors.value) || 'FFD966';
+            
+            let previewContent = '';
+            if (displayType === 'excel') {
+                const excelViewUrl = excelFileName ? `${API_BASE}/view-excel/${encodeURIComponent(excelFileName)}` : null;
+                previewContent = `
+                    <div style="font-weight: 600; margin-bottom: 8px;">Aperçu Excel</div>
+                    <div style="margin-bottom: 8px; display: flex; gap: 8px;">
+                        <a href="${excelUrl}" target="_blank" class="btn btn-sm btn-success" style="text-decoration: none; display: inline-block; padding: 4px 8px; font-size: 12px;">📥 Télécharger Excel</a>
+                        ${excelViewUrl ? `<a href="${excelViewUrl}" target="_blank" class="btn btn-sm btn-primary" style="text-decoration: none; display: inline-block; padding: 4px 8px; font-size: 12px;">👁️ Ouvrir dans nouvel onglet</a>` : ''}
+                    </div>
+                    ${excelViewUrl ? `
+                        <iframe src="${excelViewUrl}" style="width: 100%; height: calc(100% - 80px); border: 1px solid #ddd; border-radius: 4px;"></iframe>
+                    ` : `
+                        <div style="color: #666; font-size: 13px; padding: 10px; background: #f0f0f0; border-radius: 4px;">
+                            <strong>Fichier:</strong> ${escapeHtml(excelFileName)}<br>
+                            <em>Impossible d'afficher le fichier Excel.</em>
+                        </div>
+                    `}
+                `;
+            } else if (displayType === 'pdf') {
+                previewContent = `
+                    <div style="font-weight: 600; margin-bottom: 8px;">Aperçu PDF</div>
+                    <iframe src="${pdfUrl}" style="width: 100%; height: calc(100% - 30px); border: none;"></iframe>
+                `;
+            } else {
+                previewContent = `
+                    <div style="font-weight: 600; margin-bottom: 8px;">Aperçu</div>
+                    <div style="color: #666; font-size: 13px; padding: 10px;">
+                        Aucun fichier disponible
+                    </div>
+                `;
+            }
+            
+            modal.innerHTML = `
+                <div class="modal-content" style="max-width: none; width: 95vw; height: 90vh;">
+                    <div class="modal-header" style="position: sticky; top: 0; background: white; z-index: 2;">
+                        <div style="display:flex; gap:10px; align-items: center; flex-wrap: wrap;">
+                            <h2 style="margin:0;">Résultats du mapping - ${escapeHtml(configId || '')}</h2>
+                            <span class="badge" id="badge-tables-count" style="background:#eef;color:#334;">
+                                Tableaux: ${mappedData?.stats?.totalTables ?? '—'}
+                            </span>
+                        </div>
+                        <button class="btn btn-danger" onclick="closeMappingResultsModal()">Fermer</button>
+                    </div>
+                    <div style="padding: 20px; height: calc(90vh - 70px); overflow: hidden;">
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; align-items: stretch; height: calc(90vh - 140px);">
+                            <div style="border: 1px solid #eee; border-radius: 6px; padding: 10px; background: #fafafa; height: 100%; overflow: hidden;">
+                                ${previewContent}
+                            </div>
+                            <div style="height: 100%; overflow: auto; border: 1px solid #eee; border-radius: 6px; padding: 12px; background: #fff;">
+                                <div style="margin-bottom: 12px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+                                    <button class="btn btn-primary" id="btn-detect-categories">1️⃣ Détecter catégories</button>
+                                    <button class="btn btn-primary" id="btn-detect-subcategories" disabled>2️⃣ Détecter sous-catégories</button>
+                                    <button class="btn btn-primary" id="btn-detect-values" disabled>3️⃣ Détecter valeurs</button>
+                                </div>
+                                <div style="margin-bottom: 12px; display:flex; gap:8px; align-items:center; flex-wrap: wrap;">
+                                    <button class="btn btn-outline" id="copy-mapped-json">Copier JSON</button>
+                                    <button class="btn btn-outline" id="download-mapped-json">Télécharger JSON</button>
+                                    <button class="btn btn-outline" id="copy-mapped-yaml">Copier YAML</button>
+                                    <button class="btn btn-outline" id="download-mapped-yaml">Télécharger YAML</button>
+                                    <button class="btn btn-danger" id="btn-clear-mapped-categories" title="Vider les catégories détectées pour cette configuration (mapping) — ne touche pas aux catégories globales">🧹 Clear catégories (résultat)</button>
+                                    ${hasExcelFile ? `
+                                        <button class="btn btn-success" id="download-camelot-excel" title="Télécharger le fichier Excel généré par Camelot">📥 Télécharger Excel Camelot</button>
+                                    ` : `
+                                        <button class="btn btn-outline" disabled title="Fichier Excel non disponible. Relancez le mapping pour générer le fichier.">📥 Excel non disponible</button>
+                                    `}
+                                    <button class="btn btn-outline" id="toggle-view-mode" style="margin-left: auto;">Vue JSON</button>
+                                </div>
+                                <!-- Interface d'édition des catégories -->
+                                <div id="categories-editor" style="display: none; margin-top: 20px;">
+                                    <h3 style="margin-bottom: 15px; color: #333;">Catégories détectées</h3>
+                                    <table style="width: 100%; border-collapse: collapse; border: 1px solid #dee2e6;">
+                                        <thead>
+                                            <tr style="background: #f8f9fa; border-bottom: 2px solid #dee2e6;">
+                                                <th style="padding: 10px; text-align: left; border: 1px solid #dee2e6;">Nom</th>
+                                                <th style="padding: 10px; text-align: left; border: 1px solid #dee2e6;">Sous-catégories</th>
+                                                <th style="padding: 10px; text-align: left; border: 1px solid #dee2e6;">Valeurs</th>
+                                                <th style="padding: 10px; text-align: left; border: 1px solid #dee2e6;">Actions</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="categories-editor-tbody">
+                                        </tbody>
+                                    </table>
+                                </div>
+                                
+                                <!-- Vue structurée (par défaut) -->
+                                <div id="structured-view" style="display: block;">
+                                    ${renderStructuredView(mappedData, modelId)}
+                                </div>
+                                
+                                <!-- Vue JSON (cachée par défaut) -->
+                                <div id="json-view" style="display: none;">
+                                    <pre id="mapped-json-pre" style="white-space: pre-wrap; background: #f8f9fa; padding: 12px; border-radius:6px; border:1px solid #eee; max-height:60vh; overflow:auto; font-size: 12px;">${escapeHtml(prettyJson)}</pre>
+                                    ${yamlStr ? `<h3 style="margin-top:10px; font-size:14px;">YAML</h3><pre id="mapped-yaml-pre" style="white-space: pre-wrap; background: #fff7e6; padding: 12px; border-radius:6px; border:1px solid #f0e6b6; max-height:200px; overflow:auto; font-size: 12px;">${escapeHtml(yamlStr)}</pre>` : ''}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(modal);
+
+            // Store current colors and model/config IDs for remapping
+            modal.dataset.modelId = modelId;
+            modal.dataset.configId = configId;
+            modal.dataset.currentColors = JSON.stringify(currentColors);
+            
+            // Boutons de détection
+            document.getElementById('btn-detect-categories').addEventListener('click', async () => {
+                await detectCategories(modelId, configId);
+            });
+            
+            document.getElementById('btn-detect-subcategories').addEventListener('click', async () => {
+                await detectSubCategories(modelId, configId);
+            });
+            
+            document.getElementById('btn-detect-values').addEventListener('click', async () => {
+                await detectValues(modelId, configId);
+            });
+            
+            // Toggle view mode
+            let viewMode = 'structured'; // 'structured' or 'json'
+            document.getElementById('toggle-view-mode').addEventListener('click', () => {
+                const structuredView = document.getElementById('structured-view');
+                const jsonView = document.getElementById('json-view');
+                const toggleBtn = document.getElementById('toggle-view-mode');
+                
+                if (viewMode === 'structured') {
+                    structuredView.style.display = 'none';
+                    jsonView.style.display = 'block';
+                    toggleBtn.textContent = 'Vue structurée';
+                    viewMode = 'json';
+                } else {
+                    structuredView.style.display = 'block';
+                    jsonView.style.display = 'none';
+                    toggleBtn.textContent = 'Vue JSON';
+                    viewMode = 'structured';
+                }
+            });
+
+            // Clear mapped categories (pour cette configuration)
+            document.getElementById('btn-clear-mapped-categories').addEventListener('click', async () => {
+                if (!confirm('Vider les catégories détectées pour cette configuration (résultat du mapping) ?')) return;
+                try {
+                    await apiCall(`/models/${modelId}/configurations/${configId}/clear-mapped-categories`, { method: 'POST' });
+                    await loadData(true);
+                    const refreshedModel = currentData.models.find(m => m.id === modelId);
+                    const refreshedConfig = refreshedModel?.configurations?.find(c => c.id === configId);
+                    const refreshedPdfUrl = refreshedConfig?.pdfAnalysis?.pdfUrl || null;
+                    const refreshedMapped = refreshedConfig?.pdfAnalysis?.mapped || { categories: [], stats: { totalCategories: 0, totalItems: 0, totalSubCategories: 0 } };
+                    closeMappingResultsModal();
+                    showMappingResultsModal(refreshedPdfUrl, modelId, configId, refreshedMapped, null, null);
+                    showAlert('Catégories (résultat) vidées', 'success');
+                } catch (e) {
+                    showAlert('Erreur: ' + (e.message || e), 'error');
+                }
+            });
+
+            // Helper: update badge from mapped object
+            function updateTablesBadgeFromMapped(mappedObj) {
+                const badge = document.getElementById('badge-tables-count');
+                if (!badge) return;
+                const value = mappedObj?.stats?.totalTables;
+                badge.textContent = `Tableaux: ${value === undefined || value === null ? '—' : value}`;
+            }
+
+            updateTablesBadgeFromMapped(mappedData);
+
+            // Bouton relancer le mapping (si présent)
+            const btnRemap = document.getElementById('btn-remap');
+            if (btnRemap) {
+                btnRemap.addEventListener('click', async () => {
+                    closeMappingResultsModal();
+                    
+                    // Lancer directement le mapping (sans sélection de couleurs)
+                    try {
+                        showAlert('🔄 Relance du mapping...', 'info');
+                        const res = await fetch(`${API_BASE}/models/${modelId}/configurations/${configId}/map-excel`, {
+                            method: 'POST',
+                            credentials: 'include',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({}) // Pas de couleurs
+                        });
+                        const data = await res.json();
+                        if (!res.ok || !data.success) throw new Error(data.message || 'Erreur mapping');
+                        
+                        // Recharger les données pour avoir la configuration à jour
+                        await loadData();
+                        const refreshedModel = currentData.models.find(m => m.id === modelId);
+                        const refreshedConfig = refreshedModel?.configurations?.find(c => c.id === configId);
+                        const refreshedPdfUrl = refreshedConfig?.pdfAnalysis?.pdfUrl || null;
+                        
+                        // Afficher les nouveaux résultats
+                        showMappingResultsModal(refreshedPdfUrl, modelId, configId, data.data.mapped || {}, data.data.yaml || '', null);
+                        showAlert('Mapping relancé avec succès', 'success');
+                    } catch (err) {
+                        console.error('Remap error', err);
+                        showAlert('Erreur lors du remapping: ' + err.message, 'error');
+                    }
+                });
+            }
+
+            // Copy/download buttons
+            document.getElementById('copy-mapped-json').addEventListener('click', async () => {
+                try {
+                    await navigator.clipboard.writeText(prettyJson);
+                    showAlert('JSON copié dans le presse-papiers', 'success');
+                } catch (e) { showAlert('Impossible de copier', 'error'); }
+            });
+            document.getElementById('download-mapped-json').addEventListener('click', () => {
+                const blob = new Blob([prettyJson], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a'); a.href = url; a.download = `${configId.replace(/[^a-z0-9_-]/ig, '_')}_mapped.json`; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+            });
+            const copyYamlBtn = document.getElementById('copy-mapped-yaml');
+            const dlYamlBtn = document.getElementById('download-mapped-yaml');
+            if (copyYamlBtn && dlYamlBtn) {
+                copyYamlBtn.addEventListener('click', async () => {
+                    try { await navigator.clipboard.writeText(yamlStr || ''); showAlert('YAML copié', 'success'); } catch (e) { showAlert('Impossible de copier YAML', 'error'); }
+                });
+                dlYamlBtn.addEventListener('click', () => {
+                    const blob = new Blob([yamlStr || ''], { type: 'text/yaml' });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a'); a.href = url; a.download = `${configId.replace(/[^a-z0-9_-]/ig, '_')}_mapped.yaml`; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+                });
+            }
+            
+            // Bouton télécharger Excel Camelot
+            const downloadExcelBtn = document.getElementById('download-camelot-excel');
+            if (downloadExcelBtn) {
+                downloadExcelBtn.addEventListener('click', async () => {
+                    try {
+                        showAlert('Téléchargement en cours...', 'info');
+                        const downloadUrl = `${API_BASE}/models/${modelId}/configurations/${configId}/download-camelot-excel`;
+                        
+                        // Utiliser fetch pour vérifier d'abord si le fichier existe
+                        const response = await fetch(downloadUrl, {
+                            method: 'GET',
+                            credentials: 'include'
+                        });
+                        
+                        if (!response.ok) {
+                            let errorMessage = `Erreur ${response.status}: ${response.statusText}`;
+                            try {
+                                const errorData = await response.json();
+                                errorMessage = errorData.message || errorMessage;
+                            } catch (parseErr) {
+                                // Si ce n'est pas du JSON, utiliser le texte de la réponse
+                                const text = await response.text().catch(() => '');
+                                if (text) errorMessage = text;
+                            }
+                            throw new Error(errorMessage);
+                        }
+                        
+                        // Si OK, télécharger le fichier
+                        const blob = await response.blob();
+                        const url = window.URL.createObjectURL(blob);
+                        const a = document.createElement('a');
+                        a.href = url;
+                        
+                        // Récupérer le nom du fichier depuis les headers
+                        const contentDisposition = response.headers.get('Content-Disposition');
+                        let filename = `camelot_${configId}.xlsx`;
+                        if (contentDisposition) {
+                            const filenameMatch = contentDisposition.match(/filename="?(.+)"?/i);
+                            if (filenameMatch) {
+                                filename = filenameMatch[1];
+                            }
+                        }
+                        a.download = filename;
+                        a.style.display = 'none';
+                        document.body.appendChild(a);
+                        a.click();
+                        document.body.removeChild(a);
+                        window.URL.revokeObjectURL(url);
+                        showAlert('Fichier Excel Camelot téléchargé avec succès', 'success');
+                    } catch (e) {
+                        console.error('Download error', e);
+                        let errorMessage = e.message || 'Erreur inconnue';
+                        // Si c'est une erreur de réponse, essayer de parser le JSON
+                        if (e.response) {
+                            try {
+                                const errorData = await e.response.json();
+                                errorMessage = errorData.message || errorMessage;
+                            } catch (parseErr) {
+                                errorMessage = `Erreur ${e.response.status}: ${e.response.statusText}`;
+                            }
+                        }
+                        showAlert('Erreur lors du téléchargement: ' + errorMessage, 'error');
+                    }
+                });
+            }
+        }
+
+        // Fonction remapWithColors supprimée (plus besoin de couleurs)
+
+        function closeMappingResultsModal() {
+            const m = document.getElementById('mapping-results-modal'); if (m) m.remove();
+        }
+        function buildOptionIndex() {
+            const optionIndex = new Map();
+            (currentData.categories || []).forEach(category => {
+                (category.options || []).forEach(option => {
+                    optionIndex.set(option.id, option);
+                });
+            });
+            return optionIndex;
+        }
+
+        function showConfigPdfResults(configId) {
+            const modelId = document.getElementById('model-id')?.value;
+            const model = currentData.models.find(m => m.id === modelId);
+            const config = model?.configurations?.find(c => c.id === configId);
+            const analysis = config?.pdfAnalysis;
+
+            if (!analysis) {
+                showAlert('Aucune analyse PDF disponible pour cette configuration.', 'info');
+                return;
+            }
+
+            // Utiliser les données du mapping Camelot (nouveau système)
+            const mappedData = analysis.mapped || null;
+            const pdfUrl = analysis.pdfUrl || analysis.pdfDataUrl || null;
+
+            if (!mappedData || !mappedData.categories) {
+                showAlert('Aucun mapping disponible. Lancez d\'abord le mapping depuis le bouton "🔄 Mapper (Camelot + IA)".', 'info');
+                return;
+            }
+
+            console.log('🔍 showConfigPdfResults - Vérification Excel:', {
+                hasConfig: !!config,
+                camelotExcelPath: config?.pdfAnalysis?.camelotExcelPath,
+                camelotExcelFileName: config?.pdfAnalysis?.camelotExcelFileName
+            });
+
+            // Afficher les résultats avec la vue structurée
+            showMappingResultsModal(pdfUrl, modelId, configId, mappedData, null, null);
+        }
+
+        function closeConfigPdfResultsModal() {
+            const modal = document.getElementById('config-pdf-results-modal');
+            if (modal) modal.remove();
+        }
+
+        function handleModelImageUpload(event) {
+            const file = event.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    const preview = document.getElementById('model-image-preview');
+                    if (preview) {
+                        preview.src = e.target.result;
+                    } else {
+                        const uploadArea = document.getElementById('model-image-upload');
+                        uploadArea.innerHTML = `<img src="${e.target.result}" class="image-preview" id="model-image-preview">`;
+                    }
+                };
+                reader.readAsDataURL(file);
+            }
+        }
+
+        async function saveModel() {
+            const modelId = document.getElementById('model-id').value;
+            const name = document.getElementById('model-name').value;
+            const basePrice = parseFloat(document.getElementById('model-price').value);
+            const imagePreview = document.getElementById('model-image-preview');
+            const image = imagePreview ? imagePreview.src : null;
+            const motorizationBase = document.getElementById('model-base-motorization')?.value?.trim() || '';
+            const deliveryMode = document.getElementById('model-delivery-mode')?.value?.trim() || '';
+            const posteRaw = document.getElementById('model-poste-number')?.value;
+            const posteNumber = posteRaw ? parseInt(posteRaw, 10) : null;
+
+            const model = currentData.models.find(m => m.id === modelId);
+            if (!model) return;
+
+            model.name = name;
+            model.basePrice = basePrice;
+            model.motorizationBase = motorizationBase;
+            model.defaultDeliveryMode = deliveryMode;
+            model.posteNumber = Number.isFinite(posteNumber) ? posteNumber : null;
+            if (image && image.startsWith('data:')) {
+                // TODO: Upload image to server and get URL
+                model.image = image; // Temporaire, à remplacer par l'URL réelle
+            }
+
+            try {
+                // TODO: Sauvegarder via API
+                showAlert('Modèle enregistré avec succès', 'success');
+                await loadData();
+                closeModelModal();
+            } catch (error) {
+                showAlert('Erreur: ' + error.message, 'error');
+            }
+        }
+
+        // ========================================
+        // MODIFICATION COULEUR POUR OPTIONS
+        // ========================================
+        function modifyOptionColor(categoryId, option) {
+            const modal = document.createElement('div');
+            modal.className = 'modal active';
+            modal.id = 'color-modal';
+            modal.innerHTML = `
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h2>Modifier la couleur: ${option.name}</h2>
+                        <button class="btn btn-danger" onclick="closeColorModal()">Fermer</button>
+                    </div>
+                    <div class="form-group">
+                        <label>Couleur</label>
+                        <div style="display: flex; align-items: center;">
+                            <input type="color" id="option-color" value="${option.color || '#000000'}" class="color-picker">
+                            <div class="color-preview" id="color-preview" style="background-color: ${option.color || '#000000'}"></div>
+                        </div>
+                    </div>
+                    <div style="display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px;">
+                        <button type="button" class="btn btn-outline" onclick="closeColorModal()">Annuler</button>
+                        <button type="button" class="btn btn-primary" onclick="saveOptionColor('${categoryId}', '${option.id}')">Enregistrer</button>
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(modal);
+
+            document.getElementById('option-color').addEventListener('input', (e) => {
+                document.getElementById('color-preview').style.backgroundColor = e.target.value;
+            });
+
+            modal.addEventListener('click', (e) => {
+                if (e.target.id === 'color-modal') closeColorModal();
+            });
+        }
+
+        function closeColorModal() {
+            const modal = document.getElementById('color-modal');
+            if (modal) modal.remove();
+        }
+
+        async function saveOptionColor(categoryId, optionId) {
+            const color = document.getElementById('option-color').value;
+            try {
+                // TODO: Sauvegarder via API
+                showAlert('Couleur enregistrée avec succès', 'success');
+                await loadData();
+                closeColorModal();
+            } catch (error) {
+                showAlert('Erreur: ' + error.message, 'error');
+            }
+        }
+
+        // ========================================
+        // CRÉATION COLLECTION DOC-TEMPLATE
+        // ========================================
+        async function createCollectionForSubCategory(categoryId, subCategory) {
+            // D'abord rechercher des collections similaires
+            try {
+                const searchResponse = await fetch(`/api/ugap/categories/${categoryId}/subcategories/${subCategory.id}/search-collections`, {
+                    credentials: 'include'
+                });
+
+                if (searchResponse.ok) {
+                    const searchResult = await searchResponse.json();
+                    if (searchResult.success && searchResult.data.similarCollections.length > 0) {
+                        // Afficher un modal de sélection
+                        showCollectionSelectionModal(categoryId, subCategory, searchResult.data.similarCollections);
+                        return;
+                    }
+                }
+            } catch (error) {
+                console.warn('Erreur lors de la recherche de collections similaires:', error);
+            }
+
+            // Si aucune collection similaire, afficher directement le formulaire de création
+            showCreateCollectionForm(categoryId, subCategory);
+        }
+
+        function showCollectionSelectionModal(categoryId, subCategory, similarCollections) {
+            const modal = document.createElement('div');
+            modal.className = 'modal active';
+            modal.id = 'collection-selection-modal';
+            modal.innerHTML = `
+                <div class="modal-content" style="max-width: 800px;">
+                    <div class="modal-header">
+                        <h2>Collections existantes trouvées</h2>
+                        <button class="btn btn-danger" onclick="closeCollectionSelectionModal()">Fermer</button>
+                    </div>
+                    <div style="padding: 20px;">
+                        <p style="margin-bottom: 20px;">
+                            Des collections similaires à "<strong>${subCategory.name}</strong>" ont été trouvées. 
+                            Souhaitez-vous utiliser une collection existante ou créer une nouvelle ?
+                        </p>
+                        <div style="max-height: 400px; overflow-y: auto; margin-bottom: 20px;">
+                            ${similarCollections.map((collection, index) => `
+                                <div class="config-item" style="margin-bottom: 10px; cursor: pointer;" onclick="selectExistingCollection('${categoryId}', '${subCategory.id}', '${collection._id}')">
+                                    <div style="flex: 1;">
+                                        <strong>${collection.name}</strong>
+                                        <span class="badge" style="margin-left: 10px; background: ${collection.similarity > 0.7 ? '#28a745' : collection.similarity > 0.5 ? '#ffc107' : '#17a2b8'}; color: white;">
+                                            ${Math.round(collection.similarity * 100)}% similaire
+                                        </span>
+                                        ${collection.description ? `<p style="color: #666; margin: 5px 0; font-size: 14px;">${collection.description}</p>` : ''}
+                                        <p style="color: #999; margin: 5px 0; font-size: 12px;">
+                                            ${(collection.fields || []).length} champ(s) • Créée le ${new Date(collection.createdAt).toLocaleDateString()}
+                                        </p>
+                                    </div>
+                                    <div>
+                                        <button class="btn btn-primary">Utiliser</button>
+                                    </div>
+                                </div>
+                            `).join('')}
+                        </div>
+                        <div style="text-align: center; padding-top: 20px; border-top: 1px solid #eee;">
+                            <button class="btn btn-success" onclick="showCreateCollectionForm('${categoryId}', ${JSON.stringify(subCategory).replace(/"/g, '&quot;')})">
+                                ➕ Créer une nouvelle collection
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(modal);
+
+            modal.addEventListener('click', (e) => {
+                if (e.target.id === 'collection-selection-modal') closeCollectionSelectionModal();
+            });
+        }
+
+        function closeCollectionSelectionModal() {
+            const modal = document.getElementById('collection-selection-modal');
+            if (modal) modal.remove();
+        }
+
+        async function selectExistingCollection(categoryId, subCategoryId, collectionId) {
+            try {
+                // Lier la collection à la sous-catégorie
+                const linkResponse = await fetch(`/api/ugap/categories/${categoryId}/subcategories/${subCategoryId}`, {
+                    method: 'PUT',
+                    credentials: 'include',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ idDocTemplate: collectionId })
+                });
+
+                if (!linkResponse.ok) {
+                    throw new Error('Erreur lors de la liaison de la collection');
+                }
+
+                closeCollectionSelectionModal();
+                showAlert('Collection liée avec succès !', 'success');
+                await loadData();
+            } catch (error) {
+                showAlert('Erreur: ' + error.message, 'error');
+            }
+        }
+
+        function showCreateCollectionForm(categoryId, subCategory) {
+            // Fermer le modal de sélection s'il existe
+            closeCollectionSelectionModal();
+
+            const modal = document.createElement('div');
+            modal.className = 'modal active';
+            modal.id = 'create-collection-modal';
+            modal.innerHTML = `
+                <div class="modal-content" style="max-width: 900px;">
+                    <div class="modal-header">
+                        <h2>Créer une collection pour: ${subCategory.name}</h2>
+                        <button class="btn btn-danger" onclick="closeCreateCollectionModal()">Fermer</button>
+                    </div>
+                    <form id="collection-form">
+                        <div class="form-group">
+                            <label>Nom de la collection *</label>
+                            <input type="text" id="collection-name" value="${subCategory.name}" required>
+                        </div>
+                        <div class="form-group">
+                            <label>Slug *</label>
+                            <input type="text" id="collection-slug" value="${subCategory.name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}" required>
+                            <small style="color: #666;">Identifiant unique (lettres, chiffres, tirets uniquement)</small>
+                        </div>
+                        <div class="form-group">
+                            <label>Description</label>
+                            <textarea id="collection-description" rows="3">${subCategory.description || ''}</textarea>
+                        </div>
+                        <div class="form-group">
+                            <label>Champs de la collection</label>
+                            <div id="collection-fields"></div>
+                            <button type="button" class="btn btn-success" onclick="addCollectionField()" style="margin-top: 10px;">+ Ajouter un champ</button>
+                        </div>
+                        <div style="display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px;">
+                            <button type="button" class="btn btn-primary" onclick="buildCollectionWithAI('${categoryId}', '${subCategory.id}')">🤖 Construire la collection par IA</button>
+                            <button type="button" class="btn btn-outline" onclick="closeCreateCollectionModal()">Annuler</button>
+                            <button type="submit" class="btn btn-primary">Créer la collection</button>
+                        </div>
+                    </form>
+                </div>
+            `;
+            document.body.appendChild(modal);
+
+            // Initialiser avec un champ par défaut
+            addCollectionField();
+
+            document.getElementById('collection-form').addEventListener('submit', async (e) => {
+                e.preventDefault();
+                await saveCollection(categoryId, subCategory.id);
+            });
+
+            modal.addEventListener('click', (e) => {
+                if (e.target.id === 'create-collection-modal') closeCreateCollectionModal();
+            });
+        }
+
+        function closeCreateCollectionModal() {
+            const modal = document.getElementById('create-collection-modal');
+            if (modal) modal.remove();
+        }
+
+        function addCollectionField() {
+            const container = document.getElementById('collection-fields');
+            if (!container) return;
+            const fieldIndex = container.children.length;
+            const fieldDiv = document.createElement('div');
+            fieldDiv.className = 'form-group';
+            fieldDiv.style.border = '1px solid #eee';
+            fieldDiv.style.padding = '15px';
+            fieldDiv.style.borderRadius = '6px';
+            fieldDiv.style.marginBottom = '10px';
+            fieldDiv.innerHTML = `
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                    <strong>Champ ${fieldIndex + 1}</strong>
+                    <button type="button" class="btn btn-danger" onclick="this.parentElement.parentElement.remove()">Supprimer</button>
+                </div>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                    <div>
+                        <label>Label *</label>
+                        <input type="text" class="field-label" required>
+                    </div>
+                    <div>
+                        <label>Type *</label>
+                        <select class="field-type" required>
+                            <option value="Texte" data-typeRef="string">Texte</option>
+                            <option value="TextArea" data-typeRef="string">Zone de texte</option>
+                            <option value="Lien" data-typeRef="string">Lien</option>
+                            <option value="Number" data-typeRef="number">Nombre</option>
+                            <option value="Boolean" data-typeRef="boolean">Oui / Non</option>
+                            <option value="Date" data-typeRef="date">Date</option>
+                            <option value="DateTime" data-typeRef="date">Date & Heure</option>
+                            <option value="Couleur" data-typeRef="color">Couleur</option>
+                            <option value="Fichier" data-typeRef="file">Fichier</option>
+                            <option value="Image" data-typeRef="file">Image</option>
+                            <option value="Enum" data-typeRef="string">Liste de valeurs</option>
+                            <option value="SousCollection" data-typeRef="array">Sous-collection</option>
+                            <option value="DocumentGeneré" data-typeRef="document">Document généré</option>
+                            <option value="Relation" data-typeRef="Relation">Relation</option>
+                        </select>
+                    </div>
+                </div>
+                <div style="margin-top: 10px;">
+                    <label><input type="checkbox" class="field-required"> Champ requis</label>
+                </div>
+            `;
+            container.appendChild(fieldDiv);
+        }
+
+        async function saveCollection(categoryId, subCategoryId) {
+            const name = document.getElementById('collection-name').value;
+            const slug = document.getElementById('collection-slug').value;
+            const description = document.getElementById('collection-description').value;
+            
+            const fields = [];
+            document.querySelectorAll('#collection-fields > div').forEach((fieldDiv, index) => {
+                const label = fieldDiv.querySelector('.field-label').value;
+                const typeSelect = fieldDiv.querySelector('.field-type');
+                const type = typeSelect.value; // Ex: "Texte", "Number", etc.
+                const selectedOption = typeSelect.options[typeSelect.selectedIndex];
+                const typeRef = selectedOption.getAttribute('data-typeref'); // Ex: "string", "number", etc.
+                const required = fieldDiv.querySelector('.field-required').checked;
+                
+                if (label && type && typeRef) {
+                    const fieldName = label.toLowerCase().replace(/[^a-z0-9]+/g, '_');
+                    const field = {
+                        id: fieldName,
+                        position: index,
+                        typeRef: typeRef,
+                        type: type,
+                        label: label,
+                        name: fieldName,
+                        required: required,
+                        defaultValue: null,
+                        validationOverrides: {},
+                        relation: null,
+                        ui: {}
+                    };
+                    
+                    // Gérer les valeurs par défaut selon le type
+                    if (type === 'Couleur') {
+                        field.defaultValue = '#000000';
+                    } else if (type === 'Number') {
+                        field.defaultValue = 0;
+                    } else if (type === 'Boolean') {
+                        field.defaultValue = false;
+                    }
+                    
+                    fields.push(field);
+                }
+            });
+
+            try {
+                const response = await fetch('/api/doc-template/collections', {
+                    method: 'POST',
+                    credentials: 'include',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name, slug, description, fields })
+                });
+
+                if (!response.ok) throw new Error('Erreur lors de la création de la collection');
+
+                const result = await response.json();
+                if (!result.success) throw new Error(result.message || 'Erreur');
+
+                // Lier la collection à la sous-catégorie
+                const collectionId = result.data._id || result.data.id;
+                try {
+                    const linkResponse = await fetch(`/api/ugap/categories/${categoryId}/subcategories/${subCategoryId}`, {
+                        method: 'PUT',
+                        credentials: 'include',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ idDocTemplate: collectionId })
+                    });
+
+                    if (!linkResponse.ok) {
+                        console.warn('⚠️ Impossible de lier la collection à la sous-catégorie, mais la collection a été créée');
+                    }
+                } catch (linkError) {
+                    console.warn('⚠️ Erreur lors de la liaison:', linkError);
+                }
+
+                showAlert('Collection créée avec succès et liée à la sous-catégorie', 'success');
+                closeCreateCollectionModal();
+                await loadData();
+            } catch (error) {
+                showAlert('Erreur: ' + error.message, 'error');
+            }
+        }
+
+        async function buildCollectionWithAI(categoryId, subCategoryId) {
+            const category = currentData.categories.find(c => c.id === categoryId);
+            if (!category) return;
+            
+            const subCategory = (category.subCategories || []).find(sc => sc.id === subCategoryId);
+            if (!subCategory) return;
+
+            const modal = document.createElement('div');
+            modal.className = 'modal active';
+            modal.id = 'ai-generation-modal';
+            modal.innerHTML = `
+                <div class="modal-content" style="max-width: 700px;">
+                    <div class="modal-header">
+                        <h2>🤖 Génération de collection par IA</h2>
+                        <button class="btn btn-danger" onclick="closeAIGenerationModal()">Fermer</button>
+                    </div>
+                    <div id="ai-generation-status" style="padding: 20px;">
+                        <p>Analyse de la sous-catégorie "<strong>${subCategory.name}</strong>"...</p>
+                        <div class="progress-bar" style="margin-top: 15px;">
+                            <div class="progress-bar-fill" id="ai-progress-bar" style="width: 0%;"></div>
+                        </div>
+                        <div id="ai-generation-log" style="margin-top: 15px; max-height: 300px; overflow-y: auto; background: #f8f9fa; padding: 15px; border-radius: 4px; font-family: monospace; font-size: 12px;"></div>
+                        <div id="ai-improve-section" style="margin-top: 20px; display: none;">
+                            <div style="background: #e7f3ff; padding: 15px; border-radius: 6px; border-left: 4px solid #007bff;">
+                                <p style="margin: 0 0 10px 0;"><strong>💡 Première proposition générée</strong></p>
+                                <p style="margin: 0 0 15px 0; color: #666; font-size: 14px;">Souhaitez-vous améliorer cette proposition avec des recherches web pour enrichir les champs ?</p>
+                                <button id="btn-improve-with-web" class="btn btn-primary" style="margin-right: 10px;">🌐 Améliorer avec recherche web</button>
+                                <button id="btn-keep-first" class="btn btn-outline">✓ Garder cette proposition</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(modal);
+
+            const logDiv = document.getElementById('ai-generation-log');
+            const progressBar = document.getElementById('ai-progress-bar');
+
+            function addLog(message) {
+                const time = new Date().toLocaleTimeString();
+                logDiv.innerHTML += `<div>[${time}] ${message}</div>`;
+                logDiv.scrollTop = logDiv.scrollHeight;
+            }
+
+            function updateProgress(percent) {
+                progressBar.style.width = percent + '%';
+            }
+
+            // Fonction pour remplir le formulaire avec les champs
+            function fillFormWithFields(fields) {
+                const fieldsContainer = document.getElementById('collection-fields');
+                if (!fieldsContainer) return;
+                
+                fieldsContainer.innerHTML = '';
+                fields.forEach((field, index) => {
+                        const fieldDiv = document.createElement('div');
+                        fieldDiv.className = 'form-group';
+                        fieldDiv.style.border = '1px solid #eee';
+                        fieldDiv.style.padding = '15px';
+                        fieldDiv.style.borderRadius = '6px';
+                        fieldDiv.style.marginBottom = '10px';
+                        fieldDiv.style.background = '#f0f8ff';
+                        
+                        const typeMap = {
+                            'Texte': 'Texte',
+                            'TextArea': 'TextArea',
+                            'Number': 'Number',
+                            'Boolean': 'Boolean',
+                            'Date': 'Date',
+                            'DateTime': 'DateTime',
+                            'Couleur': 'Couleur',
+                            'Fichier': 'Fichier',
+                            'Image': 'Image',
+                            'Enum': 'Enum'
+                        };
+                        
+                        const fieldType = typeMap[field.type] || 'Texte';
+                        
+                        fieldDiv.innerHTML = `
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                                <strong>Champ ${index + 1} (Généré par IA)</strong>
+                                <button type="button" class="btn btn-danger" onclick="this.parentElement.parentElement.remove()">Supprimer</button>
+                            </div>
+                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                                <div>
+                                    <label>Label *</label>
+                                    <input type="text" class="field-label" value="${field.label || ''}" required>
+                                </div>
+                                <div>
+                                    <label>Type *</label>
+                                    <select class="field-type" required>
+                                        <option value="Texte" data-typeref="string" ${fieldType === 'Texte' ? 'selected' : ''}>Texte</option>
+                                        <option value="TextArea" data-typeref="string" ${fieldType === 'TextArea' ? 'selected' : ''}>Zone de texte</option>
+                                        <option value="Lien" data-typeref="string">Lien</option>
+                                        <option value="Number" data-typeref="number" ${fieldType === 'Number' ? 'selected' : ''}>Nombre</option>
+                                        <option value="Boolean" data-typeref="boolean" ${fieldType === 'Boolean' ? 'selected' : ''}>Oui / Non</option>
+                                        <option value="Date" data-typeref="date" ${fieldType === 'Date' ? 'selected' : ''}>Date</option>
+                                        <option value="DateTime" data-typeref="date" ${fieldType === 'DateTime' ? 'selected' : ''}>Date & Heure</option>
+                                        <option value="Couleur" data-typeref="color" ${fieldType === 'Couleur' ? 'selected' : ''}>Couleur</option>
+                                        <option value="Fichier" data-typeref="file" ${fieldType === 'Fichier' ? 'selected' : ''}>Fichier</option>
+                                        <option value="Image" data-typeref="file" ${fieldType === 'Image' ? 'selected' : ''}>Image</option>
+                                        <option value="Enum" data-typeref="string" ${fieldType === 'Enum' ? 'selected' : ''}>Liste de valeurs</option>
+                                        <option value="SousCollection" data-typeref="array">Sous-collection</option>
+                                        <option value="DocumentGeneré" data-typeref="document">Document généré</option>
+                                        <option value="Relation" data-typeref="Relation">Relation</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div style="margin-top: 10px;">
+                                <label><input type="checkbox" class="field-required" ${field.required ? 'checked' : ''}> Champ requis</label>
+                            </div>
+                            ${field.description ? `<div style="margin-top: 5px; color: #666; font-size: 12px; font-style: italic;">💡 ${field.description}</div>` : ''}
+                        `;
+                    fieldsContainer.appendChild(fieldDiv);
+                });
+            }
+
+            // Fonction pour générer la collection (avec ou sans recherche web)
+            async function generateCollection(useWebSearch = false) {
+                try {
+                    updateProgress(10);
+                    addLog('📝 Préparation de l\'analyse...');
+
+                    updateProgress(30);
+                    addLog('🔍 Envoi de la requête à l\'IA...');
+                    if (useWebSearch) {
+                        addLog('🌐 Recherche web en cours...');
+                    }
+
+                    // Appel à l'API UGAP pour la génération
+                    addLog('🔗 Connexion à l\'IA...');
+                    const aiResponse = await fetch(`/api/ugap/categories/${categoryId}/subcategories/${subCategoryId}/generate-collection`, {
+                        method: 'POST',
+                        credentials: 'include',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            useWebSearch: useWebSearch
+                        })
+                    });
+
+                    if (!aiResponse.ok) {
+                        throw new Error('Erreur lors de l\'appel à l\'IA');
+                    }
+
+                    updateProgress(70);
+                    addLog('✅ Réponse reçue, analyse en cours...');
+
+                    const aiResult = await aiResponse.json();
+                    if (!aiResult.success) {
+                        throw new Error(aiResult.message || 'Erreur lors de la génération');
+                    }
+
+                    const { fields, reasoning, webResults } = aiResult.data;
+                    
+                    if (webResults && webResults.length > 0) {
+                        addLog(`🌐 ${webResults.length} résultat(s) de recherche web utilisé(s)`);
+                    }
+
+                    updateProgress(90);
+                    addLog(`✅ ${fields.length} champ(s) détecté(s)`);
+                    if (reasoning) {
+                        addLog(`💡 Raisonnement: ${reasoning.substring(0, 200)}...`);
+                    }
+
+                    // Remplir le formulaire avec les champs générés
+                    fillFormWithFields(fields);
+
+                    updateProgress(100);
+                    
+                    return { fields, reasoning, webResults };
+                } catch (error) {
+                    addLog('❌ Erreur: ' + error.message);
+                    throw error;
+                }
+            }
+
+            // Étape 1 : Générer le premier jet sans recherche web
+            try {
+                const firstResult = await generateCollection(false);
+                
+                // Afficher la section d'amélioration
+                const improveSection = document.getElementById('ai-improve-section');
+                if (improveSection) {
+                    improveSection.style.display = 'block';
+                    
+                    // Bouton pour améliorer avec recherche web
+                    document.getElementById('btn-improve-with-web').addEventListener('click', async () => {
+                        improveSection.style.display = 'none';
+                        addLog('🌐 Amélioration avec recherche web...');
+                        updateProgress(0);
+                        
+                        try {
+                            await generateCollection(true);
+                            addLog('✅ Collection améliorée avec succès !');
+                            setTimeout(() => {
+                                closeAIGenerationModal();
+                                showAlert('Collection améliorée par IA avec succès !', 'success');
+                            }, 1500);
+                        } catch (error) {
+                            showAlert('Erreur lors de l\'amélioration: ' + error.message, 'error');
+                        }
+                    });
+                    
+                    // Bouton pour garder la première proposition
+                    document.getElementById('btn-keep-first').addEventListener('click', () => {
+                        closeAIGenerationModal();
+                        showAlert('Collection générée par IA avec succès !', 'success');
+                    });
+                } else {
+                    // Si pas de section d'amélioration, fermer directement
+                    setTimeout(() => {
+                        closeAIGenerationModal();
+                        showAlert('Collection générée par IA avec succès !', 'success');
+                    }, 1500);
+                }
+            } catch (error) {
+                showAlert('Erreur lors de la génération: ' + error.message, 'error');
+            }
+        }
+
+        function closeAIGenerationModal() {
+            const modal = document.getElementById('ai-generation-modal');
+            if (modal) modal.remove();
+        }
+
+        // ========================================
+        // AJOUTER OPTION À COLLECTION
+        // ========================================
+        function addOptionToCollection(categoryId, option, subCategory) {
+            if (!subCategory.idDocTemplate) {
+                showAlert('Cette sous-catégorie n\'a pas de collection associée', 'error');
+                return;
+            }
+
+            const modal = document.createElement('div');
+            modal.className = 'modal active';
+            modal.id = 'add-to-collection-modal';
+            modal.innerHTML = `
+                <div class="modal-content" style="max-width: 900px;">
+                    <div class="modal-header">
+                        <h2>Ajouter "${option.name}" à la collection</h2>
+                        <button class="btn btn-danger" onclick="closeAddToCollectionModal()">Fermer</button>
+                    </div>
+                    <p style="color: #666; margin-bottom: 20px;">Remplissez les champs de la collection pour cet élément:</p>
+                    <form id="collection-element-form">
+                        <div id="collection-element-fields"></div>
+                        <div style="display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px;">
+                            <button type="button" class="btn btn-primary" onclick="fillCollectionWithAI('${categoryId}', '${option.id}', '${subCategory.idDocTemplate}')">🤖 Remplir avec IA</button>
+                            <button type="button" class="btn btn-outline" onclick="closeAddToCollectionModal()">Annuler</button>
+                            <button type="submit" class="btn btn-primary">Ajouter à la collection</button>
+                        </div>
+                    </form>
+                </div>
+            `;
+            document.body.appendChild(modal);
+
+            // Charger la structure de la collection
+            loadCollectionStructure(subCategory.idDocTemplate);
+
+            document.getElementById('collection-element-form').addEventListener('submit', async (e) => {
+                e.preventDefault();
+                await saveCollectionElement(subCategory.idDocTemplate, option);
+            });
+
+            modal.addEventListener('click', (e) => {
+                if (e.target.id === 'add-to-collection-modal') closeAddToCollectionModal();
+            });
+        }
+
+        function closeAddToCollectionModal() {
+            const modal = document.getElementById('add-to-collection-modal');
+            if (modal) modal.remove();
+        }
+
+        async function loadCollectionStructure(collectionId) {
+            try {
+                const response = await fetch(`/api/doc-template/collections/${collectionId}`, {
+                    credentials: 'include'
+                });
+                if (!response.ok) throw new Error('Erreur lors du chargement de la collection');
+                
+                const result = await response.json();
+                if (!result.success) throw new Error(result.message || 'Erreur');
+
+                const collection = result.data;
+                const fieldsContainer = document.getElementById('collection-element-fields');
+                if (!fieldsContainer) return;
+                fieldsContainer.innerHTML = '';
+
+                (collection.fields || []).forEach(field => {
+                    const fieldDiv = document.createElement('div');
+                    fieldDiv.className = 'form-group';
+                    fieldDiv.innerHTML = `
+                        <label>${field.label}${field.required ? ' *' : ''}</label>
+                        ${getFieldInput(field)}
+                    `;
+                    fieldsContainer.appendChild(fieldDiv);
+                });
+            } catch (error) {
+                showAlert('Erreur: ' + error.message, 'error');
+            }
+        }
+
+        function getFieldInput(field) {
+            const fieldId = field.id;
+            const required = field.required ? 'required' : '';
+            const defaultValue = field.defaultValue || '';
+            
+            // Utiliser le type (nom) plutôt que typeRef pour déterminer le type d'input
+            const fieldType = field.type || '';
+            
+            switch (fieldType) {
+                case 'Texte':
+                case 'Lien':
+                case 'Enum':
+                    return `<input type="text" class="collection-field" data-field-id="${fieldId}" value="${defaultValue}" ${required}>`;
+                case 'TextArea':
+                    return `<textarea class="collection-field" data-field-id="${fieldId}" ${required}>${defaultValue}</textarea>`;
+                case 'Number':
+                    return `<input type="number" class="collection-field" data-field-id="${fieldId}" value="${defaultValue}" ${required}>`;
+                case 'Boolean':
+                    return `<input type="checkbox" class="collection-field" data-field-id="${fieldId}" ${defaultValue ? 'checked' : ''}>`;
+                case 'Date':
+                    return `<input type="date" class="collection-field" data-field-id="${fieldId}" value="${defaultValue}" ${required}>`;
+                case 'DateTime':
+                    return `<input type="datetime-local" class="collection-field" data-field-id="${fieldId}" value="${defaultValue}" ${required}>`;
+                case 'Couleur':
+                    return `<input type="color" class="collection-field" data-field-id="${fieldId}" value="${defaultValue || '#000000'}" ${required}>`;
+                case 'Fichier':
+                case 'Image':
+                    return `<input type="file" class="collection-field" data-field-id="${fieldId}" ${required}>`;
+                case 'SousCollection':
+                    return `<div class="collection-field" data-field-id="${fieldId}" style="padding: 10px; border: 1px solid #ddd; border-radius: 4px; background: #f9f9f9;">
+                        <p style="color: #666; margin: 0;">Sous-collection (à implémenter)</p>
+                    </div>`;
+                case 'DocumentGeneré':
+                    return `<div class="collection-field" data-field-id="${fieldId}" style="padding: 10px; border: 1px solid #ddd; border-radius: 4px; background: #f9f9f9;">
+                        <p style="color: #666; margin: 0;">Document généré (à implémenter)</p>
+                    </div>`;
+                case 'Relation':
+                    return `<select class="collection-field" data-field-id="${fieldId}" ${required}>
+                        <option value="">-- Sélectionner --</option>
+                        <!-- Les options seront chargées dynamiquement -->
+                    </select>`;
+                default:
+                    // Fallback basé sur typeRef si type n'est pas défini
+                    switch (field.typeRef) {
+                        case 'string':
+                            return `<input type="text" class="collection-field" data-field-id="${fieldId}" value="${defaultValue}" ${required}>`;
+                        case 'number':
+                            return `<input type="number" class="collection-field" data-field-id="${fieldId}" value="${defaultValue}" ${required}>`;
+                        case 'boolean':
+                            return `<input type="checkbox" class="collection-field" data-field-id="${fieldId}" ${defaultValue ? 'checked' : ''}>`;
+                        case 'date':
+                            return `<input type="date" class="collection-field" data-field-id="${fieldId}" value="${defaultValue}" ${required}>`;
+                        default:
+                            return `<input type="text" class="collection-field" data-field-id="${fieldId}" value="${defaultValue}" ${required}>`;
+                    }
+            }
+        }
+
+        async function saveCollectionElement(collectionId, option) {
+            const element = {};
+            document.querySelectorAll('.collection-field').forEach(input => {
+                const fieldId = input.dataset.fieldId;
+                if (input.type === 'checkbox') {
+                    element[fieldId] = input.checked;
+                } else {
+                    element[fieldId] = input.value;
+                }
+            });
+
+            try {
+                // TODO: Ajouter l'élément à la collection via API
+                showAlert('Élément ajouté à la collection avec succès', 'success');
+                closeAddToCollectionModal();
+            } catch (error) {
+                showAlert('Erreur: ' + error.message, 'error');
+            }
+        }
+
+        async function fillCollectionWithAI(categoryId, optionId, collectionId) {
+            // TODO: Implémenter le remplissage par IA
+            alert('Fonctionnalité "Remplir avec IA" à implémenter');
+        }
+
+        // Fonctions de détection pour le mapping
+        async function detectCategories(modelId, configId) {
+            try {
+                showAlert('🔄 Détection des catégories en cours...', 'info');
+                const res = await fetch(`${API_BASE}/models/${modelId}/configurations/${configId}/map-excel`, {
+                    method: 'POST',
+                    credentials: 'include',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ step: 'categories' })
+                });
+                const data = await res.json();
+                if (!res.ok || !data.success) throw new Error(data.message || 'Erreur détection catégories');
+                
+                const mapped = data.data.mapped || { categories: [] };
+
+                // Mettre à jour l'indicateur "Tableaux" dans l'entête du modal si présent
+                const badge = document.getElementById('badge-tables-count');
+                if (badge) {
+                    const value = mapped?.stats?.totalTables;
+                    badge.textContent = `Tableaux: ${value === undefined || value === null ? '—' : value}`;
+                }
+                
+                // Mettre à jour directement la vue canvas/sous-menus
+                const structuredView = document.getElementById('structured-view');
+                const jsonView = document.getElementById('json-view');
+                const editorDiv = document.getElementById('categories-editor');
+                if (structuredView) {
+                    structuredView.style.display = 'block';
+                    structuredView.innerHTML = renderStructuredView(mapped, modelId);
+                }
+                if (jsonView) jsonView.style.display = 'none';
+                if (editorDiv) editorDiv.style.display = 'none';
+                
+                // Activer le bouton suivant
+                document.getElementById('btn-detect-subcategories').disabled = false;
+                const tablesMsg = (mapped?.stats?.totalTables !== undefined && mapped?.stats?.totalTables !== null)
+                    ? ` • ${mapped.stats.totalTables} tableau(x)`
+                    : '';
+                showAlert(`✅ ${mapped.categories.length} catégorie(s) détectée(s)${tablesMsg}`, 'success');
+            } catch (err) {
+                console.error('Detect categories error', err);
+                showAlert('Erreur lors de la détection des catégories: ' + err.message, 'error');
+            }
+        }
+
+        async function detectSubCategories(modelId, configId) {
+            try {
+                showAlert('🔄 Détection des sous-catégories en cours...', 'info');
+                const res = await fetch(`${API_BASE}/models/${modelId}/configurations/${configId}/map-excel`, {
+                    method: 'POST',
+                    credentials: 'include',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ step: 'subcategories' })
+                });
+                const data = await res.json();
+                if (!res.ok || !data.success) throw new Error(data.message || 'Erreur détection sous-catégories');
+                
+                const mapped = data.data.mapped || { categories: [] };
+                
+                // Mettre à jour directement la vue canvas/sous-menus
+                const structuredView = document.getElementById('structured-view');
+                const jsonView = document.getElementById('json-view');
+                const editorDiv = document.getElementById('categories-editor');
+                if (structuredView) {
+                    structuredView.style.display = 'block';
+                    structuredView.innerHTML = renderStructuredView(mapped, modelId);
+                }
+                if (jsonView) jsonView.style.display = 'none';
+                if (editorDiv) editorDiv.style.display = 'none';
+                
+                // Activer le bouton suivant
+                document.getElementById('btn-detect-values').disabled = false;
+                showAlert('✅ Sous-catégories détectées', 'success');
+            } catch (err) {
+                console.error('Detect subcategories error', err);
+                showAlert('Erreur lors de la détection des sous-catégories: ' + err.message, 'error');
+            }
+        }
+
+        async function detectValues(modelId, configId) {
+            try {
+                showAlert('🔄 Détection des valeurs en cours...', 'info');
+                const res = await fetch(`${API_BASE}/models/${modelId}/configurations/${configId}/map-excel`, {
+                    method: 'POST',
+                    credentials: 'include',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ step: 'values' })
+                });
+                const data = await res.json();
+                if (!res.ok || !data.success) throw new Error(data.message || 'Erreur détection valeurs');
+                
+                const mapped = data.data.mapped || { categories: [] };
+                
+                // Mettre à jour directement la vue canvas/sous-menus
+                const structuredView = document.getElementById('structured-view');
+                const jsonView = document.getElementById('json-view');
+                const editorDiv = document.getElementById('categories-editor');
+                if (structuredView) {
+                    structuredView.style.display = 'block';
+                    structuredView.innerHTML = renderStructuredView(mapped, modelId);
+                }
+                if (jsonView) jsonView.style.display = 'none';
+                if (editorDiv) editorDiv.style.display = 'none';
+                
+                showAlert('✅ Valeurs détectées', 'success');
+            } catch (err) {
+                console.error('Detect values error', err);
+                showAlert('Erreur lors de la détection des valeurs: ' + err.message, 'error');
+            }
+        }
+
+        function renderCategoriesEditor(categories) {
+            const tbody = document.getElementById('categories-editor-tbody');
+            const editorDiv = document.getElementById('categories-editor');
+            
+            if (!tbody || !editorDiv) return;
+            
+            editorDiv.style.display = 'block';
+            tbody.innerHTML = '';
+            
+            if (!categories || categories.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="4" style="text-align: center; padding: 20px; color: #666;">Aucune catégorie détectée</td></tr>';
+                return;
+            }
+            
+            categories.forEach((category, index) => {
+                const subCategoriesCount = (category.subCategories || []).length;
+                const itemsCount = (category.items || []).length;
+                const subItemsCount = (category.subCategories || []).reduce((sum, sc) => sum + (sc.items?.length || 0), 0);
+                const totalValues = itemsCount + subItemsCount;
+                
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td style="padding: 10px; border: 1px solid #dee2e6;">
+                        <input type="text" value="${escapeHtml(category.title || '')}" 
+                               data-category-id="${category.id}" 
+                               data-field="title"
+                               style="width: 100%; padding: 6px; border: 1px solid #ccc; border-radius: 4px;"
+                               onchange="updateCategoryField('${category.id}', 'title', this.value)">
+                    </td>
+                    <td style="padding: 10px; border: 1px solid #dee2e6;">
+                        <span class="badge">${subCategoriesCount} sous-catégorie(s)</span>
+                    </td>
+                    <td style="padding: 10px; border: 1px solid #dee2e6;">
+                        <span class="badge">${totalValues} valeur(s)</span>
+                    </td>
+                    <td style="padding: 10px; border: 1px solid #dee2e6;">
+                        <button class="btn btn-outline" onclick="editCategoryMapping('${category.id}')">Modifier</button>
+                        <button class="btn btn-danger" onclick="deleteCategoryMapping('${category.id}')">Supprimer</button>
+                    </td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        function updateCategoryField(categoryId, field, value) {
+            // TODO: Sauvegarder la modification
+            console.log('Update category field', categoryId, field, value);
+        }
+
+        function editCategoryMapping(categoryId) {
+            // TODO: Ouvrir modal d'édition
+            alert('Édition de catégorie à implémenter');
+        }
+
+        function deleteCategoryMapping(categoryId) {
+            if (confirm('Supprimer cette catégorie ?')) {
+                // TODO: Supprimer la catégorie
+                console.log('Delete category', categoryId);
+            }
+        }
+
+        // Init - Charger les données au chargement de la page
+        // Les cookies sont gérés par le système GDRI central, pas par ce module
+        document.addEventListener('DOMContentLoaded', () => {
+            applyEmbeddedLayout();
+            loadData();
+        });
+    </script>
+</body>
+</html>

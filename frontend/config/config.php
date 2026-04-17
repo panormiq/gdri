@@ -7,6 +7,64 @@
 // Timezone
 date_default_timezone_set('Europe/Paris');
 
+/**
+ * Charge les variables d'environnement backend/.env dans le process PHP.
+ * Necessaire pour les pages PHP qui doivent lire CREDENTIALS_ENCRYPTION_KEY.
+ */
+function loadBackendEnvForPhp() {
+    static $loaded = false;
+    if ($loaded) {
+        return;
+    }
+    $loaded = true;
+
+    $envPath = realpath(__DIR__ . '/../../backend/.env');
+    if (!$envPath || !file_exists($envPath)) {
+        return;
+    }
+
+    $lines = @file($envPath, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+    if (!is_array($lines)) {
+        return;
+    }
+
+    foreach ($lines as $line) {
+        $line = trim($line);
+        if ($line === '' || strpos($line, '#') === 0) {
+            continue;
+        }
+
+        $eqPos = strpos($line, '=');
+        if ($eqPos === false) {
+            continue;
+        }
+
+        $name = trim(substr($line, 0, $eqPos));
+        $value = trim(substr($line, $eqPos + 1));
+        if ($name === '') {
+            continue;
+        }
+
+        // Supprimer les guillemets éventuels autour de la valeur.
+        if ((substr($value, 0, 1) === '"' && substr($value, -1) === '"') ||
+            (substr($value, 0, 1) === "'" && substr($value, -1) === "'")) {
+            $value = substr($value, 1, -1);
+        }
+
+        // Ne pas écraser une variable déjà fournie par l'environnement système.
+        $current = getenv($name);
+        if ($current !== false && $current !== '') {
+            continue;
+        }
+
+        putenv($name . '=' . $value);
+        $_ENV[$name] = $value;
+        $_SERVER[$name] = $value;
+    }
+}
+
+loadBackendEnvForPhp();
+
 // Détecter automatiquement l'environnement
 // 1. D'abord vérifier HTTP_HOST (si www.gdri.fr ou gdr-innovation.fr = production)
 // 2. Sinon vérifier la branche Git (master = production, develop = development)
@@ -49,6 +107,13 @@ function detectEnvironment() {
 
 // Définir l'environnement
 define('ENVIRONMENT', detectEnvironment());
+
+// Surcharge locale (optionnel) : créer config.local.php et y définir BACKEND_API_URL si besoin
+// Ex. define('BACKEND_API_URL', 'http://localhost:3000/api'); quand le front est servi par un vhost sans proxy
+$configLocal = __DIR__ . '/config.local.php';
+if (file_exists($configLocal)) {
+    require_once $configLocal;
+}
 
 // Affichage des erreurs (à désactiver en production)
 if (ENVIRONMENT === 'development') {
@@ -122,10 +187,15 @@ function getBaseUrl() {
 
 /**
  * Génère l'URL de base de l'API backend
- * Détecte automatiquement si on est en localhost ou en production
+ * Détecte automatiquement si on est en localhost ou en production.
+ * Pour forcer l'API (ex. vhost sans proxy) : définir BACKEND_API_URL dans config.local.php.
  */
 if (!function_exists('getApiBaseUrl')) {
     function getApiBaseUrl() {
+        // Override explicite (ex. config.local.php avec define('BACKEND_API_URL', 'http://localhost:3000/api');)
+        if (defined('BACKEND_API_URL') && BACKEND_API_URL !== '') {
+            return rtrim(BACKEND_API_URL, '/');
+        }
         // Utiliser ENVIRONMENT pour déterminer le mode
         $forceProduction = (ENVIRONMENT === 'production');
         
@@ -149,7 +219,8 @@ if (!function_exists('getApiBaseUrl')) {
             // En localhost, utiliser le backend Node.js directement
             return 'http://localhost:3000/api';
         } else {
-            // En production (détectée automatiquement), utiliser le reverse proxy Apache
+            // En dev avec vhost (ex. gdri.local) : sans proxy, l'API doit être sur Node
+            // Par défaut on pointe vers le même host (Apache) ; si 404, définir BACKEND_API_URL
             $protocol = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
             $host = $_SERVER['HTTP_HOST'] ?? 'www.gdr-innovation.fr';
             return $protocol . '://' . $host . '/api';

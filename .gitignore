@@ -7,6 +7,7 @@ frontend/vendor/
 .env
 .env.local
 *.env.local
+frontend/config/config.local.php
 
 # Fichiers de cache
 __pycache__/

@@ -1,0 +1,86 @@
+{
+    "shapes": [
+        {
+            "opacity": 1,
+            "id": "shape-u8awrha",
+            "type": "rect",
+            "x": 104,
+            "y": 163.5833282470703,
+            "width": 160,
+            "height": 70,
+            "text": "Crée un compte  ",
+            "fontSize": 14,
+            "fontFamily": "Segoe UI",
+            "textColor": "#ffffff",
+            "bgColor": "#0e9cef",
+            "group": "",
+            "imageData": null,
+            "workflow": null,
+            "tutorial": null,
+            "blockId": "cr-er-un-compte",
+            "blockPath": "block/Guide/cr-er-un-compte.json",
+            "blockCategory": "Guide",
+            "blockFileName": "cr-er-un-compte.json"
+        },
+        {
+            "opacity": 1,
+            "id": "shape-0o4clrd",
+            "type": "rect",
+            "x": 313,
+            "y": 163.5833282470703,
+            "width": 160,
+            "height": 70,
+            "text": "Se Connecter",
+            "fontSize": 14,
+            "fontFamily": "Segoe UI",
+            "textColor": "#ffffff",
+            "bgColor": "#0e9cef",
+            "group": "",
+            "imageData": null,
+            "workflow": null,
+            "tutorial": {
+                "title": "Se Connecter",
+                "intro": "Pour se connecter veuillez suivre les indication suivante ",
+                "steps": [
+                    {
+                        "title": "Etape 1",
+                        "items": [
+                            {
+                                "type": "text",
+                                "html": "",
+                                "text": "se rendre sur https://medpro.ids.host/medicapppro"
+                            },
+                            {
+                                "type": "text",
+                                "html": "",
+                                "text": "cliquer sur se connecter "
+                            }
+                        ],
+                        "collapsed": false,
+                        "substeps": []
+                    }
+                ],
+                "conditions": []
+            }
+        },
+        {
+            "opacity": 1,
+            "id": "shape-dqp34w8",
+            "type": "rect",
+            "x": 530,
+            "y": 163.5833282470703,
+            "width": 160,
+            "height": 70,
+            "text": "Paramétrage de son espace",
+            "fontSize": 14,
+            "fontFamily": "Segoe UI",
+            "textColor": "#ffffff",
+            "bgColor": "#0e9cef",
+            "group": "",
+            "imageData": null,
+            "blockId": ""
+        }
+    ],
+    "connections": [],
+    "groups": []
+}

@@ -118,7 +118,7 @@
 
 ### 1. Démarrer le Security Monitor ⚠️ PRIORITÉ HAUTE
 ```cmd
-cd C:\xampp\htdocs\gdri\install
+cd C:\xampp\htdocs\gdri\install\demarrage
 start-security-monitor.bat
 ```
 **Objectif :** Recevoir des alertes email automatiques si l'attaque s'intensifie

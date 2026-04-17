@@ -1,0 +1,86 @@
+[
+  {
+    "id": "orange",
+    "name": "Orange / Wanadoo",
+    "imap": { "host": "imap.orange.fr", "port": 993, "secure": true },
+    "smtp": { "host": "smtp.orange.fr", "port": 465, "secure": true }
+  },
+  {
+    "id": "free",
+    "name": "Free (Freebox)",
+    "imap": { "host": "imap.free.fr", "port": 993, "secure": true },
+    "smtp": { "host": "smtp.free.fr", "port": 465, "secure": true }
+  },
+  {
+    "id": "sfr",
+    "name": "SFR / Neuf",
+    "imap": { "host": "imap.sfr.fr", "port": 993, "secure": true },
+    "smtp": { "host": "smtp.sfr.fr", "port": 465, "secure": true }
+  },
+  {
+    "id": "bouygues",
+    "name": "Bouygues Telecom (bbox.fr)",
+    "imap": { "host": "imap.bbox.fr", "port": 993, "secure": true },
+    "smtp": { "host": "smtp.bbox.fr", "port": 465, "secure": true }
+  },
+  {
+    "id": "laposte",
+    "name": "La Poste (laposte.net)",
+    "imap": { "host": "imap.laposte.net", "port": 993, "secure": true },
+    "smtp": { "host": "smtp.laposte.net", "port": 465, "secure": true }
+  },
+  {
+    "id": "gmail",
+    "name": "Gmail (Google)",
+    "imap": { "host": "imap.gmail.com", "port": 993, "secure": true },
+    "smtp": { "host": "smtp.gmail.com", "port": 465, "secure": true }
+  },
+  {
+    "id": "outlook",
+    "name": "Outlook / Hotmail / Live (Microsoft)",
+    "imap": { "host": "outlook.office365.com", "port": 993, "secure": true },
+    "smtp": { "host": "smtp.office365.com", "port": 587, "secure": false }
+  },
+  {
+    "id": "yahoo",
+    "name": "Yahoo Mail",
+    "imap": { "host": "imap.mail.yahoo.com", "port": 993, "secure": true },
+    "smtp": { "host": "smtp.mail.yahoo.com", "port": 465, "secure": true }
+  },
+  {
+    "id": "protonmail-bridge",
+    "name": "ProtonMail (via Bridge)",
+    "imap": { "host": "127.0.0.1", "port": 1143, "secure": false },
+    "smtp": { "host": "127.0.0.1", "port": 1025, "secure": false }
+  },
+  {
+    "id": "ovh",
+    "name": "OVH / OVHcloud",
+    "imap": { "host": "imap.mail.ovh.net", "port": 993, "secure": true },
+    "smtp": { "host": "ssl0.ovh.net", "port": 465, "secure": true }
+  },
+  {
+    "id": "ovh-mxplan",
+    "name": "OVH MX Plan / Mail basique",
+    "imap": { "host": "imap.mail.ovh.net", "port": 993, "secure": true },
+    "smtp": { "host": "ssl0.ovh.net", "port": 465, "secure": true }
+  },
+  {
+    "id": "ovh-emailpro",
+    "name": "OVH Email Pro",
+    "imap": { "host": "pro1.mail.ovh.net", "port": 993, "secure": true },
+    "smtp": { "host": "pro1.mail.ovh.net", "port": 587, "secure": false }
+  },
+  {
+    "id": "ovh-exchange",
+    "name": "OVH Exchange (Hosted)",
+    "imap": { "host": "ex.mail.ovh.net", "port": 993, "secure": true },
+    "smtp": { "host": "ex.mail.ovh.net", "port": 587, "secure": false }
+  },
+  {
+    "id": "infomaniak",
+    "name": "Infomaniak (kMail)",
+    "imap": { "host": "mail.infomaniak.com", "port": 993, "secure": true },
+    "smtp": { "host": "mail.infomaniak.com", "port": 465, "secure": true }
+  }
+]

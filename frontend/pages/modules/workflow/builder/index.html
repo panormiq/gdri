@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title data-i18n="app.title"></title>
+    <link rel="icon" href="../shared/assets/logotext-white.png">
+    <link rel="stylesheet" href="./builder.css">
+  </head>
+  <body>
+    <div class="builder-app">
+      <header class="builder-header">
+        <div class="builder-brand">
+          <img src="../shared/assets/logotext-white.png" alt="" data-i18n-alt="brand.alt">
+          <h1 data-i18n="app.title"></h1>
+        </div>
+        <div class="builder-actions">
+          <button id="add-block" class="primary" data-i18n="workflow.addBlock"></button>
+          <button id="export-json" class="ghost" data-i18n="common.export"></button>
+          <label class="ghost file-button">
+            <span data-i18n="common.import"></span>
+            <input id="import-json" type="file" accept="application/json">
+          </label>
+        </div>
+      </header>
+
+      <div class="builder-tabs">
+        <button class="builder-tab active" data-mode="workflow" data-i18n="mode.workflow"></button>
+        <button class="builder-tab" data-mode="editor" data-i18n="mode.editor"></button>
+      </div>
+
+      <section class="builder-panel active" data-mode="workflow">
+        <div class="workflow-canvas-toolbar">
+          <div class="toolbar-group">
+            <span class="hint" data-i18n="workflow.hint"></span>
+          </div>
+          <div class="toolbar-group">
+            <button id="zoom-reset" class="ghost" data-i18n="workflow.zoomReset"></button>
+          </div>
+        </div>
+        <div id="workflow-viewport" class="workflow-viewport">
+          <div id="workflow-canvas" class="workflow-canvas"></div>
+        </div>
+        <div class="workflow-preview">
+          <h2 data-i18n="preview.title"></h2>
+          <div id="block-preview" class="preview-body"></div>
+        </div>
+      </section>
+
+      <section class="builder-panel" data-mode="editor">
+        <div class="editor-layout">
+          <aside class="editor-tree">
+            <div class="panel-title" data-i18n="editor.blocks"></div>
+            <div id="block-tree" class="tree-list"></div>
+          </aside>
+          <div class="editor-content">
+            <div class="panel-title" data-i18n="editor.editTitle"></div>
+            <div id="editor-body" class="editor-body"></div>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <script src="./builder/i18n.js"></script>
+    <script src="./builder/app.js"></script>
+  </body>
+</html>

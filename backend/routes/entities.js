@@ -10,6 +10,18 @@ const { authenticateJWT } = require('../config/jwt');
 const Entity = require('../models/Entity');
 const { ObjectId } = require('mongodb');
 
+function serializeDoc(value) {
+  if (Array.isArray(value)) return value.map(serializeDoc);
+  if (value && typeof value === 'object') {
+    if (value instanceof ObjectId) return value.toString();
+    if (value._bsontype === 'ObjectID' && typeof value.toString === 'function') return value.toString();
+    const out = {};
+    Object.keys(value).forEach((k) => { out[k] = serializeDoc(value[k]); });
+    return out;
+  }
+  return value;
+}
+
 /**
  * PUT /api/entities/:entityId/services
  * Met à jour les services autorisés d'une entité
@@ -249,6 +261,36 @@ router.get('/', authenticateJWT, async (req, res) => {
 
   } catch (error) {
     console.error('Erreur route GET /api/entities:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message || 'Erreur serveur'
+    });
+  }
+});
+
+/**
+ * GET /api/entities/context
+ * Contexte de gestion des entités pour la page PHP (sans accès DB direct en PHP).
+ */
+router.get('/context', authenticateJWT, async (req, res) => {
+  try {
+    if (req.user.role !== 'ADMIN_GDRI') {
+      return res.status(403).json({ success: false, message: 'Accès refusé' });
+    }
+    const db = await database.connect();
+    const entities = await db.collection('entities').find({}).toArray();
+    const services = await db.collection('services').find({}).toArray();
+    const users = await db.collection('users').find({}).toArray();
+    res.json({
+      success: true,
+      data: {
+        entities: serializeDoc(entities),
+        services: serializeDoc(services),
+        users: serializeDoc(users)
+      }
+    });
+  } catch (error) {
+    console.error('Erreur route GET /api/entities/context:', error);
     res.status(500).json({
       success: false,
       message: error.message || 'Erreur serveur'

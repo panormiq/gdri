@@ -1,0 +1,85 @@
+{
+  "shapes": [
+    {
+      "id": "shape-0p571ly",
+      "type": "rect",
+      "x": 80,
+      "y": 80,
+      "width": 160,
+      "height": 70,
+      "text": "Nouvel element",
+      "fontSize": 14,
+      "fontFamily": "Segoe UI",
+      "textColor": "#ffffff",
+      "bgColor": "#0e9cef",
+      "opacity": 1,
+      "group": "",
+      "imageData": null
+    },
+    {
+      "id": "shape-h2su1ii",
+      "type": "rect",
+      "x": 329,
+      "y": 84,
+      "width": 160,
+      "height": 70,
+      "text": "Nouvel element",
+      "fontSize": 14,
+      "fontFamily": "Segoe UI",
+      "textColor": "#ffffff",
+      "bgColor": "#0e9cef",
+      "opacity": 1,
+      "group": "",
+      "imageData": null
+    }
+  ],
+  "connections": [
+    {
+      "id": "conn-040xqqv",
+      "from": "shape-0p571ly",
+      "to": "shape-h2su1ii",
+      "startAnchor": "right",
+      "endAnchor": "left",
+      "points": [
+        {
+          "x": 240,
+          "y": 115
+        },
+        {
+          "x": 260,
+          "y": 115
+        },
+        {
+          "x": 260,
+          "y": 269.1000061035156
+        },
+        {
+          "x": 298,
+          "y": 269.1000061035156
+        },
+        {
+          "x": 309,
+          "y": 269.1000061035156
+        },
+        {
+          "x": 309,
+          "y": 119
+        },
+        {
+          "x": 329,
+          "y": 119
+        }
+      ],
+      "auto": false,
+      "lineStyle": "solid",
+      "lineArrow": true,
+      "label": "",
+      "labelDx": 0,
+      "labelDy": 0,
+      "labelBgColor": "#ffffff",
+      "labelOpacity": 1,
+      "labelTextColor": "#1f2933"
+    }
+  ],
+  "groups": []
+}

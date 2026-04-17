@@ -1,0 +1,42 @@
+{
+    "version": 1,
+    "id": "se-connecter",
+    "name": "Se Connecter",
+    "shape": {
+        "type": "rect",
+        "text": "Rectangle",
+        "width": 160,
+        "height": 70,
+        "fontSize": 14,
+        "fontFamily": "Segoe UI",
+        "textColor": "#ffffff",
+        "bgColor": "#0e9cef",
+        "opacity": 1,
+        "imageData": null
+    },
+    "workflow": null,
+    "tutorial": {
+        "title": "Se Connecter",
+        "intro": "Pour se connecter veuillez suivre les indication suivante ",
+        "steps": [
+            {
+                "title": "Etape 1",
+                "items": [
+                    {
+                        "type": "text",
+                        "html": "",
+                        "text": "se rendre sur https://medpro.ids.host/medicapppro"
+                    },
+                    {
+                        "type": "text",
+                        "html": "",
+                        "text": "cliquer sur se connecter "
+                    }
+                ],
+                "substeps": [],
+                "collapsed": false
+            }
+        ],
+        "conditions": []
+    }
+}

@@ -130,11 +130,17 @@ router.delete('/templates/:id/images/:imageId', authenticateJWT, useCurrentEntre
 // ROUTES DOCUMENTS
 // ========================================
 
+// Route export PDF depuis HTML fourni
+router.post('/documents/pdf-from-html', authenticateJWT, useCurrentEntrepriseDb, documentController.exportHtmlToPdf);
+
 router.get('/documents', authenticateJWT, useCurrentEntrepriseDb, documentController.getAll);
 router.get('/documents/:id', authenticateJWT, useCurrentEntrepriseDb, checkEntrepriseAccess, documentController.getById);
 router.post('/documents', authenticateJWT, useCurrentEntrepriseDb, documentController.create);
 router.put('/documents/:id', authenticateJWT, useCurrentEntrepriseDb, checkEntrepriseAccess, documentController.update);
 router.delete('/documents/:id', authenticateJWT, useCurrentEntrepriseDb, checkEntrepriseAccess, documentController.delete);
+
+// Route export PDF
+router.get('/documents/:id/pdf', authenticateJWT, useCurrentEntrepriseDb, checkEntrepriseAccess, documentController.exportDocumentToPdf);
 
 // Route génération document
 router.post('/documents/generate', authenticateJWT, useCurrentEntrepriseDb, documentGenerationController.generateDocumentOnTheFly);

@@ -1,0 +1,6 @@
+{
+  "enabled": true,
+  "uploadPath": "./uploads",
+  "allowedFormats": ["txt", "docx"],
+  "maxFileSize": 10485760
+}

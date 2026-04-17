@@ -73,7 +73,8 @@
 }
 
 .document-editor-right {
-  width: 300px;
+  width: 600px;
+  min-width: 600px;
   border-left: 1px solid var(--color-border);
   background: var(--color-bg-secondary);
   overflow-y: auto;
@@ -91,8 +92,8 @@
 .right-panel-tabs {
   display: flex;
   flex-direction: column;
-  width: 120px;
-  min-width: 120px;
+  width: 140px;
+  min-width: 140px;
   background: var(--color-bg-tertiary);
   border-right: 2px solid var(--color-border);
   padding: var(--spacing-xs);
@@ -112,6 +113,7 @@
   transition: all 0.2s;
   text-align: center;
   border-radius: var(--border-radius) 0 0 var(--border-radius);
+  white-space: normal;
 }
 
 .right-panel-tab:hover {
@@ -127,6 +129,8 @@
   flex: 1;
   padding: var(--spacing-md);
   overflow-y: auto;
+  word-break: break-word;
+  overflow-wrap: anywhere;
 }
 
 .btn {

@@ -1,0 +1,362 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Workflow Builder</title>
+    <link rel="icon" href="./assets/logotext-white.png">
+    <link rel="stylesheet" href="./builder.css">
+  </head>
+  <body>
+    <div class="app">
+      <aside class="sidebar">
+        <div class="sidebar-resizer" title="Redimensionner"></div>
+        <div class="brand">
+          <img src="assets/logotext-white.png" alt="Medicapp">
+        </div>
+        <div class="panel">
+          <details>
+            <summary>Groupes</summary>
+            <div class="panel-body">
+              <button class="shape-btn" data-shape="group-box">Groupe (zone)</button>
+              <div class="group-actions">
+                <input id="group-name" type="text" placeholder="Nouveau groupe">
+                <button id="add-group" class="shape-btn">Ajouter</button>
+              </div>
+              <div class="group-actions">
+                <label>Filtrer</label>
+                <select id="group-filter">
+                  <option value="">Tous</option>
+                </select>
+                <button id="clear-filter" class="shape-btn">Reset</button>
+              </div>
+              <div id="group-list" class="group-list"></div>
+            </div>
+          </details>
+          <details id="sidebar-shapes" open>
+            <summary>Formes</summary>
+            <div id="tutorial-shape-sidebar" class="panel-body">
+              <div class="block-panel-header">
+                <button id="add-tutorial-shape" class="shape-btn" type="button">Ajouter une nouvelle forme</button>
+              </div>
+              <div id="tutorial-shape-form" class="tutorial-shape-form hidden">
+                <div class="tutorial-field">
+                  <label for="tutorial-shape-name">Nom</label>
+                  <input id="tutorial-shape-name" class="compact-input" type="text" placeholder="Nom de la forme">
+                </div>
+                <div class="tutorial-field">
+                  <label for="tutorial-shape-category">Categorie</label>
+                  <div class="block-save-row">
+                    <select id="tutorial-shape-category" class="compact-select"></select>
+                    <button id="tutorial-shape-new-category" class="shape-btn" type="button">Nouvelle categorie</button>
+                    <input id="tutorial-shape-category-input" class="compact-input hidden" type="text" placeholder="Nom de la categorie">
+                  </div>
+                </div>
+                <div class="tutorial-field">
+                  <label for="tutorial-shape-svg">SVG</label>
+                  <input id="tutorial-shape-svg" type="file" accept="image/svg+xml">
+                </div>
+                <div class="tutorial-library-actions">
+                  <button id="tutorial-shape-create" class="shape-btn" type="button">Creer</button>
+                  <button id="tutorial-shape-cancel" class="shape-btn" type="button">Annuler</button>
+                </div>
+              </div>
+              <div id="tutorial-shape-library" class="tutorial-shape-library"></div>
+            </div>
+          </details>
+          <details id="sidebar-blocks">
+            <summary>Blocks</summary>
+            <div class="panel-body">
+              <div class="block-panel">
+                <div class="block-panel-header">
+                  <button id="refresh-blocks" class="shape-btn">Rafraichir</button>
+                </div>
+                <div id="block-sections" class="block-sections"></div>
+                <div id="block-empty" class="hint hidden">
+                  Aucun block trouve. Mettez a jour `tutorials/block/index.json`.
+                </div>
+              </div>
+            </div>
+          </details>
+          <details>
+            <summary>Logos SVG</summary>
+            <div class="panel-body">
+              <label class="ghost file-button">
+                Charger des SVG
+                <input id="logo-input" type="file" accept="image/svg+xml" multiple>
+              </label>
+              <div id="logo-list" class="logo-list"></div>
+            </div>
+          </details>
+        </div>
+      </aside>
+
+      <main class="main">
+        <header class="topbar">
+          <h1>Workflow Builder</h1>
+          <div class="top-actions">
+            <button id="export-json" class="primary">Exporter JSON</button>
+            <label class="primary file-button">
+              Importer JSON
+              <input id="import-json" type="file" accept="application/json">
+            </label>
+            <input id="workflow-name" class="compact-input" type="text" placeholder="Nom du workflow">
+            <button id="save-workflow" class="primary">Enregistrer</button>
+            <select id="workflow-list" class="compact-select"></select>
+            <button id="load-workflow" class="primary ghost">Charger</button>
+            <button id="delete-workflow" class="danger ghost">Supprimer</button>
+          </div>
+        </header>
+
+        <div class="mode-tabs">
+          <button class="mode-tab active" data-mode="workflow">Workflow</button>
+          <button class="mode-tab" data-mode="tutorial">Editeur de block</button>
+          <button class="mode-tab" data-mode="preview">Preview</button>
+        </div>
+
+        <section class="mode-panel active" data-mode="workflow">
+          <div class="workspace">
+          <div id="canvas" class="canvas">
+            <svg id="connections" class="connections" viewBox="0 0 100 100" preserveAspectRatio="none">
+              <defs>
+                <marker id="arrow" markerWidth="12" markerHeight="12" refX="12" refY="6" orient="auto" markerUnits="userSpaceOnUse">
+                  <path d="M0,0 L12,6 L0,12 Z" fill="#0e9cef"></path>
+                </marker>
+              </defs>
+            </svg>
+          </div>
+
+          <aside class="properties">
+            <h2>Proprietes</h2>
+            <div id="shape-props" class="hidden">
+              <div class="prop-group">
+                <label>Texte</label>
+                <textarea id="prop-text" rows="3" placeholder="Titre du bloc"></textarea>
+              </div>
+              <div class="prop-row">
+                <div class="prop-group">
+                  <label>Taille</label>
+                  <input id="prop-font-size" type="number" min="10" max="36" value="14">
+                </div>
+                <div class="prop-group">
+                  <label>Police</label>
+                  <select id="prop-font-family">
+                    <option value="Segoe UI">Segoe UI</option>
+                    <option value="Arial">Arial</option>
+                    <option value="Verdana">Verdana</option>
+                    <option value="Calibri">Calibri</option>
+                  </select>
+                </div>
+              </div>
+              <div class="prop-row">
+                <div class="prop-group">
+                  <label>Couleur texte</label>
+                  <input id="prop-text-color" type="color" value="#ffffff">
+                </div>
+                <div class="prop-group">
+                  <label>Fond</label>
+                  <input id="prop-bg-color" type="color" value="#0e9cef">
+                </div>
+              </div>
+              <div class="prop-group">
+                <label>Transparence</label>
+                <input id="prop-opacity" type="range" min="10" max="100" value="100">
+              </div>
+              <div class="prop-group">
+                <label>Groupe de travail</label>
+                <select id="prop-group">
+                  <option value="">Aucun</option>
+                </select>
+              </div>
+            </div>
+            <div class="prop-group hidden" id="connection-props">
+              <label>Lien</label>
+              <div class="prop-row">
+                <div class="prop-group">
+                  <label>Style</label>
+                  <select id="prop-line-style">
+                    <option value="solid">Plein</option>
+                    <option value="dashed">Pointille</option>
+                  </select>
+                </div>
+                <div class="prop-group">
+                  <label>Fleche</label>
+                  <select id="prop-line-arrow">
+                    <option value="true">Oui</option>
+                    <option value="false">Non</option>
+                  </select>
+                </div>
+              </div>
+              <div class="prop-group">
+                <label>Couleur</label>
+                <input id="prop-line-color" type="color" value="#0e9cef">
+              </div>
+              <div class="prop-group">
+                <label>Texte</label>
+                <textarea id="prop-line-text" rows="3" placeholder="Libelle du lien"></textarea>
+              </div>
+              <div class="prop-row">
+                <div class="prop-group">
+                  <label>Fond du texte</label>
+                  <input id="prop-line-bg-color" type="color" value="#ffffff">
+                </div>
+                <div class="prop-group">
+                  <label>Transparence fond</label>
+                  <input id="prop-line-text-opacity" type="range" min="0" max="100" value="100">
+                </div>
+              </div>
+              <div class="prop-group">
+                <label>Couleur du texte</label>
+                <input id="prop-line-text-color" type="color" value="#1f2933">
+              </div>
+              <div class="prop-row">
+                <div class="prop-group">
+                  <label>Texte X</label>
+                  <input id="prop-line-text-x" type="number" value="0">
+                </div>
+                <div class="prop-group">
+                  <label>Texte Y</label>
+                  <input id="prop-line-text-y" type="number" value="0">
+                </div>
+              </div>
+            </div>
+            <div class="prop-actions">
+              <button id="block-storage-indicator" class="shape-btn ghost block-storage-indicator" type="button" disabled>Inline</button>
+              <button id="edit-block" class="shape-btn" type="button">Editer</button>
+              <button id="delete-shape" class="danger">Supprimer</button>
+            </div>
+          </aside>
+          </div>
+          <div class="workflow-preview-panel">
+            <div class="brick-panel">
+              <h3 id="workflow-preview-title">Apercu</h3>
+              <div id="workflow-preview-content" class="brick-note">
+                Cliquez sur un block pour afficher son rendu.
+              </div>
+            </div>
+          </div>
+
+        </section>
+
+        <section class="tutorial-editor mode-panel" data-mode="tutorial">
+          <div class="tutorial-main">
+          <div class="tutorial-toolbar">
+              <div class="tutorial-toolbar-left">
+                <h3>Editeur de block</h3>
+                <div class="tutorial-toolbar-row">
+                  <label>Forme</label>
+                  <span id="tutorial-shape-hint" class="tutorial-hint">Selectionner une forme dans la colonne de gauche.</span>
+                  <label for="tutorial-title">Titre</label>
+                  <textarea id="tutorial-title" rows="1" class="compact-textarea" placeholder="Titre du tutoriel"></textarea>
+                </div>
+              </div>
+              <div class="tutorial-toolbar-right">
+                <button id="export-block" class="shape-btn">Exporter en PDF</button>
+                <button id="export-block-json" class="shape-btn">Exporter JSON</button>
+                <button id="save-block" class="shape-btn">Enregistrer</button>
+                <button id="delete-block" class="shape-btn danger">Supprimer</button>
+                <button id="reset-block" class="shape-btn">Nouveau</button>
+              </div>
+            </div>
+
+          <div class="tutorial-fields">
+            <div class="tutorial-field inline">
+              <label for="tutorial-intro">Intro</label>
+              <textarea id="tutorial-intro" rows="2" placeholder="Texte d'introduction"></textarea>
+            </div>
+            <div class="tutorial-field">
+              <label>Enregistrer le block</label>
+              <div class="block-save-row">
+                <select id="block-category" class="compact-select"></select>
+                <button id="add-block-category" class="shape-btn">Nouvelle categorie</button>
+                <input id="block-file-name" class="compact-input" type="text" placeholder="Nom du fichier">
+              </div>
+              <div id="block-save-hint" class="hint"></div>
+            </div>
+            <div class="tutorial-field">
+              <label for="block-workflow">Associer un workflow</label>
+              <div class="block-save-row">
+                <select id="block-workflow" class="compact-select"></select>
+              </div>
+            </div>
+          </div>
+
+            <div class="tutorial-steps">
+              <div class="tutorial-steps-header">
+                <h2>Etapes</h2>
+                <div class="tutorial-actions">
+                  <button id="add-tutorial-step" class="shape-btn">Ajouter une etape</button>
+                </div>
+              </div>
+              <div id="tutorial-steps" class="tutorial-steps-list"></div>
+            </div>
+          </div>
+
+          <aside class="tutorial-preview">
+            <h3>Apercu de la forme</h3>
+            <div id="tutorial-preview" class="tutorial-preview-frame"></div>
+            <div class="tutorial-text-props">
+              <h4>Texte (overlay)</h4>
+              <label for="overlay-text-size">Taille</label>
+              <input id="overlay-text-size" type="number" min="8" max="48" value="12">
+              <label for="overlay-text-width">Largeur (%)</label>
+              <input id="overlay-text-width" type="number" min="4" max="100" value="30">
+              <label for="overlay-text-height">Hauteur (%)</label>
+              <input id="overlay-text-height" type="number" min="4" max="100" value="12">
+              <label for="overlay-text-color">Couleur</label>
+              <input id="overlay-text-color" type="color" value="#ff3b30">
+              <label for="overlay-text-bg">Fond</label>
+              <input id="overlay-text-bg" type="color" value="#ffffff">
+            </div>
+          </aside>
+        </section>
+
+        <section class="mode-panel" data-mode="preview">
+          <div class="preview-panel">
+            <div class="brick-panel">
+              <h3 id="preview-title">Apercu</h3>
+              <div id="preview-content" class="brick-note">
+                Cliquez sur un block pour afficher son rendu.
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <div id="crop-modal" class="crop-modal hidden">
+          <div class="crop-card">
+            <header class="crop-header">
+              <h3>Rogner l'image</h3>
+              <button id="crop-close" class="shape-btn" type="button">Fermer</button>
+            </header>
+            <div class="crop-body">
+              <canvas id="crop-canvas"></canvas>
+            </div>
+            <footer class="crop-actions">
+              <button id="crop-apply" class="shape-btn" type="button">Appliquer</button>
+              <button id="crop-cancel" class="shape-btn" type="button">Annuler</button>
+            </footer>
+          </div>
+        </div>
+
+        <div id="category-modal" class="crop-modal hidden">
+          <div class="crop-card">
+            <header class="crop-header">
+              <h3>Nouvelle categorie</h3>
+              <button id="category-close" class="shape-btn" type="button">Fermer</button>
+            </header>
+            <div class="crop-body">
+              <input id="category-name-input" class="compact-input" type="text" placeholder="Nom de la categorie">
+            </div>
+            <footer class="crop-actions">
+              <button id="category-cancel" class="shape-btn" type="button">Annuler</button>
+              <button id="category-create" class="shape-btn" type="button">Creer</button>
+            </footer>
+          </div>
+        </div>
+
+      </main>
+    </div>
+
+    <script src="./builder.js"></script>
+  </body>
+</html>

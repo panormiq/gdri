@@ -1,0 +1,11 @@
+{
+  "name": "workflow",
+  "displayName": "Workflow Builder",
+  "version": "1.0.0",
+  "description": "Gestion des workflows (builder admin + viewer user)",
+  "author": "GDR-Innovation",
+  "routes": ["/api/workflow"],
+  "dependencies": [],
+  "requiredServices": [],
+  "compatibleVersion": ">=1.0.0"
+}

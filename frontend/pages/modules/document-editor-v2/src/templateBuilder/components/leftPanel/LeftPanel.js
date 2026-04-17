@@ -18,7 +18,7 @@ export default class LeftPanel {
 
   render(container) {
     this.container = container;
-    this.container.className = 'left-panel';
+    this.container.classList.add('left-panel');
     
     this.container.innerHTML = '';
 

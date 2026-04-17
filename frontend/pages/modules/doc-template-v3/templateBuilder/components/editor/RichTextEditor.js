@@ -43,7 +43,7 @@ export default class RichTextEditor {
 
   render(container) {
     this.container = container;
-    this.container.className = 'rich-text-editor-container';
+    this.container.classList.add('rich-text-editor-container');
     this.container.innerHTML = '';
 
     // Wrapper de page (pour centrer et styliser)
@@ -57,9 +57,16 @@ export default class RichTextEditor {
     this.editorElement.contentEditable = true;
     this.editorElement.spellcheck = false;
     
-    // Attributs par défaut pour le format de page
-    this.editorElement.setAttribute('data-format', 'A4');
-    this.editorElement.setAttribute('data-orientation', 'portrait');
+    // Attributs par défaut pour le format de page (priorité au template)
+    const pagination = this.template?.generalStyles?.default?.pagination || {};
+    const defaultPageSize = pagination.pageSize || 'A4';
+    const defaultOrientation = pagination.orientation || 'portrait';
+    if (!this.editorElement.hasAttribute('data-format')) {
+      this.editorElement.setAttribute('data-format', defaultPageSize);
+    }
+    if (!this.editorElement.hasAttribute('data-orientation')) {
+      this.editorElement.setAttribute('data-orientation', defaultOrientation);
+    }
     
     // Événements
     this.editorElement.oninput = () => {
@@ -74,6 +81,16 @@ export default class RichTextEditor {
     
     // Désélectionner les images quand on clique ailleurs
     this.editorElement.onclick = (e) => {
+      const deleteButton = e.target.closest('.image-delete-button');
+      if (deleteButton) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (confirm('Supprimer cette image ?')) {
+          deleteButton.closest('.image-container-wrapper')?.remove();
+          this.handleContentChange();
+        }
+        return;
+      }
       // Ignorer les clics sur les images (gérés par le container lui-même)
       if (e.target.closest('.template-image-container')) {
         return; // Laisser le container gérer le clic
@@ -113,6 +130,391 @@ export default class RichTextEditor {
           this.recalculateAllSpacers();
         }, 100);
       } else if (e.key === 'Backspace' || e.key === 'Delete') {
+        const isBackspace = e.key === 'Backspace';
+        const selection = window.getSelection();
+        if (selection.rangeCount > 0) {
+          const range = selection.getRangeAt(0);
+          if (this.editorElement && this.editorElement.contains(range.startContainer)) {
+            // Si une sélection contient des variables, les supprimer directement
+            if (!range.collapsed) {
+              const variables = Array.from(this.editorElement.querySelectorAll('.template-variable'));
+              const variablesInRange = variables.filter(variable => range.intersectsNode(variable));
+              if (variablesInRange.length > 0) {
+                e.preventDefault();
+                variablesInRange.forEach(variable => variable.remove());
+                this.handleContentChange();
+                setTimeout(() => {
+                  this.recalculateAllSpacers();
+                }, 100);
+                return;
+              }
+            }
+            
+            // Si le curseur est juste avant/après une variable, la supprimer
+            if (range.collapsed) {
+              const variables = Array.from(this.editorElement.querySelectorAll('.template-variable'));
+              for (const variable of variables) {
+                try {
+                  const variableRange = document.createRange();
+                  variableRange.selectNode(variable);
+                  
+                  const isAdjacent = isBackspace
+                    ? range.compareBoundaryPoints(Range.START_TO_END, variableRange) === 0
+                    : range.compareBoundaryPoints(Range.START_TO_START, variableRange) === 0;
+                  
+                  if (isAdjacent) {
+                    e.preventDefault();
+                    
+                    const parent = variable.parentNode;
+                    const next = variable.nextSibling;
+                    const prev = variable.previousSibling;
+                    variable.remove();
+                    
+                    const newRange = document.createRange();
+                    if (isBackspace) {
+                      if (prev) {
+                        if (prev.nodeType === Node.TEXT_NODE) {
+                          newRange.setStart(prev, prev.textContent.length);
+                        } else {
+                          newRange.setStartAfter(prev);
+                        }
+                      } else if (next) {
+                        if (next.nodeType === Node.TEXT_NODE) {
+                          newRange.setStart(next, 0);
+                        } else {
+                          newRange.setStartBefore(next);
+                        }
+                      } else if (parent) {
+                        newRange.setStart(parent, 0);
+                      }
+                    } else {
+                      if (next) {
+                        if (next.nodeType === Node.TEXT_NODE) {
+                          newRange.setStart(next, 0);
+                        } else {
+                          newRange.setStartBefore(next);
+                        }
+                      } else if (prev) {
+                        if (prev.nodeType === Node.TEXT_NODE) {
+                          newRange.setStart(prev, prev.textContent.length);
+                        } else {
+                          newRange.setStartAfter(prev);
+                        }
+                      } else if (parent) {
+                        newRange.setStart(parent, 0);
+                      }
+                    }
+                    
+                    newRange.collapse(true);
+                    selection.removeAllRanges();
+                    selection.addRange(newRange);
+                    
+                    this.handleContentChange();
+                    setTimeout(() => {
+                      this.recalculateAllSpacers();
+                    }, 100);
+                    return;
+                  }
+                } catch (err) {
+                  // Ignorer les erreurs de range et continuer
+                }
+              }
+            }
+            
+            // Suppression d'une variable juste avant ou après le curseur
+            let targetVariable = null;
+            let targetParent = null;
+            let targetNext = null;
+            let targetPrev = null;
+
+            const isIgnorableText = (text) => {
+              if (text === null || text === undefined) return true;
+              // espaces, nbsp, zero-width
+              return /^[\s\u00A0\u200B]*$/.test(text);
+            };
+            
+            const isIgnorableNode = (node) => {
+              if (!node) return true;
+              if (node.nodeType === Node.TEXT_NODE) {
+                return isIgnorableText(node.textContent);
+              }
+              if (node.nodeType === Node.ELEMENT_NODE) {
+                return node.tagName === 'BR';
+              }
+              return false;
+            };
+            
+            const getDeepLast = (node) => {
+              let current = node;
+              while (current && current.nodeType === Node.ELEMENT_NODE && current.lastChild) {
+                current = current.lastChild;
+              }
+              return current;
+            };
+            
+            const getDeepFirst = (node) => {
+              let current = node;
+              while (current && current.nodeType === Node.ELEMENT_NODE && current.firstChild) {
+                current = current.firstChild;
+              }
+              return current;
+            };
+            
+            const findPreviousNode = () => {
+              let node = range.startContainer;
+              let offset = range.startOffset;
+              
+              if (node.nodeType === Node.TEXT_NODE) {
+                const beforeText = node.textContent.slice(0, offset);
+                if (offset > 0 && !isIgnorableText(beforeText)) return null;
+                offset = Array.prototype.indexOf.call(node.parentNode?.childNodes || [], node);
+                node = node.parentNode;
+              }
+              
+              if (!node) return null;
+              
+              let prev = null;
+              if (node.nodeType === Node.ELEMENT_NODE) {
+                if (offset > 0 && node.childNodes[offset - 1]) {
+                  prev = node.childNodes[offset - 1];
+                } else {
+                  prev = node.previousSibling;
+                }
+              }
+              
+              if (!prev) {
+                let parent = node.parentNode;
+                while (parent && parent !== this.editorElement && !prev) {
+                  prev = parent.previousSibling;
+                  parent = parent.parentNode;
+                }
+              }
+              
+              if (!prev) return null;
+              
+              prev = getDeepLast(prev);
+              while (prev && isIgnorableNode(prev)) {
+                const sibling = prev.previousSibling;
+                prev = sibling ? getDeepLast(sibling) : null;
+              }
+              
+              return prev;
+            };
+            
+            const findNextNode = () => {
+              let node = range.startContainer;
+              let offset = range.startOffset;
+              
+              if (node.nodeType === Node.TEXT_NODE) {
+                if (offset < node.textContent.length) return null;
+                offset = Array.prototype.indexOf.call(node.parentNode?.childNodes || [], node) + 1;
+                node = node.parentNode;
+              }
+              
+              if (!node) return null;
+              
+              let next = null;
+              if (node.nodeType === Node.ELEMENT_NODE) {
+                if (node.childNodes[offset]) {
+                  next = node.childNodes[offset];
+                } else {
+                  next = node.nextSibling;
+                }
+              }
+              
+              if (!next) {
+                let parent = node.parentNode;
+                while (parent && parent !== this.editorElement && !next) {
+                  next = parent.nextSibling;
+                  parent = parent.parentNode;
+                }
+              }
+              
+              if (!next) return null;
+              
+              next = getDeepFirst(next);
+              while (next && isIgnorableNode(next)) {
+                const sibling = next.nextSibling;
+                next = sibling ? getDeepFirst(sibling) : null;
+              }
+              
+              return next;
+            };
+            
+            const adjacentNode = isBackspace ? findPreviousNode() : findNextNode();
+            if (adjacentNode) {
+              const adjacentVariable = adjacentNode.nodeType === Node.ELEMENT_NODE
+                ? adjacentNode.closest('.template-variable')
+                : adjacentNode.parentElement?.closest('.template-variable');
+              
+              if (adjacentVariable) {
+                e.preventDefault();
+                
+                const parent = adjacentVariable.parentNode;
+                const next = adjacentVariable.nextSibling;
+                const prev = adjacentVariable.previousSibling;
+                adjacentVariable.remove();
+                
+                const newRange = document.createRange();
+                if (isBackspace) {
+                  if (prev) {
+                    if (prev.nodeType === Node.TEXT_NODE) {
+                      newRange.setStart(prev, prev.textContent.length);
+                    } else {
+                      newRange.setStartAfter(prev);
+                    }
+                  } else if (next) {
+                    if (next.nodeType === Node.TEXT_NODE) {
+                      newRange.setStart(next, 0);
+                    } else {
+                      newRange.setStartBefore(next);
+                    }
+                  } else if (parent) {
+                    newRange.setStart(parent, 0);
+                  }
+                } else {
+                  if (next) {
+                    if (next.nodeType === Node.TEXT_NODE) {
+                      newRange.setStart(next, 0);
+                    } else {
+                      newRange.setStartBefore(next);
+                    }
+                  } else if (prev) {
+                    if (prev.nodeType === Node.TEXT_NODE) {
+                      newRange.setStart(prev, prev.textContent.length);
+                    } else {
+                      newRange.setStartAfter(prev);
+                    }
+                  } else if (parent) {
+                    newRange.setStart(parent, 0);
+                  }
+                }
+                
+                newRange.collapse(true);
+                selection.removeAllRanges();
+                selection.addRange(newRange);
+                
+                this.handleContentChange();
+                setTimeout(() => {
+                  this.recalculateAllSpacers();
+                }, 100);
+                return;
+              }
+            }
+            
+            let container = range.startContainer;
+            let offset = range.startOffset;
+            
+            if (container.nodeType === Node.TEXT_NODE) {
+              if (isBackspace) {
+                if (offset > 0) {
+                  // Il y a du texte avant, laisser le navigateur gérer
+                  targetVariable = null;
+                } else {
+                  const parent = container.parentNode;
+                  let prev = container.previousSibling;
+                  if (!prev && parent && parent !== this.editorElement) {
+                    prev = parent.previousSibling;
+                  }
+                  if (prev && prev.classList && prev.classList.contains('template-variable')) {
+                    targetVariable = prev;
+                    targetParent = prev.parentNode;
+                    targetNext = prev.nextSibling;
+                    targetPrev = prev.previousSibling;
+                  }
+                }
+              } else {
+                // Delete
+                if (offset < container.textContent.length) {
+                  targetVariable = null;
+                } else {
+                  const parent = container.parentNode;
+                  let next = container.nextSibling;
+                  if (!next && parent && parent !== this.editorElement) {
+                    next = parent.nextSibling;
+                  }
+                  if (next && next.classList && next.classList.contains('template-variable')) {
+                    targetVariable = next;
+                    targetParent = next.parentNode;
+                    targetNext = next.nextSibling;
+                    targetPrev = next.previousSibling;
+                  }
+                }
+              }
+            } else if (container.nodeType === Node.ELEMENT_NODE) {
+              if (isBackspace) {
+                if (offset > 0 && container.childNodes[offset - 1]) {
+                  const prev = container.childNodes[offset - 1];
+                  if (prev.classList && prev.classList.contains('template-variable')) {
+                    targetVariable = prev;
+                    targetParent = prev.parentNode;
+                    targetNext = prev.nextSibling;
+                    targetPrev = prev.previousSibling;
+                  }
+                } else if (offset === 0) {
+                  const prev = container.previousSibling;
+                  if (prev && prev.classList && prev.classList.contains('template-variable')) {
+                    targetVariable = prev;
+                    targetParent = prev.parentNode;
+                    targetNext = prev.nextSibling;
+                    targetPrev = prev.previousSibling;
+                  }
+                }
+              } else {
+                // Delete
+                if (container.childNodes[offset]) {
+                  const next = container.childNodes[offset];
+                  if (next.classList && next.classList.contains('template-variable')) {
+                    targetVariable = next;
+                    targetParent = next.parentNode;
+                    targetNext = next.nextSibling;
+                    targetPrev = next.previousSibling;
+                  }
+                } else {
+                  const next = container.nextSibling;
+                  if (next && next.classList && next.classList.contains('template-variable')) {
+                    targetVariable = next;
+                    targetParent = next.parentNode;
+                    targetNext = next.nextSibling;
+                    targetPrev = next.previousSibling;
+                  }
+                }
+              }
+            }
+            
+            if (targetVariable) {
+              e.preventDefault();
+              targetVariable.remove();
+              
+              const newRange = document.createRange();
+              if (targetNext) {
+                if (targetNext.nodeType === Node.TEXT_NODE) {
+                  newRange.setStart(targetNext, 0);
+                } else {
+                  newRange.setStartBefore(targetNext);
+                }
+              } else if (targetPrev) {
+                if (targetPrev.nodeType === Node.TEXT_NODE) {
+                  newRange.setStart(targetPrev, targetPrev.textContent.length);
+                } else {
+                  newRange.setStartAfter(targetPrev);
+                }
+              } else if (targetParent) {
+                newRange.setStart(targetParent, 0);
+              }
+              newRange.collapse(true);
+              selection.removeAllRanges();
+              selection.addRange(newRange);
+              
+              this.handleContentChange();
+              setTimeout(() => {
+                this.recalculateAllSpacers();
+              }, 100);
+              return;
+            }
+          }
+        }
+        
         // Recalculer tous les spacers après suppression (peut supprimer une ligne)
         setTimeout(() => {
           this.recalculateAllSpacers();
@@ -1006,6 +1408,14 @@ export default class RichTextEditor {
       if (e.target.closest('.template-image-container')) {
         return; // Laisser le container gérer le clic
       }
+      
+      // Gérer les clics sur les variables (pour placer le curseur après)
+      const variable = e.target.closest('.template-variable');
+      if (variable && variable !== e.target) {
+        // Le clic est sur un enfant de la variable, laisser la variable gérer
+        return;
+      }
+      
       // S'assurer que l'éditeur a le focus pour afficher le caret
       if (document.activeElement !== this.editorElement) {
         this.editorElement.focus();
@@ -1876,8 +2286,14 @@ export default class RichTextEditor {
     // Cela préserve les images et autres éléments HTML complexes qui ne sont pas dans la structure JSON
     if (this.template.content && this.template.content.trim()) {
       console.log('📄 Utilisation du contenu HTML sauvegardé au lieu de régénérer depuis la structure');
-      this.setContent(this.template.content);
-      return;
+      try {
+        this.setContent(this.template.content);
+        return;
+      } catch (error) {
+        console.error('❌ Erreur lors du setContent, fallback vers la structure:', error);
+        // En cas d'erreur, continuer avec le re-render depuis la structure
+        // Ne pas return pour permettre le fallback
+      }
     }
     
     // Sinon, régénérer depuis la structure JSON (comportement par défaut)
@@ -2118,6 +2534,83 @@ export default class RichTextEditor {
       range.deleteContents();
     }
 
+    // CORRECTION : S'assurer que le range pointe vers un nœud texte, pas un élément
+    // Si le range pointe vers un élément (comme un <p> vide), on doit trouver ou créer un nœud texte
+    if (range.startContainer.nodeType !== Node.TEXT_NODE) {
+      const container = range.startContainer;
+      const offset = range.startOffset;
+      
+      // Si l'élément est vide ou n'a que des balises vides, créer un nœud texte
+      if (container.childNodes.length === 0 || 
+          (container.childNodes.length === 1 && container.childNodes[0].nodeName === 'BR')) {
+        const textNode = document.createTextNode('');
+        container.insertBefore(textNode, container.firstChild);
+        range.setStart(textNode, 0);
+        range.collapse(true);
+      } else {
+        // L'élément a des enfants, chercher le nœud texte le plus proche à l'offset
+        if (offset < container.childNodes.length) {
+          const childNode = container.childNodes[offset];
+          if (childNode.nodeType === Node.TEXT_NODE) {
+            // Pointe vers un nœud texte existant
+            range.setStart(childNode, 0);
+            range.collapse(true);
+          } else {
+            // Chercher le premier nœud texte avant ou après cet enfant
+            let textNode = null;
+            // D'abord chercher après
+            for (let i = offset; i < container.childNodes.length; i++) {
+              if (container.childNodes[i].nodeType === Node.TEXT_NODE) {
+                textNode = container.childNodes[i];
+                range.setStart(textNode, 0);
+                range.collapse(true);
+                break;
+              }
+            }
+            // Si pas trouvé, chercher avant
+            if (!textNode) {
+              for (let i = offset - 1; i >= 0; i--) {
+                if (container.childNodes[i].nodeType === Node.TEXT_NODE) {
+                  textNode = container.childNodes[i];
+                  range.setStart(textNode, textNode.textContent.length);
+                  range.collapse(true);
+                  break;
+                }
+              }
+            }
+            // Si toujours pas trouvé, créer un nœud texte à la position
+            if (!textNode) {
+              textNode = document.createTextNode('');
+              if (offset < container.childNodes.length) {
+                container.insertBefore(textNode, container.childNodes[offset]);
+              } else {
+                container.appendChild(textNode);
+              }
+              range.setStart(textNode, 0);
+              range.collapse(true);
+            }
+          }
+        } else {
+          // Offset au-delà des enfants, chercher ou créer un nœud texte à la fin
+          let lastTextNode = null;
+          for (let i = container.childNodes.length - 1; i >= 0; i--) {
+            if (container.childNodes[i].nodeType === Node.TEXT_NODE) {
+              lastTextNode = container.childNodes[i];
+              range.setStart(lastTextNode, lastTextNode.textContent.length);
+              range.collapse(true);
+              break;
+            }
+          }
+          if (!lastTextNode) {
+            const textNode = document.createTextNode('');
+            container.appendChild(textNode);
+            range.setStart(textNode, 0);
+            range.collapse(true);
+          }
+        }
+      }
+    }
+
     // Créer un span pour la variable
     const variableSpan = document.createElement('span');
     variableSpan.className = 'template-variable';
@@ -2170,9 +2663,13 @@ export default class RichTextEditor {
 
     range.insertNode(variableSpan);
     
-    // Placer le curseur après la variable
+    // Ajouter un espace invisible après la variable pour pouvoir placer le curseur
+    const spaceAfter = document.createTextNode('\u200B'); // Zero-width space
+    variableSpan.parentNode.insertBefore(spaceAfter, variableSpan.nextSibling);
+    
+    // Placer le curseur après l'espace
     const newRange = document.createRange();
-    newRange.setStartAfter(variableSpan);
+    newRange.setStartAfter(spaceAfter);
     newRange.collapse(true);
     
     // Appliquer la sélection immédiatement
@@ -2188,9 +2685,15 @@ export default class RichTextEditor {
         // Vérifier et restaurer la sélection
         const currentSelection = window.getSelection();
         if (currentSelection.rangeCount === 0 || !this.editorElement.contains(currentSelection.anchorNode)) {
-          // Créer une nouvelle sélection après la variable
+          // Créer une nouvelle sélection après l'espace de la variable
           const restoreRange = document.createRange();
-          restoreRange.setStartAfter(variableSpan);
+          const spaceNode = variableSpan.nextSibling;
+          if (spaceNode && spaceNode.nodeType === Node.TEXT_NODE) {
+            restoreRange.setStartAfter(spaceNode);
+          } else {
+            // Fallback si l'espace n'existe pas encore
+            restoreRange.setStartAfter(variableSpan);
+          }
           restoreRange.collapse(true);
           currentSelection.removeAllRanges();
           currentSelection.addRange(restoreRange);
@@ -2226,6 +2729,58 @@ export default class RichTextEditor {
     
     const variables = this.editorElement.querySelectorAll('.template-variable');
     variables.forEach(variableSpan => {
+      // S'assurer qu'il y a un espace invisible après la variable (pour placer le curseur)
+      const nextSibling = variableSpan.nextSibling;
+      let spaceAfter = null;
+      
+      // Vérifier si le prochain sibling est déjà un espace zero-width
+      if (nextSibling && 
+          nextSibling.nodeType === Node.TEXT_NODE && 
+          nextSibling.textContent === '\u200B') {
+        spaceAfter = nextSibling;
+      } else if (!nextSibling || 
+                 nextSibling.nodeType !== Node.TEXT_NODE || 
+                 !nextSibling.textContent.includes('\u200B')) {
+        // Pas d'espace après, en créer un
+        spaceAfter = document.createTextNode('\u200B'); // Zero-width space
+        variableSpan.parentNode.insertBefore(spaceAfter, variableSpan.nextSibling);
+      } else {
+        // Le nextSibling contient du texte avec un zero-width space, on peut l'utiliser
+        spaceAfter = nextSibling;
+      }
+      
+      // Gérer les clics sur la variable pour placer le curseur après l'espace
+      variableSpan.onclick = (e) => {
+        // Si le clic est sur le côté droit de la variable, placer le curseur après
+        const rect = variableSpan.getBoundingClientRect();
+        const clickX = e.clientX;
+        const middleX = rect.left + rect.width / 2;
+        
+        // Clic sur la moitié droite = placer le curseur après
+        if (clickX > middleX) {
+          e.preventDefault();
+          e.stopPropagation();
+          
+          // Trouver l'espace après la variable
+          const spaceNode = variableSpan.nextSibling;
+          if (spaceNode && spaceNode.nodeType === Node.TEXT_NODE) {
+            const range = document.createRange();
+            if (spaceNode.textContent === '\u200B') {
+              // C'est un espace zero-width pur, placer après
+              range.setStartAfter(spaceNode);
+            } else {
+              // C'est un nœud texte qui contient l'espace, placer au début
+              range.setStart(spaceNode, 0);
+            }
+            range.collapse(true);
+            const selection = window.getSelection();
+            selection.removeAllRanges();
+            selection.addRange(range);
+            this.editorElement.focus();
+          }
+        }
+      };
+      
       // Toujours rendre draggable et réattacher l'événement (au cas où il aurait été perdu)
       variableSpan.draggable = true;
       variableSpan.style.cursor = 'move';
@@ -2545,18 +3100,73 @@ export default class RichTextEditor {
           selection.addRange(newRange);
         } else {
           // Créer un nouveau titre
-          const newTitle = document.createElement('div');
+          let newTitle = document.createElement('div');
           newTitle.className = className;
           
           // Si la sélection contient du texte, l'utiliser
           if (!range.collapsed) {
-            newTitle.innerHTML = range.toString();
+            // Cloner le contenu pour ne pas modifier le range avant insertion
+            const clonedContent = range.cloneContents();
+            
+            // Créer un conteneur temporaire pour extraire le HTML
+            const tempContainer = document.createElement('div');
+            tempContainer.appendChild(clonedContent);
+            
+            // Extraire le HTML, mais remplacer les éléments de niveau bloc par leur contenu texte
+            let htmlContent = tempContainer.innerHTML;
+            
+            // Remplacer les balises de niveau bloc (p, div, h1-h6, etc.) par leur contenu seulement
+            // Cela évite d'avoir des éléments de niveau bloc dans un titre
+            const blockTags = ['p', 'div', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'ul', 'ol', 'li', 'blockquote'];
+            blockTags.forEach(tag => {
+              const regex = new RegExp(`<${tag}[^>]*>(.*?)</${tag}>`, 'gis');
+              htmlContent = htmlContent.replace(regex, '$1');
+              // Aussi gérer les balises auto-fermantes
+              htmlContent = htmlContent.replace(new RegExp(`<${tag}[^>]*/?>`, 'gi'), '');
+            });
+            
+            // Si après nettoyage il ne reste rien, utiliser le texte brut
+            if (!htmlContent || htmlContent.trim().length === 0) {
+              newTitle.textContent = range.toString();
+            } else {
+              newTitle.innerHTML = htmlContent;
+            }
+            
+            // Supprimer l'ancien contenu de la sélection
             range.deleteContents();
           } else {
             newTitle.innerHTML = '<br>';
           }
           
+          // Insérer le nouveau titre à la position du range
           range.insertNode(newTitle);
+          
+          // S'assurer que le titre est bien un enfant direct de editorElement
+          // Si ce n'est pas le cas (par exemple s'il est dans un paragraphe), l'extraire et le placer correctement
+          if (newTitle.parentElement !== this.editorElement) {
+            const parent = newTitle.parentElement;
+            // Trouver la position du parent dans editorElement
+            const parentIndex = Array.from(this.editorElement.children).indexOf(parent);
+            
+            // Extraire le titre du parent
+            const titleContent = newTitle.cloneNode(true);
+            newTitle.remove(); // Retirer l'ancien titre
+            
+            if (parentIndex >= 0) {
+              // Le parent est un enfant direct, insérer le titre après le parent
+              if (parent.nextSibling) {
+                this.editorElement.insertBefore(titleContent, parent.nextSibling);
+              } else {
+                this.editorElement.appendChild(titleContent);
+              }
+            } else {
+              // Le parent n'est pas un enfant direct, insérer à la fin
+              this.editorElement.appendChild(titleContent);
+            }
+            
+            // Mettre à jour la référence
+            newTitle = titleContent;
+          }
           
           // Mettre à jour la sélection
           const newRange = document.createRange();
@@ -4017,6 +4627,7 @@ export default class RichTextEditor {
           savedCrop = JSON.parse(img.dataset.crop);
         } catch (e) {
           console.warn('Erreur lors de la restauration du crop:', e);
+          delete img.dataset.crop;
         }
       }
       
@@ -4762,6 +5373,7 @@ export default class RichTextEditor {
       originalImg.src = originalSrc;
     } catch (e) {
       console.warn('Erreur lors de l\'application du crop sauvegardé:', e);
+      delete img.dataset.crop;
     }
   }
   
@@ -4809,42 +5421,6 @@ export default class RichTextEditor {
   startCrop(canvas) {
     // Ancienne fonction - utiliser startInteractiveCrop à la place
     this.startInteractiveCrop(canvas);
-    return;
-    
-    let startX, startY, cropRect;
-    
-    const onMouseDown = (e) => {
-      const rect = canvas.getBoundingClientRect();
-      startX = e.clientX - rect.left;
-      startY = e.clientY - rect.top;
-      cropRect = { x: startX, y: startY, width: 0, height: 0 };
-    };
-    
-    const onMouseMove = (e) => {
-      if (!cropRect) return;
-      const rect = canvas.getBoundingClientRect();
-      const currentX = e.clientX - rect.left;
-      const currentY = e.clientY - rect.top;
-      
-      cropRect.width = currentX - startX;
-      cropRect.height = currentY - startY;
-      
-      // Redessiner avec le rectangle de sélection
-      this.drawCanvasWithCrop(canvas, cropRect);
-    };
-    
-    const onMouseUp = () => {
-      if (cropRect && cropRect.width !== 0 && cropRect.height !== 0) {
-        canvas._cropData = cropRect;
-      }
-      canvas.removeEventListener('mousedown', onMouseDown);
-      canvas.removeEventListener('mousemove', onMouseMove);
-      canvas.removeEventListener('mouseup', onMouseUp);
-    };
-    
-    canvas.addEventListener('mousedown', onMouseDown);
-    canvas.addEventListener('mousemove', onMouseMove);
-    canvas.addEventListener('mouseup', onMouseUp);
   }
 
   /**
@@ -5606,6 +6182,79 @@ export default class RichTextEditor {
         }
       });
     });
+  }
+  
+  /**
+   * Normalise tous les titres pour qu'ils soient des div avec classes doc-title-level-X
+   * au lieu de balises h1/h2/h3, pour garantir l'uniformité des styles
+   */
+  normalizeTitleElements() {
+    if (!this.editorElement) return;
+    
+    // Chercher tous les titres h1/h2/h3 qui ont data-section-id
+    ['h1', 'h2', 'h3'].forEach(tagName => {
+      const headings = this.editorElement.querySelectorAll(`${tagName}[data-section-id]`);
+      headings.forEach(heading => {
+        const level = parseInt(tagName.charAt(1));
+        const sectionId = heading.dataset.sectionId;
+        const className = `doc-title-level-${level}`;
+        
+        // Créer un nouveau div avec la classe appropriée
+        const newTitle = document.createElement('div');
+        newTitle.className = className;
+        newTitle.dataset.sectionId = sectionId;
+        newTitle.innerHTML = heading.innerHTML;
+        
+        // Copier tous les attributs data-* et autres attributs importants
+        Array.from(heading.attributes).forEach(attr => {
+          if (attr.name !== 'class' && attr.name !== 'data-section-id') {
+            newTitle.setAttribute(attr.name, attr.value);
+          }
+        });
+        
+        // Remplacer l'ancien titre par le nouveau
+        heading.parentNode.replaceChild(newTitle, heading);
+      });
+    });
+    
+    // Réappliquer les styles aux nouveaux éléments normalisés
+    // On réapplique seulement les styles aux titres normalisés, pas tous les styles
+    if (this.editorElement && this.template && this.template.generalStyles) {
+      const headingsStyles = this.template.generalStyles.headings || {};
+      const defaultStyles = this.template.generalStyles.default || {};
+      const scaleRatio = this.pageWrapper?.dataset.scaleRatio || 
+                        parseFloat(getComputedStyle(this.pageWrapper || this.editorElement).getPropertyValue('--scale-ratio')) || 
+                        1;
+      
+      // Appliquer les styles aux titres normalisés
+      ['h1', 'h2', 'h3'].forEach(heading => {
+        const headingElements = this.editorElement.querySelectorAll(
+          `.doc-title-level-${heading.charAt(1)}[data-section-id]`
+        );
+        const headingStyle = headingsStyles[heading] || {};
+        
+        headingElements.forEach(element => {
+          if (!element.hasAttribute('data-section-id')) return;
+          
+          // Appliquer les marges
+          if (headingStyle.useGlobalMargin === false) {
+            if (headingStyle.margin && headingStyle.margin.left) {
+              const leftValue = parseFloat(headingStyle.margin.left) || 0;
+              const leftUnit = headingStyle.margin.left.replace(/[\d.-]/g, '') || 'px';
+              element.style.marginLeft = `calc(${leftValue}${leftUnit} * var(--scale-ratio, ${scaleRatio}))`;
+            } else {
+              element.style.marginLeft = '';
+            }
+          } else {
+            if (defaultStyles.margin && defaultStyles.margin.left) {
+              const leftValue = parseFloat(defaultStyles.margin.left) || 0;
+              const leftUnit = defaultStyles.margin.left.replace(/[\d.-]/g, '') || 'px';
+              element.style.marginLeft = `calc(${leftValue}${leftUnit} * var(--scale-ratio, ${scaleRatio}))`;
+            }
+          }
+        });
+      });
+    }
   }
 }
 

@@ -4,23 +4,341 @@
  */
 
 const path = require('path');
-const AIService = require(path.join(__dirname, '../../../../backend/modules/analyse-intention/services/AIService'));
+const iaModule = require(path.join(__dirname, '../../../ia/backend'));
+const UgapDataService = require('./UgapDataService');
+const { ObjectId } = require('mongodb');
+const database = require(path.join(__dirname, '../../../../backend/config/database'));
+const IAClient = require(path.join(__dirname, '../../../ia/backend/services/IAClient'));
+const { buildClientConfigFromServer } = require(path.join(__dirname, '../../../ia/backend/services/ServerConfigHelper'));
 
 class UgapAIService {
   constructor(db = null, entrepriseId = null, progressCallback = null) {
-    this.aiService = new AIService({
-      ollamaUrl: process.env.OLLAMA_URL || 'http://localhost:11434',
-      model: process.env.OLLAMA_MODEL || 'mistral:latest',
+    this.aiService = iaModule.getIAClient({
       timeout: 600000
     });
+    this._resolvedAiClients = new Map();
     this.db = db;
     this.entrepriseId = entrepriseId;
     this.progressCallback = progressCallback;
   }
 
+  /** Client IA : LLM de l’entité (ia_llms) si disponible, sinon config globale. */
+  async resolveAiClient(llmId = null) {
+    const selector = llmId ? String(llmId).trim() : '';
+    const key = selector ? `sel:${selector}` : 'default';
+    if (this._resolvedAiClients.has(key)) return this._resolvedAiClients.get(key);
+
+    const serverModelMatch = selector.match(/^server:([^|]+)\|model:(.+)$/i);
+    if (serverModelMatch) {
+      try {
+        const serverId = decodeURIComponent(serverModelMatch[1] || '').trim();
+        const model = decodeURIComponent(serverModelMatch[2] || '').trim();
+        if (serverId) {
+          const serversCol = database.getCollection('ia_servers');
+          const oid = new ObjectId(serverId);
+          const serverDoc = await serversCol.findOne({ _id: oid });
+          if (serverDoc) {
+            const flat = buildClientConfigFromServer(serverDoc);
+            if (flat) {
+              const pickedModel = model || flat.model || 'mistral:latest';
+              const config = { ...flat, model: pickedModel };
+              const c = new IAClient({
+                configLoader: async () => ({ config }),
+                serverUrl: config.serverUrl,
+                serviceToken: config.serviceToken,
+                ollamaUrl: config.ollamaUrl,
+                model: pickedModel,
+                timeout: 600000
+              });
+              this._resolvedAiClients.set(key, c);
+              return c;
+            }
+          }
+        }
+      } catch (_) {
+        // fallback below
+      }
+    }
+
+    if (this.entrepriseId) {
+      const c = await iaModule.getIAClientForEntity(
+        String(this.entrepriseId),
+        selector || null
+      );
+      if (c) {
+        this._resolvedAiClients.set(key, c);
+        return c;
+      }
+    }
+    this._resolvedAiClients.set(key, this.aiService);
+    return this.aiService;
+  }
+
   sendProgress(message, type = 'info') {
     if (this.progressCallback) {
       this.progressCallback({ message, type });
+    }
+  }
+
+  logPromptDebug(scope, prompt, llmSelection = '') {
+    try {
+      const title = `\n🧾 [UGAP IA] Prompt envoyé (${scope})`;
+      const sep = '='.repeat(80);
+      console.log(title);
+      console.log(sep);
+      console.log(`LLM sélectionné: ${llmSelection || '(non défini)'}`);
+      console.log('--- PROMPT START ---');
+      console.log(String(prompt || ''));
+      console.log('--- PROMPT END ---');
+      console.log(sep + '\n');
+    } catch (_) {
+      // no-op
+    }
+  }
+
+  logResultDebug(scope, resultText) {
+    try {
+      const title = `\n📥 [UGAP IA] Résultat IA (${scope})`;
+      const sep = '='.repeat(80);
+      console.log(title);
+      console.log(sep);
+      console.log('--- RESULT START ---');
+      console.log(String(resultText || ''));
+      console.log('--- RESULT END ---');
+      console.log(sep + '\n');
+    } catch (_) {
+      // no-op
+    }
+  }
+
+  /**
+   * Corrige les backslashes invalides dans un JSON "presque valide"
+   * (cas fréquent des réponses LLM qui contiennent \_ ou \- etc.).
+   */
+  _repairInvalidJsonEscapes(jsonText) {
+    let out = '';
+    let inString = false;
+    let escaped = false;
+    const validEscapes = new Set(['"', '\\', '/', 'b', 'f', 'n', 'r', 't', 'u']);
+
+    for (let i = 0; i < jsonText.length; i += 1) {
+      const ch = jsonText[i];
+
+      if (!inString) {
+        if (ch === '"') inString = true;
+        out += ch;
+        continue;
+      }
+
+      if (escaped) {
+        if (!validEscapes.has(ch)) {
+          // Le "\" précédent n'était pas un escape JSON valide:
+          // on le transforme en "\\" puis on garde le caractère.
+          out += '\\\\';
+          out += ch;
+        } else {
+          out += ch;
+        }
+        escaped = false;
+        continue;
+      }
+
+      if (ch === '\\') {
+        escaped = true;
+        continue;
+      }
+
+      if (ch === '"') inString = false;
+      out += ch;
+    }
+
+    if (escaped) {
+      out += '\\\\';
+    }
+
+    return out;
+  }
+
+  _chunkArray(arr, chunkSize) {
+    const size = Math.max(1, Number(chunkSize) || 1);
+    const out = [];
+    for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
+    return out;
+  }
+
+  _isPlaceholderFamilyResponse(text, parsedArray) {
+    const t = String(text || '').toLowerCase();
+    if (!Array.isArray(parsedArray) || parsedArray.length === 0) return true;
+    if (t.includes('nom court de la famille') || t.includes('opt_abc') || t.includes('opt\\_abc')) return true;
+    // Un modèle “qui n’a pas compris” renvoie parfois l’exemple tel quel.
+    const first = parsedArray[0] || {};
+    const lbl = String(first.familyLabel || first.family_label || '').toLowerCase();
+    if (lbl.includes('nom court de la famille')) return true;
+    return false;
+  }
+
+  _pickTextModelIfVisionSelected(llmSelection) {
+    const selector = String(llmSelection || '').trim();
+    const match = selector.match(/^server:([^|]+)\|model:(.+)$/i);
+    if (!match) return { llmSelection: selector, forced: false };
+    const serverPart = match[1] || '';
+    const modelPart = decodeURIComponent(match[2] || '').trim();
+    const looksVision = /\bllava\b|\bmoondream\b|\bqwen2\.5-vl\b|\bllama-vision\b/i.test(modelPart);
+    if (!looksVision) return { llmSelection: selector, forced: false };
+    const fallbackModel = process.env.OLLAMA_TEXT_MODEL || 'mistral:latest';
+    const safeSelector = `server:${encodeURIComponent(decodeURIComponent(serverPart))}|model:${encodeURIComponent(fallbackModel)}`;
+    return { llmSelection: safeSelector, forced: true };
+  }
+
+  _heuristicFamiliesForChunk(listChunk) {
+    const familiesByLabel = new Map();
+    const add = (label, id) => {
+      const key = String(label || '').trim() || 'Famille';
+      if (!familiesByLabel.has(key)) familiesByLabel.set(key, []);
+      familiesByLabel.get(key).push(id);
+    };
+
+    for (const o of listChunk) {
+      const name = String(o.name || '').trim();
+      const n = name.toLowerCase();
+
+      // Couleurs / RAL
+      if (/^coloris\s+flotteur\s+en\s+/i.test(name)) {
+        add('Couleur du flotteur', o.id);
+        continue;
+      }
+      if (/^coloris\s+de\s+la\s+coque\s+en\s+/i.test(name)) {
+        add('Couleur de la coque', o.id);
+        continue;
+      }
+      if (/^console\s+de\s+pilotage\s+en\s+/i.test(name)) {
+        add('Couleur console de pilotage', o.id);
+        continue;
+      }
+
+      // Marquage “comprenant X lettres maxi”
+      if (/^marquage\s+comprenant\s+\d+\s+lettres?\s+maxi\b/i.test(name)) {
+        add('Marquage (nb de lettres)', o.id);
+        continue;
+      }
+
+      // Postes : mêmes équipements avec poste(s) différents
+      // Ex: "Seconde bande anti-ragage extérieure   Poste 1"
+      // Ex: "Davier d'étrave ... Postes 2, 3, 9 et 10"
+      const posteStripped = name
+        .replace(/\s+postes?\s+\d+[\d\s,età\-–]*$/i, '')
+        .replace(/\s+poste\s+\d+$/i, '')
+        .trim();
+      if (posteStripped !== name && posteStripped.length >= 8) {
+        add(posteStripped, o.id);
+        continue;
+      }
+
+      // Par défaut : singleton (on garde le libellé pour ne pas perdre de sens)
+      add(name.slice(0, 100) || o.id, o.id);
+    }
+
+    return Array.from(familiesByLabel.entries()).map(([familyLabel, optionIds]) => ({
+      familyLabel,
+      optionIds,
+      defaultOptionId: optionIds[0] || null
+    }));
+  }
+
+  _normalizeFamilyLabel(label) {
+    const s = String(label || '').trim();
+    if (!s) return 'Famille';
+    if (/^coloris\s+flotteur\s+en\s+/i.test(s)) return 'Couleur du flotteur';
+    if (/^coloris\s+de\s+la\s+coque\s+en\s+/i.test(s)) return 'Couleur de la coque';
+    if (/^console\s+de\s+pilotage\s+en\s+/i.test(s)) return 'Couleur console de pilotage';
+    if (/^marquage\s+comprenant\s+\d+\s+lettres?\s+maxi\b/i.test(s)) return 'Marquage (nb de lettres)';
+    return s;
+  }
+
+  _normalizeBusinessAssignation(value) {
+    const v = String(value || '').trim();
+    if (!v) return 'A_ASSIGNER';
+    return v;
+  }
+
+  async inferFamilyBusinessView(list, family, llmSelection = null) {
+    const familyLabel = String(family?.familyLabel || '').trim() || 'Famille';
+    const optionIds = Array.isArray(family?.optionIds)
+      ? family.optionIds.map((id) => String(id || '').trim()).filter(Boolean)
+      : [];
+    if (optionIds.length === 0) {
+      return {
+        assignation: 'A_ASSIGNER',
+        businessView: '',
+        subFamily: ''
+      };
+    }
+
+    const optionIndex = new Map(
+      (Array.isArray(list) ? list : [])
+        .map((o) => [String(o.id || '').trim(), o])
+    );
+    const lines = optionIds
+      .map((id, idx) => {
+        const row = optionIndex.get(id);
+        if (!row) return `${idx + 1}. id=${id}`;
+        return `${idx + 1}. id=${id} | type=${row.lineKind || 'option'} | cat=${row.category || 'Autre'} | ${row.name || ''}`;
+      })
+      .join('\n');
+
+    const prompt = `Tu es un expert métier catalogue UGAP.
+
+Objectif:
+Déterminer l'ASSIGNATION métier d'une famille d'options (et une sous-famille si pertinent).
+
+Règles:
+- Retourne une assignation exploitable côté métier (nom court, clair).
+- La "vueMetier" doit être le regroupement métier principal (ex: Motorisation, Coque, Flotteurs, Console, Electronique, Remorque, Sécurité, Services, Divers).
+- "sousFamille" est optionnelle (mettre chaîne vide si non pertinent).
+- Ne crée pas de texte explicatif hors JSON.
+
+Famille:
+- familyLabel: ${familyLabel}
+- Nombre de lignes: ${optionIds.length}
+
+Lignes de la famille:
+${lines}
+
+Réponds UNIQUEMENT avec un JSON valide:
+{
+  "assignation": "Nom d'assignation métier",
+  "vueMetier": "Vue métier principale",
+  "sousFamille": "Sous-famille optionnelle ou chaine vide"
+}`;
+
+    try {
+      const client = await this.resolveAiClient(llmSelection || null);
+      const response = await client.sendAnalysisPrompt(prompt, {
+        temperature: 0.05,
+        max_tokens: 300
+      });
+      if (!response?.success) {
+        throw new Error(response?.error?.message || 'Erreur IA assignation famille');
+      }
+      const text = String(response.data?.response || '').trim();
+      const firstBrace = text.indexOf('{');
+      const lastBrace = text.lastIndexOf('}');
+      if (firstBrace === -1 || lastBrace === -1 || lastBrace <= firstBrace) {
+        throw new Error('JSON assignation introuvable');
+      }
+      const parsed = JSON.parse(text.substring(firstBrace, lastBrace + 1));
+      return {
+        assignation: this._normalizeBusinessAssignation(parsed.assignation || parsed.assignment || familyLabel),
+        businessView: String(parsed.vueMetier || parsed.businessView || '').trim(),
+        subFamily: String(parsed.sousFamille || parsed.subFamily || '').trim()
+      };
+    } catch (e) {
+      console.warn(`⚠️ UGAP IA: fallback assignation pour "${familyLabel}" : ${e.message || e}`);
+      return {
+        assignation: this._normalizeBusinessAssignation(familyLabel),
+        businessView: '',
+        subFamily: ''
+      };
     }
   }
 
@@ -113,7 +431,17 @@ class UgapAIService {
         }
       };
 
-      const response = await this.aiService.sendAnalysisPrompt(prompt, {
+      let llmId = null;
+      if (this.db && this.entrepriseId) {
+        const prompts = await UgapDataService.getPrompts(this.db, this.entrepriseId);
+        llmId = prompts.subCategoryLlmId || null;
+      }
+      if (!llmId) {
+        throw new Error('Aucun LLM configuré pour le prompt Extraction base. Sélectionnez un LLM dans Prompts IA.');
+      }
+      this.logPromptDebug('Extraction base / detectSubCategories', prompt, llmId);
+      const client = await this.resolveAiClient(llmId);
+      const response = await client.sendAnalysisPrompt(prompt, {
         temperature: 0.3,
         max_tokens: 2000
       }, onChunk);
@@ -591,7 +919,17 @@ RÉPONDS UNIQUEMENT AVEC UN TABLEAU JSON VALIDE:
         }
       };
       
-      const response = await this.aiService.sendAnalysisPrompt(prompt, { 
+      let llmId = null;
+      if (this.db && this.entrepriseId) {
+        const prompts = await UgapDataService.getPrompts(this.db, this.entrepriseId);
+        llmId = prompts.subCategoryLlmId || null;
+      }
+      if (!llmId) {
+        throw new Error('Aucun LLM configuré pour le prompt Extraction base. Sélectionnez un LLM dans Prompts IA.');
+      }
+      this.logPromptDebug('Extraction base / classifyUnassignedOptions', prompt, llmId);
+      const client = await this.resolveAiClient(llmId);
+      const response = await client.sendAnalysisPrompt(prompt, { 
         temperature: 0.3,
         max_tokens: 2000
       }, onChunk);
@@ -731,7 +1069,17 @@ RÉPONDS UNIQUEMENT AVEC UN TABLEAU JSON VALIDE:
         }
       };
       
-      const response = await this.aiService.sendAnalysisPrompt(prompt, {
+      let llmId = null;
+      if (this.db && this.entrepriseId) {
+        const prompts = await UgapDataService.getPrompts(this.db, this.entrepriseId);
+        llmId = prompts.categorizationLlmId || null;
+      }
+      if (!llmId) {
+        throw new Error('Aucun LLM configuré pour le prompt Catégorisation. Sélectionnez un LLM dans Prompts IA.');
+      }
+      this.logPromptDebug('Categorization / improveCategorization', prompt, llmId);
+      const client = await this.resolveAiClient(llmId);
+      const response = await client.sendAnalysisPrompt(prompt, {
         temperature: 0.2,
         max_tokens: 2000
       }, onChunk);
@@ -801,7 +1149,7 @@ Réponds UNIQUEMENT avec un JSON valide au format suivant:
     {
       "optionName": "Nom de l'option",
       "category": "Nom de la catégorie",
-      "subCategory": "Nom de la sous-catégorie (optionnel)"
+      "assignation": "Nom de l'assignation (optionnel)"
     }
   ]
 }`;
@@ -811,6 +1159,585 @@ Réponds UNIQUEMENT avec un JSON valide au format suivant:
     const prompt = promptTemplate.replace(/\{\{optionsList\}\}/g, optionsList);
 
     return prompt;
+  }
+
+  async parseBaseModelLabelFallback(label) {
+    const input = String(label || '').trim();
+    if (!input) {
+      return {
+        modelName: '',
+        motorizationBase: '',
+        posteNumber: null,
+        deliveryMode: ''
+      };
+    }
+
+    const prompt = `Tu dois parser une ligne de configuration bateau UGAP.
+Retourne UNIQUEMENT un JSON valide (sans markdown) au format exact:
+{
+  "modelName": "string",
+  "motorizationBase": "string",
+  "posteNumber": number|null,
+  "deliveryMode": "string"
+}
+
+Règles:
+- modelName = de début de ligne jusqu'au premier séparateur de motorisation.
+- motorizationBase = motorisation de base, sans le poste ni le mode de livraison.
+- posteNumber = chiffre après "Poste" (ou null si absent).
+- deliveryMode = "Départ usine" si présent, sinon "".
+- Nettoie les tirets isolés et espaces superflus.
+
+Ligne à parser:
+${input}`;
+
+    try {
+      const client = await this.resolveAiClient();
+      const response = await client.sendAnalysisPrompt(prompt, {
+        temperature: 0.1,
+        max_tokens: 250
+      });
+
+      if (!response?.success) {
+        throw new Error(response?.error?.message || 'Réponse IA invalide');
+      }
+
+      const text = String(response.data?.response || '').trim();
+      const firstBrace = text.indexOf('{');
+      const lastBrace = text.lastIndexOf('}');
+      if (firstBrace === -1 || lastBrace === -1 || lastBrace <= firstBrace) {
+        throw new Error('JSON non trouvé dans la réponse IA');
+      }
+
+      const parsed = JSON.parse(text.substring(firstBrace, lastBrace + 1));
+      return {
+        modelName: String(parsed.modelName || '').trim(),
+        motorizationBase: String(parsed.motorizationBase || '').trim(),
+        posteNumber: Number.isFinite(Number(parsed.posteNumber)) ? Number(parsed.posteNumber) : null,
+        deliveryMode: String(parsed.deliveryMode || '').trim()
+      };
+    } catch (error) {
+      console.warn('⚠️ UGAP IA fallback parse base model failed:', error.message || error);
+      return {
+        modelName: '',
+        motorizationBase: '',
+        posteNumber: null,
+        deliveryMode: ''
+      };
+    }
+  }
+
+  /**
+   * Enrichit les lignes "option de base" avec produit initial/final via IA.
+   * Retourne un tableau: [{ id, changeType, initialProduct, finalProduct, confidence }]
+   */
+  async extractBaseReplacementProducts(optionsInput) {
+    const list = (optionsInput || [])
+      .map((o) => ({
+        id: String(o.id || '').trim(),
+        name: String(o.name || '').trim()
+      }))
+      .filter((o) => o.id && o.name);
+
+    if (list.length === 0) return [];
+
+    const prompts = (this.db && this.entrepriseId)
+      ? await UgapDataService.getPrompts(this.db, this.entrepriseId)
+      : {};
+    const llmId = prompts.minorationLlmId || prompts.subCategoryLlmId || null;
+    if (!llmId) {
+      throw new Error('Aucun LLM configuré (minoration/subCategory) pour l’extraction IA des options de base.');
+    }
+
+    const chunks = this._chunkArray(list, Number(process.env.UGAP_BASE_REPL_CHUNK_SIZE) || 50);
+    const out = [];
+
+    for (let i = 0; i < chunks.length; i += 1) {
+      const chunk = chunks[i];
+      const lines = chunk.map((o, idx) => `${idx + 1}. id=${o.id} | ${o.name}`).join('\n');
+      const prompt = `Tu analyses des lignes UGAP (options/minorations).
+
+Objectif:
+- Identifier pour chaque ligne:
+  - changeType: "replacement" | "motor_base_non_supply" | ""
+  - initialProduct: produit de base remplacé (ou "")
+  - finalProduct: produit retenu/remplaçant (ou "")
+  - confidence: nombre 0..1
+
+Règles:
+- Cas "Non fourniture du moteur de base": changeType="motor_base_non_supply", initialProduct="moteur de base", finalProduct="moteur choisi".
+- Cas "en remplacement ...": extraire produit initial et final même si la phrase est incomplète (ex: "en remplacement HDS PRO 12 - Postes ...").
+- Ne pas inventer d'IDs, utiliser exactement les id= fournis.
+- Si ambigu, laisser des chaînes vides et confidence faible.
+
+Exemples métier (à suivre):
+1) "Flotteur moussé PE sans revêtement PU en remplacement de celui de base"
+   -> initialProduct: "flotteur de base"
+   -> finalProduct: "Flotteur moussé PE sans revêtement PU"
+
+2) "Moins-value combiné NSX 3009 XDCR en remplacement de l'HDS PRO 12 fourni de base - Postes 1, 5, 6, 7 et 8"
+   -> initialProduct: "HDS PRO 12"
+   -> finalProduct: "NSX 3009 XDCR"
+
+3) "Non fourniture du moteur de base - Poste 1"
+   -> changeType: "motor_base_non_supply"
+   -> initialProduct: "moteur de base"
+   -> finalProduct: "moteur choisi"
+
+4) "Moins-value GPSMAP 8412 xsv en remplacement HDS PRO 12 - Postes 1, 5, 6, 7 et 8"
+   -> initialProduct: "HDS PRO 12"
+   -> finalProduct: "GPSMAP 8412 xsv"
+
+FORMAT DE RETOUR STRICT (OBLIGATOIRE):
+- Réponds avec UN SEUL JSON ARRAY valide.
+- AUCUN texte avant "[" ni après "]".
+- 1 objet par ligne d'entrée (même id), dans n'importe quel ordre.
+- Clés autorisées uniquement: id, changeType, initialProduct, finalProduct, confidence
+- changeType doit être exactement l'une de: "replacement", "motor_base_non_supply", ""
+- initialProduct/finalProduct: string ("" si inconnu)
+- confidence: number entre 0 et 1
+
+Réponse attendue (exemple de forme):
+[
+  {
+    "id": "opt_xxx",
+    "changeType": "replacement",
+    "initialProduct": "HDS PRO 12",
+    "finalProduct": "GPSMAP 8412 xsv",
+    "confidence": 0.92
+  }
+]
+
+Lignes:
+${lines}`;
+
+      this.logPromptDebug(`Base options / extractBaseReplacementProducts chunk ${i + 1}/${chunks.length}`, prompt, llmId);
+      const client = await this.resolveAiClient(llmId);
+      const response = await client.sendAnalysisPrompt(prompt, {
+        temperature: 0.05,
+        max_tokens: 2500
+      });
+
+      if (!response?.success) {
+        throw new Error(response?.error?.message || 'Erreur IA extraction options de base');
+      }
+      const text = String(response.data?.response || '').trim();
+      this.logResultDebug(`Base options / extractBaseReplacementProducts chunk ${i + 1}/${chunks.length}`, text);
+
+      const firstBracket = text.indexOf('[');
+      const lastBracket = text.lastIndexOf(']');
+      if (firstBracket === -1 || lastBracket === -1 || lastBracket <= firstBracket) continue;
+
+      const rawJson = text.substring(firstBracket, lastBracket + 1);
+      let parsed = [];
+      try {
+        parsed = JSON.parse(rawJson);
+      } catch (_) {
+        parsed = JSON.parse(this._repairInvalidJsonEscapes(rawJson));
+      }
+      if (!Array.isArray(parsed)) continue;
+
+      parsed.forEach((row) => {
+        const id = String(row?.id || '').trim();
+        if (!id) return;
+        out.push({
+          id,
+          changeType: String(row?.changeType || '').trim(),
+          initialProduct: String(row?.initialProduct || '').trim(),
+          finalProduct: String(row?.finalProduct || '').trim(),
+          confidence: Number.isFinite(Number(row?.confidence)) ? Number(row.confidence) : 0
+        });
+      });
+    }
+
+    return out;
+  }
+
+  /**
+   * Regroupement des options / minorations en familles (variantes du même équipement).
+   * @param {Array<{ id: string, name: string, category?: string, categoryName?: string, lineKind?: string }>} optionsInput
+   * @returns {Promise<{ families: Array<{ familyLabel: string, optionIds: string[], defaultOptionId?: string | null }> }>}
+   */
+  async suggestOptionFamilies(optionsInput) {
+    const list = (optionsInput || [])
+      .map((o) => ({
+        id: String(o.id || '').trim(),
+        name: String(o.name || '').trim(),
+        category: String(o.category || o.categoryName || '').trim() || 'Autre',
+        lineKind: /minoration|mino/i.test(String(o.lineKind || '')) ? 'minoration' : 'option'
+      }))
+      .filter((o) => o.id);
+
+    if (list.length === 0) {
+      return { families: [] };
+    }
+
+    if (!this.db || !this.entrepriseId) {
+      throw new Error('Contexte entreprise manquant pour charger le prompt Famille.');
+    }
+    const promptsDoc = await UgapDataService.getPrompts(this.db, this.entrepriseId);
+    const ctxBlock = String(promptsDoc.familleContext || '').trim();
+    const bodyBlock = String(promptsDoc.famillePrompt || '').trim();
+    const promptTemplate = [ctxBlock, bodyBlock].filter(Boolean).join('\n\n');
+
+    if (!promptTemplate) {
+      throw new Error('Prompt Famille vide : renseignez-le dans l’onglet Prompts IA > Famille.');
+    }
+
+    if (!promptsDoc.familleLlmId) {
+      throw new Error('Aucun LLM configuré pour le prompt Famille. Sélectionnez un LLM dans Prompts IA.');
+    }
+    const baseSelection = String(promptsDoc.familleLlmId || '').trim();
+    const picked = this._pickTextModelIfVisionSelected(baseSelection);
+    if (picked.forced) {
+      console.warn(`⚠️ UGAP IA: LLM Famille semble être un modèle vision. Fallback automatique vers modèle texte via "${picked.llmSelection}".`);
+    }
+
+    const idSetAll = new Set(list.map((o) => o.id));
+    const assigned = new Set();
+    const mergedFamiliesByLabel = new Map();
+
+    const addFamily = (familyLabel, optionIds, defaultOptionId = null) => {
+      const label = this._normalizeFamilyLabel(familyLabel);
+      const ids = (optionIds || []).map((x) => String(x || '').trim()).filter(Boolean);
+      if (ids.length === 0) return;
+      if (!mergedFamiliesByLabel.has(label)) {
+        mergedFamiliesByLabel.set(label, { familyLabel: label, optionIds: [], defaultOptionId: null });
+      }
+      const target = mergedFamiliesByLabel.get(label);
+      for (const id of ids) {
+        if (!idSetAll.has(id) || assigned.has(id)) continue;
+        assigned.add(id);
+        target.optionIds.push(id);
+      }
+      const wanted = defaultOptionId != null && String(defaultOptionId).trim() !== '' ? String(defaultOptionId).trim() : null;
+      if (wanted && target.optionIds.includes(wanted)) {
+        target.defaultOptionId = wanted;
+      } else if (!target.defaultOptionId && target.optionIds.length > 0) {
+        target.defaultOptionId = target.optionIds[0];
+      }
+    };
+
+    const buildPromptForChunk = (chunkList) => {
+      const linesBlock = chunkList
+        .map(
+          (o, idx) =>
+            `${idx + 1}. id=${o.id} | type=${o.lineKind} | cat=${o.category} | ${o.name}`
+        )
+        .join('\n');
+
+      let prompt = promptTemplate;
+      if (/\{\{\s*LISTE_LIGNES\s*\}\}/i.test(prompt) || /\{\{\s*lines\s*\}\}/i.test(prompt)) {
+        prompt = prompt
+          .replace(/\{\{\s*LISTE_LIGNES\s*\}\}/gi, linesBlock)
+          .replace(/\{\{\s*lines\s*\}\}/gi, linesBlock);
+      } else {
+        prompt = `${prompt}\n\n--- Liste des lignes ---\n${linesBlock}`;
+      }
+      return prompt;
+    };
+
+    const parseFamiliesFromText = (text, chunkIdsSet) => {
+      const firstBracket = text.indexOf('[');
+      const lastBracket = text.lastIndexOf(']');
+      if (firstBracket === -1 || lastBracket === -1 || lastBracket <= firstBracket) {
+        throw new Error('Réponse IA : tableau JSON introuvable');
+      }
+      let parsed;
+      try {
+        parsed = JSON.parse(text.substring(firstBracket, lastBracket + 1));
+      } catch (e) {
+        const rawJson = text.substring(firstBracket, lastBracket + 1);
+        const repaired = this._repairInvalidJsonEscapes(rawJson);
+        parsed = JSON.parse(repaired);
+        console.warn('⚠️ UGAP IA: JSON Famille réparé automatiquement (escapes invalides).');
+      }
+      if (!Array.isArray(parsed)) throw new Error('Réponse IA : le JSON doit être un tableau');
+      if (this._isPlaceholderFamilyResponse(text, parsed)) {
+        throw new Error('Réponse IA: réponse placeholder / non exploitable');
+      }
+
+      // Validation minimale: l’IA doit réutiliser des IDs réels (pas inventer) et en assigner une part significative.
+      let matchedCount = 0;
+      let totalMentioned = 0;
+      for (const item of parsed) {
+        const rawIds = Array.isArray(item.optionIds)
+          ? item.optionIds
+          : Array.isArray(item.option_ids)
+            ? item.option_ids
+            : [];
+        for (const raw of rawIds) {
+          totalMentioned += 1;
+          const id = String(raw || '').trim();
+          if (chunkIdsSet.has(id)) matchedCount += 1;
+        }
+      }
+      if (totalMentioned > 0 && matchedCount / Math.max(1, totalMentioned) < 0.6) {
+        throw new Error('Réponse IA: trop d’IDs non reconnus / inventés');
+      }
+      return parsed;
+    };
+
+    // Chunking: par catégorie puis paquets (évite 535 lignes d’un coup → meilleur clustering + moins lent).
+    const byCategory = new Map();
+    for (const o of list) {
+      const key = `${o.lineKind}||${o.category || 'Autre'}`;
+      if (!byCategory.has(key)) byCategory.set(key, []);
+      byCategory.get(key).push(o);
+    }
+    const orderedKeys = Array.from(byCategory.keys()).sort();
+    // Valeurs par défaut "safe" pour éviter les timeouts proxy (502 après ~600s).
+    const maxChunkSize = Number(process.env.UGAP_FAMILLE_CHUNK_SIZE) || 80;
+    const familleMaxTokens = Number(process.env.UGAP_FAMILLE_MAX_TOKENS) || 3000;
+
+    for (const key of orderedKeys) {
+      const chunked = this._chunkArray(byCategory.get(key) || [], maxChunkSize);
+      for (let idx = 0; idx < chunked.length; idx += 1) {
+        const chunkList = chunked[idx];
+        const chunkIdsSet = new Set(chunkList.map((x) => x.id));
+        const prompt = buildPromptForChunk(chunkList);
+
+        let parsed = null;
+        let text = '';
+        try {
+          this.logPromptDebug(`Famille / suggestOptionFamilies (chunk ${key} #${idx + 1}/${chunked.length})`, prompt, picked.llmSelection || '');
+          const client = await this.resolveAiClient(picked.llmSelection || null);
+          const response = await client.sendAnalysisPrompt(prompt, {
+            temperature: 0.05,
+            max_tokens: familleMaxTokens
+          });
+          if (!response.success) throw new Error(response.error?.message || 'Erreur appel IA');
+          text = String(response.data?.response || '').trim();
+          this.logResultDebug(`Famille / suggestOptionFamilies (chunk ${key} #${idx + 1}/${chunked.length})`, text);
+          parsed = parseFamiliesFromText(text, chunkIdsSet);
+        } catch (e) {
+          console.warn(`⚠️ UGAP IA Famille: chunk fallback heuristique (${key} #${idx + 1}) : ${e.message || e}`);
+          parsed = null;
+        }
+
+        if (parsed) {
+          for (const item of parsed) {
+            const label = this._normalizeFamilyLabel(item.familyLabel || item.family_label || 'Famille');
+            const rawIds = Array.isArray(item.optionIds)
+              ? item.optionIds
+              : Array.isArray(item.option_ids)
+                ? item.option_ids
+                : [];
+            const rawDefault =
+              item.defaultOptionId ??
+              item.default_option_id ??
+              (typeof item.defaultOption === 'string' ? item.defaultOption : null);
+            addFamily(label, rawIds, rawDefault);
+          }
+
+          // Si l'IA n'a pas couvert tout le chunk, compléter via heuristique sur les non assignés.
+          const unassignedInChunk = chunkList.filter((o) => !assigned.has(o.id));
+          if (unassignedInChunk.length > 0) {
+            const heuristic = this._heuristicFamiliesForChunk(unassignedInChunk);
+            for (const f of heuristic) {
+              addFamily(f.familyLabel, f.optionIds, f.defaultOptionId);
+            }
+          }
+        } else {
+          const heuristic = this._heuristicFamiliesForChunk(chunkList);
+          for (const f of heuristic) {
+            addFamily(f.familyLabel, f.optionIds, f.defaultOptionId);
+          }
+        }
+      }
+    }
+
+    // Compléter les IDs non assignés (sécurité).
+    for (const id of idSetAll) {
+      if (!assigned.has(id)) {
+        const o = list.find((x) => x.id === id);
+        addFamily(o && o.name ? o.name.slice(0, 100) : id, [id], id);
+      }
+    }
+
+    const baseFamilies = Array.from(mergedFamiliesByLabel.values())
+      .filter((f) => Array.isArray(f.optionIds) && f.optionIds.length > 0)
+      .map((f) => ({
+        familyLabel: f.familyLabel,
+        optionIds: f.optionIds,
+        ...(f.defaultOptionId ? { defaultOptionId: f.defaultOptionId } : {})
+      }));
+
+    const families = [];
+    for (const family of baseFamilies) {
+      const business = await this.inferFamilyBusinessView(list, family, picked.llmSelection || null);
+      families.push({
+        ...family,
+        assignation: business.assignation,
+        businessView: business.businessView,
+        ...(business.subFamily ? { subFamily: business.subFamily } : {})
+      });
+    }
+
+    try {
+      console.log(`📦 [UGAP IA] Famille / suggestOptionFamilies: ${families.length} famille(s) produite(s) pour ${list.length} ligne(s).`);
+      console.log(
+        `📦 [UGAP IA] Famille / suggestOptionFamilies: aperçu =`,
+        families.slice(0, 10).map((f) => ({
+          familyLabel: f.familyLabel,
+          optionIdsCount: Array.isArray(f.optionIds) ? f.optionIds.length : 0,
+          optionIds: f.optionIds
+        }))
+      );
+    } catch (_) {
+      // no-op
+    }
+
+    return { families };
+  }
+
+  /**
+   * Assigne des familles à des vues métier (IA), famille par famille.
+   * @param {Array<{familyLabel:string, optionIds?:string[], optionLabels?:Object, assignation?:string, subFamily?:string}>} familiesInput
+   * @param {Array<{id:string,label:string,keywords?:string}>} businessViewsInput
+   * @returns {Promise<{assignments:Array}>}
+   */
+  async assignFamiliesToBusinessViews(familiesInput, businessViewsInput) {
+    const families = (Array.isArray(familiesInput) ? familiesInput : [])
+      .map((f, idx) => ({
+        index: idx,
+        familyLabel: String(f?.familyLabel || '').trim() || `Famille ${idx + 1}`,
+        assignation: String(f?.assignation || '').trim(),
+        subFamily: String(f?.subFamily || f?.subFamilyLabel || '').trim(),
+        optionIds: Array.isArray(f?.optionIds) ? f.optionIds.map((id) => String(id || '').trim()).filter(Boolean) : [],
+        optionLabels: f?.optionLabels && typeof f.optionLabels === 'object' ? f.optionLabels : {}
+      }));
+    const views = (Array.isArray(businessViewsInput) ? businessViewsInput : [])
+      .map((v) => ({
+        id: String(v?.id || '').trim(),
+        label: String(v?.label || '').trim(),
+        keywords: String(v?.keywords || '').trim()
+      }))
+      .filter((v) => v.id && v.label);
+
+    if (families.length === 0) return { assignments: [] };
+    if (views.length === 0) throw new Error('Aucune vue métier fournie pour l’assignation IA.');
+
+    let llmId = null;
+    if (this.db && this.entrepriseId) {
+      const prompts = await UgapDataService.getPrompts(this.db, this.entrepriseId);
+      llmId = prompts.assignationLlmId || prompts.familleLlmId || prompts.subCategoryLlmId || null;
+    }
+    const client = await this.resolveAiClient(llmId || null);
+    const viewsBlock = views
+      .map((v, i) => `${i + 1}. id=${v.id} | label=${v.label}${v.keywords ? ` | keywords=${v.keywords}` : ''}`)
+      .join('\n');
+
+    let assignationPromptTemplate = '';
+    if (this.db && this.entrepriseId) {
+      const prompts = await UgapDataService.getPrompts(this.db, this.entrepriseId);
+      assignationPromptTemplate = String(prompts.assignationPrompt || '').trim();
+    }
+
+    const normalize = (v) => String(v || '')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, ' ')
+      .trim();
+
+    const findViewByLooseMatch = (rawId, rawLabel) => {
+      const idWanted = String(rawId || '').trim();
+      const labelWanted = String(rawLabel || '').trim();
+      if (idWanted) {
+        const byId = views.find((v) => v.id === idWanted);
+        if (byId) return byId;
+      }
+      if (labelWanted) {
+        const n = normalize(labelWanted);
+        const byExactLabel = views.find((v) => normalize(v.label) === n);
+        if (byExactLabel) return byExactLabel;
+        const byContains = views.find((v) => normalize(v.label).includes(n) || n.includes(normalize(v.label)));
+        if (byContains) return byContains;
+      }
+      return null;
+    };
+
+    const assignments = [];
+    for (const fam of families) {
+      const optionLines = fam.optionIds
+        .slice(0, 20)
+        .map((id, i) => `${i + 1}. ${id} | ${String(fam.optionLabels?.[id] || '').trim() || 'N/A'}`)
+        .join('\n');
+      const defaultPrompt = `Tu dois assigner UNE famille à UNE vue métier.
+
+Vues métier disponibles:
+{{businessViews}}
+
+Famille à classer:
+- familyLabel: {{familyLabel}}
+- assignation actuelle: {{assignation}}
+- sousFamille: {{subFamily}}
+- nombre options: {{optionsCount}}
+- exemples options:
+{{optionsList}}
+
+Règles:
+- Choisir exactement UNE vue métier parmi les id fournis.
+- Se baser sur le sens métier de la famille et les mots-clés des vues.
+- Répondre en JSON strict, sans texte autour.
+
+Format:
+{
+  "businessViewId": "id_exact_si_possible",
+  "businessViewLabel": "label_vue_metier",
+  "confidence": 0.0,
+  "reason": "explication courte"
+}`;
+      const tpl = assignationPromptTemplate || defaultPrompt;
+      const prompt = tpl
+        .replace(/\{\{businessViews\}\}/g, viewsBlock)
+        .replace(/\{\{familyLabel\}\}/g, fam.familyLabel)
+        .replace(/\{\{assignation\}\}/g, fam.assignation || '(vide)')
+        .replace(/\{\{subFamily\}\}/g, fam.subFamily || '(vide)')
+        .replace(/\{\{optionsCount\}\}/g, String(fam.optionIds.length))
+        .replace(/\{\{optionsList\}\}/g, optionLines || '(aucune)');
+
+      try {
+        const response = await client.sendAnalysisPrompt(prompt, {
+          temperature: 0.05,
+          max_tokens: 300
+        });
+        if (!response?.success) throw new Error(response?.error?.message || 'Erreur IA');
+        const text = String(response.data?.response || '').trim();
+        const firstBrace = text.indexOf('{');
+        const lastBrace = text.lastIndexOf('}');
+        if (firstBrace === -1 || lastBrace === -1 || lastBrace <= firstBrace) {
+          throw new Error('JSON introuvable');
+        }
+        const parsed = JSON.parse(text.substring(firstBrace, lastBrace + 1));
+        const matched = findViewByLooseMatch(
+          parsed.businessViewId || parsed.viewId || '',
+          parsed.businessViewLabel || parsed.vueMetier || parsed.businessView || parsed.viewLabel || ''
+        );
+        assignments.push({
+          familyIndex: fam.index,
+          familyLabel: fam.familyLabel,
+          businessViewId: matched ? matched.id : '',
+          businessViewLabel: matched ? matched.label : '',
+          confidence: Number.isFinite(Number(parsed.confidence)) ? Number(parsed.confidence) : null,
+          reason: String(parsed.reason || '').trim(),
+          source: 'ia'
+        });
+      } catch (e) {
+        assignments.push({
+          familyIndex: fam.index,
+          familyLabel: fam.familyLabel,
+          businessViewId: '',
+          businessViewLabel: '',
+          confidence: null,
+          reason: String(e?.message || 'Erreur IA'),
+          source: 'fallback'
+        });
+      }
+    }
+
+    return { assignments };
   }
 }
 

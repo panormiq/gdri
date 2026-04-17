@@ -91,20 +91,18 @@ class ServiceSetupModal {
     const services = await this.loadUnconfiguredServices();
 
     if (services.length === 0) {
-      // Aucun service à configurer
-      const noServicesMsg = document.getElementById('noServicesMessage');
-      const tabsContainer = document.getElementById('serviceTabsContainer');
-      if (noServicesMsg) noServicesMsg.style.display = 'block';
-      if (tabsContainer) tabsContainer.style.display = 'none';
-    } else {
-      // Afficher les onglets
-      const noServicesMsg = document.getElementById('noServicesMessage');
-      const tabsContainer = document.getElementById('serviceTabsContainer');
-      if (noServicesMsg) noServicesMsg.style.display = 'none';
-      if (tabsContainer) tabsContainer.style.display = 'block';
-
-      this.renderTabs(services);
+      // Aucun service à configurer -> ne pas afficher le modal
+      this.close();
+      return;
     }
+
+    // Afficher les onglets
+    const noServicesMsg = document.getElementById('noServicesMessage');
+    const tabsContainer = document.getElementById('serviceTabsContainer');
+    if (noServicesMsg) noServicesMsg.style.display = 'none';
+    if (tabsContainer) tabsContainer.style.display = 'block';
+
+    this.renderTabs(services);
 
     // Afficher le modal
     this.modal.style.display = 'flex';

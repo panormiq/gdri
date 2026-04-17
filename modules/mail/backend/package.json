@@ -1,0 +1,15 @@
+{
+  "name": "gdri-module-mail",
+  "displayName": "Service Mail",
+  "version": "1.0.0",
+  "description": "Service générique d'envoi et réception d'emails. Peut fonctionner en mode standalone ou être configuré par module.",
+  "author": "GDR-Innovation",
+  "routes": ["/api/mail"],
+  "dependencies": {
+    "imapflow": "^1.0.0",
+    "nodemailer": "^6.9.0"
+  },
+  "requiredServices": [],
+  "compatibleVersion": ">=1.0.0"
+}
+

@@ -1,0 +1,27 @@
+{
+    "version": 1,
+    "id": "g-rer-vos-questions",
+    "name": "Gérer vos questions",
+    "shape": {
+        "type": "rect",
+        "text": "Gérer vos questions",
+        "width": 160,
+        "height": 70,
+        "fontSize": 14,
+        "fontFamily": "Segoe UI",
+        "textColor": "#ffffff",
+        "bgColor": "#0e9cef",
+        "opacity": 1,
+        "imageData": null
+    },
+    "workflow": {
+        "path": "workflows/g-rer-vos-questions.json",
+        "name": "Gérer vos questions"
+    },
+    "tutorial": {
+        "title": "Gérer vos questions",
+        "intro": "Dans cette parti nous allons voir tout ce qui concerne la création des questions. ",
+        "steps": [],
+        "conditions": []
+    }
+}

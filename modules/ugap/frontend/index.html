@@ -84,36 +84,10 @@
     </style>
 </head>
 <body>
-    <header class="header" id="header">
-        <div class="container">
-            <div class="header-content">
-                <div class="logo">
-                    <a href="/frontend/pages/dashboard.php">
-                        <img src="/frontend/assets/images/logo-gdri.png" alt="GDR-Innovation Logo">
-                        <span class="logo-text">GDR-Innovation</span>
-                    </a>
-                </div>
-                <nav class="nav" id="nav">
-                    <ul class="nav-list">
-                        <li><a href="/frontend/pages/dashboard.php" class="nav-link">Dashboard</a></li>
-                        <li><a href="/frontend/pages/modules.php" class="nav-link">Modules</a></li>
-                        <li><a href="/frontend/auth/logout.php" class="nav-link">Déconnexion</a></li>
-                    </ul>
-                </nav>
-            </div>
-        </div>
-    </header>
-    <div style="height: var(--header-height);"></div>
-
     <div class="ugap-container">
-        <div class="card" style="display: flex; justify-content: space-between; align-items: center;">
-            <div>
-                <h1>Configurateur UGAP</h1>
-                <p style="color: #666; margin: 0;">Créez votre devis personnalisé</p>
-            </div>
-            <div>
-                <a href="/frontend/pages/modules.php" class="btn btn-secondary">Retour</a>
-            </div>
+        <div class="card">
+            <h1>Configurateur UGAP</h1>
+            <p style="color: #666; margin: 0;">Créez votre devis personnalisé</p>
         </div>
 
         <div id="app">
@@ -227,6 +201,8 @@
             step: 1,
             models: [],
             categories: [],
+            optionTabs: [],
+            tabFamiliesById: new Map(),
             selectedModel: null,
             selectedConfig: null,
             selectedOptions: new Set(),
@@ -398,15 +374,297 @@
         }
 
         // Step 3: Options
+        function getValidatedFamiliesForBusinessViews() {
+            try {
+                const raw = localStorage.getItem('ugap.famille.validatedFamilies');
+                const parsed = raw ? JSON.parse(raw) : [];
+                return Array.isArray(parsed) ? parsed : [];
+            } catch (_) {
+                return [];
+            }
+        }
+
+        function normalizeLabelAsId(value) {
+            return String(value || '')
+                .normalize('NFD')
+                .replace(/[\u0300-\u036f]/g, '')
+                .toLowerCase()
+                .replace(/[^a-z0-9]+/g, '-')
+                .replace(/^-+|-+$/g, '');
+        }
+
+        function parseFamilyHierarchyLabel(value) {
+            const full = String(value || '').trim();
+            if (!full) {
+                return { family: '', subFamily: '' };
+            }
+            const parts = full
+                .split('/')
+                .map((p) => String(p || '').trim())
+                .filter(Boolean);
+            if (parts.length <= 1) {
+                return { family: full, subFamily: '' };
+            }
+            return {
+                family: parts[0],
+                subFamily: parts.slice(1).join(' / ')
+            };
+        }
+
+        function getFamilyKeyFromLabel(value) {
+            const parsed = parseFamilyHierarchyLabel(value);
+            return normalizeLabelAsId(parsed.family || '');
+        }
+
+        function extractPosteSortInfo(option) {
+            const directCandidates = [
+                option?.posteNumber,
+                option?.poste,
+                option?.posteId,
+                option?.position
+            ];
+            for (const candidate of directCandidates) {
+                const str = String(candidate ?? '').trim();
+                if (!str) continue;
+                const n = parseInt(str, 10);
+                if (!Number.isNaN(n)) {
+                    return { key: `poste-${n}`, label: `Poste ${n}`, order: n };
+                }
+                return { key: `poste-${normalizeLabelAsId(str) || 'x'}`, label: str, order: 9999 };
+            }
+
+            const textCandidates = [
+                String(option?.posteLabel || '').trim(),
+                String(option?.name || '').trim()
+            ].filter(Boolean);
+
+            for (const txt of textCandidates) {
+                const m = txt.match(/\bposte(?:s)?\s*(\d+)\b/i);
+                if (m && m[1]) {
+                    const n = parseInt(m[1], 10);
+                    if (!Number.isNaN(n)) {
+                        return { key: `poste-${n}`, label: `Poste ${n}`, order: n };
+                    }
+                }
+            }
+            return { key: 'poste-non-defini', label: 'Sans poste', order: 10000 };
+        }
+
+        function sortOptionsByPosteThenName(options) {
+            const list = Array.isArray(options) ? [...options] : [];
+            list.sort((a, b) => {
+                const pa = extractPosteSortInfo(a);
+                const pb = extractPosteSortInfo(b);
+                if (pa.order !== pb.order) return pa.order - pb.order;
+                const nameA = String(a?.name || '').trim();
+                const nameB = String(b?.name || '').trim();
+                return nameA.localeCompare(nameB, 'fr', { sensitivity: 'base' });
+            });
+            return list;
+        }
+
+        function buildPosteGroups(options) {
+            const map = new Map();
+            sortOptionsByPosteThenName(options).forEach((option) => {
+                const poste = extractPosteSortInfo(option);
+                if (!map.has(poste.key)) {
+                    map.set(poste.key, {
+                        key: poste.key,
+                        label: poste.label,
+                        order: poste.order,
+                        options: []
+                    });
+                }
+                map.get(poste.key).options.push(option);
+            });
+            return Array.from(map.values()).sort((a, b) => a.order - b.order);
+        }
+
+        function normalizeOptionText(value) {
+            return String(value || '')
+                .normalize('NFD')
+                .replace(/[\u0300-\u036f]/g, '')
+                .toLowerCase()
+                .trim();
+        }
+
+        function isMotorNonSupplyOption(name) {
+            const txt = normalizeOptionText(name);
+            return txt.includes('non fourniture') && txt.includes('moteur');
+        }
+
+        function isMotorSupplyReplacementOption(name) {
+            const txt = normalizeOptionText(name);
+            if (!txt.includes('moteur')) return false;
+            const hasSupply = txt.includes('fourniture') && !txt.includes('non fourniture');
+            const hasReplacement = txt.includes('en remplacement') || txt.includes('au lieu');
+            return hasSupply || hasReplacement;
+        }
+
+        function autoSelectMatchingNonSupplyMotor(checkbox) {
+            if (!checkbox || !checkbox.checked) return;
+            const optionName = checkbox.getAttribute('data-option-name') || '';
+            if (!isMotorSupplyReplacementOption(optionName)) return;
+
+            const familyKey = checkbox.getAttribute('data-family-key') || '';
+            const posteKey = checkbox.getAttribute('data-poste-key') || '';
+            const candidates = document.querySelectorAll('input[type="checkbox"][data-option-name]');
+            for (const other of candidates) {
+                if (other === checkbox) continue;
+                if (!isMotorNonSupplyOption(other.getAttribute('data-option-name') || '')) continue;
+                if (familyKey && other.getAttribute('data-family-key') !== familyKey) continue;
+                if (posteKey && other.getAttribute('data-poste-key') !== posteKey) continue;
+
+                other.checked = true;
+                const id = String(other.id || '').trim();
+                if (id) {
+                    state.selectedOptions.add(id);
+                    state.fivePercentOptions.delete(id);
+                }
+                break;
+            }
+        }
+
+        function buildOptionTabsForStep3() {
+            const allCategories = Array.isArray(state.categories) ? state.categories : [];
+            const optionById = new Map();
+            const subCategoryByOptionId = new Map();
+
+            allCategories.forEach((category) => {
+                const options = Array.isArray(category?.options) ? category.options : [];
+                const subCategories = Array.isArray(category?.subCategories) ? category.subCategories : [];
+                options.forEach((opt) => {
+                    const id = String(opt?.id || '').trim();
+                    if (!id || optionById.has(id)) return;
+                    optionById.set(id, opt);
+                });
+                subCategories.forEach((subCat) => {
+                    const ids = Array.isArray(subCat?.optionIds) ? subCat.optionIds : [];
+                    ids.forEach((idRaw) => {
+                        const id = String(idRaw || '').trim();
+                        if (!id || subCategoryByOptionId.has(id)) return;
+                        subCategoryByOptionId.set(id, subCat);
+                    });
+                });
+            });
+
+            const validatedFamilies = getValidatedFamiliesForBusinessViews();
+            const viewMap = new Map();
+            const familyByTab = new Map();
+
+            validatedFamilies.forEach((fam) => {
+                const viewIdRaw = String(fam?.businessViewId || '').trim();
+                const viewLabelRaw = String(fam?.businessViewLabel || '').trim();
+                const resolvedViewLabel = viewLabelRaw || viewIdRaw;
+                if (!resolvedViewLabel) return;
+
+                const tabId = viewIdRaw || `view:${normalizeLabelAsId(resolvedViewLabel) || 'metier'}`;
+                if (!viewMap.has(tabId)) {
+                    viewMap.set(tabId, {
+                        id: tabId,
+                        name: resolvedViewLabel,
+                        options: [],
+                        subCategories: []
+                    });
+                }
+                if (!familyByTab.has(tabId)) familyByTab.set(tabId, []);
+
+                const parsed = parseFamilyHierarchyLabel(fam?.familyLabel || '');
+                const familyLabel = String(parsed.family || '').trim();
+                const subFamilyLabel = String(parsed.subFamily || '').trim();
+                if (!familyLabel) return;
+
+                const familyId = `family:${normalizeLabelAsId(familyLabel) || 'famille'}`;
+                const existingFamilies = familyByTab.get(tabId);
+                let familyNode = existingFamilies.find((x) => x.id === familyId);
+                if (!familyNode) {
+                    familyNode = {
+                        id: familyId,
+                        name: familyLabel,
+                        subFamilies: new Map(),
+                        directOptions: [],
+                        _directOptionIds: new Set()
+                    };
+                    existingFamilies.push(familyNode);
+                }
+
+                const optionIds = Array.isArray(fam?.optionIds) ? fam.optionIds : [];
+                const subFamilyId = subFamilyLabel
+                    ? `subfamily:${normalizeLabelAsId(familyLabel)}:${normalizeLabelAsId(subFamilyLabel)}`
+                    : '';
+
+                if (subFamilyId && !familyNode.subFamilies.has(subFamilyId)) {
+                    familyNode.subFamilies.set(subFamilyId, {
+                        id: subFamilyId,
+                        name: subFamilyLabel,
+                        description: `Sous-famille de ${familyLabel}`,
+                        options: [],
+                        optionIds: []
+                    });
+                }
+
+                optionIds.forEach((idRaw) => {
+                    const optionId = String(idRaw || '').trim();
+                    if (!optionId) return;
+                    const option = optionById.get(optionId);
+                    if (!option) return;
+
+                    const viewTab = viewMap.get(tabId);
+                    if (!viewTab.options.some((x) => String(x?.id || '') === optionId)) {
+                        viewTab.options.push(option);
+                    }
+
+                    if (subFamilyId) {
+                        const subFamily = familyNode.subFamilies.get(subFamilyId);
+                        if (subFamily && !subFamily.optionIds.includes(optionId)) {
+                            subFamily.optionIds.push(optionId);
+                            subFamily.options.push(option);
+                        }
+                    } else {
+                        if (!familyNode._directOptionIds.has(optionId)) {
+                            familyNode._directOptionIds.add(optionId);
+                            familyNode.directOptions.push(option);
+                        }
+                    }
+                });
+            });
+
+            state.tabFamiliesById = new Map();
+            const viewTabs = Array.from(viewMap.values())
+                .map((tab) => {
+                    const families = (familyByTab.get(tab.id) || []).map((famNode) => ({
+                        id: famNode.id,
+                        name: famNode.name,
+                        directOptions: famNode.directOptions,
+                        subFamilies: Array.from(famNode.subFamilies.values())
+                    }));
+                    state.tabFamiliesById.set(tab.id, families);
+                    return tab;
+                })
+                .filter((tab) => Array.isArray(tab.options) && tab.options.length > 0);
+
+            if (viewTabs.length > 0) {
+                return viewTabs;
+            }
+
+            return allCategories.map((category) => ({
+                id: category.id,
+                name: category.name,
+                options: Array.isArray(category.options) ? category.options : [],
+                subCategories: Array.isArray(category.subCategories) ? category.subCategories : []
+            }));
+        }
+
         function renderStep3() {
             document.getElementById('selected-model-name-2').textContent = state.selectedModel?.name || '-';
             document.getElementById('selected-config-name').textContent = state.selectedConfig?.name || '-';
+            state.optionTabs = buildOptionTabsForStep3();
 
             // Render tabs
             const tabsContainer = document.getElementById('category-tabs');
             tabsContainer.innerHTML = '';
 
-            state.categories.forEach((category, index) => {
+            state.optionTabs.forEach((category, index) => {
                 const tab = document.createElement('div');
                 tab.className = `tab ${index === 0 ? 'active' : ''}`;
                 tab.textContent = category.name;
@@ -415,7 +673,7 @@
             });
 
             // Render options for first category
-            if (state.categories.length > 0) {
+            if (state.optionTabs.length > 0) {
                 renderCategoryOptions(0);
             }
 
@@ -441,19 +699,40 @@
             subcategoriesContainer.innerHTML = '';
             optionsContainer.innerHTML = '';
 
-            const category = state.categories[categoryIndex];
-            if (!category) return;
+            const tab = state.optionTabs[categoryIndex];
+            if (!tab) return;
+            const families = state.tabFamiliesById.get(tab.id) || [];
+            if (families.length > 0) {
+                const familyGrid = document.createElement('div');
+                familyGrid.className = 'subcategories-grid';
+
+                families.forEach((family) => {
+                    const card = document.createElement('div');
+                    card.className = 'subcategory-card';
+                    const subCount = Array.isArray(family.subFamilies) ? family.subFamilies.length : 0;
+                    const directCount = Array.isArray(family.directOptions) ? family.directOptions.length : 0;
+                    card.innerHTML = `
+                        <h3>${family.name}</h3>
+                        <div class="count">${subCount} sous-famille(s)${directCount ? ` · ${directCount} option(s)` : ''}</div>
+                    `;
+                    card.onclick = () => openFamilyModal(family);
+                    familyGrid.appendChild(card);
+                });
+
+                subcategoriesContainer.appendChild(familyGrid);
+                return;
+            }
 
             // Créer un index des sous-catégories par optionId
             const subCategoryIndex = new Map();
-            (category.subCategories || []).forEach(subCat => {
+            (tab.subCategories || []).forEach(subCat => {
                 (subCat.optionIds || []).forEach(optionId => {
                     subCategoryIndex.set(optionId, subCat);
                 });
             });
 
             // Filtrer les options compatibles avec le modèle sélectionné
-            const compatibleOptions = (category.options || []).filter(opt => 
+            const compatibleOptions = (tab.options || []).filter(opt => 
                 !opt.compatibleModels || opt.compatibleModels.includes(state.selectedModel?.id)
             );
 
@@ -518,9 +797,20 @@
             const checkbox = document.createElement('input');
             checkbox.type = 'checkbox';
             checkbox.id = option.id;
+            checkbox.setAttribute('data-option-name', String(option?.name || ''));
             checkbox.checked = state.selectedOptions.has(option.id) || state.fivePercentOptions.has(option.id);
             checkbox.disabled = state.fivePercentOptions.has(option.id) && !state.use5Percent;
             checkbox.onchange = (e) => {
+                const familyKey = checkbox.getAttribute('data-family-key') || '';
+                const subFamilyKey = checkbox.getAttribute('data-subfamily-key') || '';
+                if (checkbox.checked && familyKey && subFamilyKey) {
+                    document.querySelectorAll(`input.fam-exclusive[data-family-key="${familyKey}"][data-subfamily-key="${subFamilyKey}"]`).forEach((other) => {
+                        if (other === checkbox) return;
+                        other.checked = false;
+                        state.selectedOptions.delete(other.id);
+                        state.fivePercentOptions.delete(other.id);
+                    });
+                }
                 if (state.use5Percent && !state.fivePercentOptions.has(option.id)) {
                     const price = option.priceClient || option.priceUgap || 0;
                     if (state.budget5Percent > 0 && getFivePercentTotal() + price > state.budget5Percent) {
@@ -533,6 +823,7 @@
                     state.selectedOptions.add(option.id);
                     state.fivePercentOptions.delete(option.id);
                 }
+                autoSelectMatchingNonSupplyMotor(checkbox);
                 if (state.use5Percent) {
                     render5PercentOptions();
                 }
@@ -585,6 +876,78 @@
             });
 
             optionsList.appendChild(optionsContainer);
+            modal.classList.add('active');
+        }
+
+        function openFamilyModal(family) {
+            const modal = document.getElementById('subcategory-modal');
+            const title = document.getElementById('subcategory-modal-title');
+            const optionsList = document.getElementById('subcategory-options-list');
+            title.textContent = family.name;
+            optionsList.innerHTML = '';
+
+            const familyKey = getFamilyKeyFromLabel(family.name);
+
+            (family.subFamilies || []).forEach((sub) => {
+                const block = document.createElement('div');
+                block.style.marginBottom = '16px';
+                block.innerHTML = `
+                    <h3 style="margin:0 0 8px 0;">${sub.name} <span style="font-size:12px;color:#666;">(choix unique)</span></h3>
+                `;
+                const groups = buildPosteGroups(sub.options || []);
+                groups.forEach((group) => {
+                    const title = document.createElement('div');
+                    title.style.cssText = 'font-size:12px; font-weight:600; color:#666; margin:8px 0 6px;';
+                    title.textContent = group.label;
+                    block.appendChild(title);
+                    const list = document.createElement('div');
+                    list.className = 'options-list';
+                    group.options.forEach((option) => {
+                        const item = createOptionItem(option);
+                        const cb = item.querySelector('input[type="checkbox"]');
+                        if (cb) {
+                            const poste = extractPosteSortInfo(option);
+                            cb.classList.add('fam-exclusive');
+                            cb.setAttribute('data-family-key', familyKey);
+                            cb.setAttribute('data-subfamily-key', normalizeLabelAsId(sub.name));
+                            cb.setAttribute('data-poste-key', poste.key);
+                        }
+                        list.appendChild(item);
+                    });
+                    block.appendChild(list);
+                });
+                optionsList.appendChild(block);
+            });
+
+            if (Array.isArray(family.directOptions) && family.directOptions.length > 0) {
+                const direct = document.createElement('div');
+                direct.innerHTML = '<h3 style="margin:0 0 8px 0;">Autres options de la famille</h3>';
+                const groups = buildPosteGroups(family.directOptions);
+                groups.forEach((group) => {
+                    const title = document.createElement('div');
+                    title.style.cssText = 'font-size:12px; font-weight:600; color:#666; margin:8px 0 6px;';
+                    title.textContent = group.label;
+                    direct.appendChild(title);
+                    const list = document.createElement('div');
+                    list.className = 'options-list';
+                    group.options.forEach((option) => {
+                        const item = createOptionItem(option);
+                        const cb = item.querySelector('input[type="checkbox"]');
+                        if (cb) {
+                            const poste = extractPosteSortInfo(option);
+                            cb.setAttribute('data-family-key', familyKey);
+                            cb.setAttribute('data-poste-key', poste.key);
+                        }
+                        list.appendChild(item);
+                    });
+                    direct.appendChild(list);
+                });
+                optionsList.appendChild(direct);
+            }
+
+            if (!optionsList.children.length) {
+                optionsList.innerHTML = '<p style="color:#666;">Aucune option dans cette famille.</p>';
+            }
             modal.classList.add('active');
         }
 
@@ -688,13 +1051,18 @@
 
         function render5PercentOptions() {
             const container = document.getElementById('five-percent-options');
-            const currentCategory = state.categories[currentCategoryIndex];
+            const currentCategory = state.optionTabs[currentCategoryIndex];
             const currentCategoryId = currentCategory?.id;
             const fivePercentTotal = getFivePercentTotal();
             const remaining = Math.max(0, state.budget5Percent - fivePercentTotal);
+            const currentTabOptionIds = new Set(
+                (Array.isArray(currentCategory?.options) ? currentCategory.options : [])
+                    .map((opt) => String(opt?.id || '').trim())
+                    .filter(Boolean)
+            );
 
             const selectedInCategory = Array.from(state.fivePercentOptions)
-                .filter(optId => !currentCategoryId || getOptionCategoryId(optId) === currentCategoryId)
+                .filter(optId => !currentCategoryId || currentTabOptionIds.has(String(optId || '').trim()))
                 .map(getOptionById)
                 .filter(Boolean);
 

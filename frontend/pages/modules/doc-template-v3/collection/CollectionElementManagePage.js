@@ -81,13 +81,38 @@ export default class CollectionElementManagePage extends Page {
       fieldContainer.className = 'field-container';
       pageContainer.appendChild(fieldContainer);
 
+      // Les valeurs peuvent être dans elementData.values ou directement dans elementData
+      // Normaliser pour avoir les valeurs directement accessibles
+      let fieldValue = null;
+      if (this.elementData.values && this.elementData.values[field.name] !== undefined) {
+        // Les valeurs sont dans elementData.values
+        fieldValue = this.elementData.values[field.name];
+      } else if (this.elementData[field.name] !== undefined) {
+        // Les valeurs sont directement dans elementData
+        fieldValue = this.elementData[field.name];
+      } else {
+        // Valeur par défaut
+        fieldValue = field.defaultValue ?? null;
+      }
+
+      console.log(`🔍 Champ ${field.name}:`, {
+        fieldValue,
+        hasValues: !!this.elementData.values,
+        elementData: this.elementData
+      });
+
       const renderer = new FieldRenderer({
         field,
-        value: this.elementData[field.name] ?? field.defaultValue ?? null,
+        value: fieldValue,
         onChange: (val) => {
-          this.elementData[field.name] = val;
-          console.log("elementData", this.elementData);
-        }
+          // S'assurer que values existe
+          if (!this.elementData.values) {
+            this.elementData.values = {};
+          }
+          this.elementData.values[field.name] = val;
+          console.log("elementData après onChange", this.elementData);
+        },
+        collectionId: this.collectionId // Passer le collectionId pour construire les URLs d'images
       });
 
       await renderer.render(fieldContainer);
@@ -110,17 +135,24 @@ export default class CollectionElementManagePage extends Page {
           // 📝 Update - s'assurer que l'ID est une string
           const updateId = String(this.dataId);
           const updateCollectionId = String(this.collectionId);
+          
+          // S'assurer que les données sont dans le bon format (values)
+          const updateData = this.elementData.values || this.elementData;
+          
           console.log('📝 Mise à jour avec:', {
             dataId: updateId,
             dataIdLength: updateId.length,
             collectionId: updateCollectionId,
-            elementData: this.elementData
+            elementData: this.elementData,
+            updateData: updateData
           });
-          res = await collectionElementApi.update(updateCollectionId, updateId, this.elementData);
+          res = await collectionElementApi.update(updateCollectionId, updateId, updateData);
         } else {
           // 🆕 Create
-          console.log('🆕 Création');
-          res = await collectionElementApi.create(this.collectionId, this.elementData);
+          // S'assurer que les données sont dans le bon format (values)
+          const createData = this.elementData.values || this.elementData;
+          console.log('🆕 Création avec:', createData);
+          res = await collectionElementApi.create(this.collectionId, createData);
         }
 
         if (res.success) {

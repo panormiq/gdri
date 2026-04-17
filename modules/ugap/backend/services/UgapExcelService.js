@@ -7,6 +7,85 @@ const XLSX = require('xlsx');
 const path = require('path');
 
 class UgapExcelService {
+  static parseBaseModelLabel(label) {
+    const raw = String(label || '').replace(/\s+/g, ' ').trim();
+    if (!raw) {
+      return {
+        modelName: '',
+        motorizationBase: '',
+        posteNumber: null,
+        deliveryMode: ''
+      };
+    }
+
+    const posteMatch = raw.match(/\bposte\s*(\d+)\b/i);
+    const posteNumber = posteMatch ? parseInt(posteMatch[1], 10) : null;
+
+    const beforePoste = (posteMatch && posteMatch.index >= 0)
+      ? raw.slice(0, posteMatch.index).trim().replace(/[-–—]\s*$/, '').trim()
+      : raw;
+
+    let modelName = beforePoste;
+    let motorizationBase = '';
+
+    const firstDashIndex = beforePoste.indexOf(' - ');
+    if (firstDashIndex > -1) {
+      modelName = beforePoste.slice(0, firstDashIndex).trim();
+      motorizationBase = beforePoste.slice(firstDashIndex + 3).trim();
+    } else {
+      // Fallback sans séparateur " - " : découpe sur marque moteur/indice de motorisation.
+      const motorizationMarker = beforePoste.match(/\b(suzuki|mercury|yamaha|honda|evinrude|double)\b/i);
+      if (motorizationMarker && motorizationMarker.index > 0) {
+        modelName = beforePoste.slice(0, motorizationMarker.index).trim().replace(/[-–—]\s*$/, '').trim();
+        motorizationBase = beforePoste.slice(motorizationMarker.index).trim();
+      }
+    }
+
+    const deliveryMode = /\bd[ée]part\s+usine\b/i.test(raw) ? 'Départ usine' : '';
+
+    return {
+      modelName,
+      motorizationBase,
+      posteNumber: Number.isFinite(posteNumber) ? posteNumber : null,
+      deliveryMode
+    };
+  }
+
+  static extractBaseModelData(raw, modelCol, labelCol, priceCol, startRow) {
+    for (let r = startRow; r < raw.length; r++) {
+      const row = raw[r] || [];
+      const marker = row[modelCol];
+      if (marker !== 'X' && marker !== 'x' && marker !== '×') continue;
+
+      const label = row[labelCol];
+      const labelStr = typeof label === 'string' ? label.trim() : '';
+      if (!labelStr) continue;
+
+      const priceNum = this.parsePrice(row[priceCol]);
+      const parsed = this.parseBaseModelLabel(labelStr);
+
+      return {
+        rowIndex: r,
+        label: labelStr,
+        basePrice: priceNum > 0 ? priceNum : 0,
+        modelName: parsed.modelName,
+        motorizationBase: parsed.motorizationBase,
+        posteNumber: parsed.posteNumber,
+        deliveryMode: parsed.deliveryMode
+      };
+    }
+
+    return {
+      rowIndex: -1,
+      label: '',
+      basePrice: 0,
+      modelName: '',
+      motorizationBase: '',
+      posteNumber: null,
+      deliveryMode: ''
+    };
+  }
+
   /**
    * Lit le fichier Excel et retourne les données brutes
    * @param {string} filePath - Chemin vers le fichier Excel
@@ -36,6 +115,7 @@ class UgapExcelService {
       labelCol: -1,
       priceClientCol: -1,
       priceUgapCol: -1,
+      refUgapCol: -1,
       modelCols: []
     };
 
@@ -52,6 +132,15 @@ class UgapExcelService {
         }
         if (structure.priceUgapCol === -1 && cell.includes('prix') && cell.includes('ugap')) {
           structure.priceUgapCol = j;
+        }
+        if (
+          structure.refUgapCol === -1 &&
+          (
+            (cell.includes('ref') || cell.includes('réf') || cell.includes('reference')) &&
+            cell.includes('ugap')
+          )
+        ) {
+          structure.refUgapCol = j;
         }
         if (structure.headerRowIndex === -1 && (structure.labelCol > -1 || structure.priceClientCol > -1)) {
           structure.headerRowIndex = i;
@@ -172,6 +261,180 @@ class UgapExcelService {
   }
 
   /**
+   * Réduit le segment avant « en remplacement de » aux mots « slot » (combiné, module sondeur…),
+   * sans les codes produits (NSX 3009 XDCR, NSX12XDCR, etc.) pour regrouper les variantes.
+   */
+  static _optionFamilySkeletonBeforeRempl(beforeRempl) {
+    const raw = String(beforeRempl || '').trim();
+    if (!raw) return '';
+    const tokens = raw.split(/\s+/);
+    const kept = [];
+    for (const t of tokens) {
+      if (/^\d+$/.test(t)) continue;
+      if (/^[A-Za-z]*\d+[A-Za-z0-9.-]*$/i.test(t) && /\d/.test(t)) continue;
+      if (/^[A-Z0-9]{4,}$/.test(t) && !/[aeiouyàâéèêëïîôùû]/i.test(t)) continue;
+      if (/^[A-Z]{2,4}$/.test(t) && t === t.toUpperCase() && !/[aeiouy]/i.test(t)) continue;
+      kept.push(t);
+    }
+    return kept.join(' ').replace(/\s+/g, ' ').trim().toLowerCase();
+  }
+
+  /**
+   * Clé de famille pour moins-value / plus-value : même « créneau » (équipement fourni de base +
+   * postes + type d'ajustement sans le produit de remplacement), ex. deux NSX différents pour le même HDS PRO 12.
+   * Chaîne vide si le libellé ne correspond pas au motif attendu.
+   * @param {string} label
+   * @returns {string}
+   */
+  static computeOptionFamilyKey(label) {
+    const raw = String(label || '').replace(/\s+/g, ' ').trim();
+    if (!raw) return '';
+    if (/^PR\s/i.test(raw)) return '';
+
+    const hasMvPvPrefix = /^(moins-value|plus-value|plus\s+value)\b/i.test(raw);
+    const remplIdx = raw.search(/\ben\s+remplacement\s+de\b/i);
+    const remplIdxLoose = raw.search(/\ben\s+remplacement\b/i);
+    if (!hasMvPvPrefix && remplIdx < 0 && remplIdxLoose < 0) return '';
+
+    let rest = raw.replace(/^(moins-value|plus-value|plus\s+value)\s+/i, '').trim();
+
+    const parsed = this.parseBaseReplacementProducts(rest);
+    const baseReplaced = String(parsed.initialProduct || '').trim().replace(/\s+/g, ' ').toLowerCase();
+    if (!baseReplaced) return '';
+
+    const postesKey = this.extractPostesKey(rest);
+    const idxRempl = rest.search(/\ben\s+remplacement(?:\s+de)?\b/i);
+    const beforeRempl = idxRempl > 0 ? rest.slice(0, idxRempl).trim() : rest;
+    const skeleton = this._optionFamilySkeletonBeforeRempl(beforeRempl) || '_';
+
+    return `${baseReplaced}|${postesKey}|${skeleton}`;
+  }
+
+  /**
+   * Extrait le produit initial / final depuis un libellé lié à la base.
+   * Heuristique: robuste et déterministe (sans IA), pour exploitation immédiate.
+   * @param {string} label
+   * @returns {{ changeType: string, initialProduct: string, finalProduct: string }}
+   */
+  static parseBaseReplacementProducts(label) {
+    const raw = String(label || '').replace(/\s+/g, ' ').trim();
+    if (!raw) {
+      return { changeType: '', initialProduct: '', finalProduct: '' };
+    }
+
+    const cleaned = raw.replace(/\s*-\s*postes?\s+[\d\s,etàa\-–—]+$/i, '').trim();
+
+    // Cas spécial demandé : "Non fourniture du moteur de base"
+    if (/\bnon\s+fourniture\s+du\s+moteur\s+de\s+base\b/i.test(cleaned)) {
+      return {
+        changeType: 'motor_base_non_supply',
+        initialProduct: 'moteur de base',
+        finalProduct: 'moteur choisi'
+      };
+    }
+
+    // Cas générique: "Non fourniture du/de la/des ..."
+    // Ex: "Non fourniture du caillebotis dans le fond des coffres"
+    const nonSupplyMatch = cleaned.match(/^non\s+fourniture\s+(?:du|de\s+la|des|de\s+l['’])\s+(.+)$/i);
+    if (nonSupplyMatch) {
+      const initialProduct = String(nonSupplyMatch[1] || '')
+        .replace(/\s*-\s*postes?\s+[\d\s,etàa\-–—]+$/i, '')
+        .trim();
+      return {
+        changeType: 'non_supply',
+        initialProduct,
+        finalProduct: ''
+      };
+    }
+
+    const replacementMatch =
+      cleaned.match(/^(.*?)\s+en\s+remplacement\s+de\s+(?:l['’]|la\s+|le\s+|les\s+)?(.+?)\s+fourni\s+de\s+base\b/i) ||
+      cleaned.match(/^(.*?)\s+en\s+remplacement\s+de\s+(?:l['’]|la\s+|le\s+|les\s+)?(.+)$/i) ||
+      cleaned.match(/^(.*?)\s+en\s+remplacement\s+(?:de\s+)?(?:l['’]|la\s+|le\s+|les\s+)?(.+)$/i);
+    if (replacementMatch) {
+      const before = String(replacementMatch[1] || '').trim();
+      const replacedBase = String(replacementMatch[2] || '')
+        .replace(/\s*-\s*postes?\s+[\d\s,etàa\-–—]+$/i, '')
+        .trim();
+      const beforeNoPrefix = before.replace(/^(moins-value|plus-value|plus\s+value)\s+/i, '').trim();
+
+      // Produit final: on retire les mots "slot" usuels pour tenter de garder le code/nom produit.
+      let finalProduct = beforeNoPrefix
+        .replace(/^(module\s+sondeur|combin[ée]|motorisation|moteur|pack|option)\s+/i, '')
+        .trim();
+      if (!finalProduct) finalProduct = beforeNoPrefix;
+
+      // "en remplacement de celui de base" -> inférence simple depuis le début.
+      let initialProduct = replacedBase;
+      if (/^celui\s+de\s+base$/i.test(initialProduct)) {
+        const head = beforeNoPrefix.match(/\b(flotteur|moteur|combin[ée]|sondeur|module|coque|console)\b/i);
+        initialProduct = head ? `${head[1].toLowerCase()} de base` : 'produit de base';
+      }
+
+      return {
+        changeType: 'replacement',
+        initialProduct,
+        finalProduct
+      };
+    }
+
+    // Cas "en lieu et place"
+    const inPlaceMatch = cleaned.match(/^(.*?)\s+(?:au|en)\s+lieu\s+et\s+place\s+de\s+(?:l['’]|la\s+|le\s+|les\s+)?(.+)$/i);
+    if (inPlaceMatch) {
+      const finalProduct = String(inPlaceMatch[1] || '').trim();
+      const initialProduct = String(inPlaceMatch[2] || '').trim();
+      return {
+        changeType: 'replacement',
+        initialProduct,
+        finalProduct
+      };
+    }
+
+    return { changeType: '', initialProduct: '', finalProduct: '' };
+  }
+
+  /**
+   * Extrait une clé de postes normalisée (ex: "1,5,6,7,8") depuis le libellé.
+   * @param {string} label
+   * @returns {string}
+   */
+  static extractPostesKey(label) {
+    const raw = String(label || '').replace(/\s+/g, ' ').trim();
+    if (!raw) return '';
+    const m = raw.match(/\bpostes?\b[\s:,-]*([\d\s,etàa\-–—]+)/i);
+    if (!m) return '';
+    const found = new Set();
+    const nums = String(m[1] || '').match(/\d+/g) || [];
+    nums.forEach((n) => found.add(parseInt(n, 10)));
+    return [...found]
+      .filter((n) => Number.isFinite(n))
+      .sort((a, b) => a - b)
+      .join(',');
+  }
+
+  /**
+   * Regroupe les options partageant la même clé de famille (≥ 2 lignes = exclusivité).
+   * @param {Array<{ id: string, name: string, refUgap?: string, optionFamilyKey?: string }>} options
+   * @returns {Array<{ familyKey: string, options: Array<{ id: string, name: string, refUgap: string }> }>}
+   */
+  static buildOptionFamilyGroups(options) {
+    const map = new Map();
+    for (const opt of options || []) {
+      const k = opt.optionFamilyKey;
+      if (!k || typeof k !== 'string') continue;
+      if (!map.has(k)) map.set(k, []);
+      map.get(k).push({
+        id: opt.id,
+        name: opt.name || '',
+        refUgap: opt.refUgap || ''
+      });
+    }
+    return [...map.entries()]
+      .filter(([, arr]) => arr.length > 1)
+      .map(([familyKey, opts]) => ({ familyKey, options: opts }));
+  }
+
+  /**
    * Extrait toutes les données structurées depuis le fichier Excel
    * @param {string} filePath - Chemin vers le fichier Excel
    * @returns {Object} Données structurées { models, options, categories }
@@ -188,21 +451,30 @@ class UgapExcelService {
 
     // 1. Extraire les modèles
     const models = [];
+    const baseRowIndices = new Set();
     structure.modelCols.forEach((colIdx) => {
-      const name = this.extractModelName(raw, colIdx, structure.headerRowIndex);
+      const nameFallback = this.extractModelName(raw, colIdx, structure.headerRowIndex);
       const priceCol = structure.priceClientCol > -1 ? structure.priceClientCol : structure.priceUgapCol;
-      const basePrice = this.extractBasePrice(
+      const baseData = this.extractBaseModelData(
         raw,
         colIdx,
         structure.labelCol,
         priceCol,
         startRow
       );
+      if (baseData.rowIndex >= 0) {
+        baseRowIndices.add(baseData.rowIndex);
+      }
+
       models.push({
         id: `model_${colIdx}`,
         colIndex: colIdx,
-        name: name,
-        basePrice: basePrice
+        name: baseData.modelName || nameFallback,
+        basePrice: baseData.basePrice,
+        baseLabel: baseData.label || '',
+        motorizationBase: baseData.motorizationBase || '',
+        posteNumber: baseData.posteNumber,
+        defaultDeliveryMode: baseData.deliveryMode || ''
       });
     });
 
@@ -211,6 +483,8 @@ class UgapExcelService {
     const categoriesMap = new Map(); // categoryName -> { id, name, options: [] }
 
     for (let r = startRow; r < raw.length; r++) {
+      if (baseRowIndices.has(r)) continue;
+
       const row = raw[r] || [];
       const label = row[structure.labelCol];
 
@@ -218,11 +492,20 @@ class UgapExcelService {
 
       const labelStr = String(label).trim();
 
-      // Ignorer les lignes qui sont des modèles (déjà extraits)
-      if (/poste|base|semi-rigide/i.test(labelStr.toLowerCase())) continue;
+      // Ignorer uniquement les lignes "base modèle" (éviter faux positifs comme "embase")
+      const labelLower = labelStr.toLowerCase();
+      const isBaseModelRow =
+        /^poste\b/.test(labelLower) ||
+        /\bconfiguration de base\b/.test(labelLower) ||
+        /^\s*base\s*$/.test(labelLower);
+      if (isBaseModelRow) continue;
 
       const priceClient = this.parsePrice(row[structure.priceClientCol] || row[structure.priceUgapCol]);
       const priceUgap = structure.priceUgapCol > -1 ? this.parsePrice(row[structure.priceUgapCol]) : priceClient;
+      const refUgapRaw = structure.refUgapCol > -1 ? row[structure.refUgapCol] : null;
+      const refUgap = (typeof refUgapRaw === 'string' || typeof refUgapRaw === 'number')
+        ? String(refUgapRaw).trim()
+        : '';
 
       // Déterminer la catégorie (sera amélioré avec l'IA)
       const category = this.determineCategory(labelStr);
@@ -242,14 +525,22 @@ class UgapExcelService {
         ? compatibleModels 
         : models.map(m => m.id);
 
+      const optionFamilyKey = this.computeOptionFamilyKey(labelStr);
+      const baseReplacement = this.parseBaseReplacementProducts(labelStr);
+
             const option = {
                 id: `opt_${r}`,
                 name: labelStr,
                 priceClient: priceClient,
                 priceUgap: priceUgap,
+                refUgap: refUgap,
                 category: category,
                 compatibleModels: finalCompatibleModels,
-                subCategory: null // Sera rempli par l'IA ou manuellement
+                subCategory: null, // Sera rempli par l'IA ou manuellement
+                optionFamilyKey,
+                changeType: baseReplacement.changeType,
+                initialProduct: baseReplacement.initialProduct,
+                finalProduct: baseReplacement.finalProduct
             };
 
       optionsMap.set(option.id, option);
@@ -270,10 +561,14 @@ class UgapExcelService {
             subCategories: [] // Initialement vide, sera rempli par l'IA ou manuellement
         }));
 
+        const allOptionsFlat = categories.flatMap((c) => c.options || []);
+        const optionFamilyGroups = this.buildOptionFamilyGroups(allOptionsFlat);
+
         return {
             models,
             categories,
-            structure
+            structure,
+            optionFamilyGroups
         };
   }
 

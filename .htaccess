@@ -6,6 +6,9 @@
 # Activer le moteur de réécriture
 RewriteEngine On
 
+# Autoriser le challenge Let's Encrypt (ne pas bloquer par les règles de sécurité)
+RewriteRule ^\.well-known/acme-challenge/ - [L]
+
 # ============================================
 # PROTECTION ANTI-DDOS & ANTI-BOTS
 # ============================================
@@ -17,6 +20,7 @@ RewriteEngine On
 # Exclure /api/, /frontend/, / et /index.php des vérifications User-Agent
 RewriteCond %{REQUEST_URI} !^/api/ [NC]
 RewriteCond %{REQUEST_URI} !^/frontend/ [NC]
+RewriteCond %{REQUEST_URI} !^/modules/ [NC]
 RewriteCond %{REQUEST_URI} !^/$ [NC]
 RewriteCond %{REQUEST_URI} !^/index\.php$ [NC]
 RewriteCond %{HTTP_USER_AGENT} (nikto|acunetix|sqlmap|havij|zmeu|masscan|nmap|netcat|nc|sqlsus) [NC,OR]
@@ -27,6 +31,7 @@ RewriteRule ^(.*)$ - [F,L]
 # Exclure /api/, /frontend/, / et /index.php pour permettre les requêtes API avec paramètres
 RewriteCond %{REQUEST_URI} !^/api/ [NC]
 RewriteCond %{REQUEST_URI} !^/frontend/ [NC]
+RewriteCond %{REQUEST_URI} !^/modules/ [NC]
 RewriteCond %{REQUEST_URI} !^/$ [NC]
 RewriteCond %{REQUEST_URI} !^/index\.php$ [NC]
 RewriteCond %{QUERY_STRING} (<|%3C)([^s]*s)+cript.*(>|%3E) [NC,OR]
@@ -51,6 +56,7 @@ RewriteRule ^(.*)$ - [F,L]
 # Exclure /api/, /frontend/, / et /index.php pour permettre toutes les méthodes nécessaires
 RewriteCond %{REQUEST_URI} !^/api/ [NC]
 RewriteCond %{REQUEST_URI} !^/frontend/ [NC]
+RewriteCond %{REQUEST_URI} !^/modules/ [NC]
 RewriteCond %{REQUEST_URI} !^/$ [NC]
 RewriteCond %{REQUEST_URI} !^/index\.php$ [NC]
 RewriteCond %{REQUEST_METHOD} ^(TRACE|TRACK|DEBUG) [NC]

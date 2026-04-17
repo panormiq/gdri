@@ -1,9 +1,11 @@
 /**
  * Service de gestion des configurations de services
  * Fichier : backend/services/ServiceConfigService.js
- * 
+ *
  * Gère la détection et la sauvegarde des configurations par défaut pour les services
  */
+
+const { ObjectId } = require('mongodb');
 
 class ServiceConfigService {
   constructor(database) {
@@ -31,14 +33,14 @@ class ServiceConfigService {
       const entitiesCollection = this.database.getCollection('entities');
 
       // Récupérer l'entreprise et ses services autorisés
-      const entity = await entitiesCollection.findOne({ _id: require('mongodb').ObjectId(entrepriseId) });
+      const entity = await entitiesCollection.findOne({ _id: new ObjectId(entrepriseId) });
       if (!entity || !entity.services_authorized || entity.services_authorized.length === 0) {
         return [];
       }
 
       // Récupérer tous les services autorisés
-      const authorizedServiceIds = entity.services_authorized.map(id => 
-        require('mongodb').ObjectId(id)
+      const authorizedServiceIds = entity.services_authorized.map(id =>
+        new ObjectId(id)
       );
       const services = await servicesCollection.find({
         _id: { $in: authorizedServiceIds }
@@ -114,8 +116,8 @@ class ServiceConfigService {
       const servicesCollection = this.database.getCollection('services');
 
       // Récupérer le service pour obtenir son nom technique
-      const service = await servicesCollection.findOne({ 
-        _id: require('mongodb').ObjectId(serviceId) 
+      const service = await servicesCollection.findOne({
+        _id: new ObjectId(serviceId)
       });
       if (!service) {
         return { success: false, error: 'Service non trouvé' };

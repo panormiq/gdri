@@ -3,7 +3,7 @@
 const User = require('../models/user_model');
 const fs = require('fs');
 const path = require('path');
-const { sendMail } = require('../mail/mailService');
+const { sendMail } = require('../../../../modules/mail/backend/mailService');
 const crypto = require('crypto');
 const bcrypt = require('bcrypt');
 
@@ -308,7 +308,7 @@ const createUser = async (req, res) => {
 
     // Envoyer le mail
     const activationUrl = `${process.env.FRONT_URL}/activate-account?token=${token}&email=${encodeURIComponent(email)}`;
-    const templatePath = path.join(__dirname, '../mail/templates/activateUser.html');
+    const templatePath = path.join(__dirname, '../../../../modules/mail/backend/templates/activateUser.html');
     await sendMail({
       to: email,
       subject: 'Activation de votre compte',

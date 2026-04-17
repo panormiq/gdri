@@ -40,7 +40,7 @@ $criticalFiles = @(
     "frontend/includes/functions.php",
     "frontend/includes/header.php",
     "backend/server.js",
-    "backend/modules/analyse-intention/routes.js"
+    "modules/analyse-intention/backend/routes.js"
 )
 
 $allOk = $true

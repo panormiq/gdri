@@ -1,9 +1,10 @@
 // src/modules/editor/collection/FieldRenderer.js
 export default class FieldRenderer {
-  constructor({ field, value, onChange }) {
+  constructor({ field, value, onChange, collectionId = null }) {
     this.field = field;
     this.value = value;
     this.onChange = onChange;
+    this.collectionId = collectionId; // Passer le collectionId pour les images
     this.instance = null;
   }
 
@@ -26,7 +27,8 @@ export default class FieldRenderer {
     this.instance = new FieldClass({
       field: this.field,
       value: this.value,
-      onChange: this.onChange
+      onChange: this.onChange,
+      collectionId: this.collectionId // Passer le collectionId aux champs
     });
 
     this.instance.render(container);

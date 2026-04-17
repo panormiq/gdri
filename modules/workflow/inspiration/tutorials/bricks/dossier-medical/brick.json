@@ -1,0 +1,13 @@
+{
+  "id": "dossier-medical",
+  "name": "Dossier Medical",
+  "description": "Controle medical et validation du dossier medical.",
+  "bricks": [
+    {
+      "name": "Convocation a la Visite Medicale"
+    },
+    {
+      "name": "Aptitude du Candidat"
+    }
+  ]
+}

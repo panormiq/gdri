@@ -1,0 +1,35 @@
+{
+    "version": 1,
+    "id": "d-but",
+    "name": "Fin",
+    "shape": {
+        "type": "circle",
+        "text": "Forme",
+        "width": 100,
+        "height": 100,
+        "fontSize": 14,
+        "fontFamily": "Segoe UI",
+        "textColor": "#ffffff",
+        "bgColor": "#0e9cef",
+        "opacity": 1,
+        "imageData": null
+    },
+    "tutorial": {
+        "title": "Fin",
+        "intro": "Signal la fin du Flow",
+        "steps": [
+            {
+                "title": "rien a signaler",
+                "items": [
+                    {
+                        "type": "text",
+                        "html": ""
+                    }
+                ],
+                "collapsed": true,
+                "substeps": []
+            }
+        ],
+        "conditions": []
+    }
+}

@@ -11,7 +11,7 @@ const path = require('path');
 require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 
 const database = require('./config/database');
-const mailModule = require('./modules/mail');
+const mailModule = require(path.join(__dirname, '../modules/mail/backend'));
 
 // Configuration (identique au Security Monitor)
 const CONFIG = {

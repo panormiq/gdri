@@ -93,4 +93,90 @@ function pageTitle($pageTitle = '') {
     return $pageTitle ? "$pageTitle - $siteName" : $siteName;
 }
 
+/**
+ * Synchronise la collection services avec les modules présents sur le disque
+ * @param MongoDB\Database $db Instance MongoDB
+ * @return void
+ */
+function syncServicesWithFilesystemModules($db) {
+    $servicesCollection = $db->services;
+    $existingServices = $servicesCollection->find([])->toArray();
+    $existingBySlug = [];
+    $existingByName = [];
+
+    foreach ($existingServices as $service) {
+        if (!empty($service['slug'])) {
+            $existingBySlug[strtolower(trim($service['slug']))] = true;
+        }
+        if (!empty($service['name'])) {
+            $existingByName[strtolower(trim($service['name']))] = true;
+        }
+    }
+
+    $moduleRoots = [
+        __DIR__ . '/../../modules'
+    ];
+
+    foreach ($moduleRoots as $rootPath) {
+        if (!is_dir($rootPath)) {
+            continue;
+        }
+
+        $entries = scandir($rootPath);
+        foreach ($entries as $entry) {
+            if ($entry === '.' || $entry === '..') {
+                continue;
+            }
+
+            $modulePath = $rootPath . '/' . $entry;
+            if (!is_dir($modulePath)) {
+                continue;
+            }
+
+            $packagePath = $modulePath . '/backend/package.json';
+            if (!file_exists($packagePath)) {
+                $packagePath = $modulePath . '/package.json';
+            }
+            if (!file_exists($packagePath)) {
+                continue;
+            }
+
+            $rawJson = file_get_contents($packagePath);
+            $config = json_decode($rawJson, true);
+            if (!$config || !is_array($config)) {
+                continue;
+            }
+
+            $moduleName = $config['displayName'] ?? $config['name'] ?? $entry;
+            $slugSource = $config['name'] ?? $entry;
+            $slug = strtolower(trim(preg_replace('/\s+/', '-', $slugSource)));
+
+            if ($slug && isset($existingBySlug[$slug])) {
+                continue;
+            }
+            if (isset($existingByName[strtolower(trim($moduleName))])) {
+                continue;
+            }
+
+            $description = $config['description'] ?? ('Module ' . $moduleName);
+            $icon = $config['icon'] ?? '🧩';
+            $status = ($config['enabled'] ?? true) ? 'active' : 'inactive';
+
+            $servicesCollection->insertOne([
+                'name' => $moduleName,
+                'slug' => $slug,
+                'description' => $description,
+                'icon' => $icon,
+                'status' => $status,
+                'created_at' => new MongoDB\BSON\UTCDateTime()
+            ]);
+
+            if ($slug) {
+                $existingBySlug[$slug] = true;
+            }
+            $existingByName[strtolower(trim($moduleName))] = true;
+        }
+    }
+}
+
 

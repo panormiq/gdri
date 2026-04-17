@@ -24,7 +24,8 @@ export function extractStructureFromHTML(editorElement) {
     
     // Si c'est un titre (h1, h2, h3 ou div avec classe doc-title-level-X)
     const tagName = element.tagName ? element.tagName.toLowerCase() : '';
-    const className = element.className || '';
+    // className peut être une string ou une DOMTokenList, convertir en string
+    const className = typeof element.className === 'string' ? element.className : (element.className?.baseVal || element.className?.toString() || '');
     let level = null;
     
     if (/^h[1-3]$/i.test(tagName)) {

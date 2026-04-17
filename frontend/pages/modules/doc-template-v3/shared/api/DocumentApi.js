@@ -41,7 +41,21 @@ export const documentApi = {
       });
       log('getAll fetch completed, status:', res.status);
 
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      if (!res.ok) {
+        let errorMessage = `HTTP ${res.status}`;
+        try {
+          const raw = await res.json();
+          errorMessage = raw.error || raw.message || errorMessage;
+        } catch (e) {
+          try {
+            const text = await res.text();
+            if (text) errorMessage = text;
+          } catch (e2) {
+            // ignore parse error
+          }
+        }
+        throw new Error(errorMessage);
+      }
 
       const raw = await res.json();
       log('📦 getAll Response:', raw);
@@ -215,6 +229,41 @@ export const documentApi = {
 
     } catch (error) {
       console.error('❌ Erreur documentApi.downloadPdf:', error);
+      return { success: false, data: {}, error: error.message };
+    }
+  },
+  /**
+   * Télécharge un PDF à partir d'un HTML fourni (viewer)
+   */
+  async downloadPdfFromHtml(html, filename) {
+    try {
+      log('📤 documentApi.downloadPdfFromHtml request started');
+
+      const res = await fetch(`${getBaseApiUrl()}/documents/pdf-from-html`, {
+        method: 'POST',
+        headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ html })
+      });
+
+      log('downloadPdfFromHtml fetch completed, status:', res.status);
+
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+      const blob = await res.blob();
+
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename || 'viewer-export.pdf';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
+
+      return { success: true, data: {}, error: null };
+    } catch (error) {
+      console.error('❌ Erreur documentApi.downloadPdfFromHtml:', error);
       return { success: false, data: {}, error: error.message };
     }
   }

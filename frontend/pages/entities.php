@@ -7,7 +7,6 @@
  */
 
 require_once '../config/config.php';
-require_once '../config/database.php';
 require_once '../auth/session.php';
 require_once '../includes/functions.php';
 require_once '../includes/jwt-helper.php';
@@ -22,92 +21,40 @@ $page_title = 'Gestion des Entités';
 require_once '../includes/header.php';
 
 // Récupérer toutes les entités
-$db = getDatabase();
-$entitiesCollection = $db->entities;
-$entities = $entitiesCollection->find([])->toArray();
-
-// Récupérer tous les services/modules disponibles
-$servicesCollection = $db->services;
-$services = $servicesCollection->find([])->toArray();
-
-// Récupérer tous les utilisateurs
-$usersCollection = $db->users;
-$allUsers = $usersCollection->find([])->toArray();
-
-// Mapper les utilisateurs par entité pour l'affichage
-// Lecture directe depuis la base d'entreprise (source de vérité)
-$usersByEntity = [];
-error_log('🔍 Début du chargement des utilisateurs depuis les bases d\'entreprise. Total entités: ' . count($entities));
-
-// Pour chaque entité, lire les utilisateurs depuis sa base d'entreprise
-foreach ($entities as $entity) {
-    $entityId = (string) $entity['_id'];
-    $entityName = $entity['name'] ?? 'N/A';
-    
-    error_log("🏢 Traitement entité: $entityName (ID: $entityId)");
-    
-    // Normaliser l'ID pour la recherche (en minuscules pour cohérence)
-    $entityIdNormalized = trim(strtolower($entityId));
-    
-    // Initialiser le tableau pour cette entité
-    $usersByEntity[$entityIdNormalized] = [];
-    
-    // Récupérer depuis la base d'entreprise
-    error_log("  🔌 Tentative de connexion à la base GDR-ENTREPRISE-{$entityId}");
-    $entrepriseDb = getEntrepriseDatabase($entityId);
-    
-    if ($entrepriseDb) {
-        try {
-            $entrepriseUsersCollection = $entrepriseDb->users;
-            $entrepriseUsers = $entrepriseUsersCollection->find([])->toArray();
-            
-            error_log("  ✅ " . count($entrepriseUsers) . " référence(s) trouvée(s) dans la base d'entreprise GDR-ENTREPRISE-{$entityId}");
-            
-            // Récupérer les détails complets depuis la base principale
-            foreach ($entrepriseUsers as $enterpriseUserRef) {
-                $userIdObj = $enterpriseUserRef['userId'] ?? null;
-                if (!$userIdObj) {
-                    error_log("    ⚠️ Référence utilisateur sans userId");
-                    continue;
-                }
-                
-                // Convertir l'ObjectId en string
-                $userIdStr = $userIdObj instanceof MongoDB\BSON\ObjectId 
-                    ? (string) $userIdObj 
-                    : (string) $userIdObj;
-                
-                error_log("    🔍 Recherche utilisateur {$userIdStr} dans la base principale...");
-                
-                // Récupérer l'utilisateur complet depuis la base principale
-                $fullUser = $usersCollection->findOne(['_id' => new MongoDB\BSON\ObjectId($userIdStr)]);
-                
-                if ($fullUser) {
-                    // Utiliser le rôle depuis la base d'entreprise (source de vérité pour cette entreprise)
-                    $entrepriseRole = $enterpriseUserRef['role'] ?? 'user';
-                    
-                    $userForEntity = $fullUser;
-                    $userForEntity['role_in_entity'] = $entrepriseRole;
-                    $usersByEntity[$entityIdNormalized][] = $userForEntity;
-                    
-                    error_log("    ✅ Utilisateur ajouté: " . ($fullUser['email'] ?? 'N/A') . " (role: $entrepriseRole)");
-                } else {
-                    error_log("    ❌ Utilisateur $userIdStr non trouvé dans la base principale");
-                }
-            }
-        } catch (Exception $e) {
-            error_log("  ❌ Erreur lors de la lecture de la base d'entreprise: " . $e->getMessage());
-            error_log("  ❌ Stack trace: " . $e->getTraceAsString());
+$entities = [];
+$services = [];
+$allUsers = [];
+try {
+    $token = getJWTToken();
+    $apiBase = rtrim(getApiBaseUrl(), '/');
+    if ($token && $apiBase) {
+        $ch = curl_init($apiBase . '/entities/context');
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_HTTPHEADER, [
+            'Authorization: Bearer ' . $token,
+            'Content-Type: application/json'
+        ]);
+        curl_setopt($ch, CURLOPT_TIMEOUT, 30);
+        $raw = curl_exec($ch);
+        $err = curl_error($ch);
+        $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
+        if (!$err && $code >= 200 && $code < 300) {
+            $decoded = json_decode((string)$raw, true);
+            $payload = $decoded['data'] ?? [];
+            $entities = is_array($payload['entities'] ?? null) ? $payload['entities'] : [];
+            $services = is_array($payload['services'] ?? null) ? $payload['services'] : [];
+            $allUsers = is_array($payload['users'] ?? null) ? $payload['users'] : [];
         }
-    } else {
-        error_log("  ❌ Base d'entreprise non accessible pour $entityName (ID: $entityId)");
     }
+} catch (Exception $e) {
+    $entities = [];
+    $services = [];
+    $allUsers = [];
 }
 
-// Résumé du chargement
-error_log('📊 Résultat du chargement des utilisateurs: ' . count($usersByEntity) . ' entité(s) avec utilisateurs');
-foreach ($usersByEntity as $entityIdKey => $users) {
-    error_log("  Entité $entityIdKey: " . count($users) . " utilisateur(s)");
-}
+// Les utilisateurs par entité sont chargés côté front via l'API /entities/:id/users.
+$usersByEntity = [];
 ?>
 
 <!-- Section Hero -->
@@ -191,9 +138,9 @@ foreach ($usersByEntity as $entityIdKey => $users) {
                                     <?php endforeach; ?>
                                 </div>
                             <?php endif; ?>
-                            <button class="btn btn-sm btn-outline manage-modules" data-entity-id="<?= htmlspecialchars((string) $entity['_id']) ?>">
+                            <a class="btn btn-sm btn-outline" href="<?= url('pages/entity-modules.php?entityId=' . urlencode((string) $entity['_id'])) ?>">
                                 Gérer les modules
-                            </button>
+                            </a>
                         </div>
                         
                         <!-- Utilisateurs de l'entité -->
@@ -216,7 +163,10 @@ foreach ($usersByEntity as $entityIdKey => $users) {
         <div class="tab-content" id="users-tab">
             <div class="section-title">
                 <h2>Liste des Utilisateurs</h2>
-                <button class="btn btn-primary" id="addUserBtn">+ Ajouter un utilisateur</button>
+                <div class="section-actions">
+                    <button class="btn btn-secondary" id="createUserBtn">+ Créer un compte</button>
+                    <button class="btn btn-primary" id="addUserBtn">+ Ajouter un utilisateur</button>
+                </div>
             </div>
             
             <div class="users-grid" id="usersGrid">
@@ -418,6 +368,55 @@ foreach ($usersByEntity as $entityIdKey => $users) {
     </div>
 </div>
 
+<!-- Modal Créer Utilisateur -->
+<div class="modal-overlay" id="createUserModal">
+    <div class="modal-content">
+        <button class="modal-close" id="closeCreateUserModal">×</button>
+        
+        <div class="modal-header">
+            <h2>Créer un compte utilisateur</h2>
+        </div>
+        
+        <div class="modal-body">
+            <form id="createUserForm">
+                <div class="form-group">
+                    <label for="createUserEntity">Entité *</label>
+                    <select id="createUserEntity" name="entityId" required>
+                        <option value="">Sélectionner une entité</option>
+                        <?php foreach ($entities as $entity): ?>
+                            <option value="<?= htmlspecialchars((string) $entity['_id']) ?>">
+                                <?= htmlspecialchars($entity['name']) ?>
+                            </option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+                
+                <div class="form-group">
+                    <label for="createUserEmail">Email *</label>
+                    <input type="email" id="createUserEmail" name="email" required>
+                    <small style="color: #666;">Un email d'invitation sera envoyé à cette adresse.</small>
+                </div>
+                
+                <div class="form-group">
+                    <label for="createUserRole">Rôle dans l'entité *</label>
+                    <select id="createUserRole" name="role" required>
+                        <option value="user">Utilisateur</option>
+                        <option value="admin">Administrateur</option>
+                    </select>
+                </div>
+                
+                <div class="form-error" id="createUserFormError"></div>
+                <div class="form-success" id="createUserFormSuccess"></div>
+                
+                <div class="modal-actions">
+                    <button type="button" class="btn btn-secondary" id="cancelCreateUserForm">Annuler</button>
+                    <button type="submit" class="btn btn-primary">Envoyer l'invitation</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
 <!-- Style spécifique pour cette page -->
 <style>
 .entities-grid {
@@ -433,6 +432,12 @@ foreach ($usersByEntity as $entityIdKey => $users) {
     padding: var(--spacing-lg);
     box-shadow: 0 2px 4px rgba(0,0,0,0.1);
     border: 1px solid var(--color-light);
+}
+
+.section-actions {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
 }
 
 .entity-header {
@@ -1114,6 +1119,9 @@ document.addEventListener('DOMContentLoaded', function() {
     document.getElementById('addUserBtn').addEventListener('click', () => openModal('userModal'));
     document.getElementById('closeUserModal').addEventListener('click', () => closeModal('userModal'));
     document.getElementById('cancelUserForm').addEventListener('click', () => closeModal('userModal'));
+    document.getElementById('createUserBtn').addEventListener('click', () => openModal('createUserModal'));
+    document.getElementById('closeCreateUserModal').addEventListener('click', () => closeModal('createUserModal'));
+    document.getElementById('cancelCreateUserForm').addEventListener('click', () => closeModal('createUserModal'));
     
     // Gérer l'édition d'une entité
     document.querySelectorAll('.edit-entity').forEach(btn => {
@@ -1186,42 +1194,6 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     });
     
-    // Gérer les modules d'une entité
-    document.querySelectorAll('.manage-modules').forEach(btn => {
-        btn.addEventListener('click', function() {
-            const entityId = this.getAttribute('data-entity-id');
-            if (!entityId) return;
-            
-            // Trouver l'entité dans la liste
-            const entityCard = document.querySelector(`[data-entity-id="${entityId}"]`);
-            if (!entityCard) return;
-            
-            // Ouvrir le modal d'entité en mode édition
-            const entityIdInput = document.getElementById('entityId');
-            const modalTitle = document.getElementById('modalTitle');
-            const entityForm = document.getElementById('entityForm');
-            
-            entityIdInput.value = entityId;
-            modalTitle.textContent = 'Gérer les modules de l\'entité';
-            
-            // Masquer les champs non nécessaires pour la gestion des modules
-            const fieldsToHide = ['entityName', 'entitySiret', 'entityAddress'];
-            fieldsToHide.forEach(fieldId => {
-                const field = document.getElementById(fieldId);
-                if (field) {
-                    field.closest('.form-group').style.display = 'none';
-                    field.removeAttribute('required');
-                }
-            });
-            
-            // Ouvrir le modal
-            openModal('entityModal');
-            
-            // Charger les modules autorisés
-            loadEntityModules(entityId);
-        });
-    });
-    
     // Fonction pour charger les modules d'une entité
     function loadEntityModules(entityId) {
         try {
@@ -1269,6 +1241,9 @@ document.addEventListener('DOMContentLoaded', function() {
     });
     document.getElementById('userModal').addEventListener('click', function(e) {
         if (e.target === this) closeModal('userModal');
+    });
+    document.getElementById('createUserModal').addEventListener('click', function(e) {
+        if (e.target === this) closeModal('createUserModal');
     });
     
     // Custom Select avec recherche pour les modules
@@ -1652,6 +1627,58 @@ document.addEventListener('DOMContentLoaded', function() {
                     formError.textContent = error.message || 'Une erreur est survenue';
                     formError.style.display = 'block';
                 }
+            }
+        });
+    }
+
+    const createUserForm = document.getElementById('createUserForm');
+    if (createUserForm) {
+        createUserForm.addEventListener('submit', async function(e) {
+            e.preventDefault();
+
+            const formError = document.getElementById('createUserFormError');
+            const formSuccess = document.getElementById('createUserFormSuccess');
+
+            formError.textContent = '';
+            formSuccess.textContent = '';
+
+            const entityId = document.getElementById('createUserEntity').value;
+            const email = document.getElementById('createUserEmail').value.trim();
+            const role = document.getElementById('createUserRole').value;
+
+            if (!entityId || !email) {
+                formError.textContent = 'Veuillez remplir tous les champs obligatoires.';
+                return;
+            }
+
+            try {
+                const apiBaseUrl = '<?php echo getApiBaseUrl(); ?>';
+                const jwtToken = '<?php echo getJWTToken(); ?>';
+                const response = await fetch(`${apiBaseUrl}/users`, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': 'Bearer ' + jwtToken,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ entityId, email, role }),
+                    credentials: 'include'
+                });
+
+                const data = await response.json();
+
+                if (!response.ok || !data.success) {
+                    throw new Error(data.message || 'Erreur lors de la création du compte');
+                }
+
+                formSuccess.textContent = data.message || 'Invitation envoyée avec succès.';
+                createUserForm.reset();
+
+                setTimeout(() => {
+                    closeModal('createUserModal');
+                    window.location.reload();
+                }, 800);
+            } catch (error) {
+                formError.textContent = error.message;
             }
         });
     }

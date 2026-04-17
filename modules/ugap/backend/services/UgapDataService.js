@@ -657,10 +657,125 @@ Réponds UNIQUEMENT avec un JSON valide au format suivant:
     {
       "optionName": "Nom de l'option",
       "category": "Nom de la catégorie",
-      "subCategory": "Nom de la sous-catégorie (optionnel)"
+      "assignation": "Nom de l'assignation (optionnel)"
     }
   ]
-}`
+}`,
+      minorationPrompt: `Tu analyses des lignes de minoration UGAP.
+
+Objectif:
+1) Identifier le ou les poste(s) concerné(s)
+2) Identifier l'option actuellement présente (moteur actuel / base)
+3) Identifier l'option qui remplace
+4) Calculer la moins-value à déduire
+
+Règles métier:
+- Une croix indique le moteur actuellement présent pour le poste.
+- Si on change de moteur, la minoration correspond à la déduction du prix du moteur actuel.
+- Priorité d'analyse: poste(s) > option actuelle > option remplaçante > impact prix.
+- Si une donnée est absente, retourner null sur le champ.
+
+Réponds UNIQUEMENT en JSON valide:
+{
+  "assignments": [
+    {
+      "sourceLine": "ligne brute",
+      "postes": [1, 2],
+      "currentOption": "moteur actuel",
+      "replacementOption": "moteur remplaçant",
+      "minorationAmount": 0,
+      "currency": "EUR",
+      "confidence": 0
+    }
+  ]
+}`,
+      subCategoryLlmId: null,
+      categorizationLlmId: null,
+      minorationLlmId: null,
+      familleLlmId: null,
+      assignationLlmId: null,
+      assignationPrompt: `Tu dois assigner UNE famille à UNE vue métier.
+
+Vues métier disponibles:
+{{businessViews}}
+
+Famille à classer:
+- familyLabel: {{familyLabel}}
+- assignation actuelle: {{assignation}}
+- sousFamille: {{subFamily}}
+- nombre options: {{optionsCount}}
+- exemples options:
+{{optionsList}}
+
+Règles:
+- Choisir exactement UNE vue métier parmi les id fournis.
+- Se baser sur le sens métier de la famille et les mots-clés des vues.
+- Répondre en JSON strict, sans texte autour.
+
+Format:
+{
+  "businessViewId": "id_exact_si_possible",
+  "businessViewLabel": "label_vue_metier",
+  "confidence": 0.0,
+  "reason": "explication courte"
+}`,
+      familleContext: `Tu es expert catalogue options bateau / UGAP.
+
+Contexte : listes d'options et de minorations issues de catalogues. Une « famille » regroupe des VARIANTES du même produit / même prestation : pour un même poste catalogue, le client ne fait **qu'un seul choix** parmi ces lignes (ex. une couleur parmi toutes les teintes proposées pour ce flotteur ou cette console — on ne peut pas commander 5 couleurs différentes pour le même équipement). Toutes les lignes « couleur X / couleur Y / RAL … » qui décrivent ce même équipement doivent donc être dans **une seule** famille avec tous leurs \`id\` dans \`optionIds\`.`,
+      famillePrompt: `## Tâche
+Produire le regroupement « familles d'options » : une famille = toutes les options **en concurrence** pour le même besoin : **une seule** peut être retenue (choix unique). Les variantes couleur, RAL, finition ou teinte du **même** article / équipement sont **toujours** dans la **même** famille : l'utilisateur choisit une option parmi la liste, pas plusieurs couleurs à la fois pour le même produit.
+
+## Choix unique — couleurs et finitions (règle absolue)
+- Si plusieurs lignes ne diffèrent que par la couleur, la teinte, le RAL ou la finition du **même** équipement (ex. « Console de pilotage en rouge … », « … en vert … », « … Noir - RAL 9005 »), elles forment **une seule** famille ; \`optionIds\` contient **tous** les ids de ces lignes (ex. 5 couleurs → 5 ids dans **la même** entrée JSON, pas 5 familles).
+- Ne jamais éclater les couleurs d'un même produit en plusieurs familles : ce serait faux métier (on ne cumule pas plusieurs coloris pour un seul équipement).
+
+## Méthode (à appliquer dans l'ordre)
+1) Parcourir **toute** la liste numérotée ; ne rien ignorer.
+2) Repérer les **groupes de variantes** : même intention métier, libellés qui partagent une **racine stable** et ne changent que sur la partie variante.
+   - Exemples de racines stables : « Coloris flotteur en … », « Coloris de la coque en … », « Console de pilotage en … », « Marquage comprenant … lettres », « Pulvérisation zone renfort … », « Bâche … Postes … ».
+3) **Regrouper** dans une seule famille tous les ids de ces variantes ; \`familyLabel\` = nom générique du choix (ex. « Couleur du flotteur », « Couleur de la coque », « Console de pilotage (couleur / finition) », « Marquage (nombre de lettres) »).
+4) **Ne pas regrouper** des lignes qui ne sont pas des variantes du même choix :
+   - Libellés décrivant des **postes / emplacements différents** sur l'embarcation (ex. « … Poste 1 » vs « … Postes 2 et 9 ») : ce sont des **prestations distinctes** (même famille d'équipement répétée à plusieurs endroits), mets-les dans des **familles séparées** ou laisse des familles à une ligne selon le cas.
+   - Équipements ou prestations de nature différente (même catégorie catalogue ne suffit pas à fusionner).
+5) Les **minorations** (\`type=minoration\`) : applique les mêmes règles ; ne fusionne pas une minoration avec une option si ce n'est pas la même variante logique.
+
+## Exemple canonique (référence métier)
+Entrées (5 teintes du même flotteur) :
+- Coloris flotteur en Rouge Etna
+- Coloris flotteur en Vert Army
+- Coloris flotteur en Noir
+- Coloris flotteur en Orange Sylvano
+- Coloris flotteur en Gris Military ou Jaune Colorado
+Sortie attendue : **une seule** famille, **5** ids dans \`optionIds\` (pas 5 familles).
+\`{"familyLabel":"Couleur du flotteur","optionIds":["id1","id2","id3","id4","id5"]}\`
+Le client ne peut en sélectionner qu'une ; \`defaultOptionId\` optionnel si une teinte « standard » est identifiable, sinon omis.
+
+## DONNÉES (liste injectée automatiquement)
+{{LISTE_LIGNES}}
+
+## FORMAT DE RETOUR (obligatoire)
+- Un **seul** tableau JSON (array), racine directe. Aucun texte avant \`[\` ni après \`]\` (pas de markdown, pas de \`\`\`json).
+- Chaque élément : \`familyLabel\` (string, non vide), \`optionIds\` (array de strings = valeurs \`id=\` **exactes** de la liste).
+- Optionnel : \`defaultOptionId\` (string) ∈ \`optionIds\`, seulement si une ligne est clairement la référence / standard.
+- Requis : \`assignation\` (string) = nom d'assignation métier pour la famille.
+- Requis : \`businessView\` (string) = vue métier principale.
+- Optionnel : \`subFamily\` (string) = sous-famille métier si pertinent.
+- **Choix unique** : pour un même équipement, toutes les variantes couleur / RAL / finition → **une** famille et **tous** les ids dans \`optionIds\` (une seule teinte retenue, pas plusieurs).
+
+Exemple de forme (ids fictifs) :
+[
+  {"familyLabel":"Couleur du flotteur","optionIds":["opt_23","opt_24","opt_25"]},
+  {"familyLabel":"Console de pilotage (couleur)","optionIds":["opt_86","opt_87","opt_88"],"defaultOptionId":"opt_86"}
+]
+
+## Règles strictes
+- Chaque \`id\` présent dans les données apparaît **exactement une fois** au total dans tous les \`optionIds\`.
+- Pas de doublon d'id entre familles ; pas d'id inventé.
+- \`familyLabel\` : court, en français, nom du **choix catalogue** (ex. « Couleur du flotteur »), pas le nom d'une teinte isolée.
+- \`assignation\` : terme métier court et exploitable en production.
+- \`businessView\` : vue métier de rattachement.
+- Couleurs / RAL / finitions du même équipement : **toujours** regroupées ; interdit de créer une famille par teinte.
+- Liste longue : reste cohérent du début à la fin ; une seule réponse JSON couvrant **toutes** les lignes.`
     };
 
     if (!document) {
@@ -677,7 +792,19 @@ Réponds UNIQUEMENT avec un JSON valide au format suivant:
     // Fusionner avec les valeurs par défaut pour les champs manquants
     return {
       subCategoryPrompt: document.subCategoryPrompt || defaultPrompts.subCategoryPrompt,
-      categorizationPrompt: document.categorizationPrompt || defaultPrompts.categorizationPrompt
+      categorizationPrompt: document.categorizationPrompt || defaultPrompts.categorizationPrompt,
+      minorationPrompt: document.minorationPrompt || defaultPrompts.minorationPrompt,
+      subCategoryLlmId: document.subCategoryLlmId || defaultPrompts.subCategoryLlmId,
+      categorizationLlmId: document.categorizationLlmId || defaultPrompts.categorizationLlmId,
+      minorationLlmId: document.minorationLlmId || defaultPrompts.minorationLlmId,
+      familleLlmId: document.familleLlmId || defaultPrompts.familleLlmId,
+      assignationLlmId: document.assignationLlmId || defaultPrompts.assignationLlmId,
+      assignationPrompt: document.assignationPrompt || defaultPrompts.assignationPrompt,
+      familleContext:
+        document.familleContext !== undefined && document.familleContext !== null
+          ? document.familleContext
+          : defaultPrompts.familleContext,
+      famillePrompt: document.famillePrompt || defaultPrompts.famillePrompt
     };
   }
 
@@ -702,6 +829,36 @@ Réponds UNIQUEMENT avec un JSON valide au format suivant:
     if (prompts.categorizationPrompt !== undefined && prompts.categorizationPrompt !== null) {
       updateData.categorizationPrompt = prompts.categorizationPrompt;
     }
+    
+    if (prompts.minorationPrompt !== undefined && prompts.minorationPrompt !== null) {
+      updateData.minorationPrompt = prompts.minorationPrompt;
+    }
+
+    if (prompts.famillePrompt !== undefined && prompts.famillePrompt !== null) {
+      updateData.famillePrompt = prompts.famillePrompt;
+    }
+
+    if (prompts.familleContext !== undefined && prompts.familleContext !== null) {
+      updateData.familleContext = prompts.familleContext;
+    }
+    if (prompts.subCategoryLlmId !== undefined) {
+      updateData.subCategoryLlmId = prompts.subCategoryLlmId ? String(prompts.subCategoryLlmId).trim() : null;
+    }
+    if (prompts.categorizationLlmId !== undefined) {
+      updateData.categorizationLlmId = prompts.categorizationLlmId ? String(prompts.categorizationLlmId).trim() : null;
+    }
+    if (prompts.minorationLlmId !== undefined) {
+      updateData.minorationLlmId = prompts.minorationLlmId ? String(prompts.minorationLlmId).trim() : null;
+    }
+    if (prompts.familleLlmId !== undefined) {
+      updateData.familleLlmId = prompts.familleLlmId ? String(prompts.familleLlmId).trim() : null;
+    }
+    if (prompts.assignationLlmId !== undefined) {
+      updateData.assignationLlmId = prompts.assignationLlmId ? String(prompts.assignationLlmId).trim() : null;
+    }
+    if (prompts.assignationPrompt !== undefined && prompts.assignationPrompt !== null) {
+      updateData.assignationPrompt = prompts.assignationPrompt;
+    }
 
     const existing = await collection.findOne({ entrepriseId });
     
@@ -717,6 +874,27 @@ Réponds UNIQUEMENT avec un JSON valide au format suivant:
         entrepriseId,
         subCategoryPrompt: prompts.subCategoryPrompt || defaults.subCategoryPrompt,
         categorizationPrompt: prompts.categorizationPrompt || defaults.categorizationPrompt,
+        minorationPrompt: prompts.minorationPrompt || defaults.minorationPrompt,
+        subCategoryLlmId: prompts.subCategoryLlmId !== undefined
+          ? (prompts.subCategoryLlmId ? String(prompts.subCategoryLlmId).trim() : null)
+          : defaults.subCategoryLlmId,
+        categorizationLlmId: prompts.categorizationLlmId !== undefined
+          ? (prompts.categorizationLlmId ? String(prompts.categorizationLlmId).trim() : null)
+          : defaults.categorizationLlmId,
+        minorationLlmId: prompts.minorationLlmId !== undefined
+          ? (prompts.minorationLlmId ? String(prompts.minorationLlmId).trim() : null)
+          : defaults.minorationLlmId,
+        familleLlmId: prompts.familleLlmId !== undefined
+          ? (prompts.familleLlmId ? String(prompts.familleLlmId).trim() : null)
+          : defaults.familleLlmId,
+        assignationLlmId: prompts.assignationLlmId !== undefined
+          ? (prompts.assignationLlmId ? String(prompts.assignationLlmId).trim() : null)
+          : defaults.assignationLlmId,
+        assignationPrompt: prompts.assignationPrompt || defaults.assignationPrompt,
+        familleContext: prompts.familleContext !== undefined && prompts.familleContext !== null
+          ? prompts.familleContext
+          : defaults.familleContext,
+        famillePrompt: prompts.famillePrompt || defaults.famillePrompt,
         createdAt: new Date(),
         updatedAt: new Date()
       });

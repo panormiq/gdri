@@ -1,0 +1,13 @@
+{
+  "id": "validation-candidature",
+  "name": "Validation de Candidature",
+  "description": "Etape finale de validation et decision.",
+  "bricks": [
+    {
+      "name": "Aptitude du Candidat"
+    },
+    {
+      "name": "Candidature Validee"
+    }
+  ]
+}

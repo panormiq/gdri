@@ -5,6 +5,22 @@
   margin: 0 auto;
 }
 
+.document-create-nav {
+  display: flex;
+  gap: var(--spacing-sm);
+  align-items: center;
+  margin: var(--spacing-md) auto var(--spacing-lg);
+  max-width: 1200px;
+  padding: 0 var(--spacing-md);
+  box-sizing: border-box;
+}
+
+.document-create-form .document-create-nav {
+  max-width: none;
+  padding: 0;
+  margin: 0 0 var(--spacing-lg) 0;
+}
+
 .document-create-form h1 {
   margin-bottom: var(--spacing-lg);
   font-size: var(--font-size-xl);

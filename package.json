@@ -14,9 +14,11 @@
     "express": "^5.1.0",
     "express-rate-limit": "^7.4.1",
     "express-validator": "^7.3.0",
+    "imapflow": "^1.0.0",
     "jsonwebtoken": "^9.0.2",
     "mongodb": "^6.20.0",
-    "multer": "^2.0.2"
+    "multer": "^2.0.2",
+    "nodemailer": "^6.9.0"
   },
   "devDependencies": {
     "nodemon": "^3.1.10"

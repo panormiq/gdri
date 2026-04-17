@@ -153,6 +153,54 @@ router.post('/import',
   ugapController.importExcel
 );
 
+/**
+ * POST /api/ugap/familles/suggest-ia
+ * Regroupe options + minorations en familles (IA uniquement, pas d'heuristique).
+ */
+router.post('/familles/suggest-ia',
+  express.json({ limit: '2mb' }),
+  authenticateJWT,
+  useUgapEntrepriseDb,
+  requireUgapRole(['ADMIN_ENTITY']),
+  ugapController.suggestFamiliesByAI
+);
+
+/**
+ * POST /api/ugap/familles/assign-views-ia
+ * Assigne les familles aux vues métier via IA (famille par famille).
+ */
+router.post('/familles/assign-views-ia',
+  express.json({ limit: '2mb' }),
+  authenticateJWT,
+  useUgapEntrepriseDb,
+  requireUgapRole(['ADMIN_ENTITY']),
+  ugapController.assignFamiliesToBusinessViewsAI
+);
+
+/**
+ * POST /api/ugap/base-options/complete-ia
+ * Complète les options de base (produit initial/final) via IA
+ */
+router.post('/base-options/complete-ia',
+  express.json({ limit: '1mb' }),
+  authenticateJWT,
+  useUgapEntrepriseDb,
+  requireUgapRole(['ADMIN_ENTITY']),
+  ugapController.completeBaseOptionsWithAI
+);
+
+/**
+ * POST /api/ugap/base-options/complete-ia-line
+ * Complète une seule ligne option de base via IA (progression front ligne par ligne)
+ */
+router.post('/base-options/complete-ia-line',
+  express.json({ limit: '512kb' }),
+  authenticateJWT,
+  useUgapEntrepriseDb,
+  requireUgapRole(['ADMIN_ENTITY']),
+  ugapController.completeBaseOptionLineWithAI
+);
+
 // ========================================
 // ROUTES CATÉGORIES (ORDRE IMPORTANT : routes spécifiques AVANT routes générales)
 // ========================================
@@ -336,6 +384,17 @@ router.post('/prompts/reset',
   useUgapEntrepriseDb,
   requireUgapRole(['ADMIN_ENTITY']),
   ugapController.resetPrompts
+);
+
+/**
+ * GET /api/ugap/ia-context
+ * Serveur / provider / modèle effectifs pour les appels IA UGAP (+ référence LLM entité)
+ */
+router.get('/ia-context',
+  authenticateJWT,
+  useUgapEntrepriseDb,
+  requireUgapRole(['ADMIN_ENTITY']),
+  ugapController.getIaContext
 );
 
 // ========================================

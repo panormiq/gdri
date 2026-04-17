@@ -1,0 +1,688 @@
+<?php
+/**
+ * Résumé Facebook - Par page, avec filtres de temps
+ * Affiche likes, commentaires, dernière interaction par onglet. Option pull de rattrapage si webhooks manqués.
+ */
+
+require_once '../../config/config.php';
+require_once '../../auth/session.php';
+require_once '../../includes/functions.php';
+require_once '../../includes/jwt-helper.php';
+
+function hasFacebookServiceAccessViaApi()
+{
+    if (hasRole(ROLE_ADMIN_GDRI) || hasRole(ROLE_ADMIN_ENTITY)) {
+        return true;
+    }
+    if (!hasRole(ROLE_USER_ENTITY)) {
+        return false;
+    }
+    $token = getJWTToken();
+    $apiBase = rtrim(getApiBaseUrl(), '/');
+    if (!$token || !$apiBase) {
+        return false;
+    }
+    $ch = curl_init($apiBase . '/users/me/services-context');
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+    curl_setopt($ch, CURLOPT_HTTPHEADER, [
+        'Authorization: Bearer ' . $token,
+        'Content-Type: application/json'
+    ]);
+    curl_setopt($ch, CURLOPT_TIMEOUT, 20);
+    $raw = curl_exec($ch);
+    $err = curl_error($ch);
+    $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+    if ($err || $code < 200 || $code >= 300) {
+        return false;
+    }
+    $decoded = json_decode((string) $raw, true);
+    $services = is_array($decoded['data']['services'] ?? null) ? $decoded['data']['services'] : [];
+    foreach ($services as $service) {
+        $slug = strtolower(trim((string) ($service['slug'] ?? '')));
+        $name = strtolower(trim((string) ($service['name'] ?? '')));
+        if ($slug === 'facebook' || strpos($name, 'facebook') !== false) {
+            return true;
+        }
+    }
+    return false;
+}
+
+if (!isLoggedIn()) {
+    redirect(url('pages/dashboard.php'));
+}
+
+$hasAccess = hasFacebookServiceAccessViaApi();
+
+if (!isLoggedIn() || !$hasAccess) {
+    redirect(url('pages/dashboard.php'));
+}
+
+$page_title = 'Résumé Facebook';
+require_once '../../includes/header.php';
+
+$jwt_token = getJWTToken();
+$api_base_url = rtrim(getApiBaseUrl(), '/');
+?>
+
+<div class="container" style="max-width: 960px; margin: 2rem auto; padding: 0 1rem;">
+    <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 1rem; margin-bottom: 1.5rem;">
+        <h1 style="margin: 0;">📊 Résumé Facebook</h1>
+        <a href="<?= url('pages/modules.php') ?>" class="btn btn-outline">← Modules</a>
+    </div>
+
+    <p class="text-muted" style="margin-bottom: 1rem;">
+        Vue d'ensemble par page : likes, commentaires et dernière interaction. La dernière interaction est enregistrée à chaque webhook et lors des pulls de rattrapage (serveur arrêté, etc.).
+    </p>
+
+    <div id="resume-loading" class="alert alert-info">Chargement des pages…</div>
+    <div id="resume-empty" class="alert alert-warning" style="display: none;">
+        Aucune page connectée. <a href="<?= url('pages/modules/facebook-config.php') ?>">Connecter Facebook</a>.
+    </div>
+
+    <div id="resume-tabs" class="resume-tabs" style="display: none;">
+        <ul class="nav nav-tabs" id="page-tabs" role="tablist"></ul>
+        <div class="tab-content" id="page-tab-content"></div>
+    </div>
+</div>
+
+<style>
+.resume-tabs .nav-tabs { border-bottom: 1px solid #dee2e6; margin-bottom: 1rem; }
+.resume-tabs .nav-tabs .nav-link { border: 1px solid transparent; border-radius: 4px 4px 0 0; padding: 0.5rem 1rem; color: #495057; cursor: pointer; }
+.resume-tabs .nav-tabs .nav-link:hover { border-color: #e9ecef; }
+.resume-tabs .nav-tabs .nav-link.active { color: #0d6efd; background: #fff; border-color: #dee2e6 #dee2e6 #fff; }
+.resume-page-card { background: #f8f9fa; border-radius: 8px; padding: 1.25rem; margin-bottom: 1rem; }
+.resume-page-card h3 { margin: 0 0 0.75rem 0; font-size: 1.1rem; }
+.resume-stats { display: flex; flex-wrap: wrap; gap: 1.5rem; font-size: 0.95rem; color: #495057; }
+.resume-stats span { white-space: nowrap; }
+.resume-stats strong { color: #212529; }
+.resume-toolbar-per-page { margin-bottom: 1rem; }
+.resume-stats-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 0.75rem; margin-bottom: 1rem; }
+.resume-stat-box { background: #fff; border: 1px solid #dee2e6; border-radius: 6px; padding: 0.6rem 0.75rem; font-size: 0.9rem; }
+.resume-stat-box .value { font-weight: 700; font-size: 1.1rem; color: #212529; }
+.resume-stat-box .label { color: #6c757d; font-size: 0.8rem; margin-top: 0.15rem; }
+.resume-evolution { font-size: 0.8rem; margin-top: 0.2rem; }
+.resume-evolution.up { color: #198754; }
+.resume-evolution.down { color: #dc3545; }
+.resume-evolution.same { color: #6c757d; }
+.resume-section-title { font-size: 0.85rem; font-weight: 600; color: #495057; margin: 1rem 0 0.5rem 0; }
+.messages-by-urgency { margin-top: 1.5rem; border-top: 1px solid #dee2e6; padding-top: 1rem; }
+.messages-by-urgency .sub-tabs { display: flex; flex-wrap: wrap; gap: 0.25rem; margin-bottom: 0.75rem; }
+.messages-by-urgency .sub-tabs .sub-tab { padding: 0.35rem 0.75rem; border-radius: 4px; border: 1px solid #dee2e6; background: #fff; cursor: pointer; font-size: 0.9rem; }
+.messages-by-urgency .sub-tabs .sub-tab:hover { background: #f1f3f5; }
+.messages-by-urgency .sub-tabs .sub-tab.active { background: #0d6efd; color: #fff; border-color: #0d6efd; }
+.messages-by-urgency .intention-filter { margin-bottom: 0.75rem; }
+.msg-card { background: #fff; border: 1px solid #dee2e6; border-radius: 8px; padding: 1rem; margin-bottom: 0.75rem; }
+.msg-card .msg-meta { font-size: 0.85rem; color: #6c757d; margin-bottom: 0.5rem; }
+.msg-card .msg-intentions { display: flex; flex-wrap: wrap; gap: 0.35rem; margin-bottom: 0.5rem; }
+.msg-card .msg-intentions span { padding: 0.2rem 0.5rem; border-radius: 4px; background: #e9ecef; font-size: 0.8rem; }
+.msg-card .msg-reply-row { margin-top: 0.75rem; display: flex; flex-direction: column; gap: 0.5rem; }
+.msg-card .msg-reply-toolbar { margin-bottom: 0.25rem; }
+.msg-card .msg-reply-alt { margin: 0.25rem 0 0 0; font-size: 0.85rem; }
+.msg-card .msg-reply-alt .btn-link { padding: 0; font-size: 0.85rem; }
+.msg-card .msg-reply-row > label { font-size: 0.85rem; font-weight: 600; }
+.msg-card .msg-reply-row textarea { min-width: 100%; min-height: 60px; padding: 0.5rem; border-radius: 4px; border: 1px solid #dee2e6; font-size: 0.9rem; }
+.msg-card .msg-reply-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; }
+.msg-card .msg-reply-actions .btn { white-space: nowrap; }
+.msg-card .msg-feedback { margin-top: 0.9rem; border-top: 1px dashed #dee2e6; padding-top: 0.8rem; }
+.msg-card .msg-feedback-form { margin-top: 0.6rem; display: none; gap: 0.5rem; flex-direction: column; }
+.msg-card .msg-feedback-form.active { display: flex; }
+.msg-card .msg-feedback-form select,
+.msg-card .msg-feedback-form textarea { border: 1px solid #dee2e6; border-radius: 4px; padding: 0.45rem 0.5rem; font-size: 0.88rem; }
+.msg-card .msg-feedback-form textarea { min-height: 70px; }
+.msg-card .msg-feedback-status { font-size: 0.82rem; color: #495057; }
+.msg-card .msg-badge-replied { font-size: 0.8rem; color: #198754; background: #d1e7dd; padding: 0.25rem 0.5rem; border-radius: 4px; margin-bottom: 0.5rem; display: inline-block; }
+.msg-card .msg-replied-content { margin-top: 0.5rem; padding: 0.5rem 0.75rem; background: #e7f5ff; border-left: 3px solid #0d6efd; border-radius: 4px; }
+.msg-card .msg-replied-content .msg-replied-text { margin: 0.25rem 0 0 0; font-size: 0.9rem; color: #212529; white-space: pre-wrap; word-break: break-word; }
+.msg-card .msg-replied-content.msg-replied-no-text { font-style: italic; color: #6c757d; }
+.messages-list-empty { color: #6c757d; font-style: italic; padding: 1rem; }
+</style>
+
+<script>
+(function() {
+    var API_BASE = <?= json_encode($api_base_url) ?>;
+    var JWT = <?= json_encode($jwt_token) ?>;
+    var publishUrl = <?= json_encode(url('pages/modules/facebook-publish.php')) ?>;
+
+    var STATUS_OPTIONS = [
+        { value: 'a_repondre', label: 'À répondre' },
+        { value: 'a_ne_pas_repondre', label: 'À ne pas répondre' },
+        { value: 'repondu', label: 'Répondu' }
+    ];
+    var INTENTION_OPTIONS = [
+        { value: '', label: 'Tous les services' },
+        { value: 'SAV', label: 'SAV' },
+        { value: 'Commercial', label: 'Commercial' },
+        { value: 'Technique', label: 'Technique' },
+        { value: 'Critique', label: 'Critique' },
+        { value: 'Positif', label: 'Positif' },
+        { value: 'Général', label: 'Général' }
+    ];
+
+    function sinceDate(days) {
+        var d = new Date();
+        d.setDate(d.getDate() - parseInt(days, 10));
+        return d.toISOString().slice(0, 10);
+    }
+
+    function formatDate(iso) {
+        if (!iso) return '–';
+        var d = new Date(iso);
+        return d.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' }) + ' ' + d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+    }
+
+    function evolutionClass(val) {
+        if (val == null || val === undefined) return 'same';
+        return val > 0 ? 'up' : (val < 0 ? 'down' : 'same');
+    }
+    function evolutionLabel(val) {
+        if (val == null || val === undefined) return '';
+        if (val > 0) return ' +' + val + '% vs période précédente';
+        if (val < 0) return ' ' + val + '% vs période précédente';
+        return ' = vs période précédente';
+    }
+
+    function buildCardHtml(p) {
+        if (!p) return '<div class="resume-page-card"><p class="text-muted">Aucune donnée.</p></div>';
+        var fmt = function(n) { return n != null && n !== undefined ? Number(n).toLocaleString('fr-FR') : '–'; };
+        var last = formatDate(p.lastInteractionAt);
+        var evo = (p && p.evolution) ? p.evolution : {};
+        var stats = [];
+        stats.push({ label: 'Abonnés (likes page)', value: fmt(p.fan_count), evo: null });
+        stats.push({ label: 'Posts publiés', value: fmt(p.postsCount), evo: evo.postsPercent });
+        stats.push({ label: 'Commentaires', value: fmt(p.commentsCount), evo: evo.commentsPercent });
+        stats.push({ label: 'Réactions (j\'aime, etc.)', value: fmt(p.reactionsCount), evo: evo.reactionsPercent });
+        stats.push({ label: 'Total interactions', value: fmt(p.totalInteractions), evo: evo.interactionsPercent });
+        stats.push({ label: 'Moy. commentaires / post', value: p.avgCommentsPerPost != null ? p.avgCommentsPerPost : '–', evo: null });
+        stats.push({ label: 'Moy. réactions / post', value: p.avgReactionsPerPost != null ? p.avgReactionsPerPost : '–', evo: null });
+        stats.push({ label: 'Dernière interaction', value: last || '–', evo: null });
+
+        var statsHtml = '<div class="resume-stats-grid">';
+        stats.forEach(function(s) {
+            var evoHtml = s.evo != null ? '<div class="resume-evolution ' + evolutionClass(s.evo) + '">' + evolutionLabel(s.evo) + '</div>' : '';
+            statsHtml += '<div class="resume-stat-box"><div class="value">' + s.value + '</div><div class="label">' + s.label + '</div>' + evoHtml + '</div>';
+        });
+        statsHtml += '</div>';
+
+        var topHtml = '';
+        if (p.topPosts && p.topPosts.length > 0) {
+            topHtml = '<div class="resume-section-title">Posts les plus interactifs</div>' +
+                '<ul style="margin: 0; padding-left: 1.25rem; font-size: 0.9rem;">';
+            p.topPosts.forEach(function(post) {
+                var msg = (post.message || '(sans texte)').replace(/</g, '&lt;').slice(0, 120);
+                if ((post.message || '').length > 120) msg += '…';
+                var total = (post.comments_count || 0) + (post.reactions_count || 0);
+                topHtml += '<li><strong>' + total + ' interaction(s)</strong> (' + (post.comments_count || 0) + ' com., ' + (post.reactions_count || 0) + ' réac.) — ' + msg + '</li>';
+            });
+            topHtml += '</ul>' +
+                '<p style="margin: 0.75rem 0 0 0; font-size: 0.85rem; color: #666;">' +
+                'Des questions similaires reviennent souvent ? <a href="' + publishUrl + '">Rédiger un message sur ce sujet</a>.' +
+                '</p>';
+        }
+        return '<div class="resume-page-card">' +
+            '<h3>' + (p.pageName || ('Page ' + p.pageId)) + '</h3>' +
+            statsHtml + topHtml + '</div>';
+    }
+
+    function loadPageSummary(pageId, sinceDays, cardContainer) {
+        cardContainer.innerHTML = '<p class="text-muted">Chargement…</p>';
+        var since = sinceDays ? sinceDate(sinceDays) : '';
+        var url = API_BASE + '/facebook/pages/' + encodeURIComponent(pageId) + '/summary';
+        var params = [];
+        if (since) params.push('since=' + encodeURIComponent(since));
+        if (sinceDays) params.push('periodDays=' + encodeURIComponent(sinceDays));
+        if (params.length) url += '?' + params.join('&');
+        fetch(url, { headers: { 'Authorization': 'Bearer ' + JWT } })
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (data.success && data.page) {
+                    cardContainer.innerHTML = buildCardHtml(data.page);
+                } else {
+                    cardContainer.innerHTML = '<p class="text-muted">Impossible de charger le résumé.</p>';
+                }
+            })
+            .catch(function() {
+                cardContainer.innerHTML = '<p class="text-muted">Erreur de chargement.</p>';
+            });
+    }
+
+    function markMessageRepliedAndRefresh(card, listEl, pageId, replyText) {
+        var messageId = card.getAttribute('data-message-id');
+        if (!messageId) return;
+        var section = card.closest('.messages-by-urgency');
+        var status = section ? (section.querySelector('.sub-tab.active') && section.querySelector('.sub-tab.active').getAttribute('data-status')) : 'a_repondre';
+        var intention = section && section.querySelector('.intention-filter select') ? section.querySelector('.intention-filter select').value : '';
+        var urgentOnly = section && section.querySelector('.urgent-only-cb') ? section.querySelector('.urgent-only-cb').checked : false;
+        var body = {};
+        if (replyText) body.message = replyText;
+        fetch(API_BASE + '/facebook/pages/' + encodeURIComponent(pageId) + '/messages/analyzed/' + encodeURIComponent(messageId) + '/replied', {
+            method: 'PATCH',
+            headers: { 'Authorization': 'Bearer ' + JWT, 'Content-Type': 'application/json' },
+            body: Object.keys(body).length ? JSON.stringify(body) : undefined
+        }).then(function(r) { return r.json(); }).then(function(res) {
+            if (res && res.success) loadAnalyzedMessages(pageId, status || 'a_repondre', intention, listEl, urgentOnly);
+        }).catch(function() {});
+    }
+
+    function loadAnalyzedMessages(pageId, status, intention, listEl, urgentOnly) {
+        listEl.innerHTML = '<p class="text-muted">Chargement des messages…</p>';
+        var url = API_BASE + '/facebook/pages/' + encodeURIComponent(pageId) + '/messages/analyzed?status=' + encodeURIComponent(status || 'a_repondre');
+        if (intention) url += '&intention=' + encodeURIComponent(intention);
+        if (urgentOnly) url += '&urgent_only=1';
+        fetch(url, { headers: { 'Authorization': 'Bearer ' + JWT } })
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (!data.success || !data.messages || !data.messages.length) {
+                    listEl.innerHTML = '<p class="messages-list-empty">Aucun message pour ce filtre.</p>';
+                    return;
+                }
+                var html = '';
+                data.messages.forEach(function(m) {
+                    html += buildMessageCardHtml(m, pageId);
+                });
+                listEl.innerHTML = html;
+                listEl.querySelectorAll('.btn-prepare-reply').forEach(function(btn) {
+                    btn.addEventListener('click', function() {
+                        var card = btn.closest('.msg-card');
+                        var msgBody = card.querySelector('.msg-body');
+                        var msgText = msgBody ? msgBody.textContent.replace(/\s+/g, ' ').trim() : '';
+                        var intentions = [];
+                        card.querySelectorAll('.msg-intentions span').forEach(function(s) { intentions.push(s.textContent.trim()); });
+                        var mainTa = card.querySelector('.msg-reply-text');
+                        btn.disabled = true;
+                        btn.textContent = 'Préparation…';
+                        fetch(API_BASE + '/analyse/suggest-reply', {
+                            method: 'POST',
+                            headers: { 'Authorization': 'Bearer ' + JWT, 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ message: msgText, intentions: intentions })
+                        }).then(function(r) { return r.json(); }).then(function(res) {
+                            btn.disabled = false;
+                            btn.textContent = 'Préparer une réponse avec l\'IA';
+                            if (!mainTa) return;
+                            if (res.success && res.suggestions && res.suggestions.length) {
+                                mainTa.value = res.suggestions[0] || '';
+                                var existingAlt = card.querySelector('.msg-reply-alt');
+                                if (existingAlt) existingAlt.remove();
+                                if (res.suggestions[1]) {
+                                    var alt = document.createElement('p');
+                                    alt.className = 'msg-reply-alt';
+                                    alt.innerHTML = '<button type="button" class="btn btn-link btn-sm btn-use-alt-reply">Utiliser la 2e suggestion</button>';
+                                    mainTa.parentNode.insertBefore(alt, mainTa.nextSibling);
+                                    alt.querySelector('.btn-use-alt-reply').addEventListener('click', function() {
+                                        mainTa.value = res.suggestions[1];
+                                        alt.remove();
+                                    });
+                                }
+                            } else {
+                                mainTa.placeholder = 'Aucune suggestion. Saisissez votre réponse.';
+                            }
+                        }).catch(function() {
+                            btn.disabled = false;
+                            btn.textContent = 'Préparer une réponse avec l\'IA';
+                            if (mainTa) mainTa.placeholder = 'Erreur de chargement. Saisissez votre réponse.';
+                        });
+                    });
+                });
+                listEl.querySelectorAll('.btn-reply-comment').forEach(function(btn) {
+                    btn.addEventListener('click', function() {
+                        var card = btn.closest('.msg-card');
+                        var pageId = card.getAttribute('data-page-id');
+                        var postId = card.getAttribute('data-post-id');
+                        var commentId = (card.getAttribute('data-comment-id') || '').trim();
+                        var textarea = card.querySelector('.msg-reply-text');
+                        var replyText = textarea ? textarea.value.trim() : '';
+                        if (!replyText) { alert('Saisissez une réponse à envoyer.'); return; }
+                        var url;
+                        if (commentId && commentId !== 'undefined') {
+                            url = API_BASE + '/facebook/pages/' + encodeURIComponent(pageId) + '/comments/' + encodeURIComponent(commentId) + '/replies';
+                        } else if (postId) {
+                            url = API_BASE + '/facebook/pages/' + encodeURIComponent(pageId) + '/posts/' + encodeURIComponent(postId) + '/comments';
+                        } else {
+                            alert('Impossible de répondre (post ou commentaire introuvable).'); return;
+                        }
+                        btn.disabled = true;
+                        btn.textContent = 'Envoi…';
+                        fetch(url, {
+                            method: 'POST',
+                            headers: { 'Authorization': 'Bearer ' + JWT, 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ message: replyText })
+                        }).then(function(r) { return r.json(); }).then(function(res) {
+                            btn.disabled = false;
+                            btn.textContent = 'Répondre en commentaire';
+                            if (res.success) {
+                                if (textarea) textarea.value = '';
+                                markMessageRepliedAndRefresh(card, listEl, pageId, replyText);
+                                alert(commentId ? 'Réponse au commentaire publiée.' : 'Commentaire publié.');
+                            } else { alert(res.message || 'Erreur.'); }
+                        }).catch(function() { btn.disabled = false; btn.textContent = 'Répondre en commentaire'; alert('Erreur réseau.'); });
+                    });
+                });
+                listEl.querySelectorAll('.btn-reply-mp').forEach(function(btn) {
+                    btn.addEventListener('click', function() {
+                        var card = btn.closest('.msg-card');
+                        var pageId = card.getAttribute('data-page-id');
+                        var recipientId = card.getAttribute('data-recipient-id');
+                        var textarea = card.querySelector('.msg-reply-text');
+                        var replyText = textarea ? textarea.value.trim() : '';
+                        if (!recipientId) { alert('Destinataire inconnu.'); return; }
+                        if (!replyText) { alert('Saisissez une réponse.'); return; }
+                        btn.disabled = true;
+                        btn.textContent = 'Envoi…';
+                        fetch(API_BASE + '/facebook/pages/' + encodeURIComponent(pageId) + '/messages/reply', {
+                            method: 'POST',
+                            headers: { 'Authorization': 'Bearer ' + JWT, 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ recipientId: recipientId, message: replyText })
+                        }).then(function(r) { return r.json(); }).then(function(res) {
+                            btn.disabled = false;
+                            btn.textContent = 'Répondre en MP';
+                            if (res.success) {
+                                if (textarea) textarea.value = '';
+                                markMessageRepliedAndRefresh(card, listEl, pageId, replyText);
+                                alert('Message envoyé.');
+                            } else { alert(res.message || 'Erreur.'); }
+                        }).catch(function() { btn.disabled = false; btn.textContent = 'Répondre en MP'; alert('Erreur réseau.'); });
+                    });
+                });
+                listEl.querySelectorAll('.btn-toggle-feedback').forEach(function(btn) {
+                    btn.addEventListener('click', function() {
+                        var card = btn.closest('.msg-card');
+                        var form = card ? card.querySelector('.msg-feedback-form') : null;
+                        if (!form) return;
+                        form.classList.toggle('active');
+                    });
+                });
+                listEl.querySelectorAll('.btn-submit-feedback').forEach(function(btn) {
+                    btn.addEventListener('click', function() {
+                        var card = btn.closest('.msg-card');
+                        if (!card) return;
+                        var messageId = card.getAttribute('data-message-id');
+                        var form = card.querySelector('.msg-feedback-form');
+                        if (!messageId || !form) return;
+                        var reasonEl = form.querySelector('.feedback-reason');
+                        var correctionTypeEl = form.querySelector('.feedback-correction-type');
+                        var expectedPriorityEl = form.querySelector('.feedback-expected-priority');
+                        var statusEl = card.querySelector('.msg-feedback-status');
+                        var reason = reasonEl ? reasonEl.value.trim() : '';
+                        var correctionType = correctionTypeEl ? correctionTypeEl.value : 'other';
+                        var expectedPriority = expectedPriorityEl ? expectedPriorityEl.value : '';
+                        if (!reason || reason.length < 5) {
+                            alert('Expliquez pourquoi la classification est incorrecte (minimum 5 caractères).');
+                            return;
+                        }
+                        btn.disabled = true;
+                        btn.textContent = 'Envoi...';
+                        if (statusEl) statusEl.textContent = '';
+                        fetch(API_BASE + '/facebook/pages/' + encodeURIComponent(pageId) + '/messages/analyzed/' + encodeURIComponent(messageId) + '/feedback', {
+                            method: 'POST',
+                            headers: { 'Authorization': 'Bearer ' + JWT, 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                reason: reason,
+                                correctionType: correctionType,
+                                expectedPriority: expectedPriority
+                            })
+                        }).then(function(r) { return r.json(); }).then(function(res) {
+                            btn.disabled = false;
+                            btn.textContent = 'Envoyer la correction';
+                            if (res && res.success) {
+                                if (reasonEl) reasonEl.value = '';
+                                if (statusEl) statusEl.textContent = 'Correction enregistrée. Le prompt sera enrichi pour les prochains messages.';
+                                form.classList.remove('active');
+                            } else {
+                                if (statusEl) statusEl.textContent = (res && res.message) ? res.message : 'Erreur lors de l\'envoi de la correction.';
+                            }
+                        }).catch(function() {
+                            btn.disabled = false;
+                            btn.textContent = 'Envoyer la correction';
+                            if (statusEl) statusEl.textContent = 'Erreur réseau lors de l\'envoi.';
+                        });
+                    });
+                });
+            })
+            .catch(function() {
+                listEl.innerHTML = '<p class="messages-list-empty">Erreur de chargement des messages.</p>';
+            });
+    }
+
+    function buildMessageCardHtml(m, pageId) {
+        var author = (m.author && m.author.name) ? m.author.name : 'Anonyme';
+        var authorId = (m.author && m.author.id) ? String(m.author.id) : '';
+        var date = m.created_time ? new Date(m.created_time).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '';
+        var intentions = (m.intentions || []).map(function(i) { return (i.name || '').trim(); }).filter(Boolean);
+        var badges = intentions.length ? intentions.map(function(n) { return '<span>' + n.replace(/</g, '&lt;') + '</span>'; }).join('') : '<span>Général</span>';
+        var repliedAt = m.replied_at ? new Date(m.replied_at).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '';
+        var msgText = (m.message || '').replace(/</g, '&lt;').replace(/\n/g, '<br>');
+        var psid = (m.sender_psid || '').trim() || '';
+        var postId = (m.post_id || '').trim() || '';
+        var commentId = (m.comment_id || '').trim() || '';
+        var isComment = !!postId;
+        var recipientId = psid || authorId;
+        var canReplyMp = !!recipientId;
+        var canReplyComment = isComment && !!postId;
+        var esc = function(s) { return (s || '').replace(/"/g, '&quot;').replace(/</g, '&lt;'); };
+        var repliedMsg = (m.replied_message || '').trim();
+        var isReplied = !!repliedAt;
+        var repliedBlock = repliedAt
+            ? ('<div class="msg-badge-replied">Répondu le ' + repliedAt.replace(/</g, '&lt;') + '</div>' +
+               (repliedMsg
+                 ? '<div class="msg-replied-content"><strong>Réponse envoyée :</strong><p class="msg-replied-text">' + (repliedMsg.replace(/</g, '&lt;').replace(/\n/g, '<br>')) + '</p></div>'
+                 : '<div class="msg-replied-content msg-replied-no-text"><em>Réponse envoyée (texte non enregistré)</em></div>'))
+            : '';
+        var card = '<div class="msg-card" data-message-id="' + esc(m.id) + '" data-page-id="' + esc(pageId) + '" data-post-id="' + esc(postId) + '" data-comment-id="' + esc(commentId) + '" data-author-id="' + esc(authorId) + '" data-sender-psid="' + esc(psid) + '" data-recipient-id="' + esc(recipientId) + '">' +
+            repliedBlock +
+            '<div class="msg-meta">' + author + ' · ' + date + '</div>' +
+            '<div class="msg-intentions">' + badges + '</div>' +
+            '<div class="msg-body">' + msgText + '</div>';
+        if (!isReplied) {
+            card += '<div class="msg-reply-row">' +
+            '<div class="msg-reply-toolbar"><button type="button" class="btn btn-outline btn-sm btn-prepare-reply">Préparer une réponse avec l\'IA</button></div>' +
+            '<label>Réponse à envoyer</label><textarea class="msg-reply-text" rows="3" placeholder="Cliquez sur « Préparer une réponse avec l\'IA » ou saisissez votre réponse."></textarea>' +
+            '<div class="msg-reply-actions">';
+            if (canReplyComment) {
+                card += '<button type="button" class="btn btn-primary btn-reply-comment">Répondre en commentaire</button>';
+            }
+            if (canReplyMp) {
+                card += '<button type="button" class="btn btn-primary btn-reply-mp">Répondre en MP</button>';
+            }
+            if (!canReplyComment && !canReplyMp) {
+                card += '<span class="text-muted">Aucun canal de réponse disponible pour ce message.</span>';
+            }
+            card += '</div></div>';
+        }
+        card += '<div class="msg-feedback">' +
+            '<button type="button" class="btn btn-outline btn-sm btn-toggle-feedback">Signaler une mauvaise classification</button>' +
+            '<div class="msg-feedback-form">' +
+                '<label>Type de correction</label>' +
+                '<select class="feedback-correction-type">' +
+                    '<option value="urgency_false_positive">Faux urgent (classé urgent alors que non urgent)</option>' +
+                    '<option value="urgency_false_negative">Urgent non détecté</option>' +
+                    '<option value="wrong_intention">Mauvaise intention/service</option>' +
+                    '<option value="other">Autre</option>' +
+                '</select>' +
+                '<label>Priorité attendue</label>' +
+                '<select class="feedback-expected-priority">' +
+                    '<option value="">Non précisée</option>' +
+                    '<option value="immediate">Immédiate</option>' +
+                    '<option value="daily">Journalière</option>' +
+                    '<option value="weekly">Hebdomadaire</option>' +
+                    '<option value="monthly">Mensuelle</option>' +
+                '</select>' +
+                '<label>Pourquoi la classification est incorrecte ?</label>' +
+                '<textarea class="feedback-reason" placeholder="Ex: Ce message est une simple demande d\'information, pas une urgence."></textarea>' +
+                '<div class="msg-reply-actions"><button type="button" class="btn btn-primary btn-sm btn-submit-feedback">Envoyer la correction</button></div>' +
+            '</div>' +
+            '<div class="msg-feedback-status"></div>' +
+        '</div>';
+        card += '</div>';
+        return card;
+    }
+
+    function loadSummary() {
+        var url = API_BASE + '/facebook/pages/summary?since=' + encodeURIComponent(sinceDate('30'));
+
+        document.getElementById('resume-loading').style.display = 'block';
+        document.getElementById('resume-empty').style.display = 'none';
+        document.getElementById('resume-tabs').style.display = 'none';
+
+        fetch(url, { headers: { 'Authorization': 'Bearer ' + JWT } })
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                document.getElementById('resume-loading').style.display = 'none';
+                if (!data.success || !data.pages || data.pages.length === 0) {
+                    document.getElementById('resume-empty').style.display = 'block';
+                    return;
+                }
+                renderTabs(data.pages);
+                document.getElementById('resume-tabs').style.display = 'block';
+            })
+            .catch(function() {
+                document.getElementById('resume-loading').style.display = 'none';
+                document.getElementById('resume-empty').style.display = 'block';
+                document.getElementById('resume-empty').textContent = 'Impossible de charger le résumé.';
+            });
+    }
+
+    function renderTabs(pages) {
+        var tabList = document.getElementById('page-tabs');
+        var tabContent = document.getElementById('page-tab-content');
+        tabList.innerHTML = '';
+        tabContent.innerHTML = '';
+        var loadedTabs = {};
+
+        pages.forEach(function(p, idx) {
+            var tabId = 'tab-' + (p.pageId || idx);
+            var isFirst = idx === 0;
+            var pageId = p.pageId;
+
+            var li = document.createElement('li');
+            li.className = 'nav-item';
+            var link = document.createElement('a');
+            link.className = 'nav-link' + (isFirst ? ' active' : '');
+            link.href = '#' + tabId;
+            link.setAttribute('role', 'tab');
+            link.textContent = p.pageName || ('Page ' + pageId);
+            var pane = document.createElement('div');
+            pane.id = tabId;
+            pane.className = 'tab-pane' + (isFirst ? ' active' : '');
+            pane.setAttribute('role', 'tabpanel');
+            pane.style.display = isFirst ? 'block' : 'none';
+
+            var periodSelect = document.createElement('select');
+            periodSelect.className = 'form-control';
+            periodSelect.style.display = 'inline-block';
+            periodSelect.style.width = 'auto';
+            periodSelect.style.marginLeft = '0.5rem';
+            periodSelect.innerHTML = '<option value="7">7 derniers jours</option><option value="30" selected>30 derniers jours</option><option value="90">90 derniers jours</option><option value="">Tout</option>';
+            var toolbar = document.createElement('div');
+            toolbar.className = 'resume-toolbar-per-page';
+            toolbar.innerHTML = '<label>Période :</label> ';
+            toolbar.appendChild(periodSelect);
+
+            var cardContainer = document.createElement('div');
+            cardContainer.className = 'resume-page-card-container';
+            cardContainer.innerHTML = buildCardHtml(p);
+
+            link.addEventListener('click', function(e) {
+                e.preventDefault();
+                tabList.querySelectorAll('.nav-link').forEach(function(l) { l.classList.remove('active'); });
+                tabContent.querySelectorAll('.tab-pane').forEach(function(pan) { pan.classList.remove('active'); pan.style.display = 'none'; });
+                link.classList.add('active');
+                pane.classList.add('active');
+                pane.style.display = 'block';
+                if (!loadedTabs[pageId]) {
+                    loadedTabs[pageId] = true;
+                    loadPageSummary(pageId, periodSelect.value || '30', cardContainer);
+                    loadAnalyzedMessages(pageId, currentStatus.value, currentIntention.value, messagesListEl, getUrgentOnly());
+                }
+            });
+
+            li.appendChild(link);
+            tabList.appendChild(li);
+
+            periodSelect.addEventListener('change', function() {
+                var val = periodSelect.value;
+                loadPageSummary(pageId, val || null, cardContainer);
+            });
+
+            var messagesSection = document.createElement('div');
+            messagesSection.className = 'messages-by-urgency';
+            messagesSection.innerHTML = '<div class="resume-section-title">Messages</div>';
+            var subTabsEl = document.createElement('div');
+            subTabsEl.className = 'sub-tabs';
+            STATUS_OPTIONS.forEach(function(s) {
+                var b = document.createElement('button');
+                b.type = 'button';
+                b.className = 'sub-tab' + (s.value === 'a_repondre' ? ' active' : '');
+                b.textContent = s.label;
+                b.setAttribute('data-status', s.value);
+                subTabsEl.appendChild(b);
+            });
+            var intentionSelect = document.createElement('select');
+            intentionSelect.className = 'form-control intention-filter';
+            intentionSelect.style.display = 'inline-block';
+            intentionSelect.style.width = 'auto';
+            intentionSelect.style.marginLeft = '0.5rem';
+            INTENTION_OPTIONS.forEach(function(o) {
+                var opt = document.createElement('option');
+                opt.value = o.value;
+                opt.textContent = o.label;
+                intentionSelect.appendChild(opt);
+            });
+            var filterRow = document.createElement('div');
+            filterRow.className = 'intention-filter';
+            filterRow.innerHTML = '<label>Service / intention :</label> ';
+            filterRow.appendChild(intentionSelect);
+            var urgentCb = document.createElement('label');
+            urgentCb.className = 'urgent-only-filter';
+            urgentCb.style.marginLeft = '1rem';
+            urgentCb.innerHTML = '<input type="checkbox" class="urgent-only-cb" /> Réponse urgente uniquement';
+            filterRow.appendChild(urgentCb);
+            var messagesListEl = document.createElement('div');
+            messagesListEl.className = 'messages-list';
+
+            var currentStatus = { value: 'a_repondre' };
+            var currentIntention = { value: '' };
+            function getUrgentOnly() { return urgentCb.querySelector('.urgent-only-cb') ? urgentCb.querySelector('.urgent-only-cb').checked : false; }
+            function refreshMessages() {
+                loadAnalyzedMessages(pageId, currentStatus.value, currentIntention.value, messagesListEl, getUrgentOnly());
+            }
+            subTabsEl.querySelectorAll('.sub-tab').forEach(function(btn) {
+                btn.addEventListener('click', function() {
+                    subTabsEl.querySelectorAll('.sub-tab').forEach(function(x) { x.classList.remove('active'); });
+                    btn.classList.add('active');
+                    currentStatus.value = btn.getAttribute('data-status');
+                    refreshMessages();
+                });
+            });
+            intentionSelect.addEventListener('change', function() {
+                currentIntention.value = intentionSelect.value;
+                refreshMessages();
+            });
+            var urgentOnlyInput = urgentCb.querySelector('.urgent-only-cb');
+            if (urgentOnlyInput) {
+                urgentOnlyInput.addEventListener('change', function() {
+                    if (currentStatus.value === 'a_repondre') refreshMessages();
+                });
+            }
+
+            messagesSection.appendChild(subTabsEl);
+            messagesSection.appendChild(filterRow);
+            messagesSection.appendChild(messagesListEl);
+
+            pane.appendChild(toolbar);
+            pane.appendChild(cardContainer);
+            pane.appendChild(messagesSection);
+            tabContent.appendChild(pane);
+
+            if (isFirst) {
+                loadedTabs[pageId] = true;
+                loadPageSummary(pageId, '30', cardContainer);
+                loadAnalyzedMessages(pageId, 'a_repondre', '', messagesListEl, getUrgentOnly());
+            }
+        });
+    }
+
+    loadSummary();
+})();
+</script>
+
+<?php require_once '../../includes/footer.php'; ?>

@@ -1,0 +1,147 @@
+{
+    "version": 1,
+    "id": "les-diff-rent-type-de-question",
+    "name": "les différent type de question",
+    "shape": {
+        "type": "rect",
+        "text": "type de question",
+        "width": 160,
+        "height": 70,
+        "fontSize": 14,
+        "fontFamily": "Segoe UI",
+        "textColor": "#ffffff",
+        "bgColor": "#0e9cef",
+        "opacity": 1,
+        "imageData": null
+    },
+    "workflow": null,
+    "tutorial": {
+        "title": "les différent type de question",
+        "intro": "Dans cette parti du guide nous allons voir comment créer ou éditer une question",
+        "steps": [
+            {
+                "title": "créer  une question",
+                "items": [
+                    {
+                        "type": "text",
+                        "html": ""
+                    }
+                ],
+                "collapsed": false,
+                "substeps": [
+                    {
+                        "title": "choix multiple",
+                        "items": [
+                            {
+                                "type": "text",
+                                "html": ""
+                            }
+                        ],
+                        "collapsed": true,
+                        "substeps": []
+                    },
+                    {
+                        "title": "chiffre libre",
+                        "items": [
+                            {
+                                "type": "text",
+                                "html": ""
+                            }
+                        ],
+                        "collapsed": true,
+                        "substeps": []
+                    },
+                    {
+                        "title": "echelle analogique",
+                        "items": [
+                            {
+                                "type": "text",
+                                "html": ""
+                            }
+                        ],
+                        "collapsed": true,
+                        "substeps": []
+                    },
+                    {
+                        "title": "texte libre",
+                        "items": [
+                            {
+                                "type": "text",
+                                "html": ""
+                            }
+                        ],
+                        "collapsed": true,
+                        "substeps": []
+                    },
+                    {
+                        "title": "tableau à 2 colonnes",
+                        "items": [
+                            {
+                                "type": "text",
+                                "html": ""
+                            }
+                        ],
+                        "collapsed": true,
+                        "substeps": []
+                    },
+                    {
+                        "title": "image",
+                        "items": [
+                            {
+                                "type": "text",
+                                "html": ""
+                            }
+                        ],
+                        "collapsed": true,
+                        "substeps": []
+                    },
+                    {
+                        "title": "date complète",
+                        "items": [
+                            {
+                                "type": "text",
+                                "html": ""
+                            }
+                        ],
+                        "collapsed": true,
+                        "substeps": []
+                    },
+                    {
+                        "title": "année de la date",
+                        "items": [
+                            {
+                                "type": "text",
+                                "html": ""
+                            }
+                        ],
+                        "collapsed": true,
+                        "substeps": []
+                    },
+                    {
+                        "title": "année et mois de la date",
+                        "items": [
+                            {
+                                "type": "text",
+                                "html": ""
+                            }
+                        ],
+                        "collapsed": true,
+                        "substeps": []
+                    },
+                    {
+                        "title": "menu de selection",
+                        "items": [
+                            {
+                                "type": "text",
+                                "html": ""
+                            }
+                        ],
+                        "collapsed": true,
+                        "substeps": []
+                    }
+                ]
+            }
+        ],
+        "conditions": []
+    }
+}
