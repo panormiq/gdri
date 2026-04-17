@@ -183,6 +183,27 @@ $services = array_values(array_filter($services, function ($service) {
                             <span class="text-muted small">Cliquer pour ouvrir UGAP</span>
                         </div>
                     </a>
+                    <?php elseif (stripos($service['name'], 'facebook') !== false): ?>
+                    <div class="module-card module-card--facebook-link" data-dblclick-url="<?= url('pages/modules/facebook.php') ?>" title="Double-cliquez pour ouvrir Facebook">
+                        <div class="module-icon-large">
+                            <?= htmlspecialchars($service['icon']) ?>
+                        </div>
+                        
+                        <div class="module-header">
+                            <h3><?= htmlspecialchars($service['name']) ?></h3>
+                            <span class="module-status <?= $service['status'] === 'active' ? 'active' : 'inactive' ?>">
+                                <?= $service['status'] === 'active' ? 'Actif' : 'Inactif' ?>
+                            </span>
+                        </div>
+                        
+                        <p class="module-description">
+                            <?= htmlspecialchars($service['description']) ?>
+                        </p>
+
+                        <div class="module-actions module-actions--hint">
+                            <span class="text-muted small">Double-cliquez pour ouvrir le module Facebook</span>
+                        </div>
+                    </div>
                     <?php else: ?>
                     <div class="module-card">
                         <div class="module-icon-large">
@@ -226,25 +247,6 @@ $services = array_values(array_filter($services, function ($service) {
                                 <div class="module-links" style="display: flex; gap: 0.5rem; flex-wrap: wrap; justify-content: center;">
                                     <a href="<?= url('pages/modules/ia-llms.php') ?>" class="btn btn-primary">
                                         📋 LLMs de l'entité
-                                    </a>
-                                </div>
-                            <?php elseif (stripos($service['name'], 'facebook') !== false): ?>
-                                <!-- Liens pour le module Facebook -->
-                                <div class="module-links" style="display: flex; gap: 0.5rem; flex-wrap: wrap; justify-content: center;">
-                                    <a href="<?= url('pages/modules/facebook-config.php') ?>" class="btn btn-primary">
-                                        🔗 Connecter Facebook
-                                    </a>
-                                    <a href="<?= url('pages/modules/facebook-resume.php') ?>" class="btn btn-outline">
-                                        📊 Résumé
-                                    </a>
-                                    <a href="<?= url('pages/modules/analyse-intention-config.php') ?>" class="btn btn-outline">
-                                        ⚙️ Configurer l'agent IA
-                                    </a>
-                                    <a href="<?= url('pages/modules/ia-llms.php') ?>" class="btn btn-outline">
-                                        📋 LLMs de l'entité
-                                    </a>
-                                    <a href="<?= url('pages/modules/facebook-publish.php') ?>" class="btn btn-outline">
-                                        📝 Publier un post
                                     </a>
                                 </div>
                             <?php elseif (stripos($service['name'], 'document') !== false): ?>
@@ -351,8 +353,25 @@ a.module-card--chat-link:hover {
     text-align: center;
     margin-top: var(--spacing-md);
 }
+.module-card--facebook-link {
+    cursor: pointer;
+    transition: box-shadow 0.2s ease, transform 0.15s ease;
+}
+.module-card--facebook-link:hover {
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+    transform: translateY(-2px);
+}
 
 </style>
+
+<script>
+document.querySelectorAll('.module-card--facebook-link[data-dblclick-url]').forEach(function(card) {
+    card.addEventListener('dblclick', function() {
+        var targetUrl = card.getAttribute('data-dblclick-url');
+        if (targetUrl) window.location.href = targetUrl;
+    });
+});
+</script>
 
 <?php require_once '../includes/footer.php'; ?>
 

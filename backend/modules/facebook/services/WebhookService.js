@@ -5,7 +5,14 @@
 
 const IntentionService = require('../../analyse-intention/services/IntentionService');
 const AIService = require('../../analyse-intention/services/AIService');
-const mailModule = require('../../mail');
+let mailModule;
+try {
+  // Ancien emplacement (backend/modules/mail)
+  mailModule = require('../../mail');
+} catch (error) {
+  // Emplacement actuel (modules/mail/backend)
+  mailModule = require('../../../../modules/mail/backend');
+}
 
 class WebhookService {
   constructor(database) {

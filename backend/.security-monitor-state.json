@@ -1,21 +1,11 @@
 {
-  "lastAccessLogPosition": 52953045,
+  "lastAccessLogPosition": 53022651,
   "lastErrorLogPosition": 13784890,
-  "attackCount": 4,
-  "lastAlertTime": "2026-04-16T23:53:31.929Z",
+  "attackCount": 0,
+  "lastAlertTime": "2026-04-17T10:38:37.275Z",
   "lastSynFloodAlertTime": "2026-01-14T09:25:39.725Z",
   "lastSuspectAlertTime": "2026-01-09T22:41:43.689Z",
   "attacks": [
-    {
-      "timestamp": "2026-04-07T12:48:33.676Z",
-      "ip": "195.178.110.160",
-      "method": "GET",
-      "uri": "/.git/config",
-      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-      "attackType": "sensitive_file_access",
-      "severity": "medium",
-      "logLine": "195.178.110.160 - - [07/Apr/2026:14:48:28 +0200] \"GET /.git/config HTTP/1.1\" 403 311 \"-\" \"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36\""
-    },
     {
       "timestamp": "2026-04-07T12:48:33.676Z",
       "ip": "195.178.110.160",
@@ -1005,6 +995,16 @@
       "attackType": "sensitive_file_access",
       "severity": "medium",
       "logLine": "154.58.229.82 - - [17/Apr/2026:08:26:49 +0200] \"GET /.git/config HTTP/1.1\" 403 311 \"https://gdri.fr/.git/config\" \"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36\""
+    },
+    {
+      "timestamp": "2026-04-17T10:38:36.137Z",
+      "ip": "216.81.245.108",
+      "method": "GET",
+      "uri": "/.git/config",
+      "userAgent": "Mozilla/5.0 (iPhone; CPU iPhone OS 11_2_6 like Mac OS X) AppleWebKit/604.5.6 (KHTML, like Gecko) Version/11.0 Mobile/15D100 Safari/604.1",
+      "attackType": "sensitive_file_access",
+      "severity": "medium",
+      "logLine": "216.81.245.108 - - [17/Apr/2026:12:38:21 +0200] \"GET /.git/config HTTP/1.1\" 403 311 \"-\" \"Mozilla/5.0 (iPhone; CPU iPhone OS 11_2_6 like Mac OS X) AppleWebKit/604.5.6 (KHTML, like Gecko) Version/11.0 Mobile/15D100 Safari/604.1\""
     }
   ],
   "bannedIPs": [
@@ -23187,7 +23187,8 @@
     "181.189.10.206",
     "195.178.110.160",
     "88.151.34.241",
-    "154.58.229.82"
+    "154.58.229.82",
+    "216.81.245.108"
   ],
   "bannedSubnets": [
     "170.254.236.0/24",
@@ -25039,7 +25040,7 @@
   "lastSynCount": 0,
   "ipReputation": {
     "88.151.34.241": {
-      "score": 4.820208810549751,
+      "score": 0,
       "firstSeen": 1776383611433,
       "lastSeen": 1776383611435,
       "detections": [
@@ -25088,7 +25089,7 @@
       ]
     },
     "154.58.229.82": {
-      "score": 5.999999888888889,
+      "score": 3.4833624354932873,
       "firstSeen": 1776407216610,
       "lastSeen": 1776407216612,
       "detections": [
@@ -25115,7 +25116,7 @@
   },
   "subnetReputation": {
     "88.151.34.0/24": {
-      "score": 2.4101044148387816,
+      "score": 0,
       "firstSeen": 1776383611433,
       "lastSeen": 1776383611435,
       "detections": [
@@ -25175,7 +25176,7 @@
       ]
     },
     "154.58.229.0/24": {
-      "score": 2.9999999444444443,
+      "score": 1.7416812177466436,
       "firstSeen": 1776407216610,
       "lastSeen": 1776407216612,
       "detections": [
@@ -25218,6 +25219,13 @@
     "154.58.229.82": {
       "bannedAt": 1776407216603,
       "expiresAt": 1776493616603,
+      "reason": "immediate_attack_type",
+      "attackType": "sensitive_file_access",
+      "uri": "/.git/config"
+    },
+    "216.81.245.108": {
+      "bannedAt": 1776422316433,
+      "expiresAt": 1776508716433,
       "reason": "immediate_attack_type",
       "attackType": "sensitive_file_access",
       "uri": "/.git/config"

@@ -976,7 +976,12 @@ document.getElementById('connectBtn')?.addEventListener('click', async function(
         const data = await res.json();
         
         if (data.success && data.authUrl) {
-            window.location.href = data.authUrl;
+            // Facebook OAuth refuse l'affichage en iframe (X-Frame-Options: deny).
+            if (window.top && window.top !== window) {
+                window.top.location.href = data.authUrl;
+            } else {
+                window.location.href = data.authUrl;
+            }
         } else {
             alert('Erreur : ' + (data.message || 'Impossible de se connecter'));
             this.disabled = false;
