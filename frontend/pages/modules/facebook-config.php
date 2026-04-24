@@ -159,6 +159,7 @@ $step = $_GET['step'] ?? null;
     <div id="webhookConfigSection" class="card" style="display: none; margin-bottom: 2rem;">
         <div class="card-header">
             <h2>📡 Configuration des Webhooks</h2>
+            <div id="tokenHealthBanner" style="display:none; margin-top: 0.75rem;"></div>
             <p style="margin: 0.5rem 0 0 0; font-size: 0.9em; color: #666;">
                 Sélectionnez les types d'événements Facebook que vous souhaitez recevoir pour chaque page
             </p>
@@ -198,6 +199,24 @@ $step = $_GET['step'] ?? null;
                 }
                 .webhook-tab-content {
                     animation: fadeIn 0.3s ease-in;
+                }
+                .token-status-badge {
+                    font-size: 11px;
+                    padding: 2px 8px;
+                    border-radius: 999px;
+                    margin-left: 6px;
+                    vertical-align: middle;
+                    display: inline-block;
+                }
+                .token-status-ok {
+                    background: #e8f5e9;
+                    color: #1b5e20;
+                    border: 1px solid #c8e6c9;
+                }
+                .token-status-reauth {
+                    background: #fdecea;
+                    color: #842029;
+                    border: 1px solid #f5c2c7;
                 }
                 @keyframes fadeIn {
                     from { opacity: 0; transform: translateY(10px); }
@@ -398,6 +417,20 @@ $step = $_GET['step'] ?? null;
 const API_BASE = '<?= $api_base_url ?>';
 const JWT = '<?= $jwt_token ?>';
 
+function getTokenStatusBadge(page) {
+    const status = page && page.tokenStatus ? String(page.tokenStatus) : 'active';
+    if (status === 'reauth_required') {
+        const err = page && page.tokenLastError ? `<div style="font-size:12px;color:#842029;margin-top:4px;">${escapeHtml(page.tokenLastError)}</div>` : '';
+        return `<span class="token-status-badge token-status-reauth">🔒 Reconnexion requise</span>${err}`;
+    }
+    return `<span class="token-status-badge token-status-ok">✅ Token actif</span>`;
+}
+
+function pageTitleWithTokenStatus(page) {
+    const name = escapeHtml(page.pageName || page.pageId || 'Page');
+    return `${name} ${getTokenStatusBadge(page)}`;
+}
+
 // Petite fonction utilitaire pour échapper le HTML dans les messages
 function escapeHtml(str) {
     if (!str) return '';
@@ -492,12 +525,30 @@ async function loadConfig() {
             
             // Créer les onglets et formulaires pour les pages déjà connectées
             await loadPagesWithWebhooks(data.pages);
+            const tokenBanner = document.getElementById('tokenHealthBanner');
+            const reauthPages = (data.pages || []).filter(p => p.tokenStatus === 'reauth_required');
+            if (tokenBanner) {
+                if (reauthPages.length > 0) {
+                    tokenBanner.style.display = 'block';
+                    tokenBanner.innerHTML = `<div class="alert alert-danger" style="margin-bottom:0;">
+                        ⚠️ ${reauthPages.length} page(s) nécessite(nt) une reconnexion Facebook. Cliquez sur <strong>Se connecter avec Facebook</strong> pour réactiver les tokens.
+                    </div>`;
+                } else {
+                    tokenBanner.style.display = 'none';
+                    tokenBanner.innerHTML = '';
+                }
+            }
         } else {
             // Aucune page connectée : afficher la section de connexion
             document.getElementById('connectSection').style.display = 'block';
             document.getElementById('pagesConfiguration').style.display = 'none';
             document.getElementById('webhookConfigSection').style.display = 'none';
             document.getElementById('currentConfig').style.display = 'none';
+            const tokenBanner = document.getElementById('tokenHealthBanner');
+            if (tokenBanner) {
+                tokenBanner.style.display = 'none';
+                tokenBanner.innerHTML = '';
+            }
             
             // Vérifier si App ID est configuré
             await checkAppConfig();
@@ -574,7 +625,7 @@ async function loadPagesWithWebhooks(pages) {
                 tab.type = 'button';
                 tab.className = 'page-tab';
                 tab.dataset.pageId = pageId;
-                tab.textContent = page.pageName || page.pageId;
+                tab.innerHTML = pageTitleWithTokenStatus(page);
                 
                 if (index === 0) {
                     tab.classList.add('active');
@@ -645,8 +696,9 @@ async function loadPagesWithWebhooks(pages) {
                     createWebhookFormForPage(page, contentDiv, false);
                 } else {
                     // Mettre à jour le texte de l'onglet si nécessaire
-                    if (existingTab.textContent !== (page.pageName || page.pageId)) {
-                        existingTab.textContent = page.pageName || page.pageId;
+                    const desired = pageTitleWithTokenStatus(page);
+                    if (existingTab.innerHTML !== desired) {
+                        existingTab.innerHTML = desired;
                     }
                     // Mettre à jour les webhooks sélectionnés (sans recréer le formulaire)
                     loadWebhooksForPage(pageId);
@@ -680,7 +732,7 @@ async function createWebhookFormForPage(page, container, isSinglePage) {
     
     form.innerHTML = `
         <div style="margin-bottom: 1.5rem;">
-            <h3 style="margin-bottom: 1rem;">${isSinglePage ? 'Événements disponibles' : `Événements pour "${page.pageName || page.pageId}"`}</h3>
+            <h3 style="margin-bottom: 1rem;">${isSinglePage ? 'Événements disponibles' : `Événements pour ${pageTitleWithTokenStatus(page)}`}</h3>
             
             <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 1rem;">
                 ${webhooksList.map(wh => `

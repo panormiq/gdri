@@ -220,6 +220,38 @@ async function ensureGdriEntity() {
   }
 }
 
+async function syncServicesCatalogFromModules() {
+  const servicesCollection = database.getCollection('services');
+  const discoveredModules = moduleRegistry.getModules();
+
+  for (const moduleInfo of discoveredModules) {
+    const slug = String(moduleInfo.name || '').trim().toLowerCase();
+    if (!slug) continue;
+
+    const serviceDoc = {
+      name: moduleInfo.displayName || moduleInfo.name,
+      slug,
+      description: moduleInfo.description || `Module ${moduleInfo.displayName || moduleInfo.name}`,
+      icon: moduleInfo.icon || '🧩',
+      status: moduleInfo.enabled === false ? 'inactive' : 'active',
+      updated_at: new Date()
+    };
+
+    const existing = await servicesCollection.findOne({ slug });
+    if (existing) {
+      await servicesCollection.updateOne(
+        { _id: existing._id },
+        { $set: serviceDoc }
+      );
+    } else {
+      await servicesCollection.insertOne({
+        ...serviceDoc,
+        created_at: new Date()
+      });
+    }
+  }
+}
+
 async function start() {
   try {
     console.log('🚀 Démarrage du serveur backend GDRI...\n');
@@ -228,16 +260,29 @@ async function start() {
     console.log('📡 Connexion à MongoDB...');
     await database.connect();
 
-    // 1b. S'assurer que l'entité GDRI existe
-    await ensureGdriEntity();
-
     // 2. Découverte des modules
     console.log('🔍 Découverte des modules...');
     await moduleRegistry.discoverModules();
 
+    // 2b. Synchroniser le catalogue services Mongo depuis les modules découverts
+    await syncServicesCatalogFromModules();
+
+    // 2c. S'assurer que l'entité GDRI existe et autoriser tous les services connus
+    await ensureGdriEntity();
+
     // 3. Chargement des modules
     console.log('📦 Chargement des modules...\n');
     await loadModules(app, database);
+
+    // Sync quotidienne Facebook (pull Graph + envoi des rapports différés)
+    try {
+      const DailyFacebookSyncService = require('./modules/facebook/services/DailyFacebookSyncService');
+      const dailyFb = new DailyFacebookSyncService(database);
+      await dailyFb.init();
+      dailyFb.start();
+    } catch (e) {
+      console.warn('⚠️  Sync quotidienne Facebook non démarrée:', e.message);
+    }
 
     // 3b. Repli /api/ia si le module ia n'a pas été chargé (dossier modules/ia absent ou non déployé)
     const iaModule = moduleRegistry.getModule('ia');

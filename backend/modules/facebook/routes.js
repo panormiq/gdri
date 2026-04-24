@@ -12,7 +12,15 @@ const database = require('../../config/database');
 const WebhookService = require('./services/WebhookService');
 const PollingService = require('./services/PollingService');
 const WebhookSubscriptionService = require('./services/WebhookSubscriptionService');
+const IntentionService = require('../analyse-intention/services/IntentionService');
+const AIService = require('../analyse-intention/services/AIService');
 const { authenticateJWT } = require('../../config/jwt');
+let mailModule;
+try {
+  mailModule = require('../mail');
+} catch (error) {
+  mailModule = require('../../../modules/mail/backend');
+}
 
 // Configuration OAuth Facebook
 const FACEBOOK_API_VERSION = 'v24.0';
@@ -66,6 +74,53 @@ let webhookService = null;
 let pollingService = null;
 
 // L'initialisation du SDK se fera à la première utilisation (lazy loading)
+
+function extractStoredAnalysis(doc) {
+  if (!doc || typeof doc !== 'object') return null;
+
+  const parseIfJsonString = (value) => {
+    if (!value || typeof value !== 'string') return null;
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+    if (!(trimmed.startsWith('{') || trimmed.startsWith('['))) return null;
+    try {
+      const parsed = JSON.parse(trimmed);
+      return parsed && typeof parsed === 'object' ? parsed : null;
+    } catch (_) {
+      return null;
+    }
+  };
+
+  const directCandidates = [
+    doc.analysis_details,
+    doc.analysis,
+    doc.raw_analysis,
+    doc.ai_analysis,
+    doc.analysis_result,
+    doc.analysisData,
+    doc.result,
+    doc.analyse
+  ];
+
+  for (const candidate of directCandidates) {
+    if (candidate && typeof candidate === 'object') return candidate;
+    const parsed = parseIfJsonString(candidate);
+    if (parsed) return parsed;
+  }
+
+  for (const key of Object.keys(doc)) {
+    const value = doc[key];
+    if (value && typeof value === 'object' && Array.isArray(value.analyses)) {
+      return value;
+    }
+    const parsed = parseIfJsonString(value);
+    if (parsed && Array.isArray(parsed.analyses)) {
+      return parsed;
+    }
+  }
+
+  return null;
+}
 
 /**
  * GET /api/facebook/webhook
@@ -197,13 +252,18 @@ async function processWebhookEvent(webhookData) {
       // Enregistrer la dernière interaction et détecter un éventuel rattrapage (serveur down, etc.)
       if (webhookData.entry && Array.isArray(webhookData.entry)) {
         for (const entry of webhookData.entry) {
-          const catchUp = await webhookService.recordWebhookReceived(entry.id, entry.time);
+          const catchUp = await webhookService.recordWebhookReceived(entry.id, entry.time, entry);
           if (catchUp && catchUp.shouldCatchUp && catchUp.pageAccessToken) {
             if (!pollingService) {
               pollingService = new PollingService(database);
               await pollingService.init();
             }
-            pollingService.pullMessages(catchUp.pageId, catchUp.pageAccessToken).catch(() => {});
+            pollingService
+              .pullMessages(catchUp.pageId, catchUp.pageAccessToken, catchUp.sinceDate || null)
+              .then(() => webhookService.markWebhookCatchupCompleted(catchUp.pageId, entry.time))
+              .catch((err) => {
+                console.warn('⚠️ Rattrapage webhook échoué:', err && err.message ? err.message : err);
+              });
           }
         }
       }
@@ -713,6 +773,7 @@ router.get('/pages/:pageId/messages/analyzed', authenticateJWT, async (req, res)
     const status = req.query.status || 'a_repondre';
     const intention = req.query.intention || '';
     const urgentOnly = req.query.urgent_only === '1' || req.query.urgent_only === 'true';
+    const messageId = req.query.messageId ? String(req.query.messageId).trim() : '';
 
     if (!entrepriseId) {
       return res.status(400).json({ success: false, message: 'entrepriseId requis' });
@@ -723,29 +784,46 @@ router.get('/pages/:pageId/messages/analyzed', authenticateJWT, async (req, res)
       return res.status(404).json({ success: false, message: 'Page non trouvée' });
     }
     const coll = database.getCollection('facebook_analyzed_messages');
-    const filter = { pageId: String(pageId), entityId: String(entrepriseId) };
-    if (status === 'repondu') {
-      filter.replied_at = { $exists: true, $ne: null };
-    } else if (status === 'a_ne_pas_repondre') {
-      filter.$and = [
-        { $nor: [{ replied_at: { $exists: true, $ne: null } }] },
-        { reponse_requise: false }
-      ];
+    const { ObjectId } = require('mongodb');
+
+    // Un seul message (ex. après « Repasser par l'IA ») : pas de filtres d'onglet,
+    // sinon la requête peut exclure le message (priorité/intention) ou être ambiguë avec $and + _id.
+    let filter;
+    if (messageId) {
+      if (!ObjectId.isValid(messageId)) {
+        return res.status(400).json({ success: false, message: 'messageId invalide' });
+      }
+      filter = {
+        pageId: String(pageId),
+        entityId: String(entrepriseId),
+        _id: new ObjectId(messageId)
+      };
     } else {
-      // a_repondre ou ancien param (ex. immediate) : non répondu + réponse requise
-      filter.$and = [
-        { $nor: [{ replied_at: { $exists: true, $ne: null } }] },
-        { $or: [{ reponse_requise: { $ne: false } }, { reponse_requise: { $exists: false } }] }
-      ];
-      if (urgentOnly) {
-        filter.$and.push({ reportPriority: 'immediate' });
+      filter = { pageId: String(pageId), entityId: String(entrepriseId) };
+      if (status === 'repondu') {
+        filter.replied_at = { $exists: true, $ne: null };
+      } else if (status === 'a_ne_pas_repondre') {
+        filter.$and = [
+          { $nor: [{ replied_at: { $exists: true, $ne: null } }] },
+          { reponse_requise: false }
+        ];
+      } else {
+        // a_repondre ou ancien param (ex. immediate) : non répondu + réponse requise
+        filter.$and = [
+          { $nor: [{ replied_at: { $exists: true, $ne: null } }] },
+          { $or: [{ reponse_requise: { $ne: false } }, { reponse_requise: { $exists: false } }] }
+        ];
+        if (urgentOnly) {
+          filter.$and.push({ reportPriority: 'immediate' });
+        }
+      }
+      if (intention && intention.trim()) {
+        const safe = intention.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        filter['intentions.name'] = new RegExp('^' + safe + '$', 'i');
       }
     }
-    if (intention && intention.trim()) {
-      const safe = intention.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      filter['intentions.name'] = new RegExp('^' + safe + '$', 'i');
-    }
     const list = await coll.find(filter).sort({ analyzed_at: -1 }).limit(200).toArray();
+
     const items = list.map(doc => ({
       id: doc._id.toString(),
       message: doc.message,
@@ -757,6 +835,7 @@ router.get('/pages/:pageId/messages/analyzed', authenticateJWT, async (req, res)
       intentions: doc.intentions || [],
       reportPriority: doc.reportPriority,
       reponse_requise: doc.reponse_requise,
+      analysis_details: extractStoredAnalysis(doc),
       replied_at: doc.replied_at ? (doc.replied_at instanceof Date ? doc.replied_at.toISOString() : doc.replied_at) : null,
       replied_message: doc.replied_message || null,
       sender_psid: doc.sender_psid,
@@ -799,6 +878,329 @@ router.patch('/pages/:pageId/messages/analyzed/:messageId/replied', authenticate
     return res.json({ success: true, pageId, messageId });
   } catch (error) {
     console.error('Erreur PATCH replied:', error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+/**
+ * POST /api/facebook/pages/:pageId/messages/analyzed/:messageId/rerun-analysis
+ * Relance l'analyse IA pour un message et met à jour la classification sauvegardée.
+ */
+router.post('/pages/:pageId/messages/analyzed/:messageId/rerun-analysis', authenticateJWT, async (req, res) => {
+  try {
+    const { pageId, messageId } = req.params;
+    const entrepriseId = req.user.entrepriseId;
+    if (!entrepriseId) {
+      return res.status(400).json({ success: false, message: 'entrepriseId requis' });
+    }
+
+    const { ObjectId } = require('mongodb');
+    const analyzedCollection = database.getCollection('facebook_analyzed_messages');
+    const agentConfigCollection = database.getCollection('analyse_intention_configs');
+
+    const analyzedMessage = await analyzedCollection.findOne({
+      _id: new ObjectId(messageId),
+      pageId: String(pageId),
+      entityId: String(entrepriseId)
+    });
+    if (!analyzedMessage) {
+      return res.status(404).json({ success: false, message: 'Message non trouvé' });
+    }
+
+    let aiConfig = await agentConfigCollection.findOne({
+      entrepriseId: String(entrepriseId),
+      pageId: String(pageId)
+    });
+    if (!aiConfig) {
+      aiConfig = await agentConfigCollection.findOne({
+        entrepriseId: String(entrepriseId),
+        $or: [{ pageId: null }, { pageId: '' }, { pageId: { $exists: false } }]
+      });
+    }
+    if (!aiConfig) {
+      aiConfig = await agentConfigCollection.findOne({ entity_id: String(entrepriseId) });
+    }
+
+    const aiService = new AIService({
+      ollamaUrl: process.env.OLLAMA_URL || 'http://localhost:11434',
+      model: process.env.OLLAMA_MODEL || 'mistral:latest'
+    });
+    const intentionService = new IntentionService(database);
+    intentionService.setAIService(aiService);
+
+    const basePrompt = aiConfig && aiConfig.config
+      ? (aiConfig.config.basePrompt || aiConfig.config.base_prompt || null)
+      : null;
+    const customIntentions = aiConfig && aiConfig.config
+      ? (aiConfig.config.customIntentions || aiConfig.config.intentions || [])
+      : [];
+
+    const rerunMessages = [{
+      message: analyzedMessage.message || '',
+      author: analyzedMessage.author || {},
+      created_time: analyzedMessage.created_time || new Date().toISOString(),
+      type: analyzedMessage.type || 'message',
+      post_id: analyzedMessage.post_id || null,
+      comment_id: analyzedMessage.comment_id || null
+    }];
+
+    const rerunResult = await intentionService.analyzeIntentions(rerunMessages, basePrompt, customIntentions);
+    if (!rerunResult || !rerunResult.success || !rerunResult.data) {
+      return res.status(500).json({
+        success: false,
+        message: rerunResult && rerunResult.error ? rerunResult.error : 'Erreur relance analyse IA'
+      });
+    }
+
+    const analysisData = rerunResult.data;
+    const firstAnalysis = Array.isArray(analysisData.analyses) && analysisData.analyses.length > 0
+      ? analysisData.analyses[0]
+      : {};
+    const intentions = Array.isArray(firstAnalysis.intentions) ? firstAnalysis.intentions : [];
+    const hasUrgent = intentions.some((it) => it && (it.urgent === true || it.priority === 'urgent' || it.priorite === 'urgent'));
+    const firstPriority = intentions.find((it) => it && (it.priority || it.priorite));
+    const reportPriority = hasUrgent
+      ? 'immediate'
+      : (firstPriority ? String(firstPriority.priority || firstPriority.priorite || 'daily') : 'daily');
+    const reponseRequise = typeof firstAnalysis.reponse_requise === 'boolean'
+      ? firstAnalysis.reponse_requise
+      : (typeof analysisData.reponse_requise === 'boolean' ? analysisData.reponse_requise : true);
+
+    const now = new Date();
+    await analyzedCollection.updateOne(
+      { _id: new ObjectId(messageId), pageId: String(pageId), entityId: String(entrepriseId) },
+      {
+        $set: {
+          analysis_details: analysisData,
+          intentions: intentions,
+          reportPriority: reportPriority,
+          reponse_requise: reponseRequise,
+          analyzed_at: now,
+          updated_at: now
+        },
+        $inc: { rerun_count: 1 }
+      }
+    );
+
+    return res.json({
+      success: true,
+      message: 'Analyse relancée avec succès',
+      data: {
+        analysis_details: analysisData,
+        intentions,
+        reportPriority,
+        reponse_requise: reponseRequise,
+        analyzed_at: now.toISOString()
+      }
+    });
+  } catch (error) {
+    console.error('Erreur POST rerun-analysis:', error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+/**
+ * POST /api/facebook/pages/:pageId/messages/analyzed/:messageId/email
+ * Envoie un message analysé par email (destinataire de config Facebook ou email explicite).
+ * Body optionnel: { to: "destinataire@exemple.com" }
+ */
+router.post('/pages/:pageId/messages/analyzed/:messageId/email', authenticateJWT, async (req, res) => {
+  try {
+    const { pageId, messageId } = req.params;
+    const entrepriseId = req.user.entrepriseId;
+    const toOverride = req.body && typeof req.body.to === 'string' ? req.body.to.trim() : '';
+
+    if (!entrepriseId) {
+      return res.status(400).json({ success: false, message: 'entrepriseId requis' });
+    }
+
+    const { ObjectId } = require('mongodb');
+    const analyzedCollection = database.getCollection('facebook_analyzed_messages');
+    const configCollection = database.getCollection('facebook_configs');
+    const agentConfigCollection = database.getCollection('analyse_intention_configs');
+
+    const analyzedMessage = await analyzedCollection.findOne({
+      _id: new ObjectId(messageId),
+      pageId: String(pageId),
+      entityId: String(entrepriseId)
+    });
+
+    if (!analyzedMessage) {
+      return res.status(404).json({ success: false, message: 'Message non trouvé' });
+    }
+
+    const pageConfig = await configCollection.findOne({
+      entrepriseId: String(entrepriseId),
+      pageId: String(pageId)
+    });
+
+    if (!pageConfig) {
+      return res.status(404).json({ success: false, message: 'Configuration de page introuvable' });
+    }
+
+    // La config de l'agent est stockée dans analyse_intention_configs avec entrepriseId
+    // et peut être spécifique à une page (pageId) ou globale (sans pageId).
+    let aiConfig = await agentConfigCollection.findOne({
+      entrepriseId: String(entrepriseId),
+      pageId: String(pageId)
+    });
+    if (!aiConfig) {
+      aiConfig = await agentConfigCollection.findOne({
+        entrepriseId: String(entrepriseId),
+        $or: [{ pageId: null }, { pageId: '' }, { pageId: { $exists: false } }]
+      });
+    }
+    // Compat ascendante: anciens documents pouvaient utiliser entity_id
+    if (!aiConfig) {
+      aiConfig = await agentConfigCollection.findOne({ entity_id: String(entrepriseId) });
+    }
+
+    const defaultEmail = aiConfig && aiConfig.config
+      ? String(aiConfig.config.defaultEmail || aiConfig.config.default_email || '').trim()
+      : '';
+    const targetEmail = toOverride || defaultEmail;
+
+    if (!targetEmail) {
+      return res.status(400).json({
+        success: false,
+        message: 'Aucun destinataire email configuré. Configurez un email par défaut dans l’agent Facebook.'
+      });
+    }
+
+    const authorName = analyzedMessage.author && analyzedMessage.author.name ? analyzedMessage.author.name : 'Anonyme';
+    const createdAt = analyzedMessage.created_time ? new Date(analyzedMessage.created_time) : new Date();
+    const storedAnalysis = extractStoredAnalysis(analyzedMessage);
+
+    // Relancer l'analyse d'intention au moment de l'envoi afin de vérifier
+    // si les corrections de classification sont bien prises en compte.
+    let rerunAnalysis = null;
+    try {
+      const aiService = new AIService({
+        ollamaUrl: process.env.OLLAMA_URL || 'http://localhost:11434',
+        model: process.env.OLLAMA_MODEL || 'mistral:latest'
+      });
+      const intentionService = new IntentionService(database);
+      intentionService.setAIService(aiService);
+
+      const rerunMessages = [{
+        message: analyzedMessage.message || '',
+        author: analyzedMessage.author || {},
+        created_time: analyzedMessage.created_time || new Date().toISOString(),
+        type: analyzedMessage.type || 'message',
+        post_id: analyzedMessage.post_id || null,
+        comment_id: analyzedMessage.comment_id || null
+      }];
+
+      const basePrompt = aiConfig && aiConfig.config
+        ? (aiConfig.config.basePrompt || aiConfig.config.base_prompt || null)
+        : null;
+      const customIntentions = aiConfig && aiConfig.config
+        ? (aiConfig.config.customIntentions || aiConfig.config.intentions || [])
+        : [];
+
+      const rerunResult = await intentionService.analyzeIntentions(rerunMessages, basePrompt, customIntentions);
+      if (rerunResult && rerunResult.success) {
+        rerunAnalysis = rerunResult.data || null;
+      }
+    } catch (rerunError) {
+      console.warn('⚠️ Impossible de relancer l’analyse pour envoi mail:', rerunError.message);
+    }
+
+    const subject = `📊 Analyse d'intention Facebook - ${pageConfig.pageName || pageId}`;
+    const storedAnalysisText = storedAnalysis
+      ? JSON.stringify(storedAnalysis, null, 2)
+      : 'Aucune analyse initiale enregistrée';
+    const rerunAnalysisText = rerunAnalysis
+      ? JSON.stringify(rerunAnalysis, null, 2)
+      : 'Relance de l’analyse indisponible';
+    const baseMessages = [{
+      message: analyzedMessage.message || '',
+      author: analyzedMessage.author || { name: authorName },
+      created_time: analyzedMessage.created_time || createdAt.toISOString(),
+      type: analyzedMessage.type || 'message',
+      post_id: analyzedMessage.post_id || null,
+      comment_id: analyzedMessage.comment_id || null
+    }];
+    const analysisForTemplate = rerunAnalysis || storedAnalysis || {
+      analyses: [{
+        message: analyzedMessage.message || '',
+        intentions: Array.isArray(analyzedMessage.intentions) ? analyzedMessage.intentions : [],
+        reponse_requise: typeof analyzedMessage.reponse_requise === 'boolean' ? analyzedMessage.reponse_requise : null,
+        resume: 'Analyse indisponible'
+      }]
+    };
+    const formatter = new WebhookService(database);
+    const formatted = formatter.formatAnalysisEmail(analysisForTemplate, baseMessages);
+
+    const comparisonText = [
+      '',
+      '════════ COMPARAISON ANALYSE ════════',
+      'Analyse initiale (stockée):',
+      storedAnalysisText,
+      '',
+      'Analyse relancée (au moment de l’envoi):',
+      rerunAnalysisText
+    ].join('\n');
+
+    const comparisonHtml = `
+      <section style="margin-top:24px;">
+        <h3 style="color:#0d6efd;margin-bottom:8px;">🔁 Comparaison analyse</h3>
+        <p style="margin:6px 0 4px 0;"><strong>Analyse initiale (stockée) :</strong></p>
+        <pre style="margin:0;background:#f8f9fa;border:1px solid #dee2e6;border-radius:6px;padding:10px;white-space:pre-wrap;">${storedAnalysisText.replace(/</g, '&lt;')}</pre>
+        <p style="margin:12px 0 4px 0;"><strong>Analyse relancée (au moment de l’envoi) :</strong></p>
+        <pre style="margin:0;background:#f8f9fa;border:1px solid #dee2e6;border-radius:6px;padding:10px;white-space:pre-wrap;">${rerunAnalysisText.replace(/</g, '&lt;')}</pre>
+      </section>
+    `;
+
+    const textBody = `${formatted.text}\n${comparisonText}`;
+    const htmlBody = `${formatted.html}${comparisonHtml}`;
+
+    const mail = mailModule.getMailService();
+    const mailConfigFacebook = await mail.loadConfigFromDB(String(entrepriseId), 'facebook');
+    const mailConfigDefault = await mail.loadConfigFromDB(String(entrepriseId), 'mail');
+    const effectiveMailConfig =
+      mailConfigFacebook && mailConfigFacebook.smtp_profiles && Object.keys(mailConfigFacebook.smtp_profiles).length > 0
+        ? mailConfigFacebook
+        : mailConfigDefault;
+
+    if (!effectiveMailConfig || !effectiveMailConfig.smtp_profiles || Object.keys(effectiveMailConfig.smtp_profiles).length === 0) {
+      return res.status(400).json({ success: false, message: 'Aucune configuration SMTP disponible' });
+    }
+
+    const smtpProfile = effectiveMailConfig.default_profile && effectiveMailConfig.smtp_profiles[effectiveMailConfig.default_profile]
+      ? effectiveMailConfig.default_profile
+      : Object.keys(effectiveMailConfig.smtp_profiles)[0];
+
+    mail.initModule({
+      module_name: 'facebook',
+      ...effectiveMailConfig
+    });
+
+    const sendResult = await mail.send({
+      to: targetEmail,
+      subject,
+      body: textBody,
+      body_html: htmlBody,
+      module_name: 'facebook',
+      entity_id: String(entrepriseId),
+      profile: smtpProfile
+    });
+
+    if (!sendResult || !sendResult.success) {
+      return res.status(500).json({
+        success: false,
+        message: sendResult && sendResult.error ? sendResult.error : 'Erreur lors de l’envoi de l’email'
+      });
+    }
+
+    return res.json({
+      success: true,
+      messageId,
+      pageId,
+      to: targetEmail
+    });
+  } catch (error) {
+    console.error('Erreur POST analyzed message email:', error);
     return res.status(500).json({ success: false, message: error.message });
   }
 });
@@ -1094,7 +1496,10 @@ router.get('/config', authenticateJWT, async (req, res) => {
           pageId: config.pageId || '',
           pageName: config.pageName || '',
           pageAccessToken: config.pageAccessToken || '',
-          webhooks_subscribed: config.webhooks_subscribed || []
+          webhooks_subscribed: config.webhooks_subscribed || [],
+          tokenStatus: config.tokenStatus || 'active',
+          userTokenExpiresAt: config.userTokenExpiresAt || null,
+          tokenLastError: config.tokenLastError || null
         }]
       });
     }
@@ -1104,7 +1509,10 @@ router.get('/config', authenticateJWT, async (req, res) => {
       pageId: config.pageId || '',
       pageName: config.pageName || '',
       pageAccessToken: config.pageAccessToken || '',
-      webhooks_subscribed: config.webhooks_subscribed || []
+      webhooks_subscribed: config.webhooks_subscribed || [],
+      tokenStatus: config.tokenStatus || 'active',
+      userTokenExpiresAt: config.userTokenExpiresAt || null,
+      tokenLastError: config.tokenLastError || null
     }));
     
     res.json({
@@ -1601,12 +2009,50 @@ router.get('/pages/refresh', authenticateJWT, async (req, res) => {
       });
     }
     
+    // Rafraîchir proactivement le token utilisateur s'il est proche d'expirer
+    if (existingConfig.userTokenExpiresAt) {
+      const exp = new Date(existingConfig.userTokenExpiresAt);
+      const oneDayMs = 24 * 60 * 60 * 1000;
+      if (exp.getTime() - Date.now() < oneDayMs) {
+        const refreshed = await exchangeForLongLivedUserToken(existingConfig.userAccessToken);
+        if (refreshed && refreshed.access_token) {
+          const newExp = computeTokenExpiry(refreshed.expires_in);
+          await configCollection.updateMany(
+            { entrepriseId: entrepriseId, userAccessToken: { $exists: true, $ne: null } },
+            {
+              $set: {
+                userAccessToken: refreshed.access_token,
+                userTokenType: 'long_lived',
+                userTokenExpiresAt: newExp || null,
+                tokenStatus: 'active',
+                updated_at: new Date()
+              }
+            }
+          );
+          existingConfig.userAccessToken = refreshed.access_token;
+        }
+      }
+    }
+
     // Récupérer toutes les pages de l'utilisateur
     let pagesResponse;
     try {
       pagesResponse = await getUserPages(existingConfig.userAccessToken);
     } catch (error) {
       console.error('❌ Erreur récupération pages:', error);
+      if (isTokenInvalidError(error)) {
+        await configCollection.updateMany(
+          { entrepriseId: entrepriseId, userAccessToken: { $exists: true, $ne: null } },
+          {
+            $set: {
+              tokenStatus: 'reauth_required',
+              tokenLastError: String(error.message || 'token_invalid'),
+              tokenLastErrorAt: new Date(),
+              updated_at: new Date()
+            }
+          }
+        );
+      }
       return res.status(500).json({
         success: false,
         message: error.message || 'Erreur lors de la récupération des pages. Le token a peut-être expiré, veuillez vous reconnecter.'
@@ -1655,6 +2101,38 @@ router.get('/pages/refresh', authenticateJWT, async (req, res) => {
       success: false,
       message: error.message
     });
+  }
+});
+
+/**
+ * GET /api/facebook/pages/token-health
+ * Retourne l'état des tokens par page (active / reauth_required).
+ */
+router.get('/pages/token-health', authenticateJWT, async (req, res) => {
+  try {
+    const entrepriseId = req.user.entrepriseId;
+    if (!entrepriseId) {
+      return res.status(400).json({ success: false, message: 'entrepriseId requis' });
+    }
+    const configCollection = database.getCollection('facebook_configs');
+    const pages = await configCollection
+      .find({ entrepriseId: String(entrepriseId) })
+      .project({ pageId: 1, pageName: 1, tokenStatus: 1, userTokenExpiresAt: 1, tokenLastError: 1, tokenLastErrorAt: 1 })
+      .toArray();
+    return res.json({
+      success: true,
+      pages: pages.map((p) => ({
+        pageId: p.pageId || '',
+        pageName: p.pageName || '',
+        tokenStatus: p.tokenStatus || 'active',
+        userTokenExpiresAt: p.userTokenExpiresAt || null,
+        tokenLastError: p.tokenLastError || null,
+        tokenLastErrorAt: p.tokenLastErrorAt || null
+      }))
+    });
+  } catch (error) {
+    console.error('Erreur GET /pages/token-health:', error);
+    return res.status(500).json({ success: false, message: error.message });
   }
 });
 
@@ -1878,6 +2356,41 @@ async function exchangeCodeForToken(code) {
 }
 
 /**
+ * Échange un token utilisateur court terme contre un long-lived token.
+ */
+async function exchangeForLongLivedUserToken(shortLivedToken) {
+  const appConfig = await getFacebookAppConfig();
+  if (!appConfig.appId || !appConfig.appSecret || !shortLivedToken) {
+    return null;
+  }
+  const tokenUrl = `https://graph.facebook.com/${FACEBOOK_API_VERSION}/oauth/access_token?` +
+    `grant_type=fb_exchange_token&` +
+    `client_id=${appConfig.appId}&` +
+    `client_secret=${appConfig.appSecret}&` +
+    `fb_exchange_token=${encodeURIComponent(shortLivedToken)}`;
+  try {
+    const response = await httpsRequest(tokenUrl);
+    if (response && response.access_token) {
+      return response;
+    }
+  } catch (error) {
+    console.warn('⚠️ Échange long-lived token échoué:', error.message);
+  }
+  return null;
+}
+
+function computeTokenExpiry(expiresInSeconds) {
+  const n = Number(expiresInSeconds);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return new Date(Date.now() + n * 1000);
+}
+
+function isTokenInvalidError(error) {
+  const msg = String(error && error.message ? error.message : error || '').toLowerCase();
+  return msg.includes('oauth') || msg.includes('access token') || msg.includes('error validating access token') || msg.includes('code 190');
+}
+
+/**
  * Récupère les pages Facebook de l'utilisateur
  */
 async function getUserPages(accessToken) {
@@ -2085,7 +2598,15 @@ router.get('/oauth/callback', async (req, res) => {
       return res.redirect(`/frontend/pages/modules/facebook-config.php?error=${encodeURIComponent(tokenResponse.error.message)}`);
     }
     
-    const userAccessToken = tokenResponse.access_token;
+    let userAccessToken = tokenResponse.access_token;
+    let userTokenExpiresAt = computeTokenExpiry(tokenResponse.expires_in);
+    let userTokenType = 'short_lived';
+    const longLived = await exchangeForLongLivedUserToken(userAccessToken);
+    if (longLived && longLived.access_token) {
+      userAccessToken = longLived.access_token;
+      userTokenType = 'long_lived';
+      userTokenExpiresAt = computeTokenExpiry(longLived.expires_in) || userTokenExpiresAt;
+    }
     
     if (!userAccessToken) {
       console.error('❌ Pas de token dans la réponse:', tokenResponse);
@@ -2153,6 +2674,9 @@ router.get('/oauth/callback', async (req, res) => {
             pageAccessToken: page.access_token,
             pageName: page.name,
             userAccessToken: userAccessToken,
+            userTokenType,
+            userTokenExpiresAt: userTokenExpiresAt || null,
+            tokenStatus: 'active',
             updated_at: new Date(),
             updated_by: userId
           }
@@ -2228,6 +2752,8 @@ router.get('/oauth/callback', async (req, res) => {
       {
         $set: {
           userAccessToken: userAccessToken,
+          userTokenType,
+          userTokenExpiresAt: userTokenExpiresAt || null,
           pages: newPages, // Seulement les nouvelles pages
           step: 'configure_pages'
         }
@@ -2309,6 +2835,9 @@ router.post('/oauth/select-page', authenticateJWT, async (req, res) => {
           pageAccessToken: selectedPage.access_token,
           pageName: selectedPage.name,
           userAccessToken: stateDoc.userAccessToken,
+          userTokenType: stateDoc.userTokenType || null,
+          userTokenExpiresAt: stateDoc.userTokenExpiresAt || null,
+          tokenStatus: 'active',
           updated_at: new Date(),
           updated_by: userId
         }
@@ -2398,6 +2927,7 @@ async function savePagesHandler(req, res) {
     let userAccessToken = null;
     let pagesFromState = [];
     let stateCollection = null;
+    let oauthStateDoc = null;
     
     // Si state fourni, récupérer depuis OAuth state
     if (state) {
@@ -2413,6 +2943,7 @@ async function savePagesHandler(req, res) {
       
       userAccessToken = stateDoc.userAccessToken;
       pagesFromState = stateDoc.pages;
+      oauthStateDoc = stateDoc;
     } else if (pagesData && Array.isArray(pagesData)) {
       // Utiliser les données fournies directement (cas du refresh)
       pagesFromState = pagesData;
@@ -2469,6 +3000,9 @@ async function savePagesHandler(req, res) {
               pageAccessToken: page.access_token,
               pageName: page.name,
               userAccessToken: userAccessToken,
+              userTokenType: oauthStateDoc && oauthStateDoc.userTokenType ? oauthStateDoc.userTokenType : null,
+              userTokenExpiresAt: oauthStateDoc && oauthStateDoc.userTokenExpiresAt ? oauthStateDoc.userTokenExpiresAt : null,
+              tokenStatus: 'active',
               webhooks_subscribed: webhooks,
               webhooks_updated_at: new Date(),
               updated_at: new Date(),

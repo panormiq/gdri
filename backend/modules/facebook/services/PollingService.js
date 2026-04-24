@@ -15,6 +15,11 @@ class PollingService {
     this.graphApiBase = 'graph.facebook.com';
   }
 
+  isTokenInvalidError(error) {
+    const msg = String(error && error.message ? error.message : error || '').toLowerCase();
+    return msg.includes('oauth') || msg.includes('access token') || msg.includes('error validating access token') || msg.includes('code 190');
+  }
+
   /**
    * Initialise le service
    */
@@ -443,6 +448,24 @@ class PollingService {
     } catch (error) {
       console.error('\n❌ Erreur lors du pull:', error);
       console.error('Stack:', error.stack);
+      if (this.isTokenInvalidError(error)) {
+        try {
+          const configCollection = this.database.getCollection('facebook_configs');
+          await configCollection.updateOne(
+            { $or: [{ pageId }, { pageId: String(pageId) }] },
+            {
+              $set: {
+                tokenStatus: 'reauth_required',
+                tokenLastError: String(error.message || 'token_invalid'),
+                tokenLastErrorAt: new Date(),
+                updated_at: new Date()
+              }
+            }
+          );
+        } catch (innerErr) {
+          console.warn('⚠️ Impossible de marquer tokenStatus reauth_required:', innerErr.message);
+        }
+      }
       return {
         success: false,
         error: error.message

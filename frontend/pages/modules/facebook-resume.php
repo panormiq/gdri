@@ -107,6 +107,7 @@ $api_base_url = rtrim(getApiBaseUrl(), '/');
 .resume-evolution.same { color: #6c757d; }
 .resume-section-title { font-size: 0.85rem; font-weight: 600; color: #495057; margin: 1rem 0 0.5rem 0; }
 .messages-by-urgency { margin-top: 1.5rem; border-top: 1px solid #dee2e6; padding-top: 1rem; }
+.messages-load-trigger { margin-bottom: 0.75rem; }
 .messages-by-urgency .sub-tabs { display: flex; flex-wrap: wrap; gap: 0.25rem; margin-bottom: 0.75rem; }
 .messages-by-urgency .sub-tabs .sub-tab { padding: 0.35rem 0.75rem; border-radius: 4px; border: 1px solid #dee2e6; background: #fff; cursor: pointer; font-size: 0.9rem; }
 .messages-by-urgency .sub-tabs .sub-tab:hover { background: #f1f3f5; }
@@ -116,6 +117,18 @@ $api_base_url = rtrim(getApiBaseUrl(), '/');
 .msg-card .msg-meta { font-size: 0.85rem; color: #6c757d; margin-bottom: 0.5rem; }
 .msg-card .msg-intentions { display: flex; flex-wrap: wrap; gap: 0.35rem; margin-bottom: 0.5rem; }
 .msg-card .msg-intentions span { padding: 0.2rem 0.5rem; border-radius: 4px; background: #e9ecef; font-size: 0.8rem; }
+.msg-card .msg-analysis { margin-bottom: 0.75rem; }
+.msg-card .msg-analysis-block-title { font-size: 0.82rem; font-weight: 700; color: #495057; margin: 0 0 0.35rem 0; text-transform: uppercase; letter-spacing: 0.2px; }
+.msg-card .msg-analysis-item { border-left: 3px solid #dee2e6; background: #f8f9fa; border-radius: 4px; padding: 0.55rem 0.7rem; margin-bottom: 0.5rem; }
+.msg-card .msg-analysis-item.urgent { border-left-color: #dc3545; background: #fff5f5; }
+.msg-card .msg-analysis-main { font-size: 0.88rem; color: #212529; font-weight: 600; margin-bottom: 0.2rem; }
+.msg-card .msg-analysis-meta { font-size: 0.81rem; color: #495057; margin-bottom: 0.2rem; }
+.msg-card .msg-analysis-main .tag { display: inline-block; margin-left: 0.45rem; font-size: 0.75rem; padding: 0.1rem 0.35rem; border-radius: 999px; background: #ffe3e3; color: #b02a37; font-weight: 600; vertical-align: middle; }
+.msg-card .msg-analysis-reason { margin-top: 0.25rem; font-size: 0.8rem; color: #495057; white-space: pre-wrap; }
+.msg-card .msg-analysis-fallback { font-size: 0.82rem; color: #6c757d; font-style: italic; margin-bottom: 0.5rem; }
+.msg-card .msg-analysis-full { margin-top: 0.35rem; }
+.msg-card .msg-analysis-full summary { cursor: pointer; font-size: 0.82rem; color: #0d6efd; font-weight: 600; }
+.msg-card .msg-analysis-full pre { margin: 0.45rem 0 0 0; background: #f8f9fa; border: 1px solid #dee2e6; border-radius: 6px; padding: 0.65rem; font-size: 0.78rem; line-height: 1.35; color: #212529; white-space: pre-wrap; word-break: break-word; }
 .msg-card .msg-reply-row { margin-top: 0.75rem; display: flex; flex-direction: column; gap: 0.5rem; }
 .msg-card .msg-reply-toolbar { margin-bottom: 0.25rem; }
 .msg-card .msg-reply-alt { margin: 0.25rem 0 0 0; font-size: 0.85rem; }
@@ -264,11 +277,12 @@ $api_base_url = rtrim(getApiBaseUrl(), '/');
         }).catch(function() {});
     }
 
-    function loadAnalyzedMessages(pageId, status, intention, listEl, urgentOnly) {
+    function loadAnalyzedMessages(pageId, status, intention, listEl, urgentOnly, focusMessageId) {
         listEl.innerHTML = '<p class="text-muted">Chargement des messages…</p>';
         var url = API_BASE + '/facebook/pages/' + encodeURIComponent(pageId) + '/messages/analyzed?status=' + encodeURIComponent(status || 'a_repondre');
         if (intention) url += '&intention=' + encodeURIComponent(intention);
         if (urgentOnly) url += '&urgent_only=1';
+        if (focusMessageId) url += '&messageId=' + encodeURIComponent(focusMessageId);
         fetch(url, { headers: { 'Authorization': 'Bearer ' + JWT } })
             .then(function(r) { return r.json(); })
             .then(function(data) {
@@ -383,6 +397,66 @@ $api_base_url = rtrim(getApiBaseUrl(), '/');
                         }).catch(function() { btn.disabled = false; btn.textContent = 'Répondre en MP'; alert('Erreur réseau.'); });
                     });
                 });
+                listEl.querySelectorAll('.btn-send-email').forEach(function(btn) {
+                    btn.addEventListener('click', function() {
+                        var card = btn.closest('.msg-card');
+                        var pageId = card.getAttribute('data-page-id');
+                        var messageId = card.getAttribute('data-message-id');
+                        if (!pageId || !messageId) { alert('Message introuvable.'); return; }
+                        btn.disabled = true;
+                        var previousLabel = btn.textContent;
+                        btn.textContent = 'Envoi…';
+                        fetch(API_BASE + '/facebook/pages/' + encodeURIComponent(pageId) + '/messages/analyzed/' + encodeURIComponent(messageId) + '/email', {
+                            method: 'POST',
+                            headers: { 'Authorization': 'Bearer ' + JWT, 'Content-Type': 'application/json' },
+                            body: JSON.stringify({})
+                        }).then(function(r) { return r.json(); }).then(function(res) {
+                            btn.disabled = false;
+                            btn.textContent = previousLabel;
+                            if (res && res.success) {
+                                alert('Message envoyé par mail.');
+                            } else {
+                                alert((res && res.message) ? res.message : 'Erreur lors de l\'envoi par mail.');
+                            }
+                        }).catch(function() {
+                            btn.disabled = false;
+                            btn.textContent = previousLabel;
+                            alert('Erreur réseau.');
+                        });
+                    });
+                });
+                listEl.querySelectorAll('.btn-rerun-analysis').forEach(function(btn) {
+                    btn.addEventListener('click', function() {
+                        var card = btn.closest('.msg-card');
+                        var pageId = card.getAttribute('data-page-id');
+                        var messageId = card.getAttribute('data-message-id');
+                        if (!pageId || !messageId) { alert('Message introuvable.'); return; }
+                        var section = card.closest('.messages-by-urgency');
+                        var filterStatus = section && section.querySelector('.sub-tab.active') ? section.querySelector('.sub-tab.active').getAttribute('data-status') : 'a_repondre';
+                        var filterIntention = section && section.querySelector('.intention-filter select') ? section.querySelector('.intention-filter select').value : '';
+                        var filterUrgentOnly = section && section.querySelector('.urgent-only-cb') ? section.querySelector('.urgent-only-cb').checked : false;
+                        btn.disabled = true;
+                        var previousLabel = btn.textContent;
+                        btn.textContent = 'Relance IA…';
+                        fetch(API_BASE + '/facebook/pages/' + encodeURIComponent(pageId) + '/messages/analyzed/' + encodeURIComponent(messageId) + '/rerun-analysis', {
+                            method: 'POST',
+                            headers: { 'Authorization': 'Bearer ' + JWT, 'Content-Type': 'application/json' },
+                            body: JSON.stringify({})
+                        }).then(function(r) { return r.json(); }).then(function(res) {
+                            btn.disabled = false;
+                            btn.textContent = previousLabel;
+                            if (res && res.success) {
+                                loadAnalyzedMessages(pageId, filterStatus || 'a_repondre', filterIntention, listEl, filterUrgentOnly, messageId);
+                            } else {
+                                alert((res && res.message) ? res.message : 'Erreur lors de la relance IA.');
+                            }
+                        }).catch(function() {
+                            btn.disabled = false;
+                            btn.textContent = previousLabel;
+                            alert('Erreur réseau.');
+                        });
+                    });
+                });
                 listEl.querySelectorAll('.btn-toggle-feedback').forEach(function(btn) {
                     btn.addEventListener('click', function() {
                         var card = btn.closest('.msg-card');
@@ -444,13 +518,105 @@ $api_base_url = rtrim(getApiBaseUrl(), '/');
     }
 
     function buildMessageCardHtml(m, pageId) {
+        function escapeHtml(str) {
+            return String(str || '')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        }
         var author = (m.author && m.author.name) ? m.author.name : 'Anonyme';
         var authorId = (m.author && m.author.id) ? String(m.author.id) : '';
         var date = m.created_time ? new Date(m.created_time).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '';
-        var intentions = (m.intentions || []).map(function(i) { return (i.name || '').trim(); }).filter(Boolean);
-        var badges = intentions.length ? intentions.map(function(n) { return '<span>' + n.replace(/</g, '&lt;') + '</span>'; }).join('') : '<span>Général</span>';
+        var intentions = (m.intentions || []).map(function(i) {
+            return (i.name || i.category || i.label || '').trim();
+        }).filter(Boolean);
+        var uniqueIntentions = [];
+        intentions.forEach(function(n) {
+            if (uniqueIntentions.indexOf(n) === -1) uniqueIntentions.push(n);
+        });
+        var badges = uniqueIntentions.length ? uniqueIntentions.map(function(n) { return '<span>' + n.replace(/</g, '&lt;') + '</span>'; }).join('') : '<span>Général</span>';
+        function normalizeIntentions(input) {
+            if (!input) return [];
+            if (Array.isArray(input)) return input;
+            if (typeof input === 'object') {
+                if (Array.isArray(input.analyses)) {
+                    var fromAnalyses = [];
+                    input.analyses.forEach(function(a) {
+                        if (a && Array.isArray(a.intentions)) {
+                            a.intentions.forEach(function(it) { fromAnalyses.push(it); });
+                        }
+                    });
+                    if (fromAnalyses.length) return fromAnalyses;
+                }
+                if (Array.isArray(input.intentions)) return input.intentions;
+                if (Array.isArray(input.intentions_detectees)) return input.intentions_detectees;
+            }
+            return [];
+        }
+        var detailedIntentions = normalizeIntentions(m.analysis_details);
+        if (!detailedIntentions.length) detailedIntentions = normalizeIntentions({ intentions: m.intentions || [] });
+        var seenDetailKeys = {};
+        detailedIntentions = detailedIntentions.filter(function(i) {
+            var key = [
+                (i && (i.name || i.category || i.label) ? String(i.name || i.category || i.label) : ''),
+                (i && (i.priority || i.priorite) ? String(i.priority || i.priorite) : ''),
+                (i && (i.reason || i.raison || i.justification || i.explanation) ? String(i.reason || i.raison || i.justification || i.explanation) : '')
+            ].join('||').toLowerCase();
+            if (seenDetailKeys[key]) return false;
+            seenDetailKeys[key] = true;
+            return true;
+        });
+        var analysisHtml = '';
+        if (detailedIntentions.length > 0) {
+            analysisHtml = '<div class="msg-analysis"><div class="msg-analysis-block-title">Analyse 1</div>';
+            detailedIntentions.forEach(function(i) {
+                var name = escapeHtml(i && (i.name || i.category || i.label) ? String(i.name || i.category || i.label) : 'Intention');
+                var certaintyRaw = i && (i.certainty !== undefined && i.certainty !== null) ? i.certainty
+                    : (i && (i.score !== undefined && i.score !== null) ? i.score
+                    : (i && (i.confidence !== undefined && i.confidence !== null) ? i.confidence : null));
+                var certaintyLine = '';
+                if (certaintyRaw !== null && certaintyRaw !== '') {
+                    var certaintyNum = Number(certaintyRaw);
+                    if (!Number.isNaN(certaintyNum)) {
+                        certaintyLine = 'Confiance : <strong>' + certaintyNum + '%</strong>';
+                    }
+                }
+                var priority = i && (i.priority || i.priorite) ? escapeHtml(String(i.priority || i.priorite)) : '';
+                var priorityLine = priority ? ('Priorité : <strong>' + priority + '</strong>') : '';
+                var urgent = !!(i && i.urgent === true);
+                var reason = i && (i.reason || i.raison || i.justification || i.explanation) ? escapeHtml(String(i.reason || i.raison || i.justification || i.explanation)) : '';
+                analysisHtml += '<div class="msg-analysis-item' + (urgent ? ' urgent' : '') + '">';
+                analysisHtml += '<div class="msg-analysis-main">' + name + (urgent ? '<span class="tag">URGENT</span>' : '') + '</div>';
+                if (certaintyLine || priorityLine) {
+                    analysisHtml += '<div class="msg-analysis-meta">' + [certaintyLine, priorityLine].filter(Boolean).join(' · ') + '</div>';
+                }
+                if (reason) {
+                    analysisHtml += '<div class="msg-analysis-reason">' + reason.replace(/\n/g, '<br>') + '</div>';
+                }
+                analysisHtml += '</div>';
+            });
+            analysisHtml += '</div>';
+        } else {
+            analysisHtml = '';
+        }
+        var fullAnalysisPayload = {
+            analysis_details: m.analysis_details || null,
+            intentions: Array.isArray(m.intentions) ? m.intentions : [],
+            reportPriority: m.reportPriority || null,
+            reponse_requise: (typeof m.reponse_requise === 'boolean') ? m.reponse_requise : null,
+            analyzed_at: m.analyzed_at || null
+        };
+        var fullAnalysisJson = '';
+        try {
+            fullAnalysisJson = JSON.stringify(fullAnalysisPayload, null, 2);
+        } catch (_) {
+            fullAnalysisJson = String(fullAnalysisPayload);
+        }
+        analysisHtml += '<details class="msg-analysis-full"><summary>Afficher l\'analyse complète (données brutes)</summary><pre>' + escapeHtml(fullAnalysisJson) + '</pre></details>';
         var repliedAt = m.replied_at ? new Date(m.replied_at).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '';
-        var msgText = (m.message || '').replace(/</g, '&lt;').replace(/\n/g, '<br>');
+        var msgText = escapeHtml(m.message || '').replace(/\n/g, '<br>');
         var psid = (m.sender_psid || '').trim() || '';
         var postId = (m.post_id || '').trim() || '';
         var commentId = (m.comment_id || '').trim() || '';
@@ -458,20 +624,21 @@ $api_base_url = rtrim(getApiBaseUrl(), '/');
         var recipientId = psid || authorId;
         var canReplyMp = !!recipientId;
         var canReplyComment = isComment && !!postId;
-        var esc = function(s) { return (s || '').replace(/"/g, '&quot;').replace(/</g, '&lt;'); };
+        var esc = function(s) { return escapeHtml(s || ''); };
         var repliedMsg = (m.replied_message || '').trim();
         var isReplied = !!repliedAt;
         var repliedBlock = repliedAt
-            ? ('<div class="msg-badge-replied">Répondu le ' + repliedAt.replace(/</g, '&lt;') + '</div>' +
+            ? ('<div class="msg-badge-replied">Répondu le ' + escapeHtml(repliedAt) + '</div>' +
                (repliedMsg
-                 ? '<div class="msg-replied-content"><strong>Réponse envoyée :</strong><p class="msg-replied-text">' + (repliedMsg.replace(/</g, '&lt;').replace(/\n/g, '<br>')) + '</p></div>'
+                 ? '<div class="msg-replied-content"><strong>Réponse envoyée :</strong><p class="msg-replied-text">' + (escapeHtml(repliedMsg).replace(/\n/g, '<br>')) + '</p></div>'
                  : '<div class="msg-replied-content msg-replied-no-text"><em>Réponse envoyée (texte non enregistré)</em></div>'))
             : '';
         var card = '<div class="msg-card" data-message-id="' + esc(m.id) + '" data-page-id="' + esc(pageId) + '" data-post-id="' + esc(postId) + '" data-comment-id="' + esc(commentId) + '" data-author-id="' + esc(authorId) + '" data-sender-psid="' + esc(psid) + '" data-recipient-id="' + esc(recipientId) + '">' +
             repliedBlock +
             '<div class="msg-meta">' + author + ' · ' + date + '</div>' +
             '<div class="msg-intentions">' + badges + '</div>' +
-            '<div class="msg-body">' + msgText + '</div>';
+            '<div class="msg-body">' + msgText + '</div>' +
+            analysisHtml;
         if (!isReplied) {
             card += '<div class="msg-reply-row">' +
             '<div class="msg-reply-toolbar"><button type="button" class="btn btn-outline btn-sm btn-prepare-reply">Préparer une réponse avec l\'IA</button></div>' +
@@ -483,8 +650,10 @@ $api_base_url = rtrim(getApiBaseUrl(), '/');
             if (canReplyMp) {
                 card += '<button type="button" class="btn btn-primary btn-reply-mp">Répondre en MP</button>';
             }
+            card += '<button type="button" class="btn btn-outline btn-rerun-analysis">Repasser par l\'IA</button>';
+            card += '<button type="button" class="btn btn-outline btn-send-email">Envoyer via mail</button>';
             if (!canReplyComment && !canReplyMp) {
-                card += '<span class="text-muted">Aucun canal de réponse disponible pour ce message.</span>';
+                card += '<span class="text-muted">Aucun canal Facebook direct disponible pour ce message.</span>';
             }
             card += '</div></div>';
         }
@@ -645,27 +814,41 @@ $api_base_url = rtrim(getApiBaseUrl(), '/');
             function refreshMessages() {
                 loadAnalyzedMessages(pageId, currentStatus.value, currentIntention.value, messagesListEl, getUrgentOnly());
             }
+            var messagesLoaded = false;
+            function ensureMessagesLoaded() {
+                if (messagesLoaded) return;
+                messagesLoaded = true;
+                loadMessagesBtn.style.display = 'none';
+                refreshMessages();
+            }
             subTabsEl.querySelectorAll('.sub-tab').forEach(function(btn) {
                 btn.addEventListener('click', function() {
                     subTabsEl.querySelectorAll('.sub-tab').forEach(function(x) { x.classList.remove('active'); });
                     btn.classList.add('active');
                     currentStatus.value = btn.getAttribute('data-status');
-                    refreshMessages();
+                    if (messagesLoaded) refreshMessages();
                 });
             });
             intentionSelect.addEventListener('change', function() {
                 currentIntention.value = intentionSelect.value;
-                refreshMessages();
+                if (messagesLoaded) refreshMessages();
             });
             var urgentOnlyInput = urgentCb.querySelector('.urgent-only-cb');
             if (urgentOnlyInput) {
                 urgentOnlyInput.addEventListener('change', function() {
-                    if (currentStatus.value === 'a_repondre') refreshMessages();
+                    if (messagesLoaded && currentStatus.value === 'a_repondre') refreshMessages();
                 });
             }
+            var loadMessagesBtn = document.createElement('button');
+            loadMessagesBtn.type = 'button';
+            loadMessagesBtn.className = 'btn btn-outline btn-sm messages-load-trigger';
+            loadMessagesBtn.textContent = 'Charger les messages analysés';
+            loadMessagesBtn.addEventListener('click', ensureMessagesLoaded);
+            messagesListEl.innerHTML = '<p class="messages-list-empty">Les messages seront chargés à la demande pour accélérer l\'ouverture.</p>';
 
             messagesSection.appendChild(subTabsEl);
             messagesSection.appendChild(filterRow);
+            messagesSection.appendChild(loadMessagesBtn);
             messagesSection.appendChild(messagesListEl);
 
             pane.appendChild(toolbar);
@@ -676,7 +859,6 @@ $api_base_url = rtrim(getApiBaseUrl(), '/');
             if (isFirst) {
                 loadedTabs[pageId] = true;
                 loadPageSummary(pageId, '30', cardContainer);
-                loadAnalyzedMessages(pageId, 'a_repondre', '', messagesListEl, getUrgentOnly());
             }
         });
     }

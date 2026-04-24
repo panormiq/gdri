@@ -58,8 +58,8 @@ class WebhookService {
 
       // Traiter chaque entry
       for (const entry of webhookData.entry) {
-        // Déterminer l'entité à partir du pageId
-        const entityId = await this.getEntityIdFromPageId(entry.id);
+        // Déterminer l'entreprise à partir du pageId (facebook_configs puis legacy)
+        const entityId = await this.resolveEntrepriseIdForPage(entry.id);
 
         // Sauvegarder l'entry complète
         await this.saveWebhook(entry, entityId);
@@ -135,6 +135,63 @@ class WebhookService {
   }
 
   /**
+   * Résout l'entreprise (entrepriseId) à partir du pageId Facebook.
+   * Priorité : facebook_configs (OAuth) puis facebook_accounts (legacy).
+   * @param {string} pageId
+   * @returns {Promise<string|null>}
+   */
+  async resolveEntrepriseIdForPage(pageId) {
+    try {
+      const pid = pageId != null ? String(pageId) : '';
+      if (!pid) return null;
+      const configs = this.database.getCollection('facebook_configs');
+      const row = await configs.findOne({
+        $or: [{ pageId: pid }, { pageId: String(Number(pid)) }]
+      });
+      if (row && row.entrepriseId != null) {
+        return String(row.entrepriseId);
+      }
+    } catch (e) {
+      console.warn('resolveEntrepriseIdForPage facebook_configs:', e.message);
+    }
+    return this.getEntityIdFromPageId(pageId);
+  }
+
+  /**
+   * Charge la configuration Agent IA (analyse_intention_configs) pour une page ou le défaut entreprise.
+   * Aligné sur /api/analyse/agent-config (entrepriseId + pageId optionnel).
+   * @param {string} entrepriseId
+   * @param {string|null} facebookPageId
+   * @returns {Promise<Object|null>} config (objet interne) ou null
+   */
+  async loadAnalyseIntentionConfig(entrepriseId, facebookPageId = null) {
+    try {
+      if (!entrepriseId) return null;
+      const coll = this.database.getCollection('analyse_intention_configs');
+      const eid = String(entrepriseId);
+      const pid = facebookPageId != null && facebookPageId !== '' ? String(facebookPageId) : null;
+
+      let doc = null;
+      if (pid) {
+        doc = await coll.findOne({ entrepriseId: eid, pageId: pid });
+      }
+      if (!doc) {
+        doc = await coll.findOne({
+          entrepriseId: eid,
+          $or: [{ pageId: null }, { pageId: '' }, { pageId: { $exists: false } }]
+        });
+      }
+      if (!doc) {
+        doc = await coll.findOne({ entity_id: eid });
+      }
+      return doc && doc.config ? doc.config : null;
+    } catch (error) {
+      console.error('Erreur loadAnalyseIntentionConfig:', error);
+      return null;
+    }
+  }
+
+  /**
    * Compte le nombre d'événements dans une entry
    * @param {Object} entry - Entry du webhook
    * @returns {number} Nombre d'événements
@@ -191,39 +248,51 @@ class WebhookService {
       console.log('  🤖 Analyse d\'intention en cours...');
       console.log(`  📤 Envoi à Ollama (${this.aiService?.ollamaUrl || 'N/A'})...`);
       console.log(`  🤖 Modèle: ${this.aiService?.model || 'N/A'}`);
-        
-        // Charger la configuration si entityId est disponible
+
+        const facebookPageId = entry.id != null ? String(entry.id) : null;
+
+        // Configuration Agent IA : par page Facebook si enregistrée, sinon défaut entreprise
         let basePrompt = null;
         let customIntentions = [];
-        
+
         if (entityId) {
-          try {
-            const configCollection = this.database.getCollection('analyse_intention_configs');
-            const config = await configCollection.findOne({ entity_id: entityId });
-            
-            if (config && config.config) {
-              basePrompt = config.config.basePrompt || config.config.base_prompt || null;
-              customIntentions = config.config.customIntentions || config.config.intentions || [];
-              console.log(`  📋 Configuration chargée: ${customIntentions.length} intention(s) configurée(s)`);
-            }
-          } catch (configError) {
-            console.warn('  ⚠️  Erreur lors du chargement de la configuration:', configError);
-            // Continuer sans la config personnalisée
+          const cfg = await this.loadAnalyseIntentionConfig(entityId, facebookPageId);
+          if (cfg) {
+            basePrompt = cfg.basePrompt || cfg.base_prompt || null;
+            customIntentions = cfg.customIntentions || cfg.intentions || [];
+            console.log(
+              `  📋 Configuration agent IA (${facebookPageId ? `page ${facebookPageId}` : 'défaut entreprise'}): ` +
+              `${customIntentions.length} intention(s) configurée(s)`
+            );
           }
         }
-        
+
         const startTime = Date.now();
-        
+
         const analysisResult = await this.intentionService.analyzeIntentions(messages, basePrompt, customIntentions);
-        
+
         const duration = ((Date.now() - startTime) / 1000).toFixed(2);
-        
+
         if (analysisResult.success) {
           console.log(`  ✅ Analyse terminée en ${duration}s`);
           console.log(`  📊 Résultats: ${JSON.stringify(analysisResult.data, null, 2).substring(0, 200)}...`);
-          
-          // Envoyer un email avec les résultats
-          await this.sendAnalysisEmail(analysisResult.data, messages, entityId);
+
+          const cfgFull = entityId ? await this.loadAnalyseIntentionConfig(entityId, facebookPageId) : null;
+          const sendNow = this.shouldSendEmailImmediately(analysisResult.data, cfgFull);
+          await this.persistAnalyzedMessagesFromBatch(
+            entityId,
+            facebookPageId,
+            messages,
+            analysisResult.data,
+            !sendNow,
+            cfgFull
+          );
+
+          if (sendNow) {
+            await this.sendAnalysisEmail(analysisResult.data, messages, entityId, facebookPageId);
+          } else {
+            console.log('  📭 Rapport différé : envoi au prochain créneau quotidien (sync Graph + file d’attente).');
+          }
         } else {
           console.error('  ❌ Erreur lors de l\'analyse:', analysisResult.error);
           console.error(`  ⏱️  Durée avant erreur: ${duration}s`);
@@ -286,15 +355,19 @@ class WebhookService {
    * Envoie un email avec les résultats de l'analyse
    * @param {Object} analysisData - Données de l'analyse
    * @param {Array} originalMessages - Messages originaux
-   * @param {string} entityId - ID de l'entité
+   * @param {string} entityId - ID de l'entité (entrepriseId)
+   * @param {string|null} facebookPageId - ID page Facebook (config par page)
    */
-  async sendAnalysisEmail(analysisData, originalMessages, entityId) {
+  async sendAnalysisEmail(analysisData, originalMessages, entityId, facebookPageId = null) {
     try {
       console.log('  📧 Préparation de l\'envoi d\'email...');
       console.log(`  🔍 Entity ID: ${entityId || 'NON DÉFINI'}`);
-      
-      // Charger la configuration de l'agent Facebook
-      const config = await this.loadFacebookAgentConfig(entityId);
+      if (facebookPageId) {
+        console.log(`  📄 Page Facebook (config): ${facebookPageId}`);
+      }
+
+      // Charger la configuration de l'agent Facebook (même logique que l'analyse)
+      const config = await this.loadFacebookAgentConfig(entityId, facebookPageId);
       
       if (!config) {
         console.log('  ⚠️  Pas de configuration trouvée dans MongoDB pour cette entité');
@@ -415,26 +488,13 @@ class WebhookService {
   }
   
   /**
-   * Charge la configuration de l'agent Facebook
-   * @param {string} entityId - ID de l'entité
+   * Charge la configuration de l'agent Facebook (prompt, emails, intentions)
+   * @param {string} entityId - entrepriseId
+   * @param {string|null} facebookPageId - page Facebook pour config dédiée
    * @returns {Promise<Object|null>} Configuration ou null
    */
-  async loadFacebookAgentConfig(entityId) {
-    try {
-      if (!entityId) return null;
-      
-      const configCollection = this.database.getCollection('analyse_intention_configs');
-      const config = await configCollection.findOne({ entity_id: entityId });
-      
-      if (config && config.config) {
-        return config.config;
-      }
-      
-      return null;
-    } catch (error) {
-      console.error('Erreur loadFacebookAgentConfig:', error);
-      return null;
-    }
+  async loadFacebookAgentConfig(entityId, facebookPageId = null) {
+    return this.loadAnalyseIntentionConfig(entityId, facebookPageId);
   }
   
   /**
@@ -669,6 +729,172 @@ class WebhookService {
       return intention;
     });
   }
+
+  /**
+   * Priorité de rapport pour une intention (message normal vs urgent selon l’analyse).
+   */
+  resolveIntentionReportPriority(intentionName, isUrgent, config) {
+    if (!config || !intentionName) return 'immediate';
+    const list = config.customIntentions || config.intentions || [];
+    const row = list.find((i) => (i.name || i.category) === intentionName);
+    if (!row) return 'immediate';
+    const legacy = row.priority || 'immediate';
+    const pNormal = row.priorityNormal != null ? row.priorityNormal : legacy;
+    const pUrgent = row.priorityUrgent != null ? row.priorityUrgent : legacy;
+    return isUrgent ? pUrgent : pNormal;
+  }
+
+  /**
+   * Envoi mail tout de suite si au moins une intention détectée est en priorité « immediate ».
+   */
+  shouldSendEmailImmediately(analysisData, config) {
+    if (!analysisData || !Array.isArray(analysisData.analyses)) return true;
+    if (!config) return true;
+    let sawIntention = false;
+    for (const analysis of analysisData.analyses) {
+      const intents = this.normalizeIntentions(analysis);
+      for (const int of intents) {
+        const name = int.category || int.name;
+        if (!name) continue;
+        sawIntention = true;
+        const urgent = Boolean(int.urgent);
+        const pr = this.resolveIntentionReportPriority(name, urgent, config || {});
+        if (pr === 'immediate') return true;
+      }
+    }
+    if (!sawIntention) return true;
+    return false;
+  }
+
+  /**
+   * Enregistre les messages analysés pour le résumé Facebook / rapports différés.
+   * @param {boolean} deferredDaily - true si aucune intention « immediate » (rapport attendu au sync quotidien).
+   */
+  async persistAnalyzedMessagesFromBatch(entityId, pageId, originalMessages, analysisData, deferredDaily, config) {
+    if (!entityId || !pageId || !analysisData || !Array.isArray(analysisData.analyses)) return;
+    const coll = this.database.getCollection('facebook_analyzed_messages');
+    const analyses = analysisData.analyses;
+    const n = Math.min(analyses.length, (originalMessages || []).length);
+
+    for (let i = 0; i < n; i++) {
+      const analysis = analyses[i];
+      const msg = originalMessages[i];
+      const intentions = this.normalizeIntentions(analysis);
+      let reportPriority = deferredDaily ? 'daily' : 'immediate';
+      if (config && intentions.length > 0) {
+        reportPriority = 'daily';
+        for (const it of intentions) {
+          const name = it.category || it.name;
+          if (!name) continue;
+          const pr = this.resolveIntentionReportPriority(name, Boolean(it.urgent), config);
+          if (pr === 'immediate') {
+            reportPriority = 'immediate';
+            break;
+          }
+          reportPriority = pr;
+        }
+      }
+      const reponseRequise =
+        typeof analysis.reponse_requise === 'boolean'
+          ? analysis.reponse_requise
+          : typeof analysisData.reponse_requise === 'boolean'
+            ? analysisData.reponse_requise
+            : true;
+
+      const doc = {
+        entityId: String(entityId),
+        pageId: String(pageId),
+        message: msg.message || '',
+        author: msg.author || {},
+        created_time: msg.created_time || new Date().toISOString(),
+        type: msg.type || 'unknown',
+        post_id: msg.post_id || null,
+        comment_id: msg.comment_id || null,
+        sender_psid: msg.sender_psid || null,
+        analysis_details: { analyses: [analysis], reponse_requise: analysis.reponse_requise },
+        intentions,
+        reportPriority,
+        reponse_requise: reponseRequise,
+        analyzed_at: new Date(),
+        deferred_daily_report: !!deferredDaily,
+        daily_report_sent_at: null
+      };
+
+      const filter = {
+        entityId: doc.entityId,
+        pageId: doc.pageId,
+        post_id: doc.post_id,
+        comment_id: doc.comment_id,
+        created_time: doc.created_time
+      };
+
+      await coll.updateOne(
+        filter,
+        {
+          $set: doc,
+          $setOnInsert: { created_at: new Date() }
+        },
+        { upsert: true }
+      );
+    }
+  }
+
+  /**
+   * Envoie les rapports en attente (priorités non immédiates) après le sync quotidien.
+   */
+  async sendDeferredDailyReports(entrepriseId, pageId) {
+    try {
+      const coll = this.database.getCollection('facebook_analyzed_messages');
+      const pending = await coll
+        .find({
+          entityId: String(entrepriseId),
+          pageId: String(pageId),
+          deferred_daily_report: true,
+          $or: [{ daily_report_sent_at: null }, { daily_report_sent_at: { $exists: false } }]
+        })
+        .sort({ analyzed_at: 1 })
+        .limit(100)
+        .toArray();
+
+      if (pending.length === 0) {
+        console.log(`  📭 Aucun rapport différé à envoyer pour la page ${pageId}`);
+        return;
+      }
+
+      const analyses = [];
+      const originalMessages = [];
+      for (const p of pending) {
+        const ad = p.analysis_details;
+        if (ad && ad.analyses && ad.analyses[0]) {
+          analyses.push(ad.analyses[0]);
+        }
+        originalMessages.push({
+          message: p.message,
+          author: p.author,
+          created_time: p.created_time,
+          type: p.type,
+          post_id: p.post_id,
+          comment_id: p.comment_id
+        });
+      }
+
+      const combinedData = {
+        analyses,
+        reponse_requise: analyses.some((a) => a.reponse_requise)
+      };
+
+      console.log(`  📧 Envoi du rapport quotidien groupé (${pending.length} message(s)) pour ${pageId}...`);
+      await this.sendAnalysisEmail(combinedData, originalMessages, entrepriseId, pageId);
+
+      const ids = pending.map((p) => p._id);
+      await coll.updateMany(
+        { _id: { $in: ids } },
+        { $set: { daily_report_sent_at: new Date(), deferred_daily_report: false } }
+      );
+    } catch (e) {
+      console.error('  ❌ sendDeferredDailyReports:', e.message);
+    }
+  }
   
   /**
    * Formate le contenu de l'email avec les résultats de l'analyse
@@ -863,6 +1089,118 @@ class WebhookService {
       text,
       html
     };
+  }
+
+  /**
+   * Enregistre la réception d'un webhook et indique si un rattrapage est recommandé.
+   * @param {string} pageId - ID de la page Facebook
+   * @param {number} entryTimestamp - Timestamp Unix fourni par Facebook (secondes)
+   * @returns {Promise<Object>} Informations de rattrapage
+   */
+  async recordWebhookReceived(pageId, entryTimestamp, entryData = null) {
+    try {
+      if (!pageId) {
+        return { shouldCatchUp: false };
+      }
+
+      const configCollection = this.database.getCollection('facebook_configs');
+      const now = new Date();
+      const webhookEventDate = Number(entryTimestamp)
+        ? new Date(Number(entryTimestamp) * 1000)
+        : now;
+
+      const existingConfig = await configCollection.findOne({
+        $or: [{ pageId }, { pageId: String(pageId) }]
+      });
+
+      const lastCatchUpCompletedAt = existingConfig && existingConfig.lastWebhookCatchupCompletedAt
+        ? new Date(existingConfig.lastWebhookCatchupCompletedAt)
+        : null;
+
+      // Déclencher un rattrapage entre chaque webhook, avec garde-fou anti-tempête.
+      const catchUpThresholdMs = 15 * 1000;
+      const lastCatchUpRequestedAt = existingConfig && existingConfig.lastWebhookCatchupRequestedAt
+        ? new Date(existingConfig.lastWebhookCatchupRequestedAt)
+        : null;
+      const shouldCatchUp = Boolean(
+        !lastCatchUpRequestedAt ||
+        webhookEventDate.getTime() - lastCatchUpRequestedAt.getTime() > catchUpThresholdMs
+      );
+
+      const updateResult = {
+        $set: {
+          lastWebhookSeenAt: webhookEventDate,
+          updated_at: now
+        }
+      };
+      const latestSeenMessageId = this.extractLatestEntryMessageId(entryData);
+      if (latestSeenMessageId) {
+        updateResult.$set.lastWebhookSeenMessageId = latestSeenMessageId;
+      }
+
+      if (
+        !lastCatchUpCompletedAt ||
+        webhookEventDate.getTime() > lastCatchUpCompletedAt.getTime()
+      ) {
+        updateResult.$set.lastInteractionAt = webhookEventDate;
+      }
+      if (shouldCatchUp) {
+        updateResult.$set.lastWebhookCatchupRequestedAt = now;
+      }
+
+      await configCollection.updateOne(
+        { $or: [{ pageId }, { pageId: String(pageId) }] },
+        updateResult,
+        { upsert: true }
+      );
+
+      return {
+        shouldCatchUp,
+        pageId: existingConfig?.pageId || String(pageId),
+        pageAccessToken: existingConfig?.pageAccessToken || null,
+        sinceDate: lastCatchUpCompletedAt || null
+      };
+    } catch (error) {
+      console.error('Erreur recordWebhookReceived:', error);
+      return { shouldCatchUp: false };
+    }
+  }
+
+  extractLatestEntryMessageId(entryData) {
+    try {
+      if (!entryData || !Array.isArray(entryData.messaging)) return null;
+      let latest = null;
+      for (const m of entryData.messaging) {
+        const mid = m && m.message && m.message.mid ? String(m.message.mid) : '';
+        if (mid) latest = mid;
+      }
+      return latest;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /**
+   * Marque le rattrapage webhook comme terminé (curseur fiable pour prochain backfill).
+   */
+  async markWebhookCatchupCompleted(pageId, entryTimestamp) {
+    try {
+      if (!pageId) return;
+      const configCollection = this.database.getCollection('facebook_configs');
+      const doneAt = Number(entryTimestamp) ? new Date(Number(entryTimestamp) * 1000) : new Date();
+      await configCollection.updateOne(
+        { $or: [{ pageId }, { pageId: String(pageId) }] },
+        {
+          $set: {
+            lastWebhookCatchupCompletedAt: doneAt,
+            lastWebhookProcessedAt: doneAt,
+            updated_at: new Date()
+          }
+        }
+      );
+    } catch (error) {
+      console.error('Erreur markWebhookCatchupCompleted:', error);
+    }
   }
 
   /**
