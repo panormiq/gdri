@@ -146,6 +146,8 @@ $services = array_values(array_filter($services, function ($service) {
                         || (isset($service['slug']) && strtolower(trim((string) $service['slug'])) === 'chat');
                     $isUgapModule = (stripos($service['name'], 'ugap') !== false)
                         || (isset($service['slug']) && strtolower(trim((string) $service['slug'])) === 'ugap');
+                    $isBanqueModule = (stripos($service['name'], 'banque') !== false)
+                        || (isset($service['slug']) && strtolower(trim((string) $service['slug'])) === 'banque');
                     ?>
                     <?php if ($isChatModule): ?>
                     <a href="<?= url('pages/modules/chat.php') ?>" class="module-card module-card--chat-link">
@@ -181,6 +183,24 @@ $services = array_values(array_filter($services, function ($service) {
                         </p>
                         <div class="module-actions module-actions--hint">
                             <span class="text-muted small">Cliquer pour ouvrir UGAP</span>
+                        </div>
+                    </a>
+                    <?php elseif ($isBanqueModule): ?>
+                    <a href="<?= url('pages/modules/banque.php') ?>" class="module-card module-card--chat-link">
+                        <div class="module-icon-large">
+                            <?= htmlspecialchars($service['icon']) ?>
+                        </div>
+                        <div class="module-header">
+                            <h3><?= htmlspecialchars($service['name']) ?></h3>
+                            <span class="module-status <?= $service['status'] === 'active' ? 'active' : 'inactive' ?>">
+                                <?= $service['status'] === 'active' ? 'Actif' : 'Inactif' ?>
+                            </span>
+                        </div>
+                        <p class="module-description">
+                            <?= htmlspecialchars($service['description']) ?>
+                        </p>
+                        <div class="module-actions module-actions--hint">
+                            <span class="text-muted small">Cliquer pour ouvrir l'import bancaire</span>
                         </div>
                     </a>
                     <?php elseif (stripos($service['name'], 'facebook') !== false): ?>

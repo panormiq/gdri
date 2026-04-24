@@ -1,0 +1,14 @@
+{
+  "name": "banque",
+  "displayName": "Import bancaire Oxygene",
+  "version": "1.0.0",
+  "description": "Convertit un releve PDF en CSV exploitable pour import d'ecritures Oxygene",
+  "icon": "🏦",
+  "main": "index.js",
+  "enabled": true,
+  "routes": [
+    "/api/banque"
+  ],
+  "type": "commonjs",
+  "dependencies": {}
+}
