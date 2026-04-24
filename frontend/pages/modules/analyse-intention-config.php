@@ -67,6 +67,7 @@ $api_base_url = getApiBaseUrl();
                         </select>
                         <small class="form-text text-muted">
                             Choisissez une page pour appliquer une configuration spécifique, ou « Toutes les pages » pour la config par défaut (utilisée si aucune config par page n'existe).
+                            Les messages traités par webhook utilisent la même règle : config de la page si elle existe, sinon la config par défaut.
                         </small>
                     </div>
                     <!-- Prompt de base -->
@@ -134,7 +135,12 @@ Analyse maintenant le(s) message(s) suivant(s) :</textarea>
                     <!-- Fréquence des rapports -->
                     <div class="form-group report-frequency-section" style="margin-top: 1.5rem; padding: 1rem; background: #f8f9fa; border-radius: 8px; border: 1px solid #e9ecef;">
                         <h3 style="margin: 0 0 1rem 0; font-size: 1.05rem;">Fréquence des rapports</h3>
-                        <p class="form-text text-muted" style="margin-bottom: 1rem;">Définissez quand envoyer un mail pour chaque type de message.</p>
+                        <p class="form-text text-muted" style="margin-bottom: 1rem;">Définissez les créneaux d’envoi des rapports. <strong>Le type d’envoi</strong> (immédiat, journalier, etc.) est choisi <strong>par intention</strong> dans le tableau ci-dessous (colonnes message normal / message urgent).</p>
+                        <div class="form-check" style="margin-bottom: 1rem; padding: 0.75rem 1rem; background: #fff; border-radius: 6px; border: 1px solid #dee2e6;">
+                            <input type="checkbox" id="reportSkipIfNoNewMessages" name="reportSkipIfNoNewMessages" class="form-check-input">
+                            <label class="form-check-label" for="reportSkipIfNoNewMessages">Ne pas envoyer de rapport s'il n'y a pas eu de nouveau message reçu depuis le dernier envoi</label>
+                            <small class="form-text text-muted" style="display: block; margin-top: 0.35rem; margin-left: 1.5rem;">S'applique aux rapports planifiés (non immédiats) : aucun e-mail de synthèse si la période n'a pas de nouveau message.</small>
+                        </div>
                         <!-- Messages urgents -->
                         <div class="form-group">
                             <label><strong>Messages urgents</strong></label>
@@ -159,44 +165,54 @@ Analyse maintenant le(s) message(s) suivant(s) :</textarea>
                                 </div>
                             </div>
                         </div>
-                        <!-- Messages à répondre -->
-                        <div class="form-group">
+                        <!-- Messages à répondre : uniquement paramètres de date/heure (le mode d’envoi est défini par intention) -->
+                        <div class="form-group reply-messages-section">
                             <label><strong>Messages à répondre</strong></label>
-                            <select id="reportReplySchedule" name="reportReplySchedule" class="form-control" style="max-width: 320px;">
-                                <option value="immediate">Envoyer un mail immédiatement</option>
-                                <option value="daily">Quotidien (à l'heure choisie)</option>
-                                <option value="weekly_1">1 fois par semaine (jour + heure)</option>
-                                <option value="weekly_2">2 fois par semaine (jours + heure)</option>
-                                <option value="weekly_3">3 fois par semaine (jours + heure)</option>
-                            </select>
-                            <div id="reportReplyDailyWrap" style="display: none; margin-top: 0.5rem;">
-                                <label for="reportReplyDailyHour">Heure d'envoi</label>
-                                <input type="time" id="reportReplyDailyHour" class="form-control" style="max-width: 100px; display: inline-block;" value="09:00">
-                            </div>
-                            <div id="reportReplyWeeklyWrap" style="display: none; margin-top: 0.5rem;">
-                                <div class="report-weekly-rows">
-                                    <div class="report-weekly-row" data-n="1">
-                                        <label>Jour 1</label>
-                                        <select id="reportReplyWeekDay1" class="form-control report-reply-weekday" style="max-width: 140px; display: inline-block;">
-                                            <option value="1">Lundi</option><option value="2">Mardi</option><option value="3">Mercredi</option><option value="4">Jeudi</option><option value="5">Vendredi</option><option value="6">Samedi</option><option value="0">Dimanche</option>
-                                        </select>
-                                    </div>
-                                    <div class="report-weekly-row" data-n="2" style="display: none;">
-                                        <label>Jour 2</label>
-                                        <select id="reportReplyWeekDay2" class="form-control report-reply-weekday" style="max-width: 140px; display: inline-block;">
-                                            <option value="1">Lundi</option><option value="2">Mardi</option><option value="3">Mercredi</option><option value="4">Jeudi</option><option value="5">Vendredi</option><option value="6">Samedi</option><option value="0">Dimanche</option>
-                                        </select>
-                                    </div>
-                                    <div class="report-weekly-row" data-n="3" style="display: none;">
-                                        <label>Jour 3</label>
-                                        <select id="reportReplyWeekDay3" class="form-control report-reply-weekday" style="max-width: 140px; display: inline-block;">
-                                            <option value="1">Lundi</option><option value="2">Mardi</option><option value="3">Mercredi</option><option value="4">Jeudi</option><option value="5">Vendredi</option><option value="6">Samedi</option><option value="0">Dimanche</option>
-                                        </select>
+                            <p class="form-text text-muted" style="margin-bottom: 0.75rem;">Créneaux utilisés lorsqu’une intention est paramétrée en journalier, hebdomadaire ou mensuel (voir tableau des intentions). Distinct des <strong>messages urgents</strong> ci-dessus.</p>
+                            <div id="replyScheduleParams" style="display: flex; flex-direction: column; gap: 0.75rem;">
+                                <div class="reply-mode-panel" style="padding: 0.75rem 1rem; background: #fff; border-radius: 6px; border: 1px solid #dee2e6;">
+                                    <strong style="font-size: 0.9rem;">Quotidien</strong>
+                                    <div style="margin-top: 0.5rem;">
+                                        <label for="reportReplyDailyHour">Heure d'envoi</label>
+                                        <input type="time" id="reportReplyDailyHour" class="form-control" style="max-width: 120px; display: inline-block; margin-left: 0.5rem;" value="09:00">
                                     </div>
                                 </div>
-                                <div style="margin-top: 0.35rem;">
-                                    <label for="reportReplyWeeklyHour">Heure d'envoi</label>
-                                    <input type="time" id="reportReplyWeeklyHour" class="form-control" style="max-width: 100px; display: inline-block;" value="09:00">
+                                <div class="reply-mode-panel" style="padding: 0.75rem 1rem; background: #fff; border-radius: 6px; border: 1px solid #dee2e6;">
+                                    <strong style="font-size: 0.9rem;">Hebdomadaire</strong>
+                                    <div style="margin-top: 0.5rem; display: flex; flex-wrap: wrap; align-items: center; gap: 0.75rem;">
+                                        <div>
+                                            <label for="reportReplyWeekDay">Jour</label>
+                                            <select id="reportReplyWeekDay" class="form-control" style="max-width: 160px; display: inline-block; margin-left: 0.35rem;">
+                                                <option value="1">Lundi</option>
+                                                <option value="2">Mardi</option>
+                                                <option value="3">Mercredi</option>
+                                                <option value="4">Jeudi</option>
+                                                <option value="5">Vendredi</option>
+                                                <option value="6">Samedi</option>
+                                                <option value="0">Dimanche</option>
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label for="reportReplyWeeklyHour">Heure d'envoi</label>
+                                            <input type="time" id="reportReplyWeeklyHour" class="form-control" style="max-width: 120px; display: inline-block; margin-left: 0.35rem;" value="09:00">
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="reply-mode-panel" style="padding: 0.75rem 1rem; background: #fff; border-radius: 6px; border: 1px solid #dee2e6;">
+                                    <strong style="font-size: 0.9rem;">Mensuel</strong>
+                                    <div style="margin-top: 0.5rem; display: flex; flex-wrap: wrap; align-items: center; gap: 0.75rem;">
+                                        <div>
+                                            <label for="reportReplyMonthlyAnchor">Jour dans le mois</label>
+                                            <select id="reportReplyMonthlyAnchor" class="form-control" style="max-width: 220px; display: inline-block; margin-left: 0.35rem;">
+                                                <option value="first">Premier jour du mois</option>
+                                                <option value="last">Dernier jour du mois</option>
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label for="reportReplyMonthlyHour">Heure d'envoi</label>
+                                            <input type="time" id="reportReplyMonthlyHour" class="form-control" style="max-width: 120px; display: inline-block; margin-left: 0.35rem;" value="09:00">
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -222,19 +238,43 @@ Analyse maintenant le(s) message(s) suivant(s) :</textarea>
                         <!-- Intentions par défaut -->
                         <div class="default-intentions-section">
                             <h4 style="margin-bottom: 12px; font-size: 1rem; color: var(--color-primary);">Intentions par défaut</h4>
-                            <div id="defaultIntentionsContainer" class="default-intentions-checkboxes">
-                                <!-- Les checkboxes seront générées par JavaScript -->
+                            <div class="intentions-table-wrap">
+                            <table class="intentions-table" id="defaultIntentionsTable">
+                                <thead>
+                                    <tr>
+                                        <th class="col-active">Actif</th>
+                                        <th class="col-name">Intention</th>
+                                        <th class="col-priority-split">Message normal</th>
+                                        <th class="col-priority-split">Message urgent</th>
+                                        <th class="col-actions">Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="defaultIntentionsContainer">
+                                </tbody>
+                            </table>
                             </div>
                         </div>
                         
                         <!-- Intentions personnalisées -->
                         <div class="custom-intentions-section" style="margin-top: 24px;">
                             <h4 style="margin-bottom: 12px; font-size: 1rem; color: var(--color-primary);">Intentions personnalisées</h4>
-                            <div id="customIntentionsContainer" class="intentions-badges-container">
-                                <!-- Les intentions personnalisées ajoutées seront affichées ici sous forme de badges -->
-                                <div class="empty-state" id="intentionsEmptyState">
-                                    <p>Aucune intention personnalisée. Cliquez sur "Ajouter une intention personnalisée" pour en créer une.</p>
-                                </div>
+                            <div class="intentions-table-wrap">
+                            <table class="intentions-table" id="customIntentionsTable" style="display: none;">
+                                <thead>
+                                    <tr>
+                                        <th class="col-name">Intention</th>
+                                        <th class="col-priority-split">Message normal</th>
+                                        <th class="col-priority-split">Message urgent</th>
+                                        <th class="col-recipients">Destinataires</th>
+                                        <th class="col-actions">Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="customIntentionsContainer">
+                                </tbody>
+                            </table>
+                            <div class="empty-state intentions-empty" id="intentionsEmptyState">
+                                <p>Aucune intention personnalisée. Cliquez sur « Ajouter une intention personnalisée » pour en créer une.</p>
+                            </div>
                             </div>
                             <button type="button" class="btn btn-outline btn-sm" id="addIntentionBtn">
                                 + Ajouter une intention personnalisée
@@ -320,14 +360,23 @@ Analyse maintenant le(s) message(s) suivant(s) :</textarea>
                 </div>
                 
                 <div class="form-group intention-modal-section">
-                    <label for="intentionPriority">Ordre de priorité du rapport</label>
-                    <select id="intentionPriority" class="form-control">
+                    <label for="intentionPriorityNormal">Priorité du rapport — message normal</label>
+                    <select id="intentionPriorityNormal" class="form-control">
                         <option value="immediate">Immédiat — notification dès qu'une intention est détectée</option>
                         <option value="daily">Journalier — rapport récapitulatif chaque jour</option>
-                        <option value="weekly">Rapport par semaine — rapport récapitulatif hebdomadaire</option>
-                        <option value="monthly">Mensuel — rapport récapitulatif mensuel</option>
+                        <option value="weekly">Hebdomadaire — récapitulatif hebdomadaire</option>
+                        <option value="monthly">Mensuel — récapitulatif mensuel</option>
                     </select>
-                    <small class="form-text text-muted">Définit comment et quand les rapports pour cette intention sont envoyés</small>
+                </div>
+                <div class="form-group intention-modal-section">
+                    <label for="intentionPriorityUrgent">Priorité du rapport — message urgent</label>
+                    <select id="intentionPriorityUrgent" class="form-control">
+                        <option value="immediate">Immédiat — notification dès qu'une intention est détectée</option>
+                        <option value="daily">Journalier — rapport récapitulatif chaque jour</option>
+                        <option value="weekly">Hebdomadaire — récapitulatif hebdomadaire</option>
+                        <option value="monthly">Mensuel — récapitulatif mensuel</option>
+                    </select>
+                    <small class="form-text text-muted">Vous pouvez choisir une priorité différente selon que le message est détecté comme normal ou urgent.</small>
                 </div>
                 
                 <div class="form-group intention-modal-section">
@@ -485,7 +534,7 @@ const DEFAULT_INTENTIONS = [
 ];
 
 let defaultIntentionsEnabled = {}; // Objet pour stocker l'état des intentions par défaut {name: true/false}
-let defaultIntentionOverrides = {}; // { name: { priority, emails } } pour priorité/destinataires des intentions par défaut
+let defaultIntentionOverrides = {}; // { name: { priorityNormal, priorityUrgent, emails } } — rétrocompat : priority
 let intentions = []; // Tableau pour stocker les intentions personnalisées uniquement
 let smtpProfiles = []; // Tableau pour stocker les profils SMTP
 let editingIntentionIndex = null;
@@ -538,17 +587,24 @@ function initDefaultIntentions() {
     renderDefaultIntentions();
 }
 
-// Afficher les checkboxes des intentions par défaut + bouton Modifier
+// Tableau des intentions par défaut : actif, nom, priorité (select), actions
 function renderDefaultIntentions() {
-    const container = document.getElementById('defaultIntentionsContainer');
-    if (!container) return;
-    
-    container.innerHTML = '';
-    
+    const tbody = document.getElementById('defaultIntentionsContainer');
+    if (!tbody) return;
+
+    tbody.innerHTML = '';
+
     DEFAULT_INTENTIONS.forEach(intention => {
-        const checkboxWrapper = document.createElement('div');
-        checkboxWrapper.className = 'default-intention-item';
-        
+        const tr = document.createElement('tr');
+        tr.className = 'intention-table-row';
+
+        const overrides = defaultIntentionOverrides[intention.name] || {};
+        const legacyP = overrides.priority || 'immediate';
+        const priorityNormal = overrides.priorityNormal != null ? overrides.priorityNormal : legacyP;
+        const priorityUrgent = overrides.priorityUrgent != null ? overrides.priorityUrgent : legacyP;
+
+        const tdActif = document.createElement('td');
+        tdActif.className = 'col-active';
         const checkbox = document.createElement('input');
         checkbox.type = 'checkbox';
         checkbox.id = `default-intention-${intention.name}`;
@@ -556,32 +612,46 @@ function renderDefaultIntentions() {
         checkbox.addEventListener('change', (e) => {
             defaultIntentionsEnabled[intention.name] = e.target.checked;
         });
-        
-        const label = document.createElement('label');
-        label.htmlFor = `default-intention-${intention.name}`;
-        label.innerHTML = `
+        tdActif.appendChild(checkbox);
+
+        const tdName = document.createElement('td');
+        tdName.className = 'col-name';
+        tdName.innerHTML = `<label for="default-intention-${intention.name}" class="intention-table-label">
             <strong>${escapeHtml(intention.label)}</strong>
             <small>${escapeHtml(intention.description)}</small>
-        `;
-        
-        const actionsDiv = document.createElement('div');
-        actionsDiv.className = 'default-intention-actions';
+        </label>`;
+
+        const tdPriN = document.createElement('td');
+        tdPriN.className = 'col-priority-split';
+        tdPriN.appendChild(createPrioritySelect(priorityNormal, 'form-control form-control-sm intention-priority-select', (val) => {
+            setDefaultIntentionPriorityFields(intention.name, 'normal', val);
+        }));
+        const tdPriU = document.createElement('td');
+        tdPriU.className = 'col-priority-split';
+        tdPriU.appendChild(createPrioritySelect(priorityUrgent, 'form-control form-control-sm intention-priority-select', (val) => {
+            setDefaultIntentionPriorityFields(intention.name, 'urgent', val);
+        }));
+
+        const tdAct = document.createElement('td');
+        tdAct.className = 'col-actions';
         const modifBtn = document.createElement('button');
         modifBtn.type = 'button';
         modifBtn.className = 'btn btn-outline btn-sm btn-modifier-intention';
-        modifBtn.textContent = 'Modifier';
-        modifBtn.title = 'Ouvrir le paramétrage (priorité et destinataires)';
+        modifBtn.textContent = 'Destinataires…';
+        modifBtn.title = 'Configurer les emails de notification pour cette intention';
         modifBtn.dataset.intentionName = intention.name;
         modifBtn.addEventListener('click', (e) => {
             e.preventDefault();
             openIntentionModalForDefault(intention.name);
         });
-        actionsDiv.appendChild(modifBtn);
-        
-        checkboxWrapper.appendChild(checkbox);
-        checkboxWrapper.appendChild(label);
-        checkboxWrapper.appendChild(actionsDiv);
-        container.appendChild(checkboxWrapper);
+        tdAct.appendChild(modifBtn);
+
+        tr.appendChild(tdActif);
+        tr.appendChild(tdName);
+        tr.appendChild(tdPriN);
+        tr.appendChild(tdPriU);
+        tr.appendChild(tdAct);
+        tbody.appendChild(tr);
     });
 }
 
@@ -593,16 +663,32 @@ function getAllActiveIntentions() {
             const overrides = defaultIntentionOverrides[intention.name] || {};
             const emails = overrides.emails && overrides.emails.length > 0 ? overrides.emails : [];
             const email = emails[0] || '';
+            const legacyP = overrides.priority || 'immediate';
+            const priorityNormal = overrides.priorityNormal != null ? overrides.priorityNormal : legacyP;
+            const priorityUrgent = overrides.priorityUrgent != null ? overrides.priorityUrgent : legacyP;
             return {
                 name: intention.name,
-                priority: overrides.priority || 'immediate',
+                priorityNormal,
+                priorityUrgent,
+                priority: priorityNormal,
                 emails,
                 email,
-                urgent: (overrides.priority || 'immediate') === 'immediate',
+                urgent: priorityUrgent === 'immediate',
                 isDefault: true
             };
         });
-    return [...activeDefault, ...intentions];
+    const customMapped = intentions.map(intention => {
+        const legacyP = intention.priority || intention.reportFrequency || 'immediate';
+        const priorityNormal = intention.priorityNormal != null ? intention.priorityNormal : legacyP;
+        const priorityUrgent = intention.priorityUrgent != null ? intention.priorityUrgent : legacyP;
+        return Object.assign({}, intention, {
+            priorityNormal,
+            priorityUrgent,
+            priority: priorityNormal,
+            urgent: priorityUrgent === 'immediate'
+        });
+    });
+    return [...activeDefault, ...customMapped];
 }
 
 // Obtenir toutes les options d'intentions disponibles pour l'auto-complétion
@@ -818,10 +904,42 @@ const PRIORITY_LABELS = {
     monthly: 'Mensuel'
 };
 
+/** Options du sélecteur de priorité (tableau + modal) */
+const PRIORITY_SELECT_OPTIONS = [
+    { value: 'immediate', label: 'Immédiat' },
+    { value: 'daily', label: 'Journalier' },
+    { value: 'weekly', label: 'Hebdomadaire' },
+    { value: 'monthly', label: 'Mensuel' }
+];
+
+function createPrioritySelect(currentValue, className, onChange) {
+    const sel = document.createElement('select');
+    sel.className = className || 'form-control intention-priority-select';
+    const v = currentValue || 'immediate';
+    PRIORITY_SELECT_OPTIONS.forEach(opt => {
+        const o = document.createElement('option');
+        o.value = opt.value;
+        o.textContent = opt.label;
+        if (opt.value === v) o.selected = true;
+        sel.appendChild(o);
+    });
+    if (typeof onChange === 'function') {
+        sel.addEventListener('change', () => onChange(sel.value));
+    }
+    return sel;
+}
+
+function setDefaultIntentionPriorityFields(name, kind, priority) {
+    if (!defaultIntentionOverrides[name]) defaultIntentionOverrides[name] = {};
+    if (kind === 'normal') defaultIntentionOverrides[name].priorityNormal = priority;
+    else defaultIntentionOverrides[name].priorityUrgent = priority;
+}
+
 // Sauvegarder l'intention
 document.getElementById('saveIntentionBtn').addEventListener('click', () => {
     const name = document.getElementById('intentionName').value.trim();
-    const priority = document.getElementById('intentionPriority').value || 'immediate';
+    const priorityNormal = (document.getElementById('intentionPriorityNormal') && document.getElementById('intentionPriorityNormal').value) || 'immediate';
+    const priorityUrgent = (document.getElementById('intentionPriorityUrgent') && document.getElementById('intentionPriorityUrgent').value) || 'immediate';
     const definition = (document.getElementById('intentionDefinition') && document.getElementById('intentionDefinition').value.trim()) || '';
     
     if (!name) {
@@ -841,9 +959,10 @@ document.getElementById('saveIntentionBtn').addEventListener('click', () => {
     }
     
     if (editingDefaultIntentionName) {
-        // Sauvegarder les paramètres d'une intention par défaut (priorité + destinataires)
+        // Sauvegarder les paramètres d'une intention par défaut (priorités + destinataires)
         defaultIntentionOverrides[editingDefaultIntentionName] = {
-            priority,
+            priorityNormal,
+            priorityUrgent,
             emails
         };
         editingDefaultIntentionName = null;
@@ -852,10 +971,12 @@ document.getElementById('saveIntentionBtn').addEventListener('click', () => {
         const intention = {
             name,
             definition: definition || undefined,
-            priority,
+            priorityNormal,
+            priorityUrgent,
+            priority: priorityNormal,
             emails,
             email: emails[0],
-            urgent: priority === 'immediate'
+            urgent: priorityUrgent === 'immediate'
         };
         if (editingIntentionIndex !== null) {
             intentions[editingIntentionIndex] = intention;
@@ -884,7 +1005,8 @@ function openIntentionModalForDefault(intentionName) {
     document.getElementById('intentionDefinition').value = defaultIntention ? (defaultIntention.description || '') : '';
     document.getElementById('intentionDefinition').readOnly = true;
     document.getElementById('intentionDefinition').classList.add('readonly-field');
-    document.getElementById('intentionPriority').value = overrides.priority || 'immediate';
+    document.getElementById('intentionPriorityNormal').value = overrides.priorityNormal != null ? overrides.priorityNormal : (overrides.priority || 'immediate');
+    document.getElementById('intentionPriorityUrgent').value = overrides.priorityUrgent != null ? overrides.priorityUrgent : (overrides.priority || 'immediate');
     document.getElementById('intentionEditIndex').value = '';
     
     currentRecipients = overrides.emails && Array.isArray(overrides.emails) ? [...overrides.emails] : (overrides.email ? [overrides.email] : []);
@@ -915,7 +1037,8 @@ function openIntentionModal(intentionIndex = null) {
         const intention = intentions[intentionIndex];
         nameInput.value = intention.name || '';
         definitionInput.value = intention.definition || '';
-        document.getElementById('intentionPriority').value = intention.priority || intention.reportFrequency || 'immediate';
+        document.getElementById('intentionPriorityNormal').value = intention.priorityNormal != null ? intention.priorityNormal : (intention.priority || intention.reportFrequency || 'immediate');
+        document.getElementById('intentionPriorityUrgent').value = intention.priorityUrgent != null ? intention.priorityUrgent : (intention.priority || intention.reportFrequency || 'immediate');
         document.getElementById('intentionEditIndex').value = intentionIndex;
         
         if (intention.emails && Array.isArray(intention.emails)) {
@@ -927,7 +1050,8 @@ function openIntentionModal(intentionIndex = null) {
         title.textContent = 'Ajouter une intention';
         form.reset();
         document.getElementById('intentionEditIndex').value = '';
-        document.getElementById('intentionPriority').value = 'immediate';
+        document.getElementById('intentionPriorityNormal').value = 'immediate';
+        document.getElementById('intentionPriorityUrgent').value = 'immediate';
     }
     
     document.getElementById('intentionEmailInput').value = '';
@@ -977,78 +1101,94 @@ document.getElementById('defaultEmail').addEventListener('input', (e) => {
     }
 });
 
-// Afficher les intentions personnalisées sous forme de badges
+// Intentions personnalisées : tableau avec priorité (select) dans la ligne
 function renderIntentions() {
-    const container = document.getElementById('customIntentionsContainer');
+    const tbody = document.getElementById('customIntentionsContainer');
     const emptyState = document.getElementById('intentionsEmptyState');
-    
+    const table = document.getElementById('customIntentionsTable');
+
+    if (!tbody) return;
+
     if (intentions.length === 0) {
-        if (emptyState) {
-            emptyState.style.display = 'block';
-        }
+        tbody.innerHTML = '';
+        if (table) table.style.display = 'none';
+        if (emptyState) emptyState.style.display = 'block';
         return;
     }
-    
-    if (emptyState) {
-        emptyState.style.display = 'none';
-    }
-    
-    container.innerHTML = '';
-    
+
+    if (emptyState) emptyState.style.display = 'none';
+    if (table) table.style.display = 'table';
+
+    tbody.innerHTML = '';
+
     intentions.forEach((intention, index) => {
-        // Récupérer tous les destinataires (support ancien et nouveau format)
-        const emails = intention.emails && Array.isArray(intention.emails) 
-            ? intention.emails 
+        const emails = intention.emails && Array.isArray(intention.emails)
+            ? intention.emails
             : (intention.email ? [intention.email] : []);
-        
-        const emailsDisplay = emails.length > 0 
+
+        const emailsDisplay = emails.length > 0
             ? emails.map(email => escapeHtml(email)).join(', ')
-            : 'Aucun destinataire';
-        
-        const priority = intention.priority || intention.reportFrequency || 'immediate';
-        const priorityLabel = PRIORITY_LABELS[priority] || priority;
-        
-        const badge = document.createElement('div');
-        badge.className = 'intention-badge';
-        badge.setAttribute('data-index', index);
-        badge.style.cursor = 'pointer';
-        badge.title = 'Cliquer pour modifier la priorité et les destinataires';
-        badge.innerHTML = `
-            <div class="intention-badge-content">
-                <div class="intention-badge-info">
-                    <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
-                        <strong>${escapeHtml(intention.name)}</strong>
-                        <span class="intention-badge-priority">${escapeHtml(priorityLabel)}</span>
-                        ${(intention.urgent || priority === 'immediate') ? '<span class="intention-badge-urgent">⚠️ Urgent</span>' : ''}
-                    </div>
-                    <span class="intention-badge-email" title="${emails.length > 1 ? emails.map(e => escapeHtml(e)).join(', ') : ''}">
-                        ${emails.length > 1 ? `${emails.length} destinataires: ${emailsDisplay}` : emailsDisplay}
-                    </span>
-                </div>
-                <div class="intention-badge-actions">
-                    <button type="button" class="btn btn-outline edit-intention" data-index="${index}" title="Modifier">
-                        <span style="font-size: 14px;">✏️</span>
-                    </button>
-                    <button type="button" class="btn btn-danger remove-intention" data-index="${index}" title="Supprimer">
-                        <span style="font-size: 14px;">🗑️</span>
-                    </button>
-                </div>
-            </div>
-        `;
-        
-        badge.addEventListener('click', (e) => {
-            if (!e.target.closest('.intention-badge-actions')) openIntentionModal(index);
-        });
-        badge.querySelector('.edit-intention').addEventListener('click', (e) => { e.stopPropagation(); openIntentionModal(index); });
-        badge.querySelector('.remove-intention').addEventListener('click', (e) => {
-            e.stopPropagation();
-            if (confirm(`Êtes-vous sûr de vouloir supprimer l'intention "${intention.name}" ?`)) {
+            : '—';
+
+        const legacyP = intention.priority || intention.reportFrequency || 'immediate';
+        const priorityNormal = intention.priorityNormal != null ? intention.priorityNormal : legacyP;
+        const priorityUrgent = intention.priorityUrgent != null ? intention.priorityUrgent : legacyP;
+
+        const tr = document.createElement('tr');
+        tr.className = 'intention-table-row';
+
+        const tdName = document.createElement('td');
+        tdName.className = 'col-name';
+        tdName.innerHTML = `<strong>${escapeHtml(intention.name)}</strong>` +
+            (intention.definition ? `<br><small class="text-muted">${escapeHtml(intention.definition)}</small>` : '');
+
+        const tdPriN = document.createElement('td');
+        tdPriN.className = 'col-priority-split';
+        tdPriN.appendChild(createPrioritySelect(priorityNormal, 'form-control form-control-sm intention-priority-select', (val) => {
+            intentions[index].priorityNormal = val;
+            intentions[index].priority = val;
+        }));
+        const tdPriU = document.createElement('td');
+        tdPriU.className = 'col-priority-split';
+        tdPriU.appendChild(createPrioritySelect(priorityUrgent, 'form-control form-control-sm intention-priority-select', (val) => {
+            intentions[index].priorityUrgent = val;
+            intentions[index].urgent = val === 'immediate';
+            if (intentions[index].reportFrequency) intentions[index].reportFrequency = intentions[index].priority;
+        }));
+
+        const tdMail = document.createElement('td');
+        tdMail.className = 'col-recipients intention-table-email';
+        tdMail.title = emails.length > 1 ? emails.join(', ') : '';
+        tdMail.textContent = emails.length > 1 ? `${emails.length} adresse(s)` : (emails[0] || 'Par défaut');
+
+        const tdAct = document.createElement('td');
+        tdAct.className = 'col-actions';
+        const btnEdit = document.createElement('button');
+        btnEdit.type = 'button';
+        btnEdit.className = 'btn btn-outline btn-sm';
+        btnEdit.textContent = 'Modifier';
+        btnEdit.title = 'Modifier définition et destinataires';
+        btnEdit.addEventListener('click', () => openIntentionModal(index));
+        const btnDel = document.createElement('button');
+        btnDel.type = 'button';
+        btnDel.className = 'btn btn-danger btn-sm';
+        btnDel.textContent = 'Supprimer';
+        btnDel.addEventListener('click', () => {
+            if (confirm(`Supprimer l'intention « ${intention.name} » ?`)) {
                 intentions.splice(index, 1);
                 renderIntentions();
             }
         });
-        
-        container.appendChild(badge);
+        tdAct.appendChild(btnEdit);
+        tdAct.appendChild(document.createTextNode(' '));
+        tdAct.appendChild(btnDel);
+
+        tr.appendChild(tdName);
+        tr.appendChild(tdPriN);
+        tr.appendChild(tdPriU);
+        tr.appendChild(tdMail);
+        tr.appendChild(tdAct);
+        tbody.appendChild(tr);
     });
 }
 
@@ -1347,7 +1487,8 @@ async function loadFacebookPagesForSelect() {
 }
 
 // Charger la configuration
-document.getElementById('loadConfigBtn').addEventListener('click', async () => {
+async function loadAgentConfig(options) {
+    const silent = !!(options && options.silent);
     try {
         const pageId = getSelectedPageId();
         const url = pageId ? `${API_BASE_URL}/analyse/agent-config?pageId=${encodeURIComponent(pageId)}` : `${API_BASE_URL}/analyse/agent-config`;
@@ -1392,28 +1533,28 @@ document.getElementById('loadConfigBtn').addEventListener('click', async () => {
                 urgentScheduleEl.value = rf.urgentSchedule || (rf.urgentSendEmail !== false ? 'immediate' : 'daily_1');
                 toggleUrgentTimes();
             }
-            var replyScheduleEl = document.getElementById('reportReplySchedule');
-            if (replyScheduleEl) {
-                replyScheduleEl.value = rf.replyFrequency || 'immediate';
-            }
             var replyDailyHourEl = document.getElementById('reportReplyDailyHour');
             if (replyDailyHourEl) replyDailyHourEl.value = rf.replyDailyHour || '09:00';
-            var replyDailyWrap = document.getElementById('reportReplyDailyWrap');
-            if (replyDailyWrap) replyDailyWrap.style.display = (rf.replyFrequency || 'immediate') === 'daily' ? 'block' : 'none';
-            var replyWeeklyWrap = document.getElementById('reportReplyWeeklyWrap');
-            if (replyWeeklyWrap) {
-                replyWeeklyWrap.style.display = (rf.replyFrequency === 'weekly_1' || rf.replyFrequency === 'weekly_2' || rf.replyFrequency === 'weekly_3') ? 'block' : 'none';
-                replyWeeklyWrap.querySelectorAll('.report-weekly-row').forEach(function(row) {
-                    var n = parseInt(row.getAttribute('data-n'), 10);
-                    row.style.display = (n <= (rf.replyFrequency === 'weekly_1' ? 1 : rf.replyFrequency === 'weekly_2' ? 2 : rf.replyFrequency === 'weekly_3' ? 3 : 0)) ? 'block' : 'none';
-                });
+            var replyWeekDayEl = document.getElementById('reportReplyWeekDay');
+            if (replyWeekDayEl) {
+                var wd = rf.replyWeekDay;
+                if (wd === undefined || wd === null || wd === '') {
+                    wd = rf.replyWeekDay1 !== undefined && rf.replyWeekDay1 !== null ? rf.replyWeekDay1 : '1';
+                }
+                replyWeekDayEl.value = String(wd);
             }
             var replyWeeklyHourEl = document.getElementById('reportReplyWeeklyHour');
             if (replyWeeklyHourEl) replyWeeklyHourEl.value = rf.replyWeeklyHour || '09:00';
+            var monthlyAnchorSel = document.getElementById('reportReplyMonthlyAnchor');
+            if (monthlyAnchorSel) monthlyAnchorSel.value = rf.replyMonthlyAnchor === 'last' ? 'last' : 'first';
+            var replyMonthlyHourEl = document.getElementById('reportReplyMonthlyHour');
+            if (replyMonthlyHourEl) replyMonthlyHourEl.value = rf.replyMonthlyHour || '09:00';
             var interactionFreqEl = document.getElementById('reportInteractionFrequency');
             if (interactionFreqEl) interactionFreqEl.value = rf.interactionFrequency || 'daily';
             var interactionSendEmailEl = document.getElementById('reportInteractionSendEmail');
             if (interactionSendEmailEl) interactionSendEmailEl.checked = rf.interactionSendEmail === true;
+            var skipIfNoNewEl = document.getElementById('reportSkipIfNoNewMessages');
+            if (skipIfNoNewEl) skipIfNoNewEl.checked = rf.skipReportIfNoNewMessages === true;
             
             // Remplir les intentions
             const loadedIntentions = data.data.customIntentions || data.data.intentions || [];
@@ -1437,11 +1578,12 @@ document.getElementById('loadConfigBtn').addEventListener('click', async () => {
                     const name = intention.name || intention.category;
                     if (!name) return;
                     if (defaultNames.includes(name)) {
-                        // Paramètres (priorité, destinataires) d'une intention par défaut
                         const emails = intention.emails && Array.isArray(intention.emails) ? intention.emails : (intention.email ? [intention.email] : []);
-                        if (intention.priority || emails.length > 0) {
+                        const legacyP = intention.priority || intention.reportFrequency || 'immediate';
+                        if (intention.priority || intention.priorityNormal || intention.priorityUrgent || emails.length > 0) {
                             defaultIntentionOverrides[name] = {
-                                priority: intention.priority || intention.reportFrequency || 'immediate',
+                                priorityNormal: intention.priorityNormal != null ? intention.priorityNormal : legacyP,
+                                priorityUrgent: intention.priorityUrgent != null ? intention.priorityUrgent : legacyP,
                                 emails
                             };
                         }
@@ -1492,7 +1634,7 @@ document.getElementById('loadConfigBtn').addEventListener('click', async () => {
             
             renderSmtpProfiles();
             
-            alert('✅ Configuration chargée avec succès !');
+            if (!silent) alert('✅ Configuration chargée avec succès !');
         } else {
             // Si pas de config, initialiser avec toutes les intentions par défaut activées
             DEFAULT_INTENTIONS.forEach(intention => {
@@ -1510,7 +1652,7 @@ document.getElementById('loadConfigBtn').addEventListener('click', async () => {
             await loadDefaultMailSmtp();
             // Vérifier l'email (sera vide, donc warning affiché)
             checkDefaultEmail();
-            alert('⚠️ Aucune configuration trouvée.');
+            if (!silent) alert('⚠️ Aucune configuration trouvée.');
         }
     } catch (error) {
         console.error('Erreur:', error);
@@ -1530,22 +1672,31 @@ document.getElementById('loadConfigBtn').addEventListener('click', async () => {
         await loadDefaultMailSmtp();
         // Vérifier l'email (sera vide, donc warning affiché)
         checkDefaultEmail();
-        alert('❌ Erreur lors du chargement de la configuration');
+        if (!silent) alert('❌ Erreur lors du chargement de la configuration');
     }
+}
+
+document.getElementById('loadConfigBtn').addEventListener('click', async () => {
+    await loadAgentConfig({ silent: false });
 });
 
 function addIntentionFromData(intention) {
     const emails = intention.emails && Array.isArray(intention.emails) 
         ? intention.emails 
         : (intention.email ? [intention.email] : []);
+    const legacyP = intention.priority || intention.reportFrequency || 'immediate';
+    const priorityNormal = intention.priorityNormal != null ? intention.priorityNormal : legacyP;
+    const priorityUrgent = intention.priorityUrgent != null ? intention.priorityUrgent : legacyP;
     
     intentions.push({
         name: intention.name || intention.category || '',
         definition: intention.definition || '',
-        priority: intention.priority || intention.reportFrequency || 'immediate',
+        priorityNormal,
+        priorityUrgent,
+        priority: priorityNormal,
         emails,
         email: emails[0] || '',
-        urgent: intention.urgent || intention.priority === 'immediate'
+        urgent: intention.urgent != null ? intention.urgent : (priorityUrgent === 'immediate')
     });
 }
 
@@ -1590,17 +1741,25 @@ document.getElementById('agentConfigForm').addEventListener('submit', async (e) 
         pageId: getSelectedPageId() || null,
         reportFrequency: (function() {
             var urgentEl = document.getElementById('reportUrgentSchedule');
-            var replyEl = document.getElementById('reportReplySchedule');
             var replyDailyEl = document.getElementById('reportReplyDailyHour');
+            var weekDayEl = document.getElementById('reportReplyWeekDay');
+            var weeklyHourEl = document.getElementById('reportReplyWeeklyHour');
+            var monthlyAnchorEl = document.getElementById('reportReplyMonthlyAnchor');
+            var monthlyHourEl = document.getElementById('reportReplyMonthlyHour');
             var interactionFreqEl = document.getElementById('reportInteractionFrequency');
             var interactionSendEl = document.getElementById('reportInteractionSendEmail');
+            var skipIfNoNewEl = document.getElementById('reportSkipIfNoNewMessages');
             return {
                 urgentSchedule: urgentEl ? urgentEl.value : 'immediate',
                 urgentSendEmail: urgentEl ? (urgentEl.value === 'immediate') : true,
-                replyFrequency: replyEl ? replyEl.value : 'immediate',
                 replyDailyHour: replyDailyEl ? replyDailyEl.value : '09:00',
+                replyWeekDay: weekDayEl ? weekDayEl.value : '1',
+                replyWeeklyHour: weeklyHourEl ? weeklyHourEl.value : '09:00',
+                replyMonthlyAnchor: monthlyAnchorEl ? monthlyAnchorEl.value : 'first',
+                replyMonthlyHour: monthlyHourEl ? monthlyHourEl.value : '09:00',
                 interactionFrequency: interactionFreqEl ? interactionFreqEl.value : 'daily',
-                interactionSendEmail: interactionSendEl ? interactionSendEl.checked : false
+                interactionSendEmail: interactionSendEl ? interactionSendEl.checked : false,
+                skipReportIfNoNewMessages: skipIfNoNewEl ? skipIfNoNewEl.checked : false
             };
         })()
     };
@@ -1689,30 +1848,10 @@ function toggleUrgentTimes() {
 var reportUrgentScheduleEl = document.getElementById('reportUrgentSchedule');
 if (reportUrgentScheduleEl) reportUrgentScheduleEl.addEventListener('change', toggleUrgentTimes);
 
-// Visibilité des options "Messages à répondre"
-function toggleReplySchedule() {
-    const sel = document.getElementById('reportReplySchedule');
-    if (!sel) return;
-    const v = sel.value;
-    const dailyWrap = document.getElementById('reportReplyDailyWrap');
-    if (dailyWrap) dailyWrap.style.display = v === 'daily' ? 'block' : 'none';
-    const weeklyWrap = document.getElementById('reportReplyWeeklyWrap');
-    if (weeklyWrap) {
-        weeklyWrap.style.display = (v === 'weekly_1' || v === 'weekly_2' || v === 'weekly_3') ? 'block' : 'none';
-        const n = v === 'weekly_1' ? 1 : v === 'weekly_2' ? 2 : v === 'weekly_3' ? 3 : 0;
-        weeklyWrap.querySelectorAll('.report-weekly-row').forEach(function(row) {
-            row.style.display = (parseInt(row.getAttribute('data-n'), 10) <= n) ? 'block' : 'none';
-        });
-    }
-}
-var reportReplyScheduleEl = document.getElementById('reportReplySchedule');
-if (reportReplyScheduleEl) reportReplyScheduleEl.addEventListener('change', toggleReplySchedule);
-
 // Au changement de page Facebook, recharger la config
 var facebookPageSelectEl = document.getElementById('facebookPageSelect');
 if (facebookPageSelectEl) facebookPageSelectEl.addEventListener('change', function() {
-    var loadBtn = document.getElementById('loadConfigBtn');
-    if (loadBtn) loadBtn.click();
+    loadAgentConfig({ silent: false });
 });
 
 // Charger la configuration au chargement de la page
@@ -1728,8 +1867,8 @@ window.addEventListener('load', async () => {
     renderIntentions();
     renderSmtpProfiles();
     
-    await loadFacebookPagesForSelect();
-    document.getElementById('loadConfigBtn').click();
+    loadAgentConfig({ silent: true });
+    loadFacebookPagesForSelect();
 });
 </script>
 
@@ -2128,6 +2267,84 @@ code {
     background: #f9f9f9;
     border-radius: 6px;
     border: 1px solid #e0e0e0;
+}
+
+.intentions-table-wrap {
+    overflow-x: auto;
+    margin-top: 8px;
+}
+
+.intentions-table {
+    width: 100%;
+    border-collapse: collapse;
+    background: #fff;
+    border-radius: 6px;
+    border: 1px solid #dee2e6;
+}
+
+.intentions-table thead th {
+    background: #f1f3f5;
+    font-weight: 600;
+    font-size: 0.85rem;
+    padding: 10px 12px;
+    text-align: left;
+    border-bottom: 1px solid #dee2e6;
+}
+
+.intentions-table tbody td {
+    padding: 10px 12px;
+    vertical-align: middle;
+    border-bottom: 1px solid #eee;
+}
+
+.intentions-table tbody tr:last-child td {
+    border-bottom: none;
+}
+
+.intentions-table .col-active {
+    width: 56px;
+    text-align: center;
+}
+
+.intentions-table .col-priority {
+    min-width: 160px;
+}
+
+.intentions-table .col-priority-split {
+    min-width: 130px;
+    max-width: 155px;
+}
+
+.intentions-table .col-priority select,
+.intentions-table .col-priority-split select {
+    max-width: 100%;
+}
+
+.intentions-table .col-actions {
+    white-space: nowrap;
+}
+
+.intentions-table .col-actions .btn {
+    margin-right: 4px;
+}
+
+.intention-table-label {
+    cursor: pointer;
+    display: block;
+}
+
+.intention-table-label small {
+    display: block;
+    color: #6c757d;
+    font-weight: normal;
+    margin-top: 4px;
+    font-size: 0.8rem;
+}
+
+.intention-table-email {
+    font-size: 0.85rem;
+    color: #495057;
+    max-width: 320px;
 }
 
 .default-intentions-checkboxes {

@@ -205,11 +205,16 @@ router.get('/agent-config', authenticateJWT, async (req, res) => {
         smtp_profiles: config.config.smtp_profiles || config.config.smtpSettings || {},
         pageId: config.pageId || null,
         reportFrequency: {
+          urgentSchedule: rf.urgentSchedule,
           urgentSendEmail: rf.urgentSendEmail !== false,
-          replyFrequency: rf.replyFrequency || 'immediate',
           replyDailyHour: rf.replyDailyHour || '09:00',
+          replyWeekDay: rf.replyWeekDay != null && rf.replyWeekDay !== '' ? String(rf.replyWeekDay) : '1',
+          replyWeeklyHour: rf.replyWeeklyHour || '09:00',
+          replyMonthlyAnchor: rf.replyMonthlyAnchor === 'last' ? 'last' : 'first',
+          replyMonthlyHour: rf.replyMonthlyHour || '09:00',
           interactionFrequency: rf.interactionFrequency || 'daily',
-          interactionSendEmail: rf.interactionSendEmail === true
+          interactionSendEmail: rf.interactionSendEmail === true,
+          skipReportIfNoNewMessages: rf.skipReportIfNoNewMessages === true
         }
       }
     });
@@ -236,6 +241,7 @@ router.post('/agent-config', authenticateJWT, async (req, res) => {
     const defaultIntentionsEnabled = req.body.defaultIntentionsEnabled || {};
     const smtp_profiles = req.body.smtp_profiles || req.body.smtpSettings || {};
     const reportFrequency = req.body.reportFrequency || {};
+    const rf = reportFrequency;
 
     if (!entrepriseId) {
       return res.status(400).json({
@@ -252,11 +258,16 @@ router.post('/agent-config', authenticateJWT, async (req, res) => {
       defaultIntentionsEnabled: defaultIntentionsEnabled,
       smtp_profiles: smtp_profiles,
       reportFrequency: {
-        urgentSendEmail: reportFrequency.urgentSendEmail !== false,
-        replyFrequency: reportFrequency.replyFrequency || 'immediate',
-        replyDailyHour: reportFrequency.replyDailyHour || '09:00',
-        interactionFrequency: reportFrequency.interactionFrequency || 'daily',
-        interactionSendEmail: reportFrequency.interactionSendEmail === true
+        urgentSchedule: rf.urgentSchedule,
+        urgentSendEmail: rf.urgentSendEmail !== false,
+        replyDailyHour: rf.replyDailyHour || '09:00',
+        replyWeekDay: rf.replyWeekDay != null && rf.replyWeekDay !== '' ? String(rf.replyWeekDay) : '1',
+        replyWeeklyHour: rf.replyWeeklyHour || '09:00',
+        replyMonthlyAnchor: rf.replyMonthlyAnchor === 'last' ? 'last' : 'first',
+        replyMonthlyHour: rf.replyMonthlyHour || '09:00',
+        interactionFrequency: rf.interactionFrequency || 'daily',
+        interactionSendEmail: rf.interactionSendEmail === true,
+        skipReportIfNoNewMessages: rf.skipReportIfNoNewMessages === true
       }
     };
 
