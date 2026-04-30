@@ -105,6 +105,29 @@ router.get('/data',
 );
 
 /**
+ * GET /api/ugap/ui-state
+ * Récupère l'état UI persistant (familles/vues métier)
+ */
+router.get('/ui-state',
+  authenticateJWT,
+  useUgapEntrepriseDb,
+  requireUgapRole(['ADMIN_ENTITY']),
+  ugapController.getUiState
+);
+
+/**
+ * PUT /api/ugap/ui-state
+ * Met à jour l'état UI persistant (familles/vues métier)
+ */
+router.put('/ui-state',
+  express.json(),
+  authenticateJWT,
+  useUgapEntrepriseDb,
+  requireUgapRole(['ADMIN_ENTITY']),
+  ugapController.updateUiState
+);
+
+/**
  * GET /api/ugap/models
  * Récupère la liste des modèles
  */
@@ -151,6 +174,54 @@ router.post('/import',
   useUgapEntrepriseDb,
   requireUgapRole(['ADMIN_ENTITY']),
   ugapController.importExcel
+);
+
+router.get('/imports/staging',
+  authenticateJWT,
+  useUgapEntrepriseDb,
+  requireUgapRole(['ADMIN_ENTITY']),
+  ugapController.getImportStaging
+);
+
+router.post('/imports/staging/:importId/validate-models',
+  express.json(),
+  authenticateJWT,
+  useUgapEntrepriseDb,
+  requireUgapRole(['ADMIN_ENTITY']),
+  ugapController.validateImportModels
+);
+
+router.post('/imports/staging/:importId/validate-options',
+  authenticateJWT,
+  useUgapEntrepriseDb,
+  requireUgapRole(['ADMIN_ENTITY']),
+  ugapController.validateImportOptions
+);
+
+router.post('/imports/staging/:importId/publish',
+  authenticateJWT,
+  useUgapEntrepriseDb,
+  requireUgapRole(['ADMIN_ENTITY']),
+  ugapController.publishImport
+);
+
+/**
+ * GET /api/ugap/import-audit
+ * Compare les comptes Excel vs données importées (par modèle)
+ */
+router.get('/import-audit',
+  authenticateJWT,
+  useUgapEntrepriseDb,
+  requireUgapRole(['ADMIN_ENTITY']),
+  ugapController.getImportAudit
+);
+
+router.post('/import-audit/reintegrate',
+  express.json(),
+  authenticateJWT,
+  useUgapEntrepriseDb,
+  requireUgapRole(['ADMIN_ENTITY']),
+  ugapController.reintegrateImportAuditLine
 );
 
 /**
@@ -301,6 +372,13 @@ router.post('/categories/clear',
   ugapController.clearAllCategories
 );
 
+router.post('/data/purge',
+  authenticateJWT,
+  useUgapEntrepriseDb,
+  requireUgapRole(['ADMIN_ENTITY']),
+  ugapController.purgePublishedData
+);
+
 /**
  * PUT /api/ugap/categories/:categoryId
  * Met à jour une catégorie
@@ -323,6 +401,41 @@ router.delete('/categories/:categoryId',
   useUgapEntrepriseDb,
   requireUgapRole(['ADMIN_ENTITY']),
   ugapController.deleteCategory
+);
+
+/**
+ * POST /api/ugap/options
+ * Crée une nouvelle option
+ */
+router.post('/options',
+  express.json(),
+  authenticateJWT,
+  useUgapEntrepriseDb,
+  requireUgapRole(['ADMIN_ENTITY']),
+  ugapController.createOption
+);
+
+/**
+ * DELETE /api/ugap/options/:optionId
+ * Supprime une option
+ */
+router.delete('/options/:optionId',
+  authenticateJWT,
+  useUgapEntrepriseDb,
+  requireUgapRole(['ADMIN_ENTITY']),
+  ugapController.deleteOption
+);
+
+/**
+ * POST /api/ugap/options/assign-families-bulk
+ * Assigne des familles a un lot d'options
+ */
+router.post('/options/assign-families-bulk',
+  express.json(),
+  authenticateJWT,
+  useUgapEntrepriseDb,
+  requireUgapRole(['ADMIN_ENTITY']),
+  ugapController.assignOptionsFamiliesBulk
 );
 
 /**

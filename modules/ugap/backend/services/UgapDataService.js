@@ -2,8 +2,101 @@
  * Service de gestion des données UGAP (MongoDB)
  * Fichier : modules/ugap/backend/services/UgapDataService.js
  */
+const { ObjectId } = require('mongodb');
 
 class UgapDataService {
+  static normalizeUiState(uiState) {
+    const source = uiState && typeof uiState === 'object' ? uiState : {};
+    const families = Array.isArray(source.families)
+      ? source.families
+      : (Array.isArray(source.validatedFamilies) ? source.validatedFamilies : []);
+    const businessViews = Array.isArray(source.businessViews)
+      ? source.businessViews
+      : (Array.isArray(source.viewHeuristicRules) ? source.viewHeuristicRules : []);
+    return {
+      families,
+      businessViews,
+      updatedAt: source.updatedAt || null
+    };
+  }
+
+  static normalizeSelectionRules(rules) {
+    const source = rules && typeof rules === 'object' ? rules : {};
+    return {
+      unique: !!source.unique,
+      required: !!source.required
+    };
+  }
+
+  static normalizeCategory(category) {
+    const source = category && typeof category === 'object' ? category : {};
+    return {
+      ...source,
+      id: String(source.id || ''),
+      name: String(source.name || ''),
+      selectionRules: this.normalizeSelectionRules(source.selectionRules),
+      businessViewIds: Array.isArray(source.businessViewIds) ? source.businessViewIds.map((x) => String(x)).filter(Boolean) : [],
+      familyIds: Array.isArray(source.familyIds) ? source.familyIds.map((x) => String(x)).filter(Boolean) : [],
+      options: Array.isArray(source.options) ? source.options.map((opt) => this.normalizeOption(opt)) : [],
+      subCategories: Array.isArray(source.subCategories) ? source.subCategories : []
+    };
+  }
+
+  static normalizeOption(option) {
+    const source = option && typeof option === 'object' ? option : {};
+    const compatibleModels = Array.isArray(source.compatibleModels)
+      ? source.compatibleModels.map((x) => String(x)).filter(Boolean)
+      : [];
+    const hasExplicitDivers = source.isDivers !== undefined && source.isDivers !== null;
+    return {
+      ...source,
+      id: String(source.id || ''),
+      name: String(source.name || ''),
+      refUgap: String(source.refUgap || ''),
+      compatibleModels,
+      // Persistance explicite "Divers" (fallback historique: pas de croix => divers)
+      isDivers: hasExplicitDivers ? !!source.isDivers : compatibleModels.length === 0
+    };
+  }
+
+  static normalizeBusinessView(view) {
+    const source = view && typeof view === 'object' ? view : {};
+    return {
+      ...source,
+      id: String(source.id || ''),
+      label: String(source.label || ''),
+      categoryIds: Array.isArray(source.categoryIds) ? source.categoryIds.map((x) => String(x)).filter(Boolean) : [],
+      familyIds: Array.isArray(source.familyIds) ? source.familyIds.map((x) => String(x)).filter(Boolean) : []
+    };
+  }
+
+  static normalizeDependencyRules(rules) {
+    if (!Array.isArray(rules)) return [];
+    return rules
+      .map((rule) => {
+        const source = rule && typeof rule === 'object' ? rule : {};
+        return {
+          triggerOptionId: String(source.triggerOptionId || '').trim(),
+          autoSelectOptionIds: Array.isArray(source.autoSelectOptionIds)
+            ? source.autoSelectOptionIds.map((x) => String(x)).filter(Boolean)
+            : [],
+          message: source.message != null ? String(source.message) : ''
+        };
+      })
+      .filter((rule) => rule.triggerOptionId && rule.autoSelectOptionIds.length > 0);
+  }
+
+  static normalizeSubCategory(subCategory) {
+    const source = subCategory && typeof subCategory === 'object' ? subCategory : {};
+    return {
+      ...source,
+      id: String(source.id || ''),
+      name: String(source.name || ''),
+      description: String(source.description || ''),
+      optionIds: Array.isArray(source.optionIds) ? source.optionIds.map((x) => String(x)).filter(Boolean) : []
+    };
+  }
+
   /**
    * Sauvegarde les données extraites dans MongoDB
    * @param {Object} db - Base de données MongoDB
@@ -13,17 +106,31 @@ class UgapDataService {
    */
   static async saveData(db, data, entrepriseId) {
     const collection = db.collection('ugap_data');
+    const existing = await collection.findOne({ entrepriseId });
+    const normalizedInputUiState = this.normalizeUiState(data?.uiState);
+    const existingUiState = this.normalizeUiState(existing?.uiState);
+    const resolvedUiState = {
+      families: normalizedInputUiState.families.length
+        ? normalizedInputUiState.families
+        : existingUiState.families,
+      businessViews: normalizedInputUiState.businessViews.length
+        ? normalizedInputUiState.businessViews
+        : existingUiState.businessViews,
+      updatedAt: normalizedInputUiState.updatedAt || existingUiState.updatedAt || null
+    };
     
     const document = {
       entrepriseId,
       models: data.models || [],
-      categories: data.categories || [],
+      categories: (data.categories || []).map((cat) => this.normalizeCategory(cat)),
+      businessViews: Array.isArray(data.businessViews) ? data.businessViews.map((view) => this.normalizeBusinessView(view)) : [],
+      dependencyRules: this.normalizeDependencyRules(data.dependencyRules),
+      uiState: this.normalizeUiState(resolvedUiState),
       updatedAt: new Date(),
       createdAt: new Date()
     };
 
     // Mise à jour ou insertion
-    const existing = await collection.findOne({ entrepriseId });
     if (existing) {
       document.createdAt = existing.createdAt;
       await collection.updateOne(
@@ -49,9 +156,10 @@ class UgapDataService {
     
     if (!document) return null;
 
-    const categories = (document.categories || []).map(category => {
+    const categories = (document.categories || []).map((rawCategory) => {
+      const category = this.normalizeCategory(rawCategory);
       // S'assurer qu'il y a toujours une sous-catégorie "Non attribuée"
-      const subCategories = category.subCategories || [];
+      const subCategories = (category.subCategories || []).map((sc) => this.normalizeSubCategory(sc));
       const allAssignedOptionIds = new Set();
       subCategories.forEach(sc => {
         (sc.optionIds || []).forEach(id => allAssignedOptionIds.add(id));
@@ -101,8 +209,42 @@ class UgapDataService {
 
     return {
       models: document.models || [],
-      categories
+      categories,
+      businessViews: Array.isArray(document.businessViews) ? document.businessViews.map((view) => this.normalizeBusinessView(view)) : [],
+      dependencyRules: this.normalizeDependencyRules(document.dependencyRules),
+      uiState: this.normalizeUiState(document.uiState)
     };
+  }
+
+  static async getUiState(db, entrepriseId) {
+    const collection = db.collection('ugap_data');
+    const document = await collection.findOne(
+      { entrepriseId },
+      { projection: { uiState: 1 } }
+    );
+    return this.normalizeUiState(document?.uiState);
+  }
+
+  static async updateUiState(db, entrepriseId, updates) {
+    const collection = db.collection('ugap_data');
+    const existing = await collection.findOne(
+      { entrepriseId },
+      { projection: { uiState: 1 } }
+    );
+    if (!existing) {
+      throw new Error('Données non trouvées');
+    }
+    const current = this.normalizeUiState(existing.uiState);
+    const next = this.normalizeUiState({
+      ...current,
+      ...(updates && typeof updates === 'object' ? updates : {}),
+      updatedAt: new Date()
+    });
+    await collection.updateOne(
+      { entrepriseId },
+      { $set: { uiState: next, updatedAt: new Date() } }
+    );
+    return next;
   }
 
   /**
@@ -137,6 +279,9 @@ class UgapDataService {
     const newCategory = {
       id: candidateId,
       name,
+      selectionRules: { unique: false, required: false },
+      businessViewIds: [],
+      familyIds: [],
       options: [],
       subCategories: []
     };
@@ -163,9 +308,17 @@ class UgapDataService {
    */
   static async updateCategory(db, entrepriseId, categoryId, updates) {
     const collection = db.collection('ugap_data');
+    const current = await collection.findOne({ entrepriseId, 'categories.id': categoryId }, { projection: { categories: 1 } });
+    const existing = (current?.categories || []).find((cat) => String(cat?.id) === String(categoryId));
+    if (!existing) return false;
+    const merged = this.normalizeCategory({
+      ...existing,
+      ...(updates && typeof updates === 'object' ? updates : {}),
+      id: categoryId
+    });
     const result = await collection.updateOne(
       { entrepriseId, 'categories.id': categoryId },
-      { $set: { 'categories.$[cat]': { ...updates, id: categoryId }, updatedAt: new Date() } },
+      { $set: { 'categories.$[cat]': merged, updatedAt: new Date() } },
       { arrayFilters: [{ 'cat.id': categoryId }] }
     );
     return result.modifiedCount > 0;
@@ -225,11 +378,12 @@ class UgapDataService {
    */
   static async updateOption(db, entrepriseId, optionId, updates) {
     const collection = db.collection('ugap_data');
+    const merged = this.normalizeOption({ ...updates, id: optionId });
     const result = await collection.updateOne(
       { entrepriseId, 'categories.options.id': optionId },
       { 
         $set: { 
-          'categories.$[cat].options.$[opt]': { ...updates, id: optionId },
+          'categories.$[cat].options.$[opt]': merged,
           updatedAt: new Date()
         }
       },
@@ -240,6 +394,162 @@ class UgapDataService {
         ]
       }
     );
+    return result.modifiedCount > 0;
+  }
+
+  /**
+   * Assigne des familles a un lot d'options en une seule ecriture
+   * @param {Object} db
+   * @param {string} entrepriseId
+   * @param {Array<{optionId:string,familyLabel:string}>} assignments
+   * @returns {Promise<{updatedCount:number,updatedOptionIds:string[]}>}
+   */
+  static async assignOptionsFamiliesBulk(db, entrepriseId, assignments) {
+    const collection = db.collection('ugap_data');
+    const document = await collection.findOne({ entrepriseId });
+    if (!document) {
+      throw new Error('Données non trouvées');
+    }
+
+    const updatesMap = new Map();
+    (Array.isArray(assignments) ? assignments : []).forEach((item) => {
+      const optionId = String(item?.optionId || '').trim();
+      const familyLabel = String(item?.familyLabel || '').trim();
+      if (!optionId || !familyLabel) return;
+      updatesMap.set(optionId, familyLabel);
+    });
+    if (!updatesMap.size) return { updatedCount: 0, updatedOptionIds: [] };
+
+    let updatedCount = 0;
+    const updatedOptionIds = [];
+    const categories = (document.categories || []).map((cat) => {
+      const options = (cat.options || []).map((opt) => {
+        const optionId = String(opt?.id || '').trim();
+        if (!optionId || !updatesMap.has(optionId)) return opt;
+        updatedCount += 1;
+        updatedOptionIds.push(optionId);
+        return {
+          ...opt,
+          familyLabel: updatesMap.get(optionId)
+        };
+      });
+      return { ...cat, options };
+    });
+
+    await collection.updateOne(
+      { entrepriseId },
+      { $set: { categories, updatedAt: new Date() } }
+    );
+    return { updatedCount, updatedOptionIds };
+  }
+
+  /**
+   * Ajoute une nouvelle option dans une catégorie
+   * @param {Object} db - Base de données MongoDB
+   * @param {string} entrepriseId - ID de l'entreprise
+   * @param {string} categoryId - ID de la catégorie cible
+   * @param {Object} option - Données de l'option à créer
+   * @returns {Promise<boolean>} Succès
+   */
+  static async createOption(db, entrepriseId, categoryId, option) {
+    const collection = db.collection('ugap_data');
+    const document = await collection.findOne({ entrepriseId });
+    if (!document) {
+      throw new Error('Données non trouvées');
+    }
+
+    const categories = Array.isArray(document.categories) ? document.categories : [];
+    if (!categories.length) {
+      throw new Error('Aucune catégorie disponible');
+    }
+
+    const targetCategory = categories.find((cat) => String(cat?.id || '') === String(categoryId || '').trim()) || categories[0];
+    if (!targetCategory) {
+      throw new Error('Catégorie cible introuvable');
+    }
+
+    const optionId = String(option?.id || '').trim();
+    if (!optionId) {
+      throw new Error('ID option requis');
+    }
+
+    const existingIds = new Set(
+      categories.flatMap((cat) => (cat.options || []).map((opt) => String(opt?.id || '').trim()).filter(Boolean))
+    );
+    if (existingIds.has(optionId)) {
+      throw new Error(`Une option avec l'id "${optionId}" existe déjà`);
+    }
+
+    const toCreate = {
+      ...option,
+      id: optionId,
+      name: String(option?.name || '').trim(),
+      refUgap: String(option?.refUgap || '').trim(),
+      baseRefUgap: String(option?.baseRefUgap || '').trim(),
+      familyLabel: String(option?.familyLabel || '').trim(),
+      subFamily: String(option?.subFamily || '').trim(),
+      priceClient: 0,
+      priceUgap: Number.isFinite(Number(option?.priceUgap)) ? Number(option.priceUgap) : 0,
+      baseIncluded: true,
+      manualBaseOption: option?.manualBaseOption !== false,
+      baseIncludedPrice: Number.isFinite(Number(option?.baseIncludedPrice)) ? Number(option.baseIncludedPrice) : 0,
+      compatibleModels: Array.isArray(option?.compatibleModels)
+        ? option.compatibleModels.map((x) => String(x)).filter(Boolean)
+        : [],
+      isDivers: option?.isDivers !== undefined ? !!option.isDivers : false
+    };
+
+    const result = await collection.updateOne(
+      { entrepriseId, 'categories.id': targetCategory.id },
+      {
+        $push: { 'categories.$.options': toCreate },
+        $set: { updatedAt: new Date() }
+      }
+    );
+
+    return result.modifiedCount > 0;
+  }
+
+  /**
+   * Supprime une option (et ses références en sous-catégories)
+   * @param {Object} db - Base de données MongoDB
+   * @param {string} entrepriseId - ID de l'entreprise
+   * @param {string} optionId - ID de l'option à supprimer
+   * @returns {Promise<boolean>} Succès
+   */
+  static async deleteOption(db, entrepriseId, optionId) {
+    const collection = db.collection('ugap_data');
+    const document = await collection.findOne({ entrepriseId });
+    if (!document) {
+      throw new Error('Données non trouvées');
+    }
+
+    const targetId = String(optionId || '').trim();
+    if (!targetId) {
+      throw new Error('optionId requis');
+    }
+
+    const categories = (document.categories || []).map((cat) => {
+      const options = (cat.options || []).filter((opt) => String(opt?.id || '').trim() !== targetId);
+      const subCategories = (cat.subCategories || []).map((sc) => ({
+        ...sc,
+        optionIds: Array.isArray(sc.optionIds)
+          ? sc.optionIds.map((x) => String(x)).filter((id) => id !== targetId)
+          : []
+      }));
+      return { ...cat, options, subCategories };
+    });
+
+    const result = await collection.updateOne(
+      { entrepriseId },
+      {
+        $set: {
+          categories,
+          updatedAt: new Date()
+        }
+      }
+    );
+
     return result.modifiedCount > 0;
   }
 
@@ -350,6 +660,9 @@ class UgapDataService {
           categories: {
             id: category.id || `cat_${Date.now()}`,
             name: category.name,
+            selectionRules: this.normalizeSelectionRules(category.selectionRules),
+            businessViewIds: Array.isArray(category.businessViewIds) ? category.businessViewIds.map((x) => String(x)).filter(Boolean) : [],
+            familyIds: Array.isArray(category.familyIds) ? category.familyIds.map((x) => String(x)).filter(Boolean) : [],
             subCategories: category.subCategories || [],
             options: category.options || []
           }
@@ -433,6 +746,15 @@ class UgapDataService {
     return { categoriesCleared: categories.length, optionsMoved: options.length };
   }
 
+  static async purgePublishedData(db, entrepriseId) {
+    const collection = db.collection('ugap_data');
+    const result = await collection.deleteOne({ entrepriseId });
+    return {
+      deleted: result.deletedCount > 0,
+      deletedCount: result.deletedCount || 0
+    };
+  }
+
   /**
    * Ajoute une sous-catégorie à une catégorie
    * @param {Object} db - Base de données MongoDB
@@ -486,7 +808,8 @@ class UgapDataService {
       id: subCategoryId,
       name: subCategory.name || '',
       description: subCategory.description || '',
-      optionIds: subCategory.optionIds || []
+      optionIds: subCategory.optionIds || [],
+      familyId: subCategory.familyId != null ? String(subCategory.familyId) : ''
     };
 
     const result = await collection.updateOne(
@@ -522,7 +845,8 @@ class UgapDataService {
       id: subCategoryId,
       name: updates.name !== undefined ? updates.name : (subCategory?.name || ''),
       description: updates.description !== undefined ? updates.description : (subCategory?.description || ''),
-      optionIds: updates.optionIds !== undefined ? updates.optionIds : (subCategory?.optionIds || [])
+      optionIds: updates.optionIds !== undefined ? updates.optionIds : (subCategory?.optionIds || []),
+      familyId: updates.familyId !== undefined ? String(updates.familyId || '') : String(subCategory?.familyId || '')
     };
     
     const result = await collection.updateOne(
@@ -1097,6 +1421,186 @@ Exemple de forme (ids fictifs) :
     );
 
     return document;
+  }
+
+  static buildOptionBusinessKey(option, categoryName = '') {
+    const ref = String(option?.refUgap || '').trim().toUpperCase();
+    if (ref) return `ref:${ref}`;
+    const normalize = (value) => String(value || '')
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-z0-9]+/g, ' ')
+      .trim();
+    const name = normalize(option?.name);
+    const category = normalize(categoryName || option?.category);
+    return `name:${name}|cat:${category}`;
+  }
+
+  static mergeImportedCategories(categories) {
+    const incoming = Array.isArray(categories) ? categories : [];
+    const mergedByCategory = new Map();
+    incoming.forEach((category) => {
+      const categoryName = String(category?.name || 'Divers').trim() || 'Divers';
+      const categoryId = String(category?.id || `cat_${categoryName.toLowerCase().replace(/[^a-z0-9]/g, '_')}`);
+      if (!mergedByCategory.has(categoryName)) {
+        mergedByCategory.set(categoryName, {
+          id: categoryId,
+          name: categoryName,
+          options: [],
+          subCategories: Array.isArray(category?.subCategories) ? category.subCategories : [],
+          _optionIndex: new Map()
+        });
+      }
+      const target = mergedByCategory.get(categoryName);
+      (category?.options || []).forEach((option) => {
+        const businessKey = this.buildOptionBusinessKey(option, categoryName);
+        const existing = target._optionIndex.get(businessKey);
+        if (!existing) {
+          const normalized = this.normalizeOption(option);
+          normalized.businessKey = businessKey;
+          target._optionIndex.set(businessKey, normalized);
+          target.options.push(normalized);
+          return;
+        }
+        const mergedModels = new Set([...(existing.compatibleModels || []), ...((option?.compatibleModels || []).map((x) => String(x)))]);
+        existing.compatibleModels = Array.from(mergedModels).filter(Boolean);
+        if (!existing.refUgap && option?.refUgap) existing.refUgap = String(option.refUgap);
+        if (!existing.name && option?.name) existing.name = String(option.name);
+        if (Number(option?.priceClient) > 0) existing.priceClient = Number(option.priceClient);
+        if (Number(option?.priceUgap) > 0) existing.priceUgap = Number(option.priceUgap);
+      });
+    });
+    return Array.from(mergedByCategory.values()).map((cat) => {
+      delete cat._optionIndex;
+      return cat;
+    });
+  }
+
+  static async saveImportStaging(db, entrepriseId, payload) {
+    const collection = db.collection('ugap_import_staging');
+    const now = new Date();
+    const source = payload?.source || {};
+    const sourceFileHash = String(source.sourceFileHash || '').trim();
+    const existing = sourceFileHash
+      ? await collection.findOne({ entrepriseId, 'source.sourceFileHash': sourceFileHash })
+      : null;
+
+    const mergedCategories = this.mergeImportedCategories(payload?.categories || []);
+    const document = {
+      entrepriseId,
+      source: {
+        sourceFileName: String(source.sourceFileName || ''),
+        sourceFileHash,
+        sourceFilePath: String(source.sourceFilePath || ''),
+        importedAt: source.importedAt || now
+      },
+      status: 'draft',
+      modelsStatus: 'to_validate',
+      optionsStatus: 'to_validate',
+      minorationsStatus: 'to_validate',
+      diversStatus: 'to_validate',
+      models: Array.isArray(payload?.models) ? payload.models : [],
+      categories: mergedCategories,
+      businessViews: Array.isArray(payload?.businessViews) ? payload.businessViews : [],
+      dependencyRules: this.normalizeDependencyRules(payload?.dependencyRules),
+      uiState: this.normalizeUiState(payload?.uiState),
+      progress: {
+        validatedModelIds: [],
+        modelsCompleted: false,
+        optionsCompleted: false,
+        familiesCompleted: false,
+        viewsCompleted: false
+      },
+      updatedAt: now,
+      createdAt: now
+    };
+
+    if (existing) {
+      document.createdAt = existing.createdAt || now;
+      document.progress = existing.progress || document.progress;
+      await collection.updateOne({ _id: existing._id }, { $set: document });
+      return { ...document, _id: existing._id, alreadyProcessed: true, alreadyValidated: existing.status === 'validated' || existing.status === 'published' };
+    }
+
+    const result = await collection.insertOne(document);
+    return { ...document, _id: result.insertedId, alreadyProcessed: false, alreadyValidated: false };
+  }
+
+  static async getLatestImportStaging(db, entrepriseId) {
+    const collection = db.collection('ugap_import_staging');
+    return await collection.find({ entrepriseId }).sort({ updatedAt: -1 }).limit(1).next();
+  }
+
+  static async markImportModelsValidated(db, entrepriseId, importId, modelIds = []) {
+    const collection = db.collection('ugap_import_staging');
+    const document = await collection.findOne({ _id: new ObjectId(String(importId)), entrepriseId });
+    if (!document) throw new Error('Import staging introuvable');
+    const incoming = new Set((Array.isArray(modelIds) ? modelIds : []).map((x) => String(x)).filter(Boolean));
+    const merged = new Set([...(document?.progress?.validatedModelIds || []), ...incoming]);
+    const allModelIds = new Set((document.models || []).map((m) => String(m?.id || '')).filter(Boolean));
+    const modelsCompleted = allModelIds.size > 0 && Array.from(allModelIds).every((id) => merged.has(id));
+    const nextStatus = modelsCompleted ? 'validated' : 'in_review';
+    await collection.updateOne(
+      { _id: document._id },
+      {
+        $set: {
+          'progress.validatedModelIds': Array.from(merged),
+          'progress.modelsCompleted': modelsCompleted,
+          modelsStatus: modelsCompleted ? 'validated' : 'in_review',
+          status: nextStatus,
+          updatedAt: new Date()
+        }
+      }
+    );
+    return await collection.findOne({ _id: document._id });
+  }
+
+  static async markImportOptionsValidated(db, entrepriseId, importId) {
+    const collection = db.collection('ugap_import_staging');
+    const _id = new ObjectId(String(importId));
+    await collection.updateOne(
+      { _id, entrepriseId },
+      {
+        $set: {
+          optionsStatus: 'validated',
+          minorationsStatus: 'validated',
+          diversStatus: 'validated',
+          'progress.optionsCompleted': true,
+          updatedAt: new Date()
+        }
+      }
+    );
+    const doc = await collection.findOne({ _id, entrepriseId });
+    if (!doc) throw new Error('Import staging introuvable');
+    return doc;
+  }
+
+  static async publishImportStaging(db, entrepriseId, importId) {
+    const collection = db.collection('ugap_import_staging');
+    const _id = new ObjectId(String(importId));
+    const doc = await collection.findOne({ _id, entrepriseId });
+    if (!doc) throw new Error('Import staging introuvable');
+    const payload = {
+      models: doc.models || [],
+      categories: doc.categories || [],
+      businessViews: doc.businessViews || [],
+      dependencyRules: doc.dependencyRules || [],
+      uiState: doc.uiState || {}
+    };
+    await this.saveData(db, payload, entrepriseId);
+    await collection.updateOne(
+      { _id, entrepriseId },
+      {
+        $set: {
+          status: 'published',
+          'progress.viewsCompleted': true,
+          updatedAt: new Date(),
+          publishedAt: new Date()
+        }
+      }
+    );
+    return await collection.findOne({ _id, entrepriseId });
   }
 }
 

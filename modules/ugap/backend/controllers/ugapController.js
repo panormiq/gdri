@@ -37,6 +37,8 @@ async function importExcel(req, res) {
   try {
     const filePath = path.join(__dirname, '../../source/TARIF ALU UGAP 2024(6).xlsx');
     const extractedData = UgapExcelService.extractData(filePath);
+    const sourceBuffer = fs.readFileSync(filePath);
+    const sourceFileHash = crypto.createHash('sha256').update(sourceBuffer).digest('hex');
 
     // Fallback IA uniquement pour les modèles incomplets/ambiguës
     const aiService = new UgapAIService(req.entrepriseDb, req.entrepriseId);
@@ -93,12 +95,24 @@ async function importExcel(req, res) {
       }
     }
 
-    await UgapDataService.saveData(req.entrepriseDb, extractedData, req.entrepriseId);
+    const staging = await UgapDataService.saveImportStaging(req.entrepriseDb, req.entrepriseId, {
+      ...extractedData,
+      source: {
+        sourceFileName: path.basename(filePath),
+        sourceFileHash,
+        sourceFilePath: filePath,
+        importedAt: new Date()
+      }
+    });
     
     res.json({
       success: true,
-      message: 'Import réussi',
+      message: 'Import en zone tampon réussi',
       data: {
+        importId: String(staging._id),
+        status: staging.status,
+        alreadyProcessed: !!staging.alreadyProcessed,
+        alreadyValidated: !!staging.alreadyValidated,
         modelsCount: extractedData.models.length,
         categoriesCount: extractedData.categories.length,
         optionsCount: extractedData.categories.reduce((sum, cat) => sum + (cat.options?.length || 0), 0)
@@ -106,6 +120,101 @@ async function importExcel(req, res) {
     });
   } catch (error) {
     console.error('❌ UGAP importExcel error:', error);
+    res.status(500).json({ success: false, message: error.message || 'Erreur serveur' });
+  }
+}
+
+async function getImportStaging(req, res) {
+  try {
+    const data = await UgapDataService.getLatestImportStaging(req.entrepriseDb, req.entrepriseId);
+    if (!data) {
+      return res.json({ success: true, data: null, message: 'Aucun import en zone tampon' });
+    }
+    res.json({ success: true, data });
+  } catch (error) {
+    console.error('❌ UGAP getImportStaging error:', error);
+    res.status(500).json({ success: false, message: error.message || 'Erreur serveur' });
+  }
+}
+
+async function validateImportModels(req, res) {
+  try {
+    const { importId } = req.params;
+    const modelIds = Array.isArray(req.body?.modelIds) ? req.body.modelIds : [];
+    const data = await UgapDataService.markImportModelsValidated(
+      req.entrepriseDb,
+      req.entrepriseId,
+      importId,
+      modelIds
+    );
+    res.json({ success: true, message: 'Validation modèles mise à jour', data });
+  } catch (error) {
+    console.error('❌ UGAP validateImportModels error:', error);
+    res.status(500).json({ success: false, message: error.message || 'Erreur serveur' });
+  }
+}
+
+async function validateImportOptions(req, res) {
+  try {
+    const { importId } = req.params;
+    const data = await UgapDataService.markImportOptionsValidated(
+      req.entrepriseDb,
+      req.entrepriseId,
+      importId
+    );
+    res.json({ success: true, message: 'Validation options/minorations/divers mise à jour', data });
+  } catch (error) {
+    console.error('❌ UGAP validateImportOptions error:', error);
+    res.status(500).json({ success: false, message: error.message || 'Erreur serveur' });
+  }
+}
+
+async function publishImport(req, res) {
+  try {
+    const { importId } = req.params;
+    const data = await UgapDataService.publishImportStaging(
+      req.entrepriseDb,
+      req.entrepriseId,
+      importId
+    );
+    res.json({ success: true, message: 'Import publié dans le catalogue UGAP', data });
+  } catch (error) {
+    console.error('❌ UGAP publishImport error:', error);
+    res.status(500).json({ success: false, message: error.message || 'Erreur serveur' });
+  }
+}
+
+async function getImportAudit(req, res) {
+  try {
+    const filePath = path.join(__dirname, '../../source/TARIF ALU UGAP 2024(6).xlsx');
+    const data = await UgapDataService.getData(req.entrepriseDb, req.entrepriseId);
+    const audit = UgapExcelService.buildImportAudit(filePath, data || null);
+    res.json({ success: true, data: audit });
+  } catch (error) {
+    console.error('❌ UGAP getImportAudit error:', error);
+    res.status(500).json({ success: false, message: error.message || 'Erreur serveur' });
+  }
+}
+
+async function reintegrateImportAuditLine(req, res) {
+  try {
+    const filePath = path.join(__dirname, '../../source/TARIF ALU UGAP 2024(6).xlsx');
+    const { modelId, rowIndex } = req.body || {};
+    const data = await UgapDataService.getData(req.entrepriseDb, req.entrepriseId);
+    if (!data) {
+      return res.status(404).json({ success: false, message: 'Aucune donnee UGAP a mettre a jour' });
+    }
+
+    const result = UgapExcelService.reintegrateExcludedRow(filePath, data, { modelId, rowIndex });
+    await UgapDataService.saveData(req.entrepriseDb, data, req.entrepriseId);
+
+    res.json({
+      success: true,
+      message: 'Ligne reintegree',
+      data: result
+    });
+  } catch (error) {
+    console.error('❌ UGAP reintegrateImportAuditLine error:', error);
     res.status(500).json({ success: false, message: error.message || 'Erreur serveur' });
   }
 }
@@ -136,6 +245,27 @@ async function getCategories(req, res) {
   }
 }
 
+async function getUiState(req, res) {
+  try {
+    const data = await UgapDataService.getUiState(req.entrepriseDb, req.entrepriseId);
+    res.json({ success: true, data });
+  } catch (error) {
+    console.error('❌ UGAP getUiState error:', error);
+    res.status(500).json({ success: false, message: error.message || 'Erreur serveur' });
+  }
+}
+
+async function updateUiState(req, res) {
+  try {
+    const updates = req.body || {};
+    const data = await UgapDataService.updateUiState(req.entrepriseDb, req.entrepriseId, updates);
+    res.json({ success: true, data, message: 'Etat UI UGAP mis à jour' });
+  } catch (error) {
+    console.error('❌ UGAP updateUiState error:', error);
+    res.status(500).json({ success: false, message: error.message || 'Erreur serveur' });
+  }
+}
+
 async function generateDevis(req, res) {
   try {
     const { modelId, configId, selectedOptions, use5Percent } = req.body;
@@ -147,9 +277,31 @@ async function generateDevis(req, res) {
     if (!model) {
       return res.status(404).json({ success: false, message: 'Modèle non trouvé' });
     }
+    const requestedOptionIds = Array.isArray(selectedOptions)
+      ? selectedOptions.map((id) => String(id || '').trim()).filter(Boolean)
+      : [];
+    const selectedSet = new Set(requestedOptionIds);
+    const dependencyRules = Array.isArray(data?.dependencyRules) ? data.dependencyRules : [];
+    let changed = true;
+    while (changed) {
+      changed = false;
+      dependencyRules.forEach((rule) => {
+        const triggerOptionId = String(rule?.triggerOptionId || '').trim();
+        if (!triggerOptionId || !selectedSet.has(triggerOptionId)) return;
+        const autoSelectIds = Array.isArray(rule?.autoSelectOptionIds) ? rule.autoSelectOptionIds : [];
+        autoSelectIds.forEach((id) => {
+          const normalizedId = String(id || '').trim();
+          if (!normalizedId || selectedSet.has(normalizedId)) return;
+          selectedSet.add(normalizedId);
+          changed = true;
+        });
+      });
+    }
+
     let total = model.basePrice || 0;
     const selectedOptionsData = [];
-    selectedOptions.forEach(optionId => {
+    const selectedOptionIds = Array.from(selectedSet);
+    selectedOptionIds.forEach(optionId => {
       for (const category of data.categories) {
         const option = category.options.find(o => o.id === optionId);
         if (option) {
@@ -159,12 +311,37 @@ async function generateDevis(req, res) {
         }
       }
     });
+
+    const violations = [];
+    (data.categories || []).forEach((category) => {
+      const rules = category?.selectionRules || {};
+      const categoryOptionIds = new Set((category?.options || []).map((opt) => String(opt?.id || '').trim()).filter(Boolean));
+      const selectedInCategory = selectedOptionIds.filter((id) => categoryOptionIds.has(id));
+      if (rules?.unique && selectedInCategory.length > 1) {
+        violations.push(`Catégorie "${category?.name || category?.id}": choix unique violé (${selectedInCategory.length} options sélectionnées).`);
+      }
+      if (rules?.required && selectedInCategory.length === 0) {
+        violations.push(`Catégorie "${category?.name || category?.id}": au moins une option est obligatoire.`);
+      }
+    });
+
+    if (violations.length > 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Validation des règles catégorie échouée',
+        data: { violations }
+      });
+    }
+
     const budget5Percent = use5Percent ? total * 0.05 : 0;
     res.json({
       success: true,
       data: {
         model,
         configId,
+        requestedOptionIds,
+        autoSelectedOptionIds: selectedOptionIds.filter((id) => !requestedOptionIds.includes(id)),
+        appliedDependencyRules: dependencyRules.filter((rule) => selectedOptionIds.includes(String(rule?.triggerOptionId || '').trim())),
         selectedOptions: selectedOptionsData,
         subtotal: total,
         budget5Percent,
@@ -239,6 +416,20 @@ async function clearAllCategories(req, res) {
     });
   } catch (error) {
     console.error('❌ UGAP clearAllCategories error:', error);
+    res.status(500).json({ success: false, message: error.message || 'Erreur serveur' });
+  }
+}
+
+async function purgePublishedData(req, res) {
+  try {
+    const summary = await UgapDataService.purgePublishedData(req.entrepriseDb, req.entrepriseId);
+    res.json({
+      success: true,
+      message: summary.deleted ? 'Données publiées UGAP purgées' : 'Aucune donnée publiée à purger',
+      data: summary
+    });
+  } catch (error) {
+    console.error('❌ UGAP purgePublishedData error:', error);
     res.status(500).json({ success: false, message: error.message || 'Erreur serveur' });
   }
 }
@@ -334,6 +525,84 @@ async function updateOption(req, res) {
     res.json({ success: true, message: 'Option mise à jour' });
   } catch (error) {
     console.error('❌ UGAP updateOption error:', error);
+    res.status(500).json({ success: false, message: error.message || 'Erreur serveur' });
+  }
+}
+
+async function createOption(req, res) {
+  try {
+    const {
+      categoryId,
+      id,
+      name,
+      refUgap,
+      baseRefUgap,
+      compatibleModels,
+      familyLabel,
+      subFamily,
+      baseIncludedPrice,
+      priceUgap
+    } = req.body || {};
+
+    if (!id || !name) {
+      return res.status(400).json({
+        success: false,
+        message: 'id et name sont requis'
+      });
+    }
+
+    await UgapDataService.createOption(
+      req.entrepriseDb,
+      req.entrepriseId,
+      categoryId,
+      {
+        id,
+        name,
+        refUgap,
+        baseRefUgap,
+        compatibleModels,
+        familyLabel,
+        subFamily,
+        baseIncludedPrice,
+        priceUgap
+      }
+    );
+
+    res.json({ success: true, message: 'Option créée' });
+  } catch (error) {
+    console.error('❌ UGAP createOption error:', error);
+    res.status(500).json({ success: false, message: error.message || 'Erreur serveur' });
+  }
+}
+
+async function deleteOption(req, res) {
+  try {
+    const { optionId } = req.params;
+    if (!optionId) {
+      return res.status(400).json({ success: false, message: 'optionId requis' });
+    }
+    await UgapDataService.deleteOption(req.entrepriseDb, req.entrepriseId, optionId);
+    res.json({ success: true, message: 'Option supprimée' });
+  } catch (error) {
+    console.error('❌ UGAP deleteOption error:', error);
+    res.status(500).json({ success: false, message: error.message || 'Erreur serveur' });
+  }
+}
+
+async function assignOptionsFamiliesBulk(req, res) {
+  try {
+    const assignments = Array.isArray(req.body?.assignments) ? req.body.assignments : [];
+    if (!assignments.length) {
+      return res.status(400).json({ success: false, message: 'assignments requis (tableau non vide)' });
+    }
+    const { updatedCount, updatedOptionIds } = await UgapDataService.assignOptionsFamiliesBulk(
+      req.entrepriseDb,
+      req.entrepriseId,
+      assignments
+    );
+    res.json({ success: true, data: { updatedCount, updatedOptionIds } });
+  } catch (error) {
+    console.error('❌ UGAP assignOptionsFamiliesBulk error:', error);
     res.status(500).json({ success: false, message: error.message || 'Erreur serveur' });
   }
 }
@@ -2600,7 +2869,15 @@ Exemples:
 
 module.exports = {
   getData,
+  getUiState,
+  updateUiState,
   importExcel,
+  getImportStaging,
+  validateImportModels,
+  validateImportOptions,
+  publishImport,
+  getImportAudit,
+  reintegrateImportAuditLine,
   getModels,
   getCategories,
   generateDevis,
@@ -2609,10 +2886,14 @@ module.exports = {
   reorderCategories,
   deleteCategory,
   clearAllCategories,
+  purgePublishedData,
   clearConfigurationMappedCategories,
   createSubCategory,
   updateSubCategory,
   deleteSubCategory,
+  createOption,
+  deleteOption,
+  assignOptionsFamiliesBulk,
   updateOption,
   moveOptionToCategory,
   improveCategorization,

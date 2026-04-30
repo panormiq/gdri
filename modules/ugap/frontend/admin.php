@@ -105,6 +105,7 @@
             </div>
             <div>
                 <a href="/modules/ugap/frontend/index.html" class="btn btn-outline">Voir Configurateur</a>
+                <button id="btn-import-mode" class="btn btn-outline">Mode import</button>
                 <button id="btn-refresh" class="btn btn-primary">Rafraîchir</button>
             </div>
         </div>
@@ -116,7 +117,20 @@
             <p style="color: #666;">Importez le fichier Excel pour extraire les modèles et options.</p>
             <div style="display: flex; gap: 10px; align-items: center;">
                 <button id="btn-import" class="btn btn-success">Importer depuis Excel</button>
+                <button id="btn-import-audit" class="btn btn-outline">Audit ecarts Excel</button>
+                <button id="btn-backoffice-mode" class="btn btn-outline">Retour back-office</button>
                 <span id="import-status" style="color: #666;"></span>
+            </div>
+            <div id="import-staging-indicator" style="margin-top:10px; padding:10px 12px; border:1px solid #e3e6ea; border-radius:8px; background:#f8fafc; display:flex; align-items:center; justify-content:space-between; gap:10px;">
+                <div>
+                    <div style="font-weight:600; color:#1f2937;">Workflow import</div>
+                    <div id="import-staging-meta" style="font-size:12px; color:#6b7280; margin-top:2px;">Aucun import en cours.</div>
+                    <div id="import-staging-progress" style="font-size:12px; color:#374151; margin-top:4px;">0/0 modeles valides - 0 modeles de base configures - 0/0 options configurees</div>
+                </div>
+                <div style="display:flex; align-items:center; gap:8px;">
+                    <span id="import-staging-badge" style="font-size:12px; font-weight:600; color:#374151; background:#e5e7eb; padding:4px 8px; border-radius:999px;">Aucun</span>
+                    <button id="btn-resume-import" class="btn btn-outline" style="display:none;">Reprendre l'import</button>
+                </div>
             </div>
         </div>
 
@@ -128,7 +142,7 @@
                 </div>
                 <div class="stat-card">
                     <h3 id="stat-categories">0</h3>
-                    <p>Vues métier</p>
+                    <p>Vue métier</p>
                 </div>
                 <div class="stat-card">
                     <h3 id="stat-options">0</h3>
@@ -137,16 +151,26 @@
             </div>
         </div>
 
-        <div class="card">
+        <div class="card" id="legacy-backoffice-card">
             <?php require __DIR__ . '/partials/tabs/tab-navigation.php'; ?>
 
             <?php require __DIR__ . '/partials/tabs/tab-models.php'; ?>
+            <?php require __DIR__ . '/partials/tabs/tab-base-model.php'; ?>
             <?php require __DIR__ . '/partials/tabs/tab-categories.php'; ?>
             <?php require __DIR__ . '/partials/tabs/tab-famille.php'; ?>
-            <?php require __DIR__ . '/partials/tabs/tab-subcategories.php'; ?>
             <?php require __DIR__ . '/partials/tabs/tab-options.php'; ?>
+            <?php require __DIR__ . '/partials/tabs/tab-structured.php'; ?>
+            <?php require __DIR__ . '/partials/tabs/tab-couplings.php'; ?>
             <?php require __DIR__ . '/partials/tabs/tab-prompts.php'; ?>
-            <?php require __DIR__ . '/partials/tabs/tab-activity.php'; ?>
+        </div>
+
+        <div class="card" id="import-workflow-panel" style="display:none;">
+            <div style="display:flex; gap:8px; padding:10px; border-bottom:1px solid #eef2f7; background:#f9fafb;">
+                <button type="button" id="btn-import-step-models" class="btn btn-outline">1. Modèles</button>
+                <button type="button" id="btn-import-step-base-models" class="btn btn-outline">2. Modèles de base</button>
+            </div>
+            <div id="import-workflow-content-models" style="padding:12px;"></div>
+            <div id="import-workflow-content-base-models" style="padding:12px; display:none;"></div>
         </div>
     </div>
 
@@ -154,6 +178,19 @@
         const API_BASE = '/api/ugap';
         const UGAP_PROMPTS_UI_VERSION = '2026-03-31-llm-selects-v3';
         let currentData = null;
+        let currentImportStaging = null;
+        let importWorkflowState = {
+            step: 'models',
+            selectedModelIds: [],
+            selectedBaseModelIds: []
+        };
+        let workspaceMode = 'backoffice';
+        let __loadDataPromise = null;
+        let __lastLoadDataAt = 0;
+        let __loadDataCooldownUntil = 0;
+        let __lastLoadDataSnapshot = null;
+        let __ugapUiStatePersistTimer = null;
+        let __ugapUiStatePersistInFlight = false;
 
         function isEmbeddedMode() {
             try {
@@ -383,12 +420,13 @@ LIGNE_EXEMPLE_2`,
         // API helpers
         async function apiCall(endpoint, options = {}) {
             try {
+                const { allowBusinessError = false, ...fetchOptions } = options || {};
                 const response = await fetch(`${API_BASE}${endpoint}`, {
-                    ...options,
+                    ...fetchOptions,
                     credentials: 'include',
                     headers: {
                         'Content-Type': 'application/json',
-                        ...options.headers
+                        ...fetchOptions.headers
                     }
                 });
 
@@ -406,7 +444,7 @@ LIGNE_EXEMPLE_2`,
                     throw new Error(data.message || `Erreur HTTP ${response.status}`);
                 }
 
-                if (!data.success) {
+                if (!data.success && !allowBusinessError) {
                     throw new Error(data.message || 'Erreur API');
                 }
                 return data;
@@ -419,10 +457,228 @@ LIGNE_EXEMPLE_2`,
             }
         }
 
+        function normalizeUgapDataContract(raw) {
+            const source = raw && typeof raw === 'object' ? raw : {};
+            const categories = Array.isArray(source.categories) ? source.categories : [];
+            const rawUiState = source.uiState && typeof source.uiState === 'object' ? source.uiState : {};
+            const normalizedFamilies = Array.isArray(rawUiState.families)
+                ? rawUiState.families
+                : (Array.isArray(rawUiState.validatedFamilies) ? rawUiState.validatedFamilies : []);
+            const normalizedBusinessViews = Array.isArray(rawUiState.businessViews)
+                ? rawUiState.businessViews
+                : (Array.isArray(rawUiState.viewHeuristicRules) ? rawUiState.viewHeuristicRules : []);
+            return {
+                ...source,
+                models: Array.isArray(source.models) ? source.models : [],
+                businessViews: Array.isArray(source.businessViews) ? source.businessViews : [],
+                dependencyRules: Array.isArray(source.dependencyRules) ? source.dependencyRules : [],
+                uiState: {
+                    families: normalizedFamilies,
+                    businessViews: normalizedBusinessViews,
+                    updatedAt: rawUiState.updatedAt || null
+                },
+                categories: categories.map((category) => {
+                    const cat = category && typeof category === 'object' ? category : {};
+                    const rules = cat.selectionRules && typeof cat.selectionRules === 'object' ? cat.selectionRules : {};
+                    return {
+                        ...cat,
+                        selectionRules: {
+                            unique: !!rules.unique,
+                            required: !!rules.required
+                        },
+                        businessViewIds: Array.isArray(cat.businessViewIds) ? cat.businessViewIds : [],
+                        familyIds: Array.isArray(cat.familyIds) ? cat.familyIds : [],
+                        subCategories: Array.isArray(cat.subCategories) ? cat.subCategories : []
+                    };
+                })
+            };
+        }
+
+        function sanitizeFamiliesForServer(rawFamilies) {
+            return (Array.isArray(rawFamilies) ? rawFamilies : []).map((f) => ({ ...f }));
+        }
+
+        function sanitizeViewRulesForServer(rawRules) {
+            return (Array.isArray(rawRules) ? rawRules : []).map((r) => ({ ...r }));
+        }
+
+        function applyServerUiStateToLocal(serverUiState) {
+            const src = serverUiState && typeof serverUiState === 'object' ? serverUiState : {};
+            try {
+                localStorage.setItem('ugap.famille.validatedFamilies', JSON.stringify(
+                    sanitizeFamiliesForServer(src.families)
+                ));
+                localStorage.setItem('ugap.vueMetier.heuristicRules', JSON.stringify(
+                    sanitizeViewRulesForServer(src.businessViews)
+                ));
+            } catch (_) {
+                // no-op
+            }
+        }
+
+        function resetLocalUiStateStorage() {
+            try {
+                localStorage.setItem('ugap.famille.validatedFamilies', JSON.stringify([]));
+                localStorage.setItem('ugap.vueMetier.heuristicRules', JSON.stringify([]));
+            } catch (_) {
+                // no-op
+            }
+        }
+
+        async function persistUiStateToServer(payload) {
+            await apiCall('/ui-state', {
+                method: 'PUT',
+                body: JSON.stringify({
+                    families: sanitizeFamiliesForServer(payload?.families),
+                    businessViews: sanitizeViewRulesForServer(payload?.businessViews)
+                })
+            });
+        }
+
+        function scheduleUiStatePersistence() {
+            if (__ugapUiStatePersistTimer) {
+                clearTimeout(__ugapUiStatePersistTimer);
+            }
+            __ugapUiStatePersistTimer = setTimeout(async () => {
+                if (__ugapUiStatePersistInFlight) return;
+                __ugapUiStatePersistInFlight = true;
+                try {
+                    await persistUiStateToServer({
+                        families: getFamilleValidatedFamilies(),
+                        businessViews: getViewHeuristicRules()
+                    });
+                } catch (error) {
+                    console.warn('UGAP ui-state persistence failed:', error?.message || error);
+                } finally {
+                    __ugapUiStatePersistInFlight = false;
+                }
+            }, 350);
+        }
+
+        async function hydrateUiStateFromServer() {
+            const serverUiState = currentData?.uiState && typeof currentData.uiState === 'object'
+                ? currentData.uiState
+                : {};
+            const serverFamilies = Array.isArray(serverUiState.families) ? serverUiState.families : [];
+            const serverViewRules = Array.isArray(serverUiState.businessViews) ? serverUiState.businessViews : [];
+            const hasServerState = serverFamilies.length > 0 || serverViewRules.length > 0;
+            if (hasServerState) {
+                applyServerUiStateToLocal(serverUiState);
+                return;
+            }
+            // Mode strict "clean start":
+            // - n'importe jamais l'ancien localStorage vers la base
+            // - si la base est vide, on force aussi le local à vide
+            resetLocalUiStateStorage();
+            currentData.uiState = {
+                families: [],
+                businessViews: [],
+                updatedAt: null
+            };
+        }
+
+        function cleanupDeletedOptionReferences() {
+            const validOptionIds = new Set(
+                (Array.isArray(currentData?.categories) ? currentData.categories : [])
+                    .flatMap((cat) => Array.isArray(cat?.options) ? cat.options : [])
+                    .map((opt) => String(opt?.id || '').trim())
+                    .filter(Boolean)
+            );
+            if (!validOptionIds.size) return;
+
+            const families = getFamilleValidatedFamilies();
+            const cleanedFamilies = (Array.isArray(families) ? families : []).map((f) => {
+                const optionIds = (Array.isArray(f?.optionIds) ? f.optionIds : [])
+                    .map((x) => String(x || '').trim())
+                    .filter((x) => x && validOptionIds.has(x));
+                const out = { ...f, optionIds };
+                const def = String(f?.defaultOptionId || '').trim();
+                if (!def || !validOptionIds.has(def) || !optionIds.includes(def)) {
+                    delete out.defaultOptionId;
+                }
+                return out;
+            });
+            setFamilleValidatedFamilies(cleanedFamilies);
+
+            const normalizeLegacyOptId = (value) => {
+                const v = String(value || '').trim();
+                const m = v.match(/^(.*)__\d+$/);
+                return m && m[1] ? String(m[1]).trim() : v;
+            };
+            const normalizeLegacyItemKey = (item) => {
+                const raw = String(item || '').trim();
+                const sep = raw.lastIndexOf('::');
+                if (sep < 0) return raw;
+                const col = raw.slice(0, sep);
+                const opt = normalizeLegacyOptId(raw.slice(sep + 2));
+                return `${col}::${opt}`;
+            };
+            const keepItem = (itemKey) => {
+                const normalized = normalizeLegacyItemKey(itemKey);
+                const sep = normalized.lastIndexOf('::');
+                if (sep < 0) return false;
+                const opt = String(normalized.slice(sep + 2) || '').trim();
+                return !!opt && validOptionIds.has(opt);
+            };
+
+            const couplings = getCouplingRules();
+            const cleanedCouplings = (Array.isArray(couplings) ? couplings : []).map((cp) => {
+                const links = (Array.isArray(cp?.links) ? cp.links : []).map((lnk) => ({
+                    ...lnk,
+                    masterItems: (Array.isArray(lnk?.masterItems) ? lnk.masterItems : [])
+                        .map(normalizeLegacyItemKey)
+                        .filter(keepItem),
+                    slaveItems: (Array.isArray(lnk?.slaveItems) ? lnk.slaveItems : [])
+                        .map(normalizeLegacyItemKey)
+                        .filter(keepItem),
+                    masterLabels: [],
+                    slaveLabels: []
+                })).filter((lnk) => (lnk.masterItems || []).length > 0 || (lnk.slaveItems || []).length > 0);
+
+                return {
+                    ...cp,
+                    selectedMasterItems: (Array.isArray(cp?.selectedMasterItems) ? cp.selectedMasterItems : [])
+                        .map(normalizeLegacyItemKey)
+                        .filter(keepItem),
+                    selectedSlaveItems: (Array.isArray(cp?.selectedSlaveItems) ? cp.selectedSlaveItems : [])
+                        .map(normalizeLegacyItemKey)
+                        .filter(keepItem),
+                    links
+                };
+            });
+            setCouplingRules(cleanedCouplings);
+            if (window.__ugapCouplingColumnState && Array.isArray(window.__ugapCouplingColumnState.couplings)) {
+                window.__ugapCouplingColumnState.couplings = cleanedCouplings;
+            }
+        }
+
         // Load data
         async function loadData(skipRender = false) {
+            const now = Date.now();
+            if (__loadDataPromise) {
+                return __loadDataPromise;
+            }
+            if (now < __loadDataCooldownUntil) {
+                if (__lastLoadDataSnapshot) {
+                    currentData = __lastLoadDataSnapshot;
+                    if (!skipRender) {
+                        const activeTab = document.querySelector('.tab.active');
+                        renderActiveTab(activeTab ? activeTab.getAttribute('data-tab') : 'models');
+                        populateCategorySelect();
+                    }
+                    updateStats();
+                    updateAllTabWarningBadges();
+                }
+                return;
+            }
+            if (now - __lastLoadDataAt < 1200) {
+                return;
+            }
+            __lastLoadDataAt = now;
+
+            __loadDataPromise = (async () => {
             try {
-                const result = await apiCall('/data');
+                const result = await apiCall('/data', { allowBusinessError: true });
                 
                 // Gérer le cas où il n'y a pas de données
                 if (!result.success && result.message === 'Aucune donnée configurée') {
@@ -446,13 +702,6 @@ LIGNE_EXEMPLE_2`,
                                 <button class="btn btn-primary" onclick="document.getElementById('file-input')?.click()">📁 Importer un fichier Excel</button>
                             </div>
                         `;
-                        document.getElementById('tab-subcategories').innerHTML = `
-                            <div style="padding: 40px; text-align: center; color: #666;">
-                                <h3 style="margin-bottom: 20px;">📊 Aucune donnée configurée</h3>
-                                <p style="margin-bottom: 20px;">Veuillez importer un fichier Excel pour commencer.</p>
-                                <button class="btn btn-primary" onclick="document.getElementById('file-input')?.click()">📁 Importer un fichier Excel</button>
-                            </div>
-                        `;
                         document.getElementById('tab-options').innerHTML = `
                             <div style="padding: 40px; text-align: center; color: #666;">
                                 <h3 style="margin-bottom: 20px;">📊 Aucune donnée configurée</h3>
@@ -464,8 +713,12 @@ LIGNE_EXEMPLE_2`,
                     return;
                 }
                 
-                currentData = result.data;
+                currentData = normalizeUgapDataContract(result.data);
+                await hydrateUiStateFromServer();
+                __lastLoadDataSnapshot = currentData;
+                cleanupDeletedOptionReferences();
                 updateStats();
+                updateAllTabWarningBadges();
                 
                 // Ne pas re-rendre si on est en train de streamer
                 if (!skipRender) {
@@ -485,14 +738,24 @@ LIGNE_EXEMPLE_2`,
                     populateCategorySelect();
                 }
             } catch (error) {
+                if (String(error?.message || '').toLowerCase().includes('trop de requ') || String(error?.message || '').includes('429')) {
+                    __loadDataCooldownUntil = Date.now() + 65000;
+                    showAlert('Trop de requetes. Pause automatique 1 minute puis reessayez.', 'warning');
+                    return;
+                }
                 if (error.message.includes('404') || error.message.includes('Aucune donnée')) {
                     showAlert('Aucune donnée configurée. Veuillez importer un fichier Excel.', 'info');
-                    currentData = { models: [], categories: [] };
+                    currentData = normalizeUgapDataContract({ models: [], categories: [] });
                     updateStats();
+                    updateAllTabWarningBadges();
                 } else {
                     showAlert('Erreur lors du chargement: ' + error.message, 'error');
                 }
+            } finally {
+                __loadDataPromise = null;
             }
+            })();
+            return __loadDataPromise;
         }
         
         // Rendre uniquement l'onglet actif
@@ -501,23 +764,26 @@ LIGNE_EXEMPLE_2`,
                 case 'models':
                     renderModels();
                     break;
+                case 'base-model':
+                    renderBaseModelTab();
+                    break;
                 case 'categories':
                     renderCategoriesManagement();
                     break;
                 case 'famille':
                     renderExtractionInsights();
                     break;
-                case 'subcategories':
-                    renderSubCategoriesAccordion();
-                    break;
                 case 'options':
                     renderCategories();
                     break;
+                case 'structured':
+                    renderStructuredOptionsView();
+                    break;
+                case 'couplings':
+                    renderOptionCouplingsTab();
+                    break;
                 case 'prompts':
                     loadPrompts();
-                    break;
-                case 'activity':
-                    loadActivityLogs();
                     break;
             }
         }
@@ -1280,16 +1546,23 @@ Format:
         // Update stats
         function updateStats() {
             if (!currentData) {
-                document.getElementById('stat-models').textContent = '0';
-                document.getElementById('stat-categories').textContent = '0';
-                document.getElementById('stat-options').textContent = '0';
+                const modelsEl = document.getElementById('stat-models');
+                const categoriesEl = document.getElementById('stat-categories');
+                const optionsEl = document.getElementById('stat-options');
+                if (modelsEl) modelsEl.textContent = '0';
+                if (categoriesEl) categoriesEl.textContent = '0';
+                if (optionsEl) optionsEl.textContent = '0';
                 return;
             }
 
-            document.getElementById('stat-models').textContent = currentData.models?.length || 0;
-            document.getElementById('stat-categories').textContent = currentData.categories?.length || 0;
+            const modelsEl = document.getElementById('stat-models');
+            const categoriesEl = document.getElementById('stat-categories');
+            const optionsEl = document.getElementById('stat-options');
+            if (modelsEl) modelsEl.textContent = String(currentData.models?.length || 0);
+            const uiBusinessViews = Array.isArray(currentData?.uiState?.businessViews) ? currentData.uiState.businessViews : [];
+            if (categoriesEl) categoriesEl.textContent = String(uiBusinessViews.length || 0);
             const optionsCount = currentData.categories?.reduce((sum, cat) => sum + (cat.options?.length || 0), 0) || 0;
-            document.getElementById('stat-options').textContent = optionsCount;
+            if (optionsEl) optionsEl.textContent = String(optionsCount);
         }
 
         // Render models - OPTIMISÉ
@@ -1298,7 +1571,7 @@ Format:
             tbody.innerHTML = '';
 
             if (!currentData || !currentData.models || currentData.models.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="10" style="text-align: center; color: #666;">Aucun modèle</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="9" style="text-align: center; color: #666;">Aucun modèle</td></tr>';
                 renderExtractionInsights();
                 return;
             }
@@ -1312,7 +1585,6 @@ Format:
                 const configsCount = (model.configurations || []).length;
                 const splitByType = splitModelOptionsByType(getModelOptionsForSummary(model.id));
                 const modelOptionsCount = splitByType.regularOptions.length;
-                const modelMinorationsCount = splitByType.minorationOptions.length;
                 tr.innerHTML = `
                     <td><strong>${model.name}</strong></td>
                     <td>${model.posteNumber ?? '-'}</td>
@@ -1322,7 +1594,6 @@ Format:
                     <td>${model.image ? `<img src="${model.image}" style="width: 60px; height: 40px; object-fit: cover; border-radius: 4px;">` : '<span style="color: #999;">Aucune</span>'}</td>
                     <td><span class="badge">${configsCount} configuration(s)</span></td>
                     <td><span class="badge">${modelOptionsCount}</span></td>
-                    <td><span class="badge">${modelMinorationsCount}</span></td>
                     <td><button class="btn btn-primary" onclick="event.stopPropagation(); openModelModal('${model.id}')">Modifier</button></td>
                 `;
                 tr.addEventListener('click', () => openModelModal(model.id));
@@ -1338,6 +1609,7 @@ Format:
         function renderCategoriesManagement() {
             const tbody = document.querySelector('#categories-management-table tbody');
             renderViewHeuristicRulesUi();
+            if (!tbody) return;
             tbody.innerHTML = '';
 
             if (!currentData || !currentData.categories || currentData.categories.length === 0) {
@@ -1438,9 +1710,72 @@ Format:
         function setViewHeuristicRules(rules) {
             try {
                 localStorage.setItem('ugap.vueMetier.heuristicRules', JSON.stringify(Array.isArray(rules) ? rules : []));
+                scheduleUiStatePersistence();
             } catch (_) {
                 // no-op
             }
+        }
+
+        function getStructuredSelectedViewLabels() {
+            const allLabels = Array.from(new Set(
+                getViewHeuristicRules()
+                    .map((r) => String(r?.viewLabel || '').trim())
+                    .filter(Boolean)
+            ));
+            try {
+                const raw = localStorage.getItem('ugap.vueMetier.structuredSelectedViews');
+                const parsed = raw ? JSON.parse(raw) : null;
+                if (!Array.isArray(parsed) || parsed.length === 0) return allLabels;
+                const selected = parsed
+                    .map((x) => String(x || '').trim())
+                    .filter((x) => x && allLabels.includes(x));
+                return selected.length ? selected : allLabels;
+            } catch (_) {
+                return allLabels;
+            }
+        }
+
+        function setStructuredSelectedViewLabels(labels) {
+            const clean = Array.from(new Set(
+                (Array.isArray(labels) ? labels : [])
+                    .map((x) => String(x || '').trim())
+                    .filter(Boolean)
+            ));
+            localStorage.setItem('ugap.vueMetier.structuredSelectedViews', JSON.stringify(clean));
+        }
+
+        function getStructuredSubFamilyViewMap() {
+            try {
+                const raw = localStorage.getItem('ugap.vueMetier.structuredSubFamilyViews');
+                const parsed = raw ? JSON.parse(raw) : {};
+                return parsed && typeof parsed === 'object' ? parsed : {};
+            } catch (_) {
+                return {};
+            }
+        }
+
+        function setStructuredSubFamilyViewMap(mapObj) {
+            const safe = mapObj && typeof mapObj === 'object' ? mapObj : {};
+            localStorage.setItem('ugap.vueMetier.structuredSubFamilyViews', JSON.stringify(safe));
+        }
+
+        function getFamilleFoundOrder() {
+            try {
+                const raw = localStorage.getItem('ugap.famille.foundOrder');
+                const parsed = raw ? JSON.parse(raw) : [];
+                return Array.isArray(parsed) ? parsed.map((x) => String(x || '').trim()).filter(Boolean) : [];
+            } catch (_) {
+                return [];
+            }
+        }
+
+        function setFamilleFoundOrder(order) {
+            const clean = Array.from(new Set(
+                (Array.isArray(order) ? order : [])
+                    .map((x) => String(x || '').trim())
+                    .filter(Boolean)
+            ));
+            localStorage.setItem('ugap.famille.foundOrder', JSON.stringify(clean));
         }
 
         function renderViewHeuristicRulesUi() {
@@ -1453,6 +1788,10 @@ Format:
                     <div class="view-heur-row" draggable="true" data-view-heur-index="${idx}" style="display:flex; justify-content:space-between; gap:8px; align-items:center; border-top:1px solid #eee; padding:8px 0; cursor:move;">
                         <div style="display:flex; align-items:flex-start; gap:8px;">
                             <span style="color:#999; font-size:14px; line-height:1.2;" title="Glisser pour réordonner">⋮⋮</span>
+                            <label title="Utiliser cette vue dans les onglets structurés" style="display:flex; align-items:center; gap:6px; color:#334155; font-size:12px; cursor:pointer; margin-top:1px;">
+                                <input type="checkbox" class="view-heur-enabled" data-view-label="${escapeHtml(String(r.viewLabel || ''))}" ${getStructuredSelectedViewLabels().includes(String(r.viewLabel || '').trim()) ? 'checked' : ''}>
+                                Actif
+                            </label>
                             <div>
                                 <strong>${escapeHtml(r.viewLabel || 'Vue métier')}</strong>
                                 <span style="color:#666;">(${escapeHtml(r.scope || 'all')})</span>
@@ -1499,6 +1838,28 @@ Format:
                     if (scopeEl) scopeEl.value = rule.scope || 'all';
                     if (addBtn) addBtn.setAttribute('data-edit-index', String(idx));
                     if (cancelBtn) cancelBtn.style.display = '';
+                });
+            });
+            document.querySelectorAll('.view-heur-row').forEach((row) => {
+                row.onclick = null;
+                row.addEventListener('click', (e) => {
+                    if (e.target?.closest?.('button, input, select, textarea, a, label')) return;
+                    const idx = Number(row.getAttribute('data-view-heur-index'));
+                    if (!Number.isInteger(idx)) return;
+                    const btnEdit = row.querySelector(`[data-edit-view-heur="${idx}"]`);
+                    if (btnEdit) btnEdit.click();
+                });
+            });
+            document.querySelectorAll('.view-heur-enabled').forEach((cb) => {
+                cb.onchange = null;
+                cb.addEventListener('change', () => {
+                    const label = String(cb.getAttribute('data-view-label') || '').trim();
+                    if (!label) return;
+                    const selected = new Set(getStructuredSelectedViewLabels());
+                    if (cb.checked) selected.add(label);
+                    else selected.delete(label);
+                    setStructuredSelectedViewLabels(Array.from(selected));
+                    renderStructuredOptionsView();
                 });
             });
 
@@ -1624,8 +1985,24 @@ Format:
             return (Array.isArray(rows) ? rows : []).map((f, idx) => ({
                 ...f,
                 __idx: idx,
+                uniqueChoice: !!f?.uniqueChoice,
                 optionIds: Array.isArray(f.optionIds) ? f.optionIds : []
             }));
+        }
+
+        function updateFamilyUniqueChoice(familyIndex, checked) {
+            const idx = Number(familyIndex);
+            if (!Number.isInteger(idx) || idx < 0) return;
+            const list = getFamilleValidatedFamilies();
+            if (!Array.isArray(list) || idx >= list.length) return;
+            list[idx] = {
+                ...(list[idx] || {}),
+                uniqueChoice: !!checked
+            };
+            setFamilleValidatedFamilies(list);
+            const mainActiveTab = document.querySelector('.tab.active')?.getAttribute('data-tab') || '';
+            if (mainActiveTab === 'famille') renderExtractionInsights();
+            else renderSubCategoriesAccordion();
         }
 
         function slugifyBusinessViewLabel(label) {
@@ -1664,28 +2041,20 @@ Format:
                 ...v,
                 keywords: Array.from(new Set(v.keywords)).join(', ')
             }));
-            if (ruleViews.length > 0) {
-                return ruleViews;
-            }
-
-            const categories = Array.isArray(currentData?.categories) ? currentData.categories : [];
-            return categories.map((v) => ({
-                id: String(v?.id || '').trim(),
-                label: String(v?.name || 'Vue métier').trim(),
-                source: 'category',
-                keywords: ''
-            })).filter((v) => v.id && v.label);
+            return ruleViews;
         }
 
         function assignFamilyToBusinessView(savedIndex, viewId) {
             const idx = Number(savedIndex);
             const list = getFamilleValidatedFamilies();
             if (!Number.isInteger(idx) || idx < 0 || idx >= list.length) return;
+            const mainActiveTab = document.querySelector('.tab.active')?.getAttribute('data-tab') || '';
             if (!String(viewId || '').trim()) {
                 list[idx].businessViewId = '';
                 list[idx].businessViewLabel = '';
                 setFamilleValidatedFamilies(list);
-                renderSubCategoriesAccordion();
+                if (mainActiveTab === 'famille') renderExtractionInsights();
+                else renderSubCategoriesAccordion();
                 return;
             }
             const target = getBusinessViewsForAssignationTab().find((v) => String(v.id) === String(viewId));
@@ -1696,7 +2065,37 @@ Format:
             list[idx].businessViewId = String(target.id || '');
             list[idx].businessViewLabel = String(target.label || '');
             setFamilleValidatedFamilies(list);
-            renderSubCategoriesAccordion();
+            if (mainActiveTab === 'famille') renderExtractionInsights();
+            else renderSubCategoriesAccordion();
+        }
+
+        function assignFamilyTreeToBusinessView(rootFamilyLabel, viewId) {
+            const root = String(rootFamilyLabel || '').trim();
+            if (!root) return;
+            const target = getBusinessViewsForAssignationTab().find((v) => String(v.id || '') === String(viewId || ''));
+            if (!target) {
+                showAlert('Vue métier introuvable.', 'error');
+                return;
+            }
+            const list = getFamilleValidatedFamilies();
+            if (!Array.isArray(list) || list.length === 0) return;
+            const prefix = `${root} / `;
+            let changed = 0;
+            list.forEach((f) => {
+                const label = String(f?.familyLabel || '').trim();
+                if (!label) return;
+                if (label === root || label.startsWith(prefix)) {
+                    f.businessViewId = String(target.id || '');
+                    f.businessViewLabel = String(target.label || '');
+                    changed += 1;
+                }
+            });
+            if (changed === 0) return;
+            setFamilleValidatedFamilies(list);
+            showAlert(`${changed} famille(s) assignée(s) à "${target.label}".`, 'success');
+            const mainActiveTab = document.querySelector('.tab.active')?.getAttribute('data-tab') || '';
+            if (mainActiveTab === 'famille') renderExtractionInsights();
+            else renderSubCategoriesAccordion();
         }
 
         async function autoAssignFamiliesToBusinessViews() {
@@ -1809,6 +2208,42 @@ Format:
         function renderSubCategoriesAccordion() {
             const container = document.getElementById('subcategories-accordion');
             if (!container) return;
+            const categories = Array.isArray(currentData?.categories) ? currentData.categories : [];
+            const rulesPanelHtml = categories.length === 0
+                ? '<div style="margin-bottom:12px; padding:10px; border:1px solid #eee; border-radius:6px; color:#666;">Aucune catégorie pour configurer les règles.</div>'
+                : `
+                    <div style="margin-bottom:12px; border:1px solid #dee2e6; border-radius:8px; overflow:hidden;">
+                        <div style="padding:10px 12px; background:#f8f9fa; border-bottom:1px solid #eee; font-weight:600;">Règles de sélection par catégorie</div>
+                        <table style="width:100%; border-collapse:collapse;">
+                            <thead>
+                                <tr style="background:#fff;">
+                                    <th style="padding:8px; border-bottom:1px solid #eee; text-align:left;">Catégorie</th>
+                                    <th style="padding:8px; border-bottom:1px solid #eee; text-align:center;">Choix unique</th>
+                                    <th style="padding:8px; border-bottom:1px solid #eee; text-align:center;">Obligatoire</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${categories.map((cat) => {
+                                    const selectionRules = cat?.selectionRules || {};
+                                    const unique = !!selectionRules.unique;
+                                    const required = !!selectionRules.required;
+                                    const categoryId = String(cat?.id || '');
+                                    return `
+                                        <tr>
+                                            <td style="padding:8px; border-bottom:1px solid #eee;"><strong>${escapeHtml(String(cat?.name || 'Catégorie'))}</strong></td>
+                                            <td style="padding:8px; border-bottom:1px solid #eee; text-align:center;">
+                                                <input type="checkbox" ${unique ? 'checked' : ''} onchange="updateCategorySelectionRule('${escapeHtml(categoryId)}', 'unique', this.checked)">
+                                            </td>
+                                            <td style="padding:8px; border-bottom:1px solid #eee; text-align:center;">
+                                                <input type="checkbox" ${required ? 'checked' : ''} onchange="updateCategorySelectionRule('${escapeHtml(categoryId)}', 'required', this.checked)">
+                                            </td>
+                                        </tr>
+                                    `;
+                                }).join('')}
+                            </tbody>
+                        </table>
+                    </div>
+                `;
 
             const views = getBusinessViewsForAssignationTab();
             const families = getFamiliesForAssignationTab();
@@ -1817,12 +2252,13 @@ Format:
             );
 
             if (views.length === 0) {
-                container.innerHTML = '<p style="color:#666;">Aucune vue métier disponible.</p>';
+                container.innerHTML = `${rulesPanelHtml}<p style="color:#666;">Aucune vue métier disponible.</p>`;
                 return;
             }
 
             if (families.length === 0) {
                 container.innerHTML = `
+                    ${rulesPanelHtml}
                     <div style="padding:14px; border:1px solid #ffe69c; border-radius:6px; background:#fff8e1; color:#8a6d3b;">
                         Aucune famille validée. Va d'abord dans l'onglet <strong>Famille</strong> puis clique sur <strong>Enregistrer</strong>.
                     </div>
@@ -1837,13 +2273,16 @@ Format:
                     return familyViewId === String(view.id || '').trim();
                 });
                 const rows = assigned.length === 0
-                    ? '<tr><td colspan="5" style="padding:10px; color:#777;">Aucune famille assignée</td></tr>'
+                    ? '<tr><td colspan="6" style="padding:10px; color:#777;">Aucune famille assignée</td></tr>'
                     : assigned.map((f) => `
                         <tr>
                             <td style="padding:8px; border-bottom:1px solid #eee;"><strong>${escapeHtml(f.familyLabel || 'Famille')}</strong></td>
                             <td style="padding:8px; border-bottom:1px solid #eee;">${escapeHtml(f.assignation || '-')}</td>
                             <td style="padding:8px; border-bottom:1px solid #eee;">${escapeHtml(f.subFamilyLabel || f.subFamily || '-')}</td>
                             <td style="padding:8px; border-bottom:1px solid #eee;"><span class="badge">${(f.optionIds || []).length} option(s)</span></td>
+                            <td style="padding:8px; border-bottom:1px solid #eee; text-align:center;">
+                                <input type="checkbox" ${f.uniqueChoice ? 'checked' : ''} onchange="updateFamilyUniqueChoice(${f.__idx}, this.checked)">
+                            </td>
                             <td style="padding:8px; border-bottom:1px solid #eee;">
                                 <select onchange="assignFamilyToBusinessView(${f.__idx}, this.value)" style="min-width:180px; padding:6px; border:1px solid #ddd; border-radius:4px;">
                                     <option value="">-- Non assignée --</option>
@@ -1852,7 +2291,6 @@ Format:
                             </td>
                         </tr>
                     `).join('');
-
                 return `
                     <div class="accordion">
                         <div class="accordion-header active">
@@ -1869,6 +2307,7 @@ Format:
                                         <th style="padding:8px; border-bottom:2px solid #dee2e6;">Assignation</th>
                                         <th style="padding:8px; border-bottom:2px solid #dee2e6;">Sous-famille</th>
                                         <th style="padding:8px; border-bottom:2px solid #dee2e6;">Options</th>
+                                        <th style="padding:8px; border-bottom:2px solid #dee2e6;">Choix unique</th>
                                         <th style="padding:8px; border-bottom:2px solid #dee2e6;">Action</th>
                                     </tr>
                                 </thead>
@@ -1889,11 +2328,14 @@ Format:
             );
             const unassigned = families.filter((f) => !assignedIds.has(String(f.__idx)));
             const unassignedRows = unassigned.length === 0
-                ? '<tr><td colspan="3" style="padding:8px; color:#666;">Toutes les familles sont assignées.</td></tr>'
+                ? '<tr><td colspan="4" style="padding:8px; color:#666;">Toutes les familles sont assignées.</td></tr>'
                 : unassigned.map((f) => `
                     <tr>
                         <td style="padding:8px; border-bottom:1px solid #eee;"><strong>${escapeHtml(f.familyLabel || 'Famille')}</strong></td>
                         <td style="padding:8px; border-bottom:1px solid #eee;">${escapeHtml(f.assignation || '-')}</td>
+                        <td style="padding:8px; border-bottom:1px solid #eee; text-align:center;">
+                            <input type="checkbox" ${f.uniqueChoice ? 'checked' : ''} onchange="updateFamilyUniqueChoice(${f.__idx}, this.checked)">
+                        </td>
                         <td style="padding:8px; border-bottom:1px solid #eee;">
                             <select onchange="assignFamilyToBusinessView(${f.__idx}, this.value)" style="min-width:180px; padding:6px; border:1px solid #ddd; border-radius:4px;">
                                 <option value="">-- Choisir une vue métier --</option>
@@ -1904,6 +2346,7 @@ Format:
                 `).join('');
 
             container.innerHTML = `
+                ${rulesPanelHtml}
                 <div style="margin-bottom:12px; padding:12px; background:#f8f9fa; border-radius:6px; color:#555;">
                     Cet onglet assigne les <strong>familles</strong> aux <strong>vues métier</strong>.
                 </div>
@@ -1914,6 +2357,7 @@ Format:
                             <tr style="background:#fff;">
                                 <th style="padding:8px; border-bottom:1px solid #eee;">Famille</th>
                                 <th style="padding:8px; border-bottom:1px solid #eee;">Assignation</th>
+                                <th style="padding:8px; border-bottom:1px solid #eee;">Choix unique</th>
                                 <th style="padding:8px; border-bottom:1px solid #eee;">Affecter à</th>
                             </tr>
                         </thead>
@@ -1924,227 +2368,2002 @@ Format:
             `;
         }
 
-        // Render categories (options view) - OPTIMISÉ
-        function renderCategories() {
-            const tbody = document.querySelector('#categories-table tbody');
-            const filterSelect = document.getElementById('filter-category');
-            const filterSubCategorySelect = document.getElementById('filter-subcategory');
-            const filterSubCategoryContainer = document.getElementById('filter-subcategory-container');
-            
-            // Vérifier que les éléments existent
-            if (!filterSubCategorySelect) {
-                console.error('❌ filter-subcategory select introuvable !');
-                return;
-            }
-            if (!filterSubCategoryContainer) {
-                console.error('❌ filter-subcategory-container introuvable !');
-                return;
-            }
-            
-            tbody.innerHTML = '';
-
-            if (!currentData || !currentData.categories || currentData.categories.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; color: #666;">Aucune catégorie</td></tr>';
-                return;
-            }
-
-            // Rafraîchir la liste des catégories pour garder le filtre à jour
-            const categories = currentData.categories;
-            const previousCategoryValue = filterSelect.value;
-            filterSelect.innerHTML = '<option value="">Toutes les catégories</option>';
-
-            categories
-                .slice()
-                .sort((a, b) => (a.name || '').localeCompare(b.name || '', 'fr', { sensitivity: 'base' }))
-                .forEach(cat => {
-                    const option = document.createElement('option');
-                    option.value = cat.name;
-                    option.textContent = cat.name;
-                    filterSelect.appendChild(option);
+        async function updateCategorySelectionRule(categoryId, ruleKey, checked) {
+            const normalizedCategoryId = String(categoryId || '').trim();
+            const key = String(ruleKey || '').trim();
+            if (!normalizedCategoryId || (key !== 'unique' && key !== 'required')) return;
+            const category = (currentData?.categories || []).find((cat) => String(cat?.id || '') === normalizedCategoryId);
+            if (!category) return;
+            const nextRules = {
+                unique: !!category?.selectionRules?.unique,
+                required: !!category?.selectionRules?.required,
+                [key]: !!checked
+            };
+            try {
+                await apiCall(`/categories/${encodeURIComponent(normalizedCategoryId)}`, {
+                    method: 'PUT',
+                    body: JSON.stringify({
+                        ...category,
+                        selectionRules: nextRules
+                    })
                 });
-
-            if (previousCategoryValue && categories.some(cat => cat.name === previousCategoryValue)) {
-                filterSelect.value = previousCategoryValue;
-            } else {
-                filterSelect.value = '';
-            }
-
-            const selectedCategory = filterSelect.value;
-            
-            // Afficher/masquer le filtre de sous-catégorie selon la catégorie sélectionnée
-            if (selectedCategory) {
-                const category = categories.find(c => c.name === selectedCategory);
-                console.log(`🔍 Catégorie sélectionnée: "${selectedCategory}"`, category);
-                if (category && category.subCategories && category.subCategories.length > 0) {
-                    console.log(`✅ ${category.subCategories.length} sous-catégorie(s) trouvée(s)`);
-                    filterSubCategoryContainer.style.display = 'block';
-                    
-                    // Sauvegarder la valeur actuelle si elle existe
-                    const currentValue = filterSubCategorySelect.value;
-                    
-                    // Remplir le filtre de sous-catégories
-                    filterSubCategorySelect.innerHTML = '<option value="">Toutes les sous-catégories</option>';
-                    
-                    // Ajouter l'option "Aucune sous-catégorie" pour filtrer les options sans sous-catégorie
-                    const noSubCatOption = document.createElement('option');
-                    noSubCatOption.value = 'Aucune sous-catégorie';
-                    noSubCatOption.textContent = 'Aucune sous-catégorie';
-                    filterSubCategorySelect.appendChild(noSubCatOption);
-                    console.log(`➕ Option "Aucune sous-catégorie" ajoutée au filtre`);
-                    
-                    category.subCategories.forEach(subCat => {
-                        console.log(`➕ Ajout sous-catégorie au filtre: "${subCat.name}"`);
-                        const option = document.createElement('option');
-                        option.value = subCat.name;
-                        option.textContent = subCat.name;
-                        filterSubCategorySelect.appendChild(option);
-                    });
-                    
-                    // Restaurer la valeur précédente si elle existe toujours dans les options
-                    if (currentValue) {
-                        const optionExists = Array.from(filterSubCategorySelect.options).some(opt => opt.value === currentValue);
-                        if (optionExists) {
-                            filterSubCategorySelect.value = currentValue;
-                            console.log(`🔄 Valeur restaurée: "${currentValue}"`);
-                        } else {
-                            console.log(`⚠️ Valeur "${currentValue}" n'existe plus dans les options, réinitialisation`);
-                            filterSubCategorySelect.value = '';
-                        }
-                    } else {
-                        // S'assurer que la valeur par défaut est bien sélectionnée
-                        filterSubCategorySelect.value = '';
-                    }
-                    
-                    console.log(`📋 Filtre rempli avec ${filterSubCategorySelect.options.length} option(s), valeur actuelle: "${filterSubCategorySelect.value}"`);
-                    console.log(`📋 Options disponibles:`, Array.from(filterSubCategorySelect.options).map(opt => `"${opt.value}"`).join(', '));
-                } else {
-                    console.log(`⚠️ Aucune sous-catégorie pour "${selectedCategory}"`);
-                    filterSubCategoryContainer.style.display = 'none';
-                    filterSubCategorySelect.innerHTML = '<option value="">Toutes les sous-catégories</option>';
-                    filterSubCategorySelect.value = '';
-                }
-            } else {
-                filterSubCategoryContainer.style.display = 'none';
-                filterSubCategorySelect.innerHTML = '<option value="">Toutes les sous-catégories</option>';
-                filterSubCategorySelect.value = '';
-            }
-            
-            const selectedSubCategory = filterSubCategorySelect.value;
-            console.log(`🎯 Sous-catégorie sélectionnée pour filtrage: "${selectedSubCategory}"`);
-
-            // Créer un index des sous-catégories par optionId pour éviter les recherches répétées
-            const subCategoryIndex = new Map();
-            categories.forEach(category => {
-                (category.subCategories || []).forEach(subCat => {
-                    console.log(`📋 Sous-catégorie "${subCat.name}" avec ${(subCat.optionIds || []).length} optionIds:`, subCat.optionIds);
-                    (subCat.optionIds || []).forEach(optionId => {
-                        subCategoryIndex.set(optionId, subCat.name);
-                    });
-                });
-            });
-            console.log(`📊 Index créé avec ${subCategoryIndex.size} entrées`);
-            console.log(`📋 Clés de l'index (optionIds):`, Array.from(subCategoryIndex.keys()).slice(0, 10));
-            
-            // Log des IDs des options pour comparaison
-            const allOptionIds = [];
-            categories.forEach(category => {
-                (category.options || []).forEach(option => {
-                    allOptionIds.push(option.id);
-                });
-            });
-            console.log(`📋 IDs des options (échantillon):`, allOptionIds.slice(0, 10));
-
-            // Utiliser DocumentFragment pour améliorer les performances DOM
-            const fragment = document.createDocumentFragment();
-            let rowCount = 0;
-
-            categories.forEach(category => {
-                if (selectedCategory && category.name !== selectedCategory) return;
-
-                (category.options || []).forEach(option => {
-                    // Utiliser l'index au lieu de find() - beaucoup plus rapide
-                    const subCategoryName = subCategoryIndex.get(option.id) || 'Aucune sous-catégorie';
-                    
-                    // Filtrer par sous-catégorie si sélectionnée
-                    // Si "Aucune sous-catégorie" est sélectionnée, afficher uniquement les options sans sous-catégorie
-                    if (selectedSubCategory) {
-                        if (selectedSubCategory === 'Aucune sous-catégorie' && subCategoryName !== 'Aucune sous-catégorie') return;
-                        if (selectedSubCategory !== 'Aucune sous-catégorie' && subCategoryName !== selectedSubCategory) return;
-                    }
-
-                    const tr = document.createElement('tr');
-                    tr.style.cursor = 'pointer';
-                    
-                    // Trouver la sous-catégorie pour obtenir le score de confiance
-                    const subCatForConfidence = (category.subCategories || []).find(sc => sc.name === subCategoryName);
-                    const confidence = subCatForConfidence && subCatForConfidence.confidence && subCatForConfidence.confidence[option.id];
-                    let confidenceBadge = '';
-                    let confidenceColor = '';
-                    
-                    if (confidence !== undefined && confidence !== null) {
-                        if (confidence >= 90) {
-                            confidenceColor = '#28a745'; // Vert
-                        } else if (confidence >= 50) {
-                            confidenceColor = '#ffc107'; // Orange
-                        } else {
-                            confidenceColor = '#dc3545'; // Rouge
-                        }
-                        confidenceBadge = `<span class="badge" style="background: ${confidenceColor}; color: white; margin-left: 5px;">${confidence}%</span>`;
-                    }
-                    
-                    const subCategoryDisplay = subCategoryName === 'Aucune sous-catégorie' 
-                        ? '<span style="color: #dc3545; font-style: italic;">Aucune sous-catégorie</span>'
-                        : subCategoryName;
-                    
-                    const isColorOption = option.type === 'couleur' || option.name.toLowerCase().includes('couleur');
-                    tr.innerHTML = `
-                        <td><strong>${category.name}</strong></td>
-                        <td>${subCategoryDisplay}${confidenceBadge}</td>
-                        <td>${option.name}${isColorOption ? ' 🎨' : ''}</td>
-                        <td>${(option.priceClient || 0).toFixed(2)} €</td>
-                        <td>${(option.priceUgap || 0).toFixed(2)} €</td>
-                        <td><span class="badge">${option.compatibleModels?.length || 0} modèle(s)</span></td>
-                        <td>
-                            <button class="btn btn-outline" onclick="event.stopPropagation(); showOptionDetails('${category.id}', ${JSON.stringify(option).replace(/"/g, '&quot;')})">Modifier</button>
-                        </td>
-                    `;
-                    // Attacher l'événement APRÈS avoir défini innerHTML
-                    tr.addEventListener('click', () => showOptionDetails(category.id, option));
-                    if (isColorOption) {
-                        tr.addEventListener('dblclick', (e) => {
-                            e.stopPropagation();
-                            modifyOptionColor(category.id, option);
-                        });
-                    }
-                    fragment.appendChild(tr);
-                    rowCount++;
-                });
-            });
-
-            // Ajouter toutes les lignes en une seule opération DOM
-            if (rowCount === 0) {
-                tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; color: #666;">Aucune option</td></tr>';
-            } else {
-                tbody.appendChild(fragment);
+                await loadData(true);
+                renderSubCategoriesAccordion();
+                showAlert('Règle de catégorie mise à jour', 'success');
+            } catch (error) {
+                showAlert('Erreur mise à jour règle catégorie: ' + error.message, 'error');
             }
         }
 
+        // Render categories (options view)
+        function renderCategories() {
+            const tbody = document.querySelector('#categories-table tbody');
+            const filterModel = document.getElementById('filter-model');
+            const filterName = document.getElementById('filter-option-name');
+            const filterFamily = document.getElementById('filter-option-family');
+            const filterSubFamily = document.getElementById('filter-option-subfamily');
+            const btnOnlyUnassigned = document.getElementById('btn-filter-unassigned-options');
+            const btnAutoAssignFamilies = document.getElementById('btn-auto-assign-families');
+            const btnFilterAutoAssigned = document.getElementById('btn-filter-auto-assigned-options');
+            const unassignedWarning = document.getElementById('options-unassigned-warning');
+            const unassignedWarningCount = document.getElementById('options-unassigned-warning-count');
+            if (!tbody || !filterModel) return;
+            const isPrLabel = (label) => /^PR\s/i.test(String(label || '').trim());
+            if (!window.__optionsTabFilterState || typeof window.__optionsTabFilterState !== 'object') {
+                window.__optionsTabFilterState = {
+                    onlyUnassigned: false,
+                    autoAssignedOnly: false,
+                    family: '',
+                    subFamily: ''
+                };
+            }
+            if (typeof window.__optionsTabFilterState.autoAssignedOnly !== 'boolean') {
+                window.__optionsTabFilterState.autoAssignedOnly = false;
+            }
+
+            tbody.innerHTML = '';
+            const categories = Array.isArray(currentData?.categories) ? currentData.categories : [];
+            const models = Array.isArray(currentData?.models) ? currentData.models : [];
+            if (categories.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="7" style="text-align:center; color:#666;">Aucune option</td></tr>';
+                return;
+            }
+
+            const prevModel = String(filterModel.value || '');
+            filterModel.innerHTML = '<option value="">Tous les modèles</option>';
+            models.forEach((m) => {
+                const opt = document.createElement('option');
+                opt.value = String(m?.id || '');
+                opt.textContent = String(m?.name || m?.id || 'Modèle');
+                filterModel.appendChild(opt);
+            });
+            filterModel.value = models.some((m) => String(m?.id || '') === prevModel) ? prevModel : '';
+
+            const selectedModelId = String(filterModel.value || '');
+            const nameQuery = String(filterName?.value || '').trim().toLowerCase();
+            const onlyUnassigned = !!window.__optionsTabFilterState.onlyUnassigned;
+            const autoAssignedOnly = !!window.__optionsTabFilterState.autoAssignedOnly;
+            const autoAssignments = getOptionsAutoAssignments();
+            const familyChoices = getFamilleChoicesForOptionTab();
+            const subFamilyMap = getFamilleSubFamilyMapForOptionTab();
+            const familyFilterState = String(window.__optionsTabFilterState.family || '').trim();
+            const subFamilyFilterState = String(window.__optionsTabFilterState.subFamily || '').trim();
+
+            const familyFilterChoices = Array.from(new Set([
+                ...familyChoices,
+                ...Array.from(subFamilyMap.keys()).map((x) => String(x || '').trim()).filter(Boolean)
+            ])).sort((a, b) => a.localeCompare(b, 'fr', { sensitivity: 'base' }));
+            const hasFamilyFilterState = familyFilterChoices.includes(familyFilterState);
+            const selectedFamilyFilter = hasFamilyFilterState ? familyFilterState : '';
+            if (filterFamily) {
+                filterFamily.innerHTML = '<option value="">Toutes les familles</option>';
+                familyFilterChoices.forEach((fam) => {
+                    const opt = document.createElement('option');
+                    opt.value = fam;
+                    opt.textContent = fam;
+                    filterFamily.appendChild(opt);
+                });
+                filterFamily.value = selectedFamilyFilter;
+            }
+            if (!selectedFamilyFilter && familyFilterState) {
+                window.__optionsTabFilterState.family = '';
+            }
+
+            const subFamilyFilterOptions = [];
+            if (selectedFamilyFilter) {
+                const familySubs = subFamilyMap.get(selectedFamilyFilter) || [];
+                familySubs.forEach((sf) => {
+                    const cleanSub = String(sf || '').trim();
+                    if (!cleanSub) return;
+                    subFamilyFilterOptions.push({
+                        value: cleanSub,
+                        label: cleanSub
+                    });
+                });
+            } else {
+                subFamilyMap.forEach((subs, parent) => {
+                    const cleanParent = String(parent || '').trim();
+                    if (!cleanParent) return;
+                    (subs || []).forEach((sf) => {
+                        const cleanSub = String(sf || '').trim();
+                        if (!cleanSub) return;
+                        subFamilyFilterOptions.push({
+                            value: `${cleanParent} / ${cleanSub}`,
+                            label: `${cleanParent} / ${cleanSub}`
+                        });
+                    });
+                });
+            }
+            const subFamilyFilterChoices = Array.from(
+                new Map(
+                    subFamilyFilterOptions.map((entry) => [entry.value, entry])
+                ).values()
+            ).sort((a, b) => a.label.localeCompare(b.label, 'fr', { sensitivity: 'base' }));
+            const hasSubFamilyFilterState = subFamilyFilterChoices.some((entry) => entry.value === subFamilyFilterState);
+            const selectedSubFamilyFilter = hasSubFamilyFilterState ? subFamilyFilterState : '';
+            if (filterSubFamily) {
+                filterSubFamily.innerHTML = '<option value="">Toutes les sous-familles</option>';
+                subFamilyFilterChoices.forEach((entry) => {
+                    const opt = document.createElement('option');
+                    opt.value = entry.value;
+                    opt.textContent = entry.label;
+                    filterSubFamily.appendChild(opt);
+                });
+                filterSubFamily.value = selectedSubFamilyFilter;
+            }
+            if (!selectedSubFamilyFilter && subFamilyFilterState) {
+                window.__optionsTabFilterState.subFamily = '';
+            }
+
+            const fragment = document.createDocumentFragment();
+            let rowCount = 0;
+
+            categories.forEach((category) => {
+                (category.options || []).forEach((option) => {
+                    const compatible = Array.isArray(option?.compatibleModels) ? option.compatibleModels.map((x) => String(x)) : [];
+                    if (selectedModelId && !compatible.includes(selectedModelId)) return;
+                    if (isPrLabel(option?.name)) return;
+
+                    const optionId = String(option?.id || '');
+                    const selectedFamilyFull = String(getSelectedFamilyLabelForOption(optionId, option?.familyLabel) || '').trim();
+                    const selectedParts = selectedFamilyFull.split(' / ').map((x) => String(x || '').trim()).filter(Boolean);
+                    const selectedFamily = selectedParts.length ? selectedParts[0] : '';
+                    const selectedSubFamily = selectedParts.length > 1 ? selectedParts.slice(1).join(' / ') : '';
+                    const autoEntry = autoAssignments[optionId];
+                    const isAutoPending = !!(autoEntry && autoEntry.status === 'pending');
+                    if (onlyUnassigned && selectedFamily) return;
+                    if (autoAssignedOnly && !isAutoPending) return;
+                    if (nameQuery && !String(option?.name || '').toLowerCase().includes(nameQuery)) return;
+                    if (selectedFamilyFilter && selectedFamily !== selectedFamilyFilter) return;
+                    if (selectedSubFamilyFilter) {
+                        if (selectedFamilyFilter) {
+                            if (selectedSubFamily !== selectedSubFamilyFilter) return;
+                        } else if (selectedFamilyFull !== selectedSubFamilyFilter) {
+                            return;
+                        }
+                    }
+                    const subFamilies = selectedFamily ? (subFamilyMap.get(selectedFamily) || []) : [];
+                    const allPathChoices = [];
+                    subFamilyMap.forEach((subs, parent) => {
+                        (subs || []).forEach((sf) => {
+                            allPathChoices.push({
+                                value: `${parent}|||${sf}`,
+                                label: `/${parent}/${sf}`.replace(/\/+/g, '/')
+                            });
+                        });
+                    });
+                    allPathChoices.sort((a, b) => a.label.localeCompare(b.label, 'fr', { sensitivity: 'base' }));
+                    const isColorOption = option?.type === 'couleur' || String(option?.name || '').toLowerCase().includes('couleur');
+                    const familySelectOptionsHtml = [
+                        '<option value="">-- Non attribuée --</option>',
+                        ...familyChoices.map((name) => `<option value="${escapeHtml(name)}" ${selectedFamily === name ? 'selected' : ''}>${escapeHtml(name)}</option>`)
+                    ].join('');
+                    const subFamilySelectOptionsHtml = selectedFamily
+                        ? (
+                            subFamilies.length
+                                ? [
+                                    '<option value="">-- Choisir une sous-famille --</option>',
+                                    ...subFamilies.map((sf) => `<option value="${escapeHtml(sf)}" ${selectedSubFamily === sf ? 'selected' : ''}>${escapeHtml(sf)}</option>`)
+                                ].join('')
+                                : `<option value="">Identique à "${escapeHtml(selectedFamily)}"</option>`
+                        )
+                        : (
+                            allPathChoices.length
+                                ? [
+                                    '<option value="">-- Choisir via chemin --</option>',
+                                    ...allPathChoices.map((p) => `<option value="${escapeHtml(p.label)}">${escapeHtml(p.label)}</option>`)
+                                ].join('')
+                                : '<option value="">-- Aucune sous-famille disponible --</option>'
+                        );
+                    const tr = document.createElement('tr');
+                    const isManualBaseOption = !!option?.manualBaseOption
+                        || (!!option?.baseIncluded && !!String(option?.baseRefUgap || '').trim());
+                    tr.innerHTML = `
+                        <td>${escapeHtml(String(option?.name || '—'))}${isColorOption ? ' 🎨' : ''}</td>
+                        <td>
+                            <select class="opt-family-select" data-option-id="${escapeHtml(optionId)}" style="min-width:220px; width:100%; padding:6px; border:1px solid #ddd; border-radius:4px;">
+                                ${familySelectOptionsHtml}
+                            </select>
+                        </td>
+                        <td>
+                            <select class="opt-subfamily-select" data-option-id="${escapeHtml(optionId)}" data-family-parent="${escapeHtml(selectedFamily)}" style="min-width:220px; width:100%; padding:6px; border:1px solid #ddd; border-radius:4px;" ${selectedFamily ? (subFamilies.length ? '' : 'disabled') : ''}>
+                                ${subFamilySelectOptionsHtml}
+                            </select>
+                        </td>
+                        <td>${(Number(option?.priceClient || 0)).toFixed(2)} €</td>
+                        <td>${(Number(option?.priceUgap || 0)).toFixed(2)} €</td>
+                        <td><span class="badge">${compatible.length} modèle(s)</span></td>
+                        <td style="color:#999; display:flex; gap:6px; align-items:center;">
+                            ${isAutoPending
+                                ? `<button type="button" class="btn btn-outline opt-validate-auto-btn" data-option-id="${escapeHtml(optionId)}" style="padding:2px 8px;">Valider</button>`
+                                : ''}
+                            ${isManualBaseOption
+                                ? `<button type="button" class="opt-delete-manual-btn" data-option-id="${escapeHtml(optionId)}" title="Supprimer définitivement cette option manuelle" style="border:none; background:#dc3545; color:#fff; border-radius:4px; width:24px; height:24px; cursor:pointer; font-weight:700;">×</button>`
+                                : '—'}
+                        </td>
+                    `;
+                    fragment.appendChild(tr);
+                    rowCount += 1;
+                });
+            });
+
+            let unassignedCount = 0;
+            categories.forEach((category) => {
+                (category.options || []).forEach((option) => {
+                    const compatible = Array.isArray(option?.compatibleModels) ? option.compatibleModels.map((x) => String(x)) : [];
+                    if (selectedModelId && !compatible.includes(selectedModelId)) return;
+                    if (isPrLabel(option?.name)) return;
+                    const optionId = String(option?.id || '');
+                    const selectedFamilyFull = String(getSelectedFamilyLabelForOption(optionId, option?.familyLabel) || '').trim();
+                    const selectedParts = selectedFamilyFull.split(' / ').map((x) => String(x || '').trim()).filter(Boolean);
+                    const selectedFamily = selectedParts.length ? selectedParts[0] : '';
+                    if (!selectedFamily) unassignedCount += 1;
+                });
+            });
+
+            if (rowCount === 0) {
+                tbody.innerHTML = '<tr><td colspan="7" style="text-align:center; color:#666;">Aucune option</td></tr>';
+            } else {
+                tbody.appendChild(fragment);
+            }
+
+            if (btnOnlyUnassigned) {
+                btnOnlyUnassigned.textContent = onlyUnassigned ? 'Afficher toutes les options' : 'Options non assignées';
+                btnOnlyUnassigned.onclick = null;
+                btnOnlyUnassigned.addEventListener('click', () => {
+                    window.__optionsTabFilterState.onlyUnassigned = !window.__optionsTabFilterState.onlyUnassigned;
+                    renderCategories();
+                });
+            }
+            if (btnFilterAutoAssigned) {
+                btnFilterAutoAssigned.textContent = autoAssignedOnly ? 'Afficher toutes les options' : 'Assignées automatiquement';
+                btnFilterAutoAssigned.onclick = null;
+                btnFilterAutoAssigned.addEventListener('click', () => {
+                    window.__optionsTabFilterState.autoAssignedOnly = !window.__optionsTabFilterState.autoAssignedOnly;
+                    renderCategories();
+                });
+            }
+            if (btnAutoAssignFamilies) {
+                btnAutoAssignFamilies.onclick = null;
+                btnAutoAssignFamilies.addEventListener('click', async () => {
+                    await autoAssignOptionsFamiliesByKeywords();
+                });
+            }
+            if (unassignedWarning && unassignedWarningCount) {
+                if (unassignedCount > 0) {
+                    unassignedWarning.style.display = 'inline-flex';
+                    unassignedWarningCount.textContent = String(unassignedCount);
+                } else {
+                    unassignedWarning.style.display = 'none';
+                    unassignedWarningCount.textContent = '0';
+                }
+            }
+            updateOptionsTabWarningBadge();
+
+            document.querySelectorAll('.opt-family-select').forEach((sel) => {
+                sel.onchange = null;
+                sel.addEventListener('change', async () => {
+                    const optionId = String(sel.getAttribute('data-option-id') || '').trim();
+                    const familyLabel = String(sel.value || '').trim();
+                    if (!optionId) return;
+                    await updateOptionFamilyFromOptionsTab(optionId, familyLabel);
+                });
+            });
+
+            const applySubFamilySelection = async (optionId, parentFamily, subFamilyRaw) => {
+                if (!optionId) return;
+                let fullFamilyLabel = '';
+                if (parentFamily) {
+                    fullFamilyLabel = subFamilyRaw ? `${parentFamily} / ${subFamilyRaw}` : parentFamily;
+                } else {
+                    if (!subFamilyRaw) return;
+                    const pathMatch = subFamilyRaw.match(/^\/?([^/]+)\/(.+)$/);
+                    if (!pathMatch) return;
+                    const pathParent = String(pathMatch[1] || '').trim();
+                    const pathSub = String(pathMatch[2] || '').trim();
+                    if (!pathParent) return;
+                    fullFamilyLabel = pathSub ? `${pathParent} / ${pathSub}` : pathParent;
+                }
+                await updateOptionFamilyFromOptionsTab(optionId, fullFamilyLabel);
+            };
+
+            document.querySelectorAll('.opt-subfamily-select').forEach((sel) => {
+                sel.onchange = null;
+                sel.addEventListener('change', async () => {
+                    const optionId = String(sel.getAttribute('data-option-id') || '').trim();
+                    const parentFamily = String(sel.getAttribute('data-family-parent') || '').trim();
+                    const subFamilyRaw = String(sel.value || '').trim();
+                    if (!optionId) return;
+                    await applySubFamilySelection(optionId, parentFamily, subFamilyRaw);
+                });
+            });
+
+            document.querySelectorAll('.opt-delete-manual-btn').forEach((btn) => {
+                btn.onclick = null;
+                btn.addEventListener('click', async () => {
+                    const optionId = String(btn.getAttribute('data-option-id') || '').trim();
+                    if (!optionId) return;
+                    const rec = findOptionRecordById(optionId)?.option || null;
+                    const isManual = !!rec?.manualBaseOption
+                        || (!!rec?.baseIncluded && !!String(rec?.baseRefUgap || '').trim());
+                    if (!rec || !isManual) {
+                        showAlert('Seules les options manuelles peuvent etre supprimees ici.', 'warning');
+                        return;
+                    }
+                    if (!confirm(`Supprimer definitivement l'option manuelle "${optionId}" ?`)) return;
+                    try {
+                        await apiCall(`/options/${encodeURIComponent(optionId)}`, { method: 'DELETE' });
+                        purgeDeletedOptionFromLocalStores(optionId);
+                        await loadData(true);
+                        renderCategories();
+                        showAlert(`Option "${optionId}" supprimee definitivement.`, 'success');
+                    } catch (error) {
+                        showAlert('Erreur suppression option manuelle: ' + error.message, 'error');
+                    }
+                });
+            });
+            document.querySelectorAll('.opt-validate-auto-btn').forEach((btn) => {
+                btn.onclick = null;
+                btn.addEventListener('click', () => {
+                    const optionId = String(btn.getAttribute('data-option-id') || '').trim();
+                    if (!optionId) return;
+                    const map = getOptionsAutoAssignments();
+                    if (map[optionId]) {
+                        map[optionId].status = 'validated';
+                        setOptionsAutoAssignments(map);
+                    }
+                    renderCategories();
+                });
+            });
+        }
+
+        async function updateOptionFamilyFromOptionsTab(optionId, familyLabel) {
+            const record = findOptionRecordById(optionId);
+            if (!record?.option) return;
+            try {
+                await apiCall(`/options/${encodeURIComponent(optionId)}`, {
+                    method: 'PUT',
+                    body: JSON.stringify({
+                        ...record.option,
+                        familyLabel: String(familyLabel || '').trim()
+                    })
+                });
+                assignOptionToValidatedFamily(optionId, String(familyLabel || '').trim());
+                await loadData(true);
+                renderCategories();
+            } catch (error) {
+                showAlert('Erreur assignation famille: ' + error.message, 'error');
+            }
+        }
+
+        async function updateOptionFamilyFromOptionsTabSilent(optionId, familyLabel) {
+            const record = findOptionRecordById(optionId);
+            if (!record?.option) return false;
+            await apiCall(`/options/${encodeURIComponent(optionId)}`, {
+                method: 'PUT',
+                body: JSON.stringify({
+                    ...record.option,
+                    familyLabel: String(familyLabel || '').trim()
+                })
+            });
+            assignOptionToValidatedFamily(optionId, String(familyLabel || '').trim());
+            return true;
+        }
+
+        function scoreHeuristicRuleForOption(rule, optionLikeRow) {
+            const scope = String(rule?.scope || 'all');
+            if (scope === 'option' && optionLikeRow.lineKind !== 'option') return 0;
+            if (scope === 'minoration' && optionLikeRow.lineKind !== 'mino') return 0;
+            const keywords = splitHeuristicKeywords(rule?.keywords || '');
+            if (!keywords.length) return 0;
+            const haystack = normalizeHeuristicText(`${optionLikeRow?.name || ''} ${optionLikeRow?.categoryName || ''}`);
+            return keywords.reduce((acc, kw) => (haystack.includes(kw) ? acc + 1 : acc), 0);
+        }
+
+        async function autoAssignOptionsFamiliesByKeywords() {
+            try {
+                const categories = Array.isArray(currentData?.categories) ? currentData.categories : [];
+                const rules = getFamilleHeuristicRules();
+                if (!rules.length) {
+                    showAlert('Aucune règle mots-clés disponible.', 'warning');
+                    return;
+                }
+                const isPrLabel = (label) => /^PR\s/i.test(String(label || '').trim());
+
+                const assignments = [];
+                categories.forEach((category) => {
+                    (category.options || []).forEach((option) => {
+                        const optionId = String(option?.id || '').trim();
+                        if (!optionId) return;
+                        if (isPrLabel(option?.name)) return;
+                        const selectedFamily = String(getSelectedFamilyLabelForOption(optionId, option?.familyLabel) || '').trim();
+                        if (selectedFamily) return; // ne pas écraser les assignations existantes
+                        const row = {
+                            id: optionId,
+                            name: String(option?.name || ''),
+                            categoryName: String(category?.name || ''),
+                            lineKind: 'option'
+                        };
+                        let bestRule = null;
+                        let bestScore = 0;
+                        (Array.isArray(rules) ? rules : []).forEach((rule) => {
+                            const label = String(rule?.familyLabel || '').trim();
+                            if (!label) return;
+                            const score = scoreHeuristicRuleForOption(rule, row);
+                            if (score > bestScore) {
+                                bestScore = score;
+                                bestRule = rule;
+                            }
+                        });
+                        if (bestRule && bestScore > 0) {
+                            assignments.push({
+                                optionId,
+                                familyLabel: String(bestRule.familyLabel || '').trim()
+                            });
+                        }
+                    });
+                });
+
+                if (!assignments.length) {
+                    showAlert('Aucune option non assignée correspondante aux mots-clés.', 'info');
+                    return;
+                }
+
+                const autoMap = getOptionsAutoAssignments();
+                const result = await apiCall('/options/assign-families-bulk', {
+                    method: 'POST',
+                    body: JSON.stringify({ assignments })
+                });
+                const processed = Number(result?.data?.updatedCount || 0);
+                const updatedOptionIds = new Set(
+                    Array.isArray(result?.data?.updatedOptionIds) ? result.data.updatedOptionIds.map((id) => String(id || '')) : []
+                );
+                assignments.forEach((item) => {
+                    if (!updatedOptionIds.has(String(item.optionId || ''))) return;
+                    autoMap[item.optionId] = {
+                        familyLabel: item.familyLabel,
+                        status: 'pending',
+                        assignedAt: Date.now()
+                    };
+                });
+                setOptionsAutoAssignments(autoMap);
+                await loadData(true);
+                renderCategories();
+                showAlert(`${processed} option(s) assignée(s) automatiquement (batch).`, 'success');
+            } catch (error) {
+                showAlert('Erreur assignation auto famille: ' + error.message, 'error');
+            }
+        }
+
+        async function updateOptionSubFamilyFromOptionsTab(categoryId, optionId, targetSubCategoryId, currentSubCategoryId) {
+            const normalizedCategoryId = String(categoryId || '').trim();
+            const normalizedOptionId = String(optionId || '').trim();
+            const normalizedTargetId = String(targetSubCategoryId || '').trim();
+            const normalizedCurrentId = String(currentSubCategoryId || '').trim();
+            if (!normalizedCategoryId || !normalizedOptionId) return;
+            if (normalizedTargetId === normalizedCurrentId) return;
+
+            try {
+                const category = (currentData?.categories || []).find((cat) => String(cat?.id || '') === normalizedCategoryId);
+                if (!category) throw new Error('Catégorie introuvable');
+
+                if (normalizedCurrentId) {
+                    const currentSubCat = (category.subCategories || []).find((sc) => String(sc?.id || '') === normalizedCurrentId);
+                    if (currentSubCat) {
+                        const updatedFromIds = (currentSubCat.optionIds || [])
+                            .map((id) => String(id))
+                            .filter((id) => id !== normalizedOptionId);
+                        await apiCall(`/categories/${encodeURIComponent(normalizedCategoryId)}/subcategories/${encodeURIComponent(normalizedCurrentId)}`, {
+                            method: 'PUT',
+                            body: JSON.stringify({ optionIds: updatedFromIds })
+                        });
+                    }
+                }
+
+                if (normalizedTargetId) {
+                    const targetSubCat = (category.subCategories || []).find((sc) => String(sc?.id || '') === normalizedTargetId);
+                    if (!targetSubCat) throw new Error('Sous-famille introuvable');
+                    const updatedTargetIds = Array.from(new Set([...(targetSubCat.optionIds || []).map((id) => String(id)), normalizedOptionId]));
+                    await apiCall(`/categories/${encodeURIComponent(normalizedCategoryId)}/subcategories/${encodeURIComponent(normalizedTargetId)}`, {
+                        method: 'PUT',
+                        body: JSON.stringify({ optionIds: updatedTargetIds })
+                    });
+                }
+
+                await loadData(true);
+                renderCategories();
+                showAlert('Sous-famille mise à jour', 'success');
+            } catch (error) {
+                showAlert('Erreur assignation sous-famille: ' + error.message, 'error');
+            }
+        }
+
+        function getCouplingRules() {
+            try {
+                const raw = localStorage.getItem('ugap_option_coupling_rules_v1');
+                const parsed = raw ? JSON.parse(raw) : [];
+                return Array.isArray(parsed) ? parsed : [];
+            } catch (_) {
+                return [];
+            }
+        }
+
+        function setCouplingRules(rules) {
+            localStorage.setItem('ugap_option_coupling_rules_v1', JSON.stringify(Array.isArray(rules) ? rules : []));
+        }
+
+        function getOptionsAutoAssignments() {
+            try {
+                const raw = localStorage.getItem('ugap.options.autoAssignments.v1');
+                const parsed = raw ? JSON.parse(raw) : {};
+                return parsed && typeof parsed === 'object' ? parsed : {};
+            } catch (_) {
+                return {};
+            }
+        }
+
+        function setOptionsAutoAssignments(map) {
+            try {
+                localStorage.setItem('ugap.options.autoAssignments.v1', JSON.stringify(map && typeof map === 'object' ? map : {}));
+            } catch (_) {
+                // no-op
+            }
+        }
+
+        function normalizeCouplingOptionChoiceId(rawId, fallbackLabel) {
+            const cleanedRaw = String(rawId || '').trim();
+            if (cleanedRaw) return cleanedRaw;
+            const base = String(fallbackLabel || 'option')
+                .trim()
+                .toLowerCase()
+                .replace(/\s+/g, '_')
+                .replace(/[^a-z0-9_]/g, '')
+                .replace(/^_+|_+$/g, '') || 'option';
+            return `noid_${base}`;
+        }
+
+        function normalizeLegacyCouplingItemOptionId(rawOptId) {
+            const value = String(rawOptId || '').trim();
+            if (!value) return '';
+            // Migration robuste: ancien format "...__<idx>" => clé stable sans suffixe d'index.
+            const legacy = value.match(/^(.*)__\d+$/);
+            if (legacy && legacy[1]) return String(legacy[1]).trim();
+            return value;
+        }
+
+        function normalizeLegacyCouplingItemKey(rawItemKey) {
+            const raw = String(rawItemKey || '').trim();
+            if (!raw) return '';
+            const sep = raw.lastIndexOf('::');
+            if (sep < 0) return raw;
+            const col = raw.slice(0, sep);
+            const opt = normalizeLegacyCouplingItemOptionId(raw.slice(sep + 2));
+            return `${col}::${opt}`;
+        }
+
+        function getAllFlatOptionsWithContext() {
+            const out = [];
+            const categories = Array.isArray(currentData?.categories) ? currentData.categories : [];
+            categories.forEach((cat) => {
+                (cat.options || []).forEach((opt) => {
+                    out.push({
+                        categoryId: String(cat?.id || ''),
+                        categoryName: String(cat?.name || ''),
+                        option: opt
+                    });
+                });
+            });
+            return out;
+        }
+
+        function getCouplingWarningsSummary() {
+            const couplings = getCouplingRules();
+            if (!Array.isArray(couplings) || couplings.length === 0) {
+                return { couplingsWithWarnings: 0, warningColumnsTotal: 0 };
+            }
+            const options = getAllFlatOptionsWithContext();
+            const familyChoices = getFamilleChoicesForOptionTab();
+            const subFamilyMap = getFamilleSubFamilyMapForOptionTab();
+            const byFamily = new Map();
+            const bySubFamily = new Map();
+            familyChoices.forEach((fam) => byFamily.set(fam, []));
+            subFamilyMap.forEach((subs, parent) => {
+                (subs || []).forEach((sub) => {
+                    const full = `${parent} / ${sub}`;
+                    bySubFamily.set(full, []);
+                });
+            });
+            options.forEach((r) => {
+                const full = String(getSelectedFamilyLabelForOption(r.option?.id, r.option?.familyLabel) || '').trim();
+                if (!full) return;
+                const parts = full.split(' / ').map((x) => String(x || '').trim()).filter(Boolean);
+                const family = parts.length ? parts[0] : '';
+                const sub = parts.length > 1 ? parts.slice(1).join(' / ') : '';
+                if (!family) return;
+                if (!byFamily.has(family)) byFamily.set(family, []);
+                byFamily.get(family).push(r.option);
+                if (sub) {
+                    const subKey = `${family} / ${sub}`;
+                    if (!bySubFamily.has(subKey)) bySubFamily.set(subKey, []);
+                    bySubFamily.get(subKey).push(r.option);
+                }
+            });
+            const toOptionChoices = (arr) => {
+                return (arr || [])
+                    .map((o) => {
+                        const rawId = String(o?.id || '').trim();
+                        const stableId = normalizeCouplingOptionChoiceId(rawId, o?.name || o?.id);
+                        return { id: stableId };
+                    });
+            };
+            const selectableColumns = [
+                ...familyChoices.map((fam) => ({ key: `F::${fam}`, options: toOptionChoices(byFamily.get(fam) || []) })),
+                ...Array.from(bySubFamily.keys())
+                    .sort((a, b) => a.localeCompare(b, 'fr', { sensitivity: 'base' }))
+                    .map((sf) => ({ key: `S::${sf}`, options: toOptionChoices(bySubFamily.get(sf) || []) }))
+            ];
+
+            let couplingsWithWarnings = 0;
+            let warningColumnsTotal = 0;
+            (couplings || []).forEach((coupling) => {
+                const selected = (Array.isArray(coupling?.selectedFamilies) ? coupling.selectedFamilies : [])
+                    .filter((k) => selectableColumns.some((f) => f.key === k));
+                if (!selected.length) return;
+                const linkedSet = new Set();
+                (Array.isArray(coupling?.links) ? coupling.links : []).forEach((lnk) => {
+                    (Array.isArray(lnk?.masterItems) ? lnk.masterItems : []).forEach((x) => linkedSet.add(normalizeLegacyCouplingItemKey(x)));
+                    (Array.isArray(lnk?.slaveItems) ? lnk.slaveItems : []).forEach((x) => linkedSet.add(normalizeLegacyCouplingItemKey(x)));
+                });
+                const warningCountForCoupling = selected.reduce((acc, colKey) => {
+                    const col = selectableColumns.find((c) => c.key === colKey);
+                    if (!col) return acc;
+                    const hasMissing = (Array.isArray(col.options) ? col.options : []).some((opt) => !linkedSet.has(`${col.key}::${opt.id}`));
+                    return hasMissing ? acc + 1 : acc;
+                }, 0);
+                if (warningCountForCoupling > 0) {
+                    couplingsWithWarnings += 1;
+                    warningColumnsTotal += warningCountForCoupling;
+                }
+            });
+            return { couplingsWithWarnings, warningColumnsTotal };
+        }
+
+        function setTabWarningBadge(tabName, count, titleText) {
+            const tabEl = document.querySelector(`.tab[data-tab="${tabName}"]`);
+            if (!tabEl) return;
+            const fallbackLabel = tabName === 'options' ? 'Options' : (tabName === 'famille' ? 'Famille' : (tabName === 'couplings' ? 'Couplages' : tabName));
+            const baseLabel = String(tabEl.getAttribute('data-base-label') || tabEl.textContent || fallbackLabel).trim() || fallbackLabel;
+            tabEl.setAttribute('data-base-label', baseLabel);
+            if (Number(count) > 0) {
+                tabEl.innerHTML = `${escapeHtml(baseLabel)} <span title="${escapeHtml(String(titleText || 'Avertissement'))}" style="display:inline-flex; align-items:center; gap:4px; margin-left:6px; padding:2px 6px; border-radius:999px; background:#fffbeb; color:#92400e; border:1px solid #facc15; font-size:10px; font-weight:700;">⚠ ${Number(count)}</span>`;
+            } else {
+                tabEl.textContent = baseLabel;
+            }
+        }
+
+        function getOptionsWarningsSummary() {
+            const categories = Array.isArray(currentData?.categories) ? currentData.categories : [];
+            let unassignedOptions = 0;
+            const isPrLabel = (label) => /^PR\s/i.test(String(label || '').trim());
+            categories.forEach((category) => {
+                (category.options || []).forEach((option) => {
+                    if (isPrLabel(option?.name)) return;
+                    const optionId = String(option?.id || '').trim();
+                    const selectedFamilyFull = String(getSelectedFamilyLabelForOption(optionId, option?.familyLabel) || '').trim();
+                    const selectedParts = selectedFamilyFull.split(' / ').map((x) => String(x || '').trim()).filter(Boolean);
+                    const selectedFamily = selectedParts.length ? selectedParts[0] : '';
+                    if (!selectedFamily) unassignedOptions += 1;
+                });
+            });
+            return { unassignedOptions };
+        }
+
+        function getFamilleWarningsSummary() {
+            const families = getFamilleValidatedFamilies();
+            const missingBusinessView = (Array.isArray(families) ? families : []).reduce((acc, fam) => {
+                const famLabel = String(fam?.familyLabel || '').trim();
+                if (!famLabel) return acc;
+                const hasViewId = String(fam?.businessViewId || '').trim();
+                const hasViewLabel = String(fam?.businessViewLabel || '').trim();
+                return (!hasViewId && !hasViewLabel) ? acc + 1 : acc;
+            }, 0);
+            return { missingBusinessView };
+        }
+
+        function updateOptionsTabWarningBadge() {
+            const summary = getOptionsWarningsSummary();
+            setTabWarningBadge('options', summary.unassignedOptions, `${summary.unassignedOptions} option(s) sans famille assignée`);
+        }
+
+        function updateFamilleTabWarningBadge() {
+            const summary = getFamilleWarningsSummary();
+            setTabWarningBadge('famille', summary.missingBusinessView, `${summary.missingBusinessView} famille(s) sans vue métier associée`);
+        }
+
+        function updateCouplingsTabWarningBadge() {
+            const summary = getCouplingWarningsSummary();
+            setTabWarningBadge('couplings', summary.warningColumnsTotal, `${summary.warningColumnsTotal} colonne(s) à corriger dans ${summary.couplingsWithWarnings} couplage(s)`);
+        }
+
+        function updateAllTabWarningBadges() {
+            updateOptionsTabWarningBadge();
+            updateFamilleTabWarningBadge();
+            updateCouplingsTabWarningBadge();
+        }
+
+        function renderStructuredOptionsView() {
+            const root = document.getElementById('structured-options-root');
+            if (!root) return;
+            const rows = getAllFlatOptionsWithContext();
+            if (!rows.length) {
+                root.innerHTML = '<p style="color:#666;">Aucune option.</p>';
+                return;
+            }
+            if (!window.__ugapStructuredUiState || typeof window.__ugapStructuredUiState !== 'object') {
+                window.__ugapStructuredUiState = { openViews: {}, openFamilies: {} };
+            }
+            const uiState = window.__ugapStructuredUiState;
+            const selectedViewLabels = getStructuredSelectedViewLabels();
+            const selectedViewsSet = new Set(selectedViewLabels);
+            const subFamilyViewMap = getStructuredSubFamilyViewMap();
+
+            const validatedFamilies = getFamilleValidatedFamilies();
+            const familyToViewLabel = new Map();
+            (Array.isArray(validatedFamilies) ? validatedFamilies : []).forEach((f) => {
+                const familyLabel = String(f?.familyLabel || '').trim();
+                const viewLabel = String(f?.businessViewLabel || '').trim();
+                if (familyLabel && viewLabel) familyToViewLabel.set(familyLabel.toLowerCase(), viewLabel);
+            });
+
+            const groupedByView = new Map();
+            selectedViewLabels.forEach((label) => groupedByView.set(label, new Map()));
+
+            rows.forEach((row) => {
+                const opt = row.option || {};
+                const family = String(getSelectedFamilyLabelForOption(opt?.id, opt?.familyLabel) || 'Sans famille');
+                const parsed = parseValidatedFamilyLabel(family);
+                const subFamily = String(opt?.subCategory || opt?.subFamily || parsed?.subFamilyName || '').trim();
+                const subKey = `${String(parsed?.familyName || family || '').trim().toLowerCase()}::${subFamily.toLowerCase()}`;
+                const mappedViews = Array.isArray(subFamilyViewMap[subKey]) ? subFamilyViewMap[subKey] : [];
+                let targets = mappedViews.filter((v) => selectedViewsSet.has(String(v || '').trim()));
+                if (!targets.length) {
+                    const fallback = String(familyToViewLabel.get(family.toLowerCase()) || opt?.category || row?.categoryName || '').trim();
+                    if (fallback && selectedViewsSet.has(fallback)) targets = [fallback];
+                }
+                targets.forEach((view) => {
+                    if (!groupedByView.has(view)) groupedByView.set(view, new Map());
+                    const famMap = groupedByView.get(view);
+                    if (!famMap.has(family)) famMap.set(family, []);
+                    famMap.get(family).push(opt);
+                });
+            });
+
+            const html = Array.from(groupedByView.entries())
+                .map(([view, famMap]) => {
+                    const viewOpen = !!uiState.openViews[view];
+                    const familyRows = Array.from(famMap.entries()).map(([family, opts]) => {
+                        const famKey = `${view}__${family}`;
+                        const famOpen = !!uiState.openFamilies[famKey];
+                        const parsed = parseValidatedFamilyLabel(family);
+                        const familyBase = String(parsed?.familyName || family || '').trim();
+                        const subGroups = new Map();
+                        opts.forEach((o) => {
+                            const sub = String(o?.subCategory || o?.subFamily || parsed?.subFamilyName || '').trim();
+                            const key = sub || '';
+                            if (!subGroups.has(key)) subGroups.set(key, []);
+                            subGroups.get(key).push(o);
+                        });
+                        const free = subGroups.get('') || [];
+                        const subItems = Array.from(subGroups.entries()).filter(([k]) => k).sort((a, b) => a[0].localeCompare(b[0], 'fr', { sensitivity: 'base' }));
+                        const subBlocks = subItems.map(([sub, subOpts]) => {
+                            const subKey = `${familyBase.toLowerCase()}::${String(sub || '').toLowerCase()}`;
+                            const checkedSet = new Set((Array.isArray(subFamilyViewMap[subKey]) ? subFamilyViewMap[subKey] : []).map((x) => String(x)));
+                            return `
+                                <div style="border:1px solid #e2e8f0; border-radius:6px; padding:8px; margin-bottom:8px; background:#fff;">
+                                    <div style="display:flex; justify-content:space-between; gap:8px; margin-bottom:6px;">
+                                        <strong>${escapeHtml(sub)}</strong><span class="badge">${subOpts.length}</span>
+                                    </div>
+                                    <div style="margin-bottom:6px; font-size:12px; color:#475569;">Vues métier assignées à cette sous-famille:</div>
+                                    <div style="display:flex; flex-wrap:wrap; gap:10px; margin-bottom:6px;">
+                                        ${selectedViewLabels.map((v) => `
+                                            <label style="font-size:12px; color:#334155; display:flex; gap:6px; align-items:center;">
+                                                <input type="checkbox" class="structured-sub-view-cb" data-sub-key="${escapeHtml(subKey)}" data-view-label="${escapeHtml(v)}" ${checkedSet.has(v) ? 'checked' : ''}>
+                                                ${escapeHtml(v)}
+                                            </label>
+                                        `).join('')}
+                                    </div>
+                                    <div style="font-size:12px; color:#333;">${subOpts.map((o) => `• ${escapeHtml(String(o?.name || 'Option'))}`).join('<br>')}</div>
+                                </div>
+                            `;
+                        }).join('');
+
+                        return `
+                            <div style="border:1px solid #e5e7eb; border-radius:8px; overflow:hidden; margin-bottom:8px; background:#fff;">
+                                <button type="button" class="structured-family-toggle" data-view-key="${escapeHtml(view)}" data-family-key="${escapeHtml(String(family || ''))}" style="width:100%; text-align:left; border:none; background:#fff; padding:10px 12px; cursor:pointer; display:flex; align-items:center; justify-content:space-between; gap:8px;">
+                                    <span><span style="font-size:12px; color:#666;">${famOpen ? '▼' : '▶'}</span> <strong>${escapeHtml(family)}</strong></span>
+                                    <span class="badge">${opts.length} option(s)</span>
+                                </button>
+                                <div style="display:${famOpen ? 'block' : 'none'}; border-top:1px solid #eef2f7; padding:8px 12px; font-size:12px; color:#333;">
+                                    ${free.length ? `<div style="margin-bottom:8px;"><strong>Options libres</strong><div>${free.map((o) => `• ${escapeHtml(String(o?.name || 'Option'))}`).join('<br>')}</div></div>` : ''}
+                                    ${subBlocks || '<div style="color:#666;">Aucune sous-famille.</div>'}
+                                </div>
+                            </div>
+                        `;
+                    }).join('');
+
+                    return `
+                        <div style="margin-bottom:14px; border:1px solid #dbeafe; border-radius:10px; overflow:hidden;">
+                            <button type="button" class="structured-view-toggle" data-view-key="${escapeHtml(view)}" style="width:100%; border:none; background:#eff6ff; padding:10px 12px; font-weight:600; text-align:left; cursor:pointer; display:flex; align-items:center; justify-content:space-between; gap:8px;">
+                                <span>${viewOpen ? '▼' : '▶'} ${escapeHtml(view)}</span>
+                                <span class="badge">${famMap.size} famille(s)</span>
+                            </button>
+                            <div style="display:${viewOpen ? 'block' : 'none'}; padding:10px; background:#f9fcff;">
+                                ${familyRows || '<div style="color:#666; font-size:12px;">Aucune famille.</div>'}
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+
+            root.innerHTML = html || '<p style="color:#666;">Aucune donnée.</p>';
+            root.querySelectorAll('.structured-view-toggle').forEach((btn) => {
+                btn.addEventListener('click', () => {
+                    const key = String(btn.getAttribute('data-view-key') || '');
+                    uiState.openViews[key] = !uiState.openViews[key];
+                    renderStructuredOptionsView();
+                });
+            });
+            root.querySelectorAll('.structured-family-toggle').forEach((btn) => {
+                btn.addEventListener('click', () => {
+                    const viewKey = String(btn.getAttribute('data-view-key') || '');
+                    const familyKey = String(btn.getAttribute('data-family-key') || '');
+                    const key = `${viewKey}__${familyKey}`;
+                    uiState.openFamilies[key] = !uiState.openFamilies[key];
+                    renderStructuredOptionsView();
+                });
+            });
+            root.querySelectorAll('.structured-sub-view-cb').forEach((cb) => {
+                cb.addEventListener('change', () => {
+                    const subKey = String(cb.getAttribute('data-sub-key') || '').trim();
+                    const view = String(cb.getAttribute('data-view-label') || '').trim();
+                    if (!subKey || !view) return;
+                    const mapObj = getStructuredSubFamilyViewMap();
+                    const set = new Set(Array.isArray(mapObj[subKey]) ? mapObj[subKey].map((x) => String(x)) : []);
+                    if (cb.checked) set.add(view);
+                    else set.delete(view);
+                    mapObj[subKey] = Array.from(set);
+                    setStructuredSubFamilyViewMap(mapObj);
+                    renderStructuredOptionsView();
+                });
+            });
+        }
+
+        function renderOptionCouplingsTab() {
+            const root = document.getElementById('option-couplings-root');
+            if (!root) return;
+            updateCouplingsTabWarningBadge();
+            const options = getAllFlatOptionsWithContext();
+            const familyChoices = getFamilleChoicesForOptionTab();
+            const subFamilyMap = getFamilleSubFamilyMapForOptionTab();
+            const byFamily = new Map();
+            const bySubFamily = new Map();
+            familyChoices.forEach((fam) => byFamily.set(fam, []));
+            subFamilyMap.forEach((subs, parent) => {
+                (subs || []).forEach((sub) => {
+                    const full = `${parent} / ${sub}`;
+                    bySubFamily.set(full, []);
+                });
+            });
+            options.forEach((r) => {
+                const full = String(getSelectedFamilyLabelForOption(r.option?.id, r.option?.familyLabel) || '').trim();
+                if (!full) return;
+                const parts = full.split(' / ').map((x) => String(x || '').trim()).filter(Boolean);
+                const family = parts.length ? parts[0] : '';
+                const sub = parts.length > 1 ? parts.slice(1).join(' / ') : '';
+                if (!family) return;
+                if (!byFamily.has(family)) byFamily.set(family, []);
+                byFamily.get(family).push(r.option);
+                if (sub) {
+                    const subKey = `${family} / ${sub}`;
+                    if (!bySubFamily.has(subKey)) bySubFamily.set(subKey, []);
+                    bySubFamily.get(subKey).push(r.option);
+                }
+            });
+            const toOptionChoices = (arr) => {
+                return (arr || [])
+                    .map((o) => {
+                        const rawId = String(o?.id || '').trim();
+                        const stableId = normalizeCouplingOptionChoiceId(rawId, o?.name || o?.id);
+                        return { id: stableId, rawId: rawId || stableId, label: String(o?.name || o?.id || 'Option') };
+                    });
+            };
+            const familyColumns = familyChoices.map((fam) => ({
+                key: `F::${fam}`,
+                label: `[Famille] ${fam}`,
+                options: toOptionChoices(byFamily.get(fam) || [])
+            }));
+            const subFamilyColumns = Array.from(bySubFamily.keys())
+                .sort((a, b) => a.localeCompare(b, 'fr', { sensitivity: 'base' }))
+                .map((sf) => ({
+                    key: `S::${sf}`,
+                    label: `[Sous-famille] ${sf}`,
+                    options: toOptionChoices(bySubFamily.get(sf) || [])
+                }));
+            const selectableColumns = [...familyColumns, ...subFamilyColumns];
+            const familyOptionsHtml = selectableColumns.length === 0
+                ? '<option value="">Aucune famille/sous-famille</option>'
+                : [
+                    '<option value="">Choisir une famille ou sous-famille</option>',
+                    ...selectableColumns.map((f) => `<option value="${escapeHtml(f.key)}">${escapeHtml(f.label)}</option>`)
+                ].join('');
+
+            const normalizeLink = (raw, idx) => {
+                const masterItems = Array.isArray(raw?.masterItems)
+                    ? raw.masterItems.map((x) => normalizeLegacyCouplingItemKey(x)).filter(Boolean)
+                    : [];
+                const slaveItems = Array.isArray(raw?.slaveItems)
+                    ? raw.slaveItems.map((x) => normalizeLegacyCouplingItemKey(x)).filter(Boolean)
+                    : [];
+                return {
+                    id: String(raw?.id || `link_${Date.now()}_${idx}_${Math.random().toString(16).slice(2, 6)}`),
+                    masterItems,
+                    slaveItems,
+                    masterLabels: Array.isArray(raw?.masterLabels) ? raw.masterLabels : masterItems,
+                    slaveLabels: Array.isArray(raw?.slaveLabels) ? raw.slaveLabels : slaveItems
+                };
+            };
+            const normalizeCoupling = (raw, idx) => {
+                const fallbackName = `Couplage ${idx + 1}`;
+                return {
+                    id: String(raw?.id || `cp_${Date.now()}_${idx}_${Math.random().toString(16).slice(2, 6)}`),
+                    name: String(raw?.name || fallbackName).trim() || fallbackName,
+                    selectedFamilies: Array.isArray(raw?.selectedFamilies) ? raw.selectedFamilies.map((x) => String(x || '')).filter(Boolean) : [],
+                    masterColumns: Array.isArray(raw?.masterColumns) ? raw.masterColumns.map((x) => String(x || '')).filter(Boolean) : [],
+                    selectedMasterItems: Array.isArray(raw?.selectedMasterItems) ? raw.selectedMasterItems.map((x) => String(x || '')).filter(Boolean) : [],
+                    selectedSlaveItems: Array.isArray(raw?.selectedSlaveItems) ? raw.selectedSlaveItems.map((x) => String(x || '')).filter(Boolean) : [],
+                    links: (Array.isArray(raw?.links) ? raw.links : []).map((lnk, i) => normalizeLink(lnk, i))
+                };
+            };
+
+            root.innerHTML = `
+                <div style="margin-bottom:12px; border:1px solid #cfe8ff; border-radius:10px; padding:12px; background:#f8fbff;">
+                    <div style="font-weight:600; color:#1e3a8a; margin-bottom:8px;">Couplage par colonnes</div>
+                    <div style="display:grid; grid-template-columns:minmax(260px,1fr) auto auto; gap:8px; align-items:end; margin-bottom:10px;">
+                        <div>
+                            <label style="display:block; font-size:12px; color:#666;">Nom du couplage</label>
+                            <input id="coupling-name-input" type="text" placeholder="Ex: Propulsion thermique" style="width:100%; padding:7px; border:1px solid #ddd; border-radius:4px;">
+                        </div>
+                        <button class="btn btn-primary" id="btn-save-coupling-name">Enregistrer le nom</button>
+                        <button class="btn btn-outline" id="btn-create-coupling">Nouveau couplage</button>
+                    </div>
+                    <div id="coupling-list" style="display:flex; flex-wrap:wrap; gap:6px; margin-bottom:10px;"></div>
+                    <p style="margin:0 0 10px 0; color:#475569; font-size:12px;">Sélectionne une famille ou sous-famille pour ajouter une colonne avec ses valeurs d'options.</p>
+                    <div style="display:grid; grid-template-columns:1fr auto; gap:8px; align-items:end; max-width:560px;">
+                        <div>
+                            <label style="display:block; font-size:12px; color:#666;">Famille / Sous-famille</label>
+                            <select id="coupling-family-column-select" style="width:100%; padding:7px; border:1px solid #ddd; border-radius:4px;">
+                                ${familyOptionsHtml}
+                            </select>
+                        </div>
+                        <button class="btn btn-primary" id="btn-add-coupling-column" style="display:none;">Ajouter colonne</button>
+                    </div>
+                </div>
+                <div style="border:1px solid #e5e7eb; border-radius:8px; overflow:auto; background:#fff;">
+                    <table id="coupling-columns-table" style="width:100%; border-collapse:collapse; min-width:600px;">
+                        <thead>
+                            <tr id="coupling-columns-head">
+                                <th style="padding:8px; text-align:left; background:#f8fafc; border-bottom:1px solid #eee; color:#666;">Aucune colonne sélectionnée</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td style="padding:10px; color:#666;">Ajoute au moins une famille ou sous-famille pour afficher ses valeurs.</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div style="margin-top:10px; display:flex; align-items:center; gap:10px;">
+                    <button class="btn btn-primary" id="btn-create-coupling-link">Créer un nouveau lien</button>
+                    <button class="btn btn-outline" id="btn-toggle-show-all-links">Afficher tous les liens</button>
+                    <span id="coupling-link-help" style="font-size:12px; color:#64748b;">Crée un lien puis clique les options: sauvegarde automatique sur le lien actif.</span>
+                </div>
+                <div style="margin-top:10px; border:1px solid #e5e7eb; border-radius:8px; padding:10px; background:#fff;">
+                    <div id="coupling-links-list" style="display:flex; flex-wrap:wrap; gap:8px;"></div>
+                </div>
+            `;
+
+            if (!window.__ugapCouplingColumnState || typeof window.__ugapCouplingColumnState !== 'object') {
+                window.__ugapCouplingColumnState = {};
+            }
+            const state = window.__ugapCouplingColumnState;
+            const stored = getCouplingRules().map((c, idx) => normalizeCoupling(c, idx));
+            if (!Array.isArray(state.couplings) || state.couplings.length === 0) {
+                state.couplings = stored.length ? stored : [normalizeCoupling({ name: 'Couplage 1' }, 0)];
+            }
+            if (!state.activeCouplingId || !state.couplings.some((c) => c.id === state.activeCouplingId)) {
+                state.activeCouplingId = state.couplings[0]?.id || '';
+            }
+            if (typeof state.editingLinkId !== 'string') state.editingLinkId = '';
+            if (typeof state.showAllLinks !== 'boolean') state.showAllLinks = false;
+            if (typeof state.hoveredLinkId !== 'string') state.hoveredLinkId = '';
+
+            const persistCouplings = () => {
+                setCouplingRules(state.couplings || []);
+                updateCouplingsTabWarningBadge();
+            };
+            const getActiveCoupling = () => state.couplings.find((c) => c.id === state.activeCouplingId) || state.couplings[0];
+            const ensureActiveLinkSelection = () => {
+                const coupling = getActiveCoupling();
+                if (!coupling) return;
+                const links = Array.isArray(coupling.links) ? coupling.links : [];
+                if (!links.length) {
+                    state.editingLinkId = '';
+                    coupling.selectedMasterItems = [];
+                    coupling.selectedSlaveItems = [];
+                    return;
+                }
+                const currentExists = links.some((lnk) => String(lnk?.id || '') === String(state.editingLinkId || ''));
+                if (currentExists) return;
+                const first = links[0];
+                state.editingLinkId = String(first?.id || '');
+                coupling.selectedMasterItems = Array.isArray(first?.masterItems) ? first.masterItems.slice() : [];
+                coupling.selectedSlaveItems = Array.isArray(first?.slaveItems) ? first.slaveItems.slice() : [];
+            };
+
+            const table = root.querySelector('#coupling-columns-table');
+            const couplingNameInput = root.querySelector('#coupling-name-input');
+            const couplingListRoot = root.querySelector('#coupling-list');
+            const linkHelp = root.querySelector('#coupling-link-help');
+            const linksListRoot = root.querySelector('#coupling-links-list');
+            const btnToggleShowAllLinks = root.querySelector('#btn-toggle-show-all-links');
+            const splitCouplingItemKey = (value) => {
+                const raw = String(value || '');
+                const sep = raw.lastIndexOf('::');
+                if (sep < 0) return { colKey: '', optId: '' };
+                return {
+                    colKey: raw.slice(0, sep),
+                    optId: normalizeLegacyCouplingItemOptionId(raw.slice(sep + 2))
+                };
+            };
+            const syncLabelsForCoupling = (coupling) => {
+                if (!coupling) return;
+                coupling.links = (Array.isArray(coupling.links) ? coupling.links : []).map((lnk, idx) => {
+                    const normalized = normalizeLink(lnk, idx);
+                    normalized.masterLabels = normalized.masterItems.map(resolveLabel);
+                    normalized.slaveLabels = normalized.slaveItems.map(resolveLabel);
+                    return normalized;
+                });
+            };
+            const sanitizeCouplingsAgainstCurrentOptions = () => {
+                const allowedColumns = new Set((selectableColumns || []).map((c) => String(c.key || '')));
+                const allowedItemsByColumn = new Map(
+                    (selectableColumns || []).map((c) => [
+                        String(c.key || ''),
+                        new Set((c.options || []).map((o) => String(o?.id || '')))
+                    ])
+                );
+                const isValidItemKey = (value) => {
+                    const normalized = normalizeLegacyCouplingItemKey(value);
+                    const { colKey, optId } = splitCouplingItemKey(normalized);
+                    if (!colKey || !optId) return false;
+                    const allowedItems = allowedItemsByColumn.get(colKey);
+                    return !!(allowedItems && allowedItems.has(String(optId)));
+                };
+
+                let changed = false;
+                state.couplings = (Array.isArray(state.couplings) ? state.couplings : []).map((raw, idx) => {
+                    const coupling = normalizeCoupling(raw, idx);
+                    const before = JSON.stringify(coupling);
+
+                    coupling.selectedFamilies = (coupling.selectedFamilies || []).filter((k) => allowedColumns.has(String(k)));
+                    coupling.masterColumns = (coupling.masterColumns || []).filter((k) => coupling.selectedFamilies.includes(String(k)));
+                    coupling.selectedMasterItems = (coupling.selectedMasterItems || []).map(normalizeLegacyCouplingItemKey).filter(isValidItemKey);
+                    coupling.selectedSlaveItems = (coupling.selectedSlaveItems || []).map(normalizeLegacyCouplingItemKey).filter(isValidItemKey);
+                    coupling.links = (coupling.links || [])
+                        .map((lnk, lIdx) => normalizeLink(lnk, lIdx))
+                        .map((lnk) => ({
+                            ...lnk,
+                            masterItems: (lnk.masterItems || []).map(normalizeLegacyCouplingItemKey).filter(isValidItemKey),
+                            slaveItems: (lnk.slaveItems || []).map(normalizeLegacyCouplingItemKey).filter(isValidItemKey)
+                        }))
+                        .filter((lnk) => (lnk.masterItems || []).length > 0 || (lnk.slaveItems || []).length > 0);
+                    syncLabelsForCoupling(coupling);
+
+                    if (before !== JSON.stringify(coupling)) changed = true;
+                    return coupling;
+                });
+
+                if (state.editingLinkId) {
+                    const active = getActiveCoupling();
+                    const exists = (active?.links || []).some((lnk) => String(lnk?.id || '') === String(state.editingLinkId));
+                    if (!exists) {
+                        state.editingLinkId = '';
+                        changed = true;
+                    }
+                }
+
+                if (changed) {
+                    persistCouplings();
+                }
+            };
+            const applyCurrentSelectionToEditingLink = () => {
+                const coupling = getActiveCoupling();
+                if (!coupling || !state.editingLinkId) return;
+                const idx = (coupling.links || []).findIndex((lnk) => String(lnk?.id || '') === String(state.editingLinkId));
+                if (idx < 0) return;
+                const masterSelected = (coupling.selectedMasterItems || []).filter(Boolean);
+                const slaveSelected = (coupling.selectedSlaveItems || []).filter(Boolean);
+                coupling.links[idx] = {
+                    ...coupling.links[idx],
+                    masterItems: masterSelected,
+                    slaveItems: slaveSelected,
+                    masterLabels: masterSelected.map(resolveLabel),
+                    slaveLabels: slaveSelected.map(resolveLabel)
+                };
+                syncLabelsForCoupling(coupling);
+                persistCouplings();
+            };
+            const renderCouplingList = () => {
+                if (!couplingListRoot) return;
+                const couplings = Array.isArray(state.couplings) ? state.couplings : [];
+                const getCouplingWarningCount = (coupling) => {
+                    if (!coupling) return 0;
+                    const selected = (Array.isArray(coupling.selectedFamilies) ? coupling.selectedFamilies : [])
+                        .filter((k) => selectableColumns.some((f) => f.key === k));
+                    if (!selected.length) return 0;
+                    const linkedSet = new Set();
+                    (Array.isArray(coupling.links) ? coupling.links : []).forEach((lnk) => {
+                        (Array.isArray(lnk?.masterItems) ? lnk.masterItems : []).forEach((x) => linkedSet.add(normalizeLegacyCouplingItemKey(x)));
+                        (Array.isArray(lnk?.slaveItems) ? lnk.slaveItems : []).forEach((x) => linkedSet.add(normalizeLegacyCouplingItemKey(x)));
+                    });
+                    return selected.reduce((acc, colKey) => {
+                        const col = selectableColumns.find((c) => c.key === colKey);
+                        if (!col) return acc;
+                        const hasMissing = (Array.isArray(col.options) ? col.options : []).some((opt) => {
+                            const itemKey = `${col.key}::${opt.id}`;
+                            return !linkedSet.has(itemKey);
+                        });
+                        return hasMissing ? acc + 1 : acc;
+                    }, 0);
+                };
+                couplingListRoot.innerHTML = couplings.map((c) => {
+                    const active = c.id === state.activeCouplingId;
+                    const warningCount = getCouplingWarningCount(c);
+                    const warningBadge = warningCount > 0
+                        ? ` <span title="${warningCount} colonne(s) avec options non liées" style="display:inline-flex; align-items:center; gap:4px; margin-left:6px; padding:2px 6px; border-radius:999px; background:#fffbeb; color:#92400e; border:1px solid #facc15; font-size:10px; font-weight:700;">⚠ ${warningCount}</span>`
+                        : '';
+                    return `
+                        <button type="button" class="btn ${active ? 'btn-primary' : 'btn-outline'} coupling-switch-btn" data-coupling-id="${escapeHtml(c.id)}" style="display:inline-flex; align-items:center; gap:8px;">
+                            <span>${escapeHtml(c.name || 'Couplage')}${warningBadge}</span>
+                            <span class="coupling-delete-btn" data-coupling-id="${escapeHtml(c.id)}" title="Supprimer ce couplage" style="display:inline-flex; align-items:center; justify-content:center; width:18px; height:18px; border-radius:999px; background:rgba(185,28,28,0.12); color:#b91c1c; font-weight:700; line-height:1; cursor:pointer;">×</span>
+                        </button>
+                    `;
+                }).join('');
+                root.querySelectorAll('.coupling-switch-btn').forEach((btn) => {
+                    btn.onclick = null;
+                    btn.addEventListener('click', () => {
+                        const id = String(btn.getAttribute('data-coupling-id') || '').trim();
+                        if (!id) return;
+                        state.activeCouplingId = id;
+                        state.editingLinkId = '';
+                        ensureActiveLinkSelection();
+                        renderCouplingList();
+                        renderColumnsPreview();
+                        renderLinksTable();
+                    });
+                });
+                root.querySelectorAll('.coupling-delete-btn').forEach((btn) => {
+                    btn.onclick = null;
+                    btn.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        const id = String(btn.getAttribute('data-coupling-id') || '').trim();
+                        if (!id) return;
+                        if (!confirm('Supprimer ce couplage ?')) return;
+                        state.couplings = (Array.isArray(state.couplings) ? state.couplings : []).filter((c) => String(c?.id || '') !== id);
+                        if (!state.couplings.length) {
+                            state.couplings = [normalizeCoupling({ name: 'Couplage 1' }, 0)];
+                        }
+                        if (String(state.activeCouplingId || '') === id) {
+                            state.activeCouplingId = String(state.couplings[0]?.id || '');
+                            state.editingLinkId = '';
+                        }
+                        persistCouplings();
+                        ensureActiveLinkSelection();
+                        renderCouplingList();
+                        renderColumnsPreview();
+                        renderLinksTable();
+                    });
+                });
+            };
+
+            const renderColumnsPreview = () => {
+                const coupling = getActiveCoupling();
+                if (!coupling) return;
+                if (couplingNameInput) couplingNameInput.value = String(coupling.name || '');
+                if (btnToggleShowAllLinks) {
+                    btnToggleShowAllLinks.textContent = state.showAllLinks ? 'Masquer couleurs liens' : 'Afficher tous les liens';
+                }
+                const selected = (coupling.selectedFamilies || []).filter((k) => selectableColumns.some((f) => f.key === k));
+                coupling.selectedFamilies = selected;
+                coupling.masterColumns = (coupling.masterColumns || []).filter((k) => selected.includes(k));
+                const validItem = (value) => {
+                    const { colKey, optId } = splitCouplingItemKey(value);
+                    const col = selectableColumns.find((c) => c.key === colKey);
+                    return !!(col && (col.options || []).some((o) => String(o.id) === String(optId)));
+                };
+                coupling.selectedMasterItems = (coupling.selectedMasterItems || []).filter(validItem);
+                coupling.selectedSlaveItems = (coupling.selectedSlaveItems || []).filter(validItem);
+                const linkedSet = new Set();
+                (coupling.links || []).forEach((lnk) => {
+                    (lnk.masterItems || []).forEach((x) => linkedSet.add(normalizeLegacyCouplingItemKey(x)));
+                    (lnk.slaveItems || []).forEach((x) => linkedSet.add(normalizeLegacyCouplingItemKey(x)));
+                });
+                const colorPalette = ['#60a5fa', '#fca5a5', '#86efac', '#fcd34d', '#c4b5fd', '#67e8f9', '#fdba74', '#f9a8d4'];
+                const getColorForLink = (idx) => colorPalette[idx % colorPalette.length];
+                const linkColorMapByItem = new Map();
+                (coupling.links || []).forEach((lnk, idx) => {
+                    const color = getColorForLink(idx);
+                    const allItems = [...(lnk.masterItems || []), ...(lnk.slaveItems || [])];
+                    allItems.forEach((itemKey) => {
+                        const key = normalizeLegacyCouplingItemKey(itemKey);
+                        if (!key) return;
+                        if (!linkColorMapByItem.has(key)) linkColorMapByItem.set(key, []);
+                        const arr = linkColorMapByItem.get(key);
+                        if (!arr.includes(color)) arr.push(color);
+                    });
+                });
+                const hoveredLink = (coupling.links || []).find((lnk) => String(lnk?.id || '') === String(state.hoveredLinkId));
+                const hoveredItemsSet = new Set([
+                    ...((hoveredLink?.masterItems || []).map((x) => normalizeLegacyCouplingItemKey(x))),
+                    ...((hoveredLink?.slaveItems || []).map((x) => normalizeLegacyCouplingItemKey(x)))
+                ]);
+
+                if (!table) return;
+                const columns = selected.map((k) => selectableColumns.find((f) => f.key === k)).filter(Boolean);
+                if (columns.length === 0) {
+                    table.innerHTML = `
+                        <thead><tr><th style="padding:8px; text-align:left; background:#f8fafc; border-bottom:1px solid #eee; color:#666;">Aucune colonne sélectionnée</th></tr></thead>
+                        <tbody><tr><td style="padding:10px; color:#666;">Ajoute au moins une famille ou sous-famille pour afficher ses valeurs.</td></tr></tbody>
+                    `;
+                } else {
+                    const maxRows = Math.max(...columns.map((c) => c.options.length), 1);
+                    const headHtml = columns.map((c) => {
+                        const isMaster = (coupling.masterColumns || []).includes(c.key);
+                        const missingCount = (c.options || []).reduce((acc, opt) => {
+                            const itemKey = `${c.key}::${opt.id}`;
+                            return linkedSet.has(itemKey) ? acc : acc + 1;
+                        }, 0);
+                        const warningHtml = missingCount > 0
+                            ? `<span title="${missingCount} option(s) sans lien dans cette colonne" style="display:inline-flex; align-items:center; gap:4px; padding:2px 6px; border-radius:999px; background:#fffbeb; color:#92400e; border:1px solid #facc15; font-size:10px; font-weight:700;">⚠ ${missingCount}</span>`
+                            : '<span style="display:inline-flex; align-items:center; padding:2px 6px; border-radius:999px; background:#ecfdf3; color:#166534; border:1px solid #86efac; font-size:10px; font-weight:700;">OK</span>';
+                        return `
+                            <th style="padding:8px; text-align:left; background:#f8fafc; border-bottom:1px solid #eee; vertical-align:top;">
+                                <div style="display:flex; align-items:center; justify-content:space-between; gap:8px;">
+                                    <span>${escapeHtml(c.label)}</span>
+                                    <button type="button" class="coupling-col-remove" data-family="${escapeHtml(c.key)}" style="border:none; background:transparent; color:#64748b; cursor:pointer; font-weight:700; font-size:14px;">×</button>
+                                </div>
+                                <div style="margin-top:6px;">${warningHtml}</div>
+                                <label style="display:inline-flex; align-items:center; gap:5px; margin-top:6px; font-size:12px; color:#475569;">
+                                    <input type="checkbox" class="coupling-col-master" data-family="${escapeHtml(c.key)}" ${isMaster ? 'checked' : ''}>
+                                    Master
+                                </label>
+                            </th>
+                        `;
+                    }).join('');
+                    const bodyRows = [];
+                    for (let i = 0; i < maxRows; i += 1) {
+                        const tds = columns.map((c) => {
+                            const opt = c.options[i];
+                            if (!opt) return `<td style="padding:8px; border-top:1px solid #f1f5f9;"></td>`;
+                            const itemKey = `${c.key}::${opt.id}`;
+                            const isMasterCol = (coupling.masterColumns || []).includes(c.key);
+                            const selectedSet = new Set(isMasterCol ? (coupling.selectedMasterItems || []) : (coupling.selectedSlaveItems || []));
+                            const active = selectedSet.has(itemKey);
+                            const linkColors = state.showAllLinks ? (linkColorMapByItem.get(itemKey) || []) : [];
+                            const isHoveredLinkedItem = state.showAllLinks && hoveredItemsSet.has(itemKey);
+                            const hasHoverTarget = state.showAllLinks && !!hoveredLink;
+                            let bg = '#fff';
+                            if (linkColors.length === 1) {
+                                bg = `${linkColors[0]}55`;
+                            } else if (linkColors.length > 1) {
+                                bg = `linear-gradient(135deg, ${linkColors.map((col, idx) => `${col}66 ${(idx * 100) / linkColors.length}% ${((idx + 1) * 100) / linkColors.length}%`).join(', ')})`;
+                            }
+                            let bd = linkColors.length ? (linkColors[0] || '#e5e7eb') : '#e5e7eb';
+                            if (active && !state.showAllLinks) {
+                                bd = isMasterCol ? '#2563eb' : '#dc2626';
+                                bg = isMasterCol ? '#bfdbfe' : '#fecaca';
+                            }
+                            const hoverOpacity = hasHoverTarget ? (isHoveredLinkedItem ? '1' : '0.35') : '1';
+                            const hoverShadow = isHoveredLinkedItem ? '0 0 0 3px rgba(15,23,42,0.18)' : 'none';
+                            const mark = active
+                                ? `<span style="font-weight:700; margin-left:8px; color:${state.showAllLinks ? '#0f172a' : '#16a34a'};">${state.showAllLinks ? '●' : '✓'}</span>`
+                                : '';
+                            return `<td style="padding:6px; border-top:1px solid #f1f5f9;">
+                                <button type="button" class="coupling-item-btn" data-col="${escapeHtml(c.key)}" data-opt="${escapeHtml(opt.id)}" style="width:100%; text-align:left; border:2px solid ${bd}; background:${bg}; border-radius:8px; padding:7px 8px; cursor:${state.showAllLinks ? 'not-allowed' : 'pointer'}; font-weight:${active ? '600' : '400'}; display:flex; align-items:center; justify-content:space-between; gap:8px; opacity:${hoverOpacity}; box-shadow:${hoverShadow};">
+                                    <span>${escapeHtml(opt.label)}</span>${mark}
+                                </button>
+                            </td>`;
+                        }).join('');
+                        bodyRows.push(`<tr>${tds}</tr>`);
+                    }
+                    table.innerHTML = `
+                        <thead><tr>${headHtml}</tr></thead>
+                        <tbody>${bodyRows.join('')}</tbody>
+                    `;
+                }
+
+                root.querySelectorAll('.coupling-col-remove').forEach((btn) => {
+                    btn.onclick = null;
+                    btn.addEventListener('click', () => {
+                        const family = String(btn.getAttribute('data-family') || '').trim();
+                        coupling.selectedFamilies = (coupling.selectedFamilies || []).filter((k) => k !== family);
+                        coupling.masterColumns = (coupling.masterColumns || []).filter((k) => k !== family);
+                        persistCouplings();
+                        renderColumnsPreview();
+                    });
+                });
+                root.querySelectorAll('.coupling-col-master').forEach((cb) => {
+                    cb.onchange = null;
+                    cb.addEventListener('change', () => {
+                        const family = String(cb.getAttribute('data-family') || '').trim();
+                        if (!family) return;
+                        const set = new Set(Array.isArray(coupling.masterColumns) ? coupling.masterColumns : []);
+                        if (cb.checked) set.add(family);
+                        else set.delete(family);
+                        coupling.masterColumns = Array.from(set);
+                        persistCouplings();
+                        renderColumnsPreview();
+                    });
+                });
+                root.querySelectorAll('.coupling-item-btn').forEach((btn) => {
+                    btn.onclick = null;
+                    btn.addEventListener('click', () => {
+                        if (state.showAllLinks) {
+                            showAlert('Sélectionner un seul lien pour permettre l’édition.', 'info');
+                            return;
+                        }
+                        const col = String(btn.getAttribute('data-col') || '').trim();
+                        const opt = String(btn.getAttribute('data-opt') || '').trim();
+                        if (!col || !opt) return;
+                        const itemKey = `${col}::${opt}`;
+                        const isMasterCol = (coupling.masterColumns || []).includes(col);
+                        const masterSet = new Set(coupling.selectedMasterItems || []);
+                        const slaveSet = new Set(coupling.selectedSlaveItems || []);
+                        if (isMasterCol) {
+                            if (masterSet.has(itemKey)) masterSet.delete(itemKey);
+                            else masterSet.add(itemKey);
+                        } else {
+                            if (slaveSet.has(itemKey)) slaveSet.delete(itemKey);
+                            else slaveSet.add(itemKey);
+                        }
+                        coupling.selectedMasterItems = Array.from(masterSet);
+                        coupling.selectedSlaveItems = Array.from(slaveSet);
+                        persistCouplings();
+                        renderColumnsPreview();
+                    });
+                });
+                const masterCount = (coupling.selectedMasterItems || []).length;
+                const slaveCount = (coupling.selectedSlaveItems || []).length;
+                const links = Array.isArray(coupling.links) ? coupling.links : [];
+                const activeIdx = links.findIndex((lnk) => String(lnk?.id || '') === String(state.editingLinkId));
+                const activeLabel = activeIdx >= 0 ? `Lien ${activeIdx + 1}` : 'Aucun lien actif';
+                if (linkHelp) linkHelp.textContent = `${activeLabel} | Sélection: ${masterCount} master | ${slaveCount} slave | Sauvegarde auto`;
+            };
+
+            const resolveLabel = (v) => {
+                const { colKey, optId } = splitCouplingItemKey(v);
+                const col = selectableColumns.find((c) => c.key === colKey);
+                const opt = col?.options?.find((o) => String(o.id) === String(optId));
+                return `${col?.label || colKey} -> ${opt?.label || optId}`;
+            };
+
+            // Nettoie automatiquement les références orphelines (options supprimées).
+            sanitizeCouplingsAgainstCurrentOptions();
+            // Garantit un lien actif cohérent avec la puce sélectionnée.
+            ensureActiveLinkSelection();
+
+            const renderLinksTable = () => {
+                if (!linksListRoot) return;
+                const coupling = getActiveCoupling();
+                const links = Array.isArray(coupling?.links) ? coupling.links : [];
+                const colorPalette = ['#60a5fa', '#fca5a5', '#86efac', '#fcd34d', '#c4b5fd', '#67e8f9', '#fdba74', '#f9a8d4'];
+                const getColorForLink = (idx) => colorPalette[idx % colorPalette.length];
+                linksListRoot.innerHTML = links.length === 0
+                    ? '<span style="color:#666; font-size:12px;">Aucun lien.</span>'
+                    : links.map((lnk, idx) => `
+                        <div class="coupling-link-chip" style="display:inline-flex; align-items:center; border:1px solid ${state.showAllLinks ? getColorForLink(idx) : '#cbd5e1'}; border-radius:999px; overflow:hidden; background:${state.showAllLinks ? `${getColorForLink(idx)}22` : '#fff'};">
+                            <button class="coupling-link-edit" data-link-id="${escapeHtml(String(lnk.id || ''))}" style="border:none; background:${String(state.editingLinkId) === String(lnk.id || '') ? '#dbeafe' : 'transparent'}; padding:6px 10px; cursor:pointer; font-weight:${String(state.editingLinkId) === String(lnk.id || '') ? '700' : '500'}; color:#0f172a;">Lien ${idx + 1}</button>
+                            <button class="coupling-link-del" data-link-id="${escapeHtml(String(lnk.id || ''))}" title="Supprimer ce lien" style="border:none; border-left:1px solid ${state.showAllLinks ? getColorForLink(idx) : '#cbd5e1'}; background:transparent; padding:6px 8px; cursor:pointer; color:#b91c1c; font-weight:700;">×</button>
+                        </div>
+                    `).join('');
+                root.querySelectorAll('.coupling-link-edit').forEach((btn) => {
+                    btn.onclick = null;
+                    btn.addEventListener('click', () => {
+                        const linkId = String(btn.getAttribute('data-link-id') || '').trim();
+                        if (!linkId) return;
+                        const target = (coupling.links || []).find((x) => String(x?.id || '') === linkId);
+                        if (!target) return;
+                        if (state.showAllLinks) {
+                            state.showAllLinks = false;
+                            state.hoveredLinkId = '';
+                        }
+                        coupling.selectedMasterItems = Array.isArray(target.masterItems) ? target.masterItems.slice() : [];
+                        coupling.selectedSlaveItems = Array.isArray(target.slaveItems) ? target.slaveItems.slice() : [];
+                        state.editingLinkId = linkId;
+                        renderColumnsPreview();
+                        renderLinksTable();
+                    });
+                    btn.addEventListener('mouseenter', () => {
+                        if (!state.showAllLinks) return;
+                        state.hoveredLinkId = String(btn.getAttribute('data-link-id') || '').trim();
+                        renderColumnsPreview();
+                    });
+                    btn.addEventListener('mouseleave', () => {
+                        if (!state.showAllLinks) return;
+                        state.hoveredLinkId = '';
+                        renderColumnsPreview();
+                    });
+                });
+                root.querySelectorAll('.coupling-link-del').forEach((btn) => {
+                    btn.onclick = null;
+                    btn.addEventListener('click', () => {
+                        const linkId = String(btn.getAttribute('data-link-id') || '').trim();
+                        if (!linkId) return;
+                        coupling.links = (coupling.links || []).filter((lnk) => String(lnk?.id || '') !== linkId);
+                        if (state.editingLinkId === linkId) state.editingLinkId = '';
+                        if (!state.editingLinkId && coupling.links.length > 0) {
+                            state.editingLinkId = String(coupling.links[0].id || '');
+                            const first = coupling.links[0];
+                            coupling.selectedMasterItems = Array.isArray(first?.masterItems) ? first.masterItems.slice() : [];
+                            coupling.selectedSlaveItems = Array.isArray(first?.slaveItems) ? first.slaveItems.slice() : [];
+                        }
+                        persistCouplings();
+                        renderColumnsPreview();
+                        renderLinksTable();
+                    });
+                });
+            };
+
+            root.querySelector('#btn-save-coupling-name')?.addEventListener('click', () => {
+                const coupling = getActiveCoupling();
+                if (!coupling) return;
+                const nextName = String(couplingNameInput?.value || '').trim();
+                if (!nextName) {
+                    showAlert('Le nom du couplage est requis.', 'warning');
+                    return;
+                }
+                coupling.name = nextName;
+                persistCouplings();
+                renderCouplingList();
+                showAlert('Nom du couplage enregistré.', 'success');
+            });
+            root.querySelector('#btn-create-coupling')?.addEventListener('click', () => {
+                const nextIdx = (state.couplings || []).length + 1;
+                const newCoupling = normalizeCoupling({ name: `Couplage ${nextIdx}` }, nextIdx);
+                state.couplings.push(newCoupling);
+                state.activeCouplingId = newCoupling.id;
+                state.editingLinkId = '';
+                persistCouplings();
+                renderCouplingList();
+                renderColumnsPreview();
+                renderLinksTable();
+            });
+
+            root.querySelector('#btn-add-coupling-column')?.addEventListener('click', () => {
+                const coupling = getActiveCoupling();
+                if (!coupling) return;
+                const select = root.querySelector('#coupling-family-column-select');
+                const family = String(select?.value || '').trim();
+                if (!family) {
+                    showAlert('Choisis une famille ou sous-famille.', 'warning');
+                    return;
+                }
+                if (!coupling.selectedFamilies.includes(family)) coupling.selectedFamilies.push(family);
+                persistCouplings();
+                renderColumnsPreview();
+                renderLinksTable();
+            });
+            root.querySelector('#coupling-family-column-select')?.addEventListener('change', () => {
+                const coupling = getActiveCoupling();
+                if (!coupling) return;
+                const select = root.querySelector('#coupling-family-column-select');
+                const family = String(select?.value || '').trim();
+                if (!family) return;
+                if (!coupling.selectedFamilies.includes(family)) {
+                    coupling.selectedFamilies.push(family);
+                    persistCouplings();
+                    renderColumnsPreview();
+                    renderLinksTable();
+                }
+                if (select) select.value = '';
+            });
+
+            renderCouplingList();
+            renderColumnsPreview();
+            renderLinksTable();
+
+            root.querySelector('#btn-create-coupling-link')?.addEventListener('click', () => {
+                const coupling = getActiveCoupling();
+                if (!coupling) return;
+                const payload = {
+                    id: `link_${Date.now()}_${Math.random().toString(16).slice(2, 7)}`,
+                    masterItems: [],
+                    slaveItems: [],
+                    masterLabels: [],
+                    slaveLabels: []
+                };
+                coupling.links.push(payload);
+                coupling.selectedMasterItems = [];
+                coupling.selectedSlaveItems = [];
+                state.editingLinkId = payload.id;
+                persistCouplings();
+                renderColumnsPreview();
+                renderLinksTable();
+            });
+            root.querySelector('#btn-toggle-show-all-links')?.addEventListener('click', () => {
+                state.showAllLinks = !state.showAllLinks;
+                if (!state.showAllLinks) state.hoveredLinkId = '';
+                renderColumnsPreview();
+                renderLinksTable();
+            });
+
+            root.querySelector('#coupling-columns-table')?.addEventListener('click', () => {
+                applyCurrentSelectionToEditingLink();
+                renderLinksTable();
+            });
+        }
+
         // Import Excel
+        function setWorkspaceMode(mode) {
+            workspaceMode = (mode === 'import') ? 'import' : 'backoffice';
+            const statsCard = document.getElementById('legacy-stats-card');
+            const backofficeCard = document.getElementById('legacy-backoffice-card');
+            const importWorkflowPanel = document.getElementById('import-workflow-panel');
+            const importModeBtn = document.getElementById('btn-import-mode');
+            const backofficeModeBtn = document.getElementById('btn-backoffice-mode');
+            if (statsCard) statsCard.style.display = workspaceMode === 'import' ? 'none' : 'block';
+            if (backofficeCard) backofficeCard.style.display = workspaceMode === 'import' ? 'none' : 'block';
+            if (importWorkflowPanel) importWorkflowPanel.style.display = workspaceMode === 'import' ? 'block' : 'none';
+            if (importModeBtn) importModeBtn.style.display = workspaceMode === 'import' ? 'none' : 'inline-flex';
+            if (backofficeModeBtn) backofficeModeBtn.style.display = workspaceMode === 'import' ? 'inline-flex' : 'none';
+
+            // En mode import, on projette les donnees staging dans currentData pour reutiliser
+            // les composants historiques (ex: onglet "Modele de base").
+            if (workspaceMode === 'import' && currentImportStaging) {
+                currentData = normalizeUgapDataContract({
+                    models: Array.isArray(currentImportStaging.models) ? currentImportStaging.models : [],
+                    categories: Array.isArray(currentImportStaging.categories) ? currentImportStaging.categories : [],
+                    businessViews: Array.isArray(currentImportStaging.businessViews) ? currentImportStaging.businessViews : [],
+                    dependencyRules: Array.isArray(currentImportStaging.dependencyRules) ? currentImportStaging.dependencyRules : [],
+                    uiState: currentImportStaging.uiState || {}
+                });
+            }
+        }
+
+        function renderImportStagingIndicator(staging) {
+            const badgeEl = document.getElementById('import-staging-badge');
+            const metaEl = document.getElementById('import-staging-meta');
+            const progressEl = document.getElementById('import-staging-progress');
+            const resumeBtn = document.getElementById('btn-resume-import');
+            if (!badgeEl || !metaEl || !resumeBtn || !progressEl) return;
+
+            if (!staging) {
+                badgeEl.textContent = 'Aucun';
+                badgeEl.style.background = '#e5e7eb';
+                badgeEl.style.color = '#374151';
+                metaEl.textContent = 'Aucun import en cours.';
+                progressEl.textContent = '0/0 modeles valides - 0 modeles de base configures - 0/0 options configurees';
+                resumeBtn.style.display = 'none';
+                return;
+            }
+
+            const status = String(staging.status || 'draft').toLowerCase();
+            const sourceName = String(staging?.source?.sourceFileName || 'fichier inconnu');
+            const importedAt = staging?.source?.importedAt ? new Date(staging.source.importedAt).toLocaleString('fr-FR') : '';
+            const statusLabel = {
+                draft: 'A valider',
+                in_review: 'En cours',
+                validated: 'Valide',
+                published: 'Publie'
+            }[status] || status;
+            const colorByStatus = {
+                draft: { bg: '#fde68a', fg: '#92400e' },
+                in_review: { bg: '#bfdbfe', fg: '#1e3a8a' },
+                validated: { bg: '#bbf7d0', fg: '#166534' },
+                published: { bg: '#d1fae5', fg: '#065f46' }
+            }[status] || { bg: '#e5e7eb', fg: '#374151' };
+
+            badgeEl.textContent = statusLabel;
+            badgeEl.style.background = colorByStatus.bg;
+            badgeEl.style.color = colorByStatus.fg;
+            metaEl.textContent = importedAt
+                ? `${sourceName} - importe le ${importedAt}`
+                : `${sourceName} - import en zone tampon`;
+
+            const models = Array.isArray(staging?.models) ? staging.models : [];
+            const validatedModelIds = new Set((staging?.progress?.validatedModelIds || []).map((x) => String(x)));
+            const validatedModelsCount = validatedModelIds.size;
+
+            const categories = Array.isArray(staging?.categories) ? staging.categories : [];
+            const allOptions = categories.flatMap((cat) => Array.isArray(cat?.options) ? cat.options : []);
+            const totalOptions = allOptions.length;
+            const configuredOptionsCount = allOptions.filter((opt) => {
+                const family = String(opt?.familyLabel || '').trim();
+                const subFamily = String(opt?.subFamily || '').trim();
+                return !!family || !!subFamily;
+            }).length;
+
+            const baseConfiguredModelIds = new Set();
+            allOptions.forEach((opt) => {
+                if (!opt?.baseIncluded) return;
+                const compatible = Array.isArray(opt?.compatibleModels) ? opt.compatibleModels : [];
+                compatible.forEach((modelId) => baseConfiguredModelIds.add(String(modelId)));
+            });
+            let baseModelsConfiguredCount = 0;
+            if (validatedModelIds.size > 0) {
+                validatedModelIds.forEach((mid) => {
+                    if (baseConfiguredModelIds.has(mid)) baseModelsConfiguredCount += 1;
+                });
+            } else {
+                baseModelsConfiguredCount = baseConfiguredModelIds.size;
+            }
+            progressEl.textContent = `${validatedModelsCount}/${models.length} modeles valides - ${baseModelsConfiguredCount} modeles de base configures - ${configuredOptionsCount}/${totalOptions} options configurees`;
+            resumeBtn.style.display = (status !== 'published') ? 'inline-flex' : 'none';
+        }
+
+        function switchImportWorkflowStep(step) {
+            const next = step === 'base-models' ? 'base-models' : 'models';
+            importWorkflowState.step = next;
+            const modelsBtn = document.getElementById('btn-import-step-models');
+            const baseBtn = document.getElementById('btn-import-step-base-models');
+            const modelsContent = document.getElementById('import-workflow-content-models');
+            const baseContent = document.getElementById('import-workflow-content-base-models');
+            if (modelsBtn) modelsBtn.classList.toggle('btn-primary', next === 'models');
+            if (modelsBtn) modelsBtn.classList.toggle('btn-outline', next !== 'models');
+            if (baseBtn) baseBtn.classList.toggle('btn-primary', next === 'base-models');
+            if (baseBtn) baseBtn.classList.toggle('btn-outline', next !== 'base-models');
+            if (modelsContent) modelsContent.style.display = next === 'models' ? 'block' : 'none';
+            if (baseContent) baseContent.style.display = next === 'base-models' ? 'block' : 'none';
+        }
+
+        function toggleImportModelSelection(modelId, checked) {
+            const id = String(modelId || '').trim();
+            if (!id) return;
+            const selected = new Set(importWorkflowState.selectedModelIds || []);
+            if (checked) selected.add(id); else selected.delete(id);
+            importWorkflowState.selectedModelIds = Array.from(selected);
+        }
+
+        function toggleImportBaseModelSelection(modelId, checked) {
+            const id = String(modelId || '').trim();
+            if (!id) return;
+            const selected = new Set(importWorkflowState.selectedBaseModelIds || []);
+            if (checked) selected.add(id); else selected.delete(id);
+            importWorkflowState.selectedBaseModelIds = Array.from(selected);
+        }
+
+        async function validateImportModelsStep() {
+            if (!currentImportStaging?._id) {
+                showAlert('Aucun import en cours.', 'warning');
+                return;
+            }
+            const modelIds = Array.isArray(importWorkflowState.selectedModelIds) ? importWorkflowState.selectedModelIds : [];
+            if (!modelIds.length) {
+                showAlert('Selectionne au moins un modele a valider.', 'warning');
+                return;
+            }
+            try {
+                await apiCall(`/imports/staging/${encodeURIComponent(String(currentImportStaging._id))}/validate-models`, {
+                    method: 'POST',
+                    body: JSON.stringify({ modelIds })
+                });
+                showAlert(`${modelIds.length} modele(s) valides.`, 'success');
+                await refreshImportStagingIndicator();
+                renderImportWorkflow();
+                switchImportWorkflowStep('base-models');
+            } catch (error) {
+                showAlert('Erreur validation modeles: ' + error.message, 'error');
+            }
+        }
+
+        function confirmBaseModelsSelectionStep() {
+            const ids = Array.isArray(importWorkflowState.selectedBaseModelIds) ? importWorkflowState.selectedBaseModelIds : [];
+            const statusEl = document.getElementById('import-status');
+            if (statusEl) {
+                statusEl.textContent = ids.length
+                    ? `${ids.length} modele(s) de base selectionnes`
+                    : 'Aucun modele de base selectionne';
+                statusEl.style.color = '#2563eb';
+            }
+            showAlert(ids.length
+                ? `${ids.length} modele(s) de base selectionnes pour l'etape suivante.`
+                : 'Aucun modele de base selectionne.', ids.length ? 'success' : 'info');
+        }
+
+        function renderImportWorkflow() {
+            const modelsRoot = document.getElementById('import-workflow-content-models');
+            const baseRoot = document.getElementById('import-workflow-content-base-models');
+            if (!modelsRoot || !baseRoot) return;
+            if (!currentImportStaging) {
+                modelsRoot.innerHTML = '<div style="color:#6b7280;">Aucun workflow import actif.</div>';
+                baseRoot.innerHTML = '<div style="color:#6b7280;">Valide d\'abord les modeles.</div>';
+                switchImportWorkflowStep('models');
+                return;
+            }
+
+            const models = Array.isArray(currentImportStaging.models) ? currentImportStaging.models : [];
+            const validatedIds = new Set((currentImportStaging?.progress?.validatedModelIds || []).map((x) => String(x)));
+            if (!importWorkflowState.selectedModelIds.length) {
+                importWorkflowState.selectedModelIds = models
+                    .map((m) => String(m?.id || ''))
+                    .filter((id) => id && !validatedIds.has(id));
+            }
+            const selectedIdsSet = new Set(importWorkflowState.selectedModelIds || []);
+
+            modelsRoot.innerHTML = `
+                <div style="margin-bottom:10px; color:#4b5563;">Etape 1: valider les modeles detectes.</div>
+                <table style="width:100%; border-collapse:collapse; font-size:13px;">
+                    <thead>
+                        <tr style="background:#f8fafc;">
+                            <th style="padding:8px; border-bottom:1px solid #e5e7eb; text-align:center; width:52px;">OK</th>
+                            <th style="padding:8px; border-bottom:1px solid #e5e7eb; text-align:left;">Modele</th>
+                            <th style="padding:8px; border-bottom:1px solid #e5e7eb; text-align:left;">Poste</th>
+                            <th style="padding:8px; border-bottom:1px solid #e5e7eb; text-align:left;">Etat</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${(models || []).map((m) => {
+                            const id = String(m?.id || '');
+                            const already = validatedIds.has(id);
+                            const checked = already || selectedIdsSet.has(id);
+                            return `<tr>
+                                <td style="padding:8px; border-bottom:1px solid #f1f5f9; text-align:center;">
+                                    <input type="checkbox" ${checked ? 'checked' : ''} ${already ? 'disabled' : ''} onchange="toggleImportModelSelection('${escapeHtml(id)}', this.checked)">
+                                </td>
+                                <td style="padding:8px; border-bottom:1px solid #f1f5f9;">${escapeHtml(String(m?.name || id || '-'))}</td>
+                                <td style="padding:8px; border-bottom:1px solid #f1f5f9;">${escapeHtml(String(m?.posteNumber ?? '-'))}</td>
+                                <td style="padding:8px; border-bottom:1px solid #f1f5f9;">${already ? '<span style="color:#16a34a; font-weight:600;">Valide</span>' : '<span style="color:#b45309;">A valider</span>'}</td>
+                            </tr>`;
+                        }).join('')}
+                    </tbody>
+                </table>
+                <div style="margin-top:12px; display:flex; justify-content:flex-end;">
+                    <button type="button" class="btn btn-success" onclick="validateImportModelsStep()">Valider la selection</button>
+                </div>
+            `;
+
+            const validatedModels = models.filter((m) => validatedIds.has(String(m?.id || '')));
+            baseRoot.innerHTML = `
+                <div style="margin-bottom:10px; color:#4b5563;">Etape 2: configuration des modeles de base (vue identique au back-office).</div>
+                ${validatedModels.length === 0
+                    ? '<div style="color:#6b7280;">Aucun modele valide pour le moment. Retourne a l\'etape 1.</div>'
+                    : '<div id="import-base-model-content"></div>'}
+            `;
+            if (validatedModels.length > 0) {
+                const previousData = currentData;
+                currentData = normalizeUgapDataContract({
+                    models: models,
+                    categories: categories,
+                    businessViews: Array.isArray(currentImportStaging.businessViews) ? currentImportStaging.businessViews : [],
+                    dependencyRules: Array.isArray(currentImportStaging.dependencyRules) ? currentImportStaging.dependencyRules : [],
+                    uiState: currentImportStaging.uiState || {}
+                });
+                if (!window.__baseModelCreateState) window.__baseModelCreateState = {};
+                const currentSelected = String(window.__baseModelCreateState.modelId || '');
+                const allowedIds = new Set(validatedModels.map((m) => String(m?.id || '')));
+                if (!allowedIds.has(currentSelected)) {
+                    window.__baseModelCreateState.modelId = String(validatedModels?.[0]?.id || '');
+                }
+                renderBaseModelTab('import-base-model-content');
+                currentData = previousData;
+            }
+
+            switchImportWorkflowStep(importWorkflowState.step || 'models');
+        }
+
+        async function refreshImportStagingIndicator() {
+            try {
+                const result = await apiCall('/imports/staging');
+                currentImportStaging = result?.data || null;
+                renderImportStagingIndicator(currentImportStaging);
+                renderImportWorkflow();
+                updateStats();
+            } catch (error) {
+                currentImportStaging = null;
+                renderImportStagingIndicator(null);
+                renderImportWorkflow();
+                updateStats();
+            }
+        }
+
+        async function resumeImportWorkflow() {
+            setWorkspaceMode('import');
+            await refreshImportStagingIndicator();
+            if (!currentImportStaging) {
+                showAlert('Aucun import en cours a reprendre.', 'warning');
+                return;
+            }
+            const status = String(currentImportStaging.status || 'draft');
+            const validatedModels = Number(currentImportStaging?.progress?.validatedModelIds?.length || 0);
+            const totalModels = Number((currentImportStaging.models || []).length || 0);
+            const statusEl = document.getElementById('import-status');
+            if (statusEl) {
+                statusEl.textContent = `Workflow en reprise (${status})`;
+                statusEl.style.color = '#1d4ed8';
+            }
+            importWorkflowState.step = 'models';
+            renderImportWorkflow();
+            const panel = document.getElementById('import-workflow-panel');
+            if (panel) panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            showAlert(`Reprise import: ${validatedModels}/${totalModels} modeles valides.`, 'info');
+        }
+
         async function importExcel() {
             const statusEl = document.getElementById('import-status');
             statusEl.textContent = 'Import en cours...';
             statusEl.style.color = '#007bff';
+            setWorkspaceMode('import');
 
             try {
                 const result = await apiCall('/import', { method: 'POST' });
                 showAlert(`Import réussi ! ${result.data.modelsCount} modèles, ${result.data.categoriesCount} catégories, ${result.data.optionsCount} options.`, 'success');
                 statusEl.textContent = 'Import réussi';
                 statusEl.style.color = '#28a745';
+                await refreshImportStagingIndicator();
                 await loadData();
             } catch (error) {
                 showAlert('Erreur lors de l\'import: ' + error.message, 'error');
                 statusEl.textContent = 'Erreur';
                 statusEl.style.color = '#dc3545';
+            }
+        }
+
+        function closeImportAuditModal() {
+            const modal = document.getElementById('import-audit-modal');
+            if (modal) modal.remove();
+        }
+
+        async function reintegrateAuditLine(modelId, rowIndex) {
+            try {
+                await apiCall('/import-audit/reintegrate', {
+                    method: 'POST',
+                    body: JSON.stringify({ modelId, rowIndex })
+                });
+                showAlert(`Ligne ${rowIndex} reintegree pour ${modelId}.`, 'success');
+                await loadData(true);
+                await runImportAudit();
+            } catch (error) {
+                showAlert('Erreur reintegration: ' + error.message, 'error');
+            }
+        }
+
+        function openImportAuditModal(reports) {
+            const rows = (Array.isArray(reports) ? reports : []).map((r) => {
+                const delta = Number(r?.deltas?.options || 0);
+                const color = delta === 0 ? '#198754' : '#dc3545';
+                const excludedRows = Array.isArray(r?.excludedRows) ? r.excludedRows : [];
+                const excludedHtml = excludedRows.length === 0
+                    ? '<div style="color:#666; font-size:12px;">Aucune ligne ecartee.</div>'
+                    : `
+                        <table style="width:100%; border-collapse:collapse; border:1px solid #f0f0f0; margin-top:8px;">
+                            <thead>
+                                <tr style="background:#fafafa;">
+                                    <th style="padding:6px; border-bottom:1px solid #eee; text-align:right; width:80px;">Ligne</th>
+                                    <th style="padding:6px; border-bottom:1px solid #eee; text-align:left;">Libelle</th>
+                                    <th style="padding:6px; border-bottom:1px solid #eee; text-align:left; width:220px;">Motif</th>
+                                    <th style="padding:6px; border-bottom:1px solid #eee; text-align:center; width:140px;">Action</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${excludedRows.map((x) => `
+                                    <tr>
+                                        <td style="padding:6px; border-bottom:1px solid #eee; text-align:right;">${Number(x?.rowIndex || 0)}</td>
+                                        <td style="padding:6px; border-bottom:1px solid #eee;">${escapeHtml(x?.label || '-')}</td>
+                                        <td style="padding:6px; border-bottom:1px solid #eee; color:#666;">${escapeHtml(x?.reasonLabel || x?.reason || '-')}</td>
+                                        <td style="padding:6px; border-bottom:1px solid #eee; text-align:center;">
+                                            ${x?.reintegrable
+                                                ? `<button class="btn btn-outline" onclick="reintegrateAuditLine('${escapeHtml(r.modelId)}', ${Number(x?.rowIndex || 0)})">Reintegrer</button>`
+                                                : '<span style="color:#999; font-size:12px;">N/A</span>'}
+                                        </td>
+                                    </tr>
+                                `).join('')}
+                            </tbody>
+                        </table>
+                    `;
+                return `
+                    <tr>
+                        <td style="padding:8px; border-bottom:1px solid #eee;">${escapeHtml(r.modelName || r.modelId || '-')}</td>
+                        <td style="padding:8px; border-bottom:1px solid #eee; text-align:right;">${Number(r?.excel?.crosses || 0)}</td>
+                        <td style="padding:8px; border-bottom:1px solid #eee; text-align:right;">${Number(r?.excel?.pr || 0)}</td>
+                        <td style="padding:8px; border-bottom:1px solid #eee; text-align:right;">${Number(r?.excel?.minorations || 0)}</td>
+                        <td style="padding:8px; border-bottom:1px solid #eee; text-align:right;">${Number(r?.excel?.skippedBaseModelRow || 0)}</td>
+                        <td style="padding:8px; border-bottom:1px solid #eee; text-align:right;">${Number(r?.excel?.options || 0)}</td>
+                        <td style="padding:8px; border-bottom:1px solid #eee; text-align:right;">${Number(r?.parsed?.options || 0)}</td>
+                        <td style="padding:8px; border-bottom:1px solid #eee; text-align:right; color:${color}; font-weight:600;">${delta > 0 ? '+' : ''}${delta}</td>
+                        <td style="padding:8px; border-bottom:1px solid #eee; color:#666; font-size:12px;">
+                            base:${Number(r?.excel?.skippedBaseModelRow || 0)} /
+                            libelle vide:${Number(r?.excel?.skippedEmptyLabel || 0)} /
+                            ligne base:${Number(r?.excel?.skippedBaseRowLabel || 0)}
+                        </td>
+                    </tr>
+                    <tr>
+                        <td colspan="9" style="padding:8px 10px; border-bottom:1px solid #eee; background:#fcfcfc;">
+                            <details>
+                                <summary style="cursor:pointer; color:#0d6efd;">Voir lignes ecartees (${excludedRows.length})</summary>
+                                ${excludedHtml}
+                            </details>
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+
+            const modal = document.createElement('div');
+            modal.id = 'import-audit-modal';
+            modal.className = 'modal active';
+            modal.innerHTML = `
+                <div class="modal-content" style="max-width:1100px;">
+                    <div class="modal-header">
+                        <h2>Audit ecarts Excel vs import</h2>
+                        <button class="btn btn-danger" onclick="closeImportAuditModal()">Fermer</button>
+                    </div>
+                    <div style="padding:12px;">
+                        <table style="width:100%; border-collapse:collapse; border:1px solid #eee;">
+                            <thead>
+                                <tr style="background:#f8f9fa;">
+                                    <th style="padding:8px; border-bottom:1px solid #eee; text-align:left;">Modele</th>
+                                    <th style="padding:8px; border-bottom:1px solid #eee; text-align:right;">Croix Excel</th>
+                                    <th style="padding:8px; border-bottom:1px solid #eee; text-align:right;">PR Excel</th>
+                                    <th style="padding:8px; border-bottom:1px solid #eee; text-align:right;">Mino Excel</th>
+                                    <th style="padding:8px; border-bottom:1px solid #eee; text-align:right;">Base Excel</th>
+                                    <th style="padding:8px; border-bottom:1px solid #eee; text-align:right;">Options Excel</th>
+                                    <th style="padding:8px; border-bottom:1px solid #eee; text-align:right;">Options importees</th>
+                                    <th style="padding:8px; border-bottom:1px solid #eee; text-align:right;">Delta</th>
+                                    <th style="padding:8px; border-bottom:1px solid #eee; text-align:left;">Filtres appliques</th>
+                                </tr>
+                            </thead>
+                            <tbody>${rows || '<tr><td colspan="9" style="padding:12px; text-align:center; color:#666;">Aucune ligne</td></tr>'}</tbody>
+                        </table>
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(modal);
+            modal.addEventListener('click', (e) => {
+                if (e.target.id === 'import-audit-modal') closeImportAuditModal();
+            });
+        }
+
+        async function runImportAudit() {
+            try {
+                const result = await apiCall('/import-audit');
+                const reports = result?.data?.reports || [];
+                openImportAuditModal(reports);
+                const nonZero = reports.filter((r) => Number(r?.deltas?.options || 0) !== 0);
+                if (nonZero.length === 0) {
+                    showAlert('Audit OK: aucun ecart sur les options par modele.', 'success');
+                } else {
+                    showAlert(`Audit termine: ${nonZero.length} modele(s) avec ecart(s).`, 'warning');
+                }
+            } catch (error) {
+                showAlert('Erreur audit import: ' + error.message, 'error');
             }
         }
 
@@ -3293,14 +5512,14 @@ Format:
                 // Recharger les données
                 await loadData(true); // skipRender = true pour éviter de réinitialiser l'onglet
                 
-                // S'assurer qu'on est sur l'onglet sous-catégories
-                const subcategoriesTab = document.querySelector('.tab[data-tab="subcategories"]');
-                if (subcategoriesTab && !subcategoriesTab.classList.contains('active')) {
+                // S'assurer qu'on est sur l'onglet famille
+                const familleTab = document.querySelector('.tab[data-tab="famille"]');
+                if (familleTab && !familleTab.classList.contains('active')) {
                     // Activer l'onglet si ce n'est pas déjà fait
                     document.querySelectorAll('.tab').forEach(tab => tab.classList.remove('active'));
                     document.querySelectorAll('.tab-panel').forEach(panel => panel.classList.remove('active'));
-                    subcategoriesTab.classList.add('active');
-                    document.getElementById('tab-subcategories').classList.add('active');
+                    familleTab.classList.add('active');
+                    document.getElementById('tab-famille')?.classList.add('active');
                 }
                 
                 // Attendre un peu pour que le DOM soit prêt et que les données soient chargées
@@ -3315,9 +5534,8 @@ Format:
                         }
                     }
                     
-                    // Re-rendre l'accordéon des sous-catégories
-                    console.log('🔄 Re-rendu de l\'accordéon après validation');
-                    renderSubCategoriesAccordion();
+                    // Re-rendre l'onglet famille
+                    renderExtractionInsights();
                 }, 200);
             } catch (error) {
                 showAlert('Erreur lors de la validation: ' + error.message, 'error');
@@ -4228,9 +6446,31 @@ Format:
 
         // Event listeners
         document.getElementById('btn-import').addEventListener('click', importExcel);
+        document.getElementById('btn-import-audit')?.addEventListener('click', runImportAudit);
+        document.getElementById('btn-resume-import')?.addEventListener('click', resumeImportWorkflow);
+        document.getElementById('btn-import-step-models')?.addEventListener('click', () => switchImportWorkflowStep('models'));
+        document.getElementById('btn-import-step-base-models')?.addEventListener('click', () => switchImportWorkflowStep('base-models'));
+        document.getElementById('btn-import-mode')?.addEventListener('click', () => setWorkspaceMode('import'));
+        document.getElementById('btn-backoffice-mode')?.addEventListener('click', () => setWorkspaceMode('backoffice'));
         document.getElementById('btn-refresh').addEventListener('click', loadData);
-        document.getElementById('filter-category').addEventListener('change', renderCategories);
-        document.getElementById('filter-subcategory').addEventListener('change', renderCategories);
+        document.getElementById('filter-model')?.addEventListener('change', renderCategories);
+        document.getElementById('filter-option-name')?.addEventListener('input', renderCategories);
+        document.getElementById('filter-option-family')?.addEventListener('change', (e) => {
+            if (!window.__optionsTabFilterState || typeof window.__optionsTabFilterState !== 'object') {
+                window.__optionsTabFilterState = { onlyUnassigned: false, autoAssignedOnly: false, family: '', subFamily: '' };
+            }
+            const selected = String(e?.target?.value || '').trim();
+            window.__optionsTabFilterState.family = selected;
+            window.__optionsTabFilterState.subFamily = '';
+            renderCategories();
+        });
+        document.getElementById('filter-option-subfamily')?.addEventListener('change', (e) => {
+            if (!window.__optionsTabFilterState || typeof window.__optionsTabFilterState !== 'object') {
+                window.__optionsTabFilterState = { onlyUnassigned: false, autoAssignedOnly: false, family: '', subFamily: '' };
+            }
+            window.__optionsTabFilterState.subFamily = String(e?.target?.value || '').trim();
+            renderCategories();
+        });
         document.getElementById('btn-add-view-heur')?.addEventListener('click', () => {
             const labelEl = document.getElementById('view-heur-label');
             const kwEl = document.getElementById('view-heur-keywords');
@@ -4273,10 +6513,10 @@ Format:
             if (cancelBtn) cancelBtn.style.display = 'none';
             renderViewHeuristicRulesUi();
         });
-        document.getElementById('btn-add-category').addEventListener('click', addCategory);
-        document.getElementById('btn-improve-categorization').addEventListener('click', improveCategorization);
-        document.getElementById('btn-clear-categories').addEventListener('click', clearAllCategories);
-        document.getElementById('btn-detect-subcategories').addEventListener('click', autoAssignFamiliesToBusinessViews);
+        document.getElementById('btn-add-category')?.addEventListener('click', addCategory);
+        document.getElementById('btn-improve-categorization')?.addEventListener('click', improveCategorization);
+        document.getElementById('btn-clear-categories')?.addEventListener('click', clearAllCategories);
+        document.getElementById('btn-detect-subcategories')?.addEventListener('click', autoAssignFamiliesToBusinessViews);
         document.getElementById('btn-add-subcategory')?.addEventListener('click', addSubCategory);
         document.getElementById('btn-save-extraction-prompt').addEventListener('click', saveExtractionPrompt);
         document.getElementById('btn-save-categorization-prompt').addEventListener('click', saveCategorizationPrompt);
@@ -4301,15 +6541,6 @@ Format:
                 formatTarget.value = EXTRACTION_FORMAT_PRESETS[next];
             }
             select.dataset.previousValue = next;
-        });
-        document.getElementById('btn-refresh-logs')?.addEventListener('click', loadActivityLogs);
-        document.getElementById('filter-log-event')?.addEventListener('change', loadActivityLogs);
-        document.getElementById('filter-log-from')?.addEventListener('change', loadActivityLogs);
-        document.getElementById('filter-log-to')?.addEventListener('change', loadActivityLogs);
-        document.getElementById('filter-log-email')?.addEventListener('keydown', (event) => {
-            if (event.key === 'Enter') {
-                loadActivityLogs();
-            }
         });
 
         // Tabs - avec chargement à la demande
@@ -4345,7 +6576,8 @@ Format:
             const model = currentData.models.find(m => m.id === modelId);
             if (!model) return;
 
-            const optionsForModel = getModelOptionsForSummary(modelId);
+            const modelOptionsSplit = splitModelOptionsByType(getModelOptionsForSummary(modelId));
+            const optionsForModel = modelOptionsSplit.regularOptions;
 
             const modal = document.createElement('div');
             modal.className = 'modal active';
@@ -4411,17 +6643,17 @@ Format:
 
                         <div id="model-modal-tab-options" class="subtab-panel">
                             <div style="margin-bottom: 10px; color: #666;">
-                                ${optionsForModel.length} option(s) disponible(s) pour ce modèle.
+                                ${optionsForModel.length} option(s) standard disponible(s) pour ce modèle (hors PR / minoration).
                             </div>
                             <table style="width:100%; border-collapse:collapse; border:1px solid #eee;">
                                 <thead>
                                     <tr style="background:#f8f9fa;">
                                         <th style="padding:8px; border-bottom:1px solid #eee;">Option</th>
-                                        <th style="padding:8px; border-bottom:1px solid #eee;">Catégorie</th>
+                                        <th style="padding:8px; border-bottom:1px solid #eee;">Vue métier</th>
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    ${renderOptionRows(optionsForModel, 'Aucune option pour ce modèle')}
+                                    ${renderOptionRows(optionsForModel, 'Aucune option standard pour ce modèle')}
                                 </tbody>
                             </table>
                         </div>
@@ -5520,16 +7752,17 @@ Format:
             currentData.categories.forEach(category => {
                 (category.options || []).forEach(option => {
                     const compatibleModels = Array.isArray(option.compatibleModels) ? option.compatibleModels : [];
-                    const isCompatible = compatibleModels.length === 0 || compatibleModels.includes(modelId);
+                    const isCompatible = compatibleModels.includes(modelId);
                     if (isCompatible) {
                         options.push({
                             id: option.id,
                             name: option.name || '',
                             refUgap: option.refUgap || '',
-                            categoryName: category.name || 'Sans catégorie',
+                            categoryName: category.name || 'Sans vue métier',
                             rowOrder: extractRowOrder(option),
                             optionFamilyKey: option.optionFamilyKey || '',
                             compatibleModels: Array.isArray(option.compatibleModels) ? [...option.compatibleModels] : [],
+                            isDivers: !!option.isDivers,
                             initialProduct: option.initialProduct || '',
                             finalProduct: option.finalProduct || '',
                             baseAiConfidence: option.baseAiConfidence
@@ -5559,9 +7792,11 @@ Format:
                         id: option.id,
                         name: option.name || '',
                         refUgap: option.refUgap || '',
-                        categoryName: category.name || 'Sans catégorie',
+                        categoryName: category.name || 'Sans vue métier',
                         rowOrder: extractRowOrder(option),
                         optionFamilyKey: option.optionFamilyKey || '',
+                        compatibleModels: Array.isArray(option.compatibleModels) ? [...option.compatibleModels] : [],
+                        isDivers: !!option.isDivers,
                         priceClient: typeof option.priceClient === 'number' ? option.priceClient : null,
                         priceUgap: typeof option.priceUgap === 'number' ? option.priceUgap : null
                     });
@@ -5706,6 +7941,11 @@ Format:
                 const raw = String(label || '').trim();
                 return /^(moins-value|plus-value|plus\s+value)\b/i.test(raw);
             };
+            const hasModelCross = (opt) => {
+                const models = Array.isArray(opt?.compatibleModels) ? opt.compatibleModels : [];
+                return models.length > 0;
+            };
+            const isExplicitDivers = (opt) => !!opt?.isDivers;
 
             const prOptions = normalized.filter(opt => isPrLabel(opt?.name || ''));
             const minorationOptions = normalized.filter(opt =>
@@ -5713,16 +7953,24 @@ Format:
                 minorationRegex.test((opt?.name || '').trim()) ||
                 isPlusOrMoinsTarifLine(opt?.name)
             );
-            const regularOptions = normalized.filter(opt => {
+            const standardNonPrNonMino = normalized.filter(opt => {
                 const label = (opt?.name || '').trim();
-                return !isPrLabel(label);
+                const isPr = isPrLabel(label);
+                const isMino =
+                    isMinorationByRef(opt?.refUgap) ||
+                    minorationRegex.test((opt?.name || '').trim()) ||
+                    isPlusOrMoinsTarifLine(opt?.name);
+                return !isPr && !isMino;
             });
+            const regularOptions = standardNonPrNonMino.filter((opt) => !isExplicitDivers(opt) && hasModelCross(opt));
+            const diversOptions = standardNonPrNonMino.filter((opt) => isExplicitDivers(opt) || !hasModelCross(opt));
 
             return {
                 all: normalized,
                 regularOptions,
                 minorationOptions,
-                prOptions
+                prOptions,
+                diversOptions
             };
         }
 
@@ -5956,7 +8204,10 @@ Format:
             );
         }
 
-        function renderExtractionBaseOptionsByModelHtml(models) {
+        function renderExtractionBaseOptionsByModelHtml(models, opts = {}) {
+            const rowFilter = typeof opts?.rowFilter === 'function' ? opts.rowFilter : null;
+            const showAiControls = opts?.showAiControls !== false;
+            const showAiConfidence = opts?.showAiConfidence !== false;
             const sorted = [...models].sort((a, b) => {
                 const pa = a.posteNumber;
                 const pb = b.posteNumber;
@@ -5986,9 +8237,12 @@ Format:
                     [...suspectIds].filter((optId) => !isBaseIncoherenceValidated(model.id, optId))
                 );
                 const filterMode = getBaseIncoherenceFilterMode();
-                const shownBaseOpts = filterMode === 'only'
+                const shownBaseOptsRaw = filterMode === 'only'
                     ? baseOpts.filter((o) => unresolvedSuspectIds.has(String(o.id || '').trim()))
                     : baseOpts;
+                const shownBaseOpts = rowFilter
+                    ? shownBaseOptsRaw.filter((o) => rowFilter(o, model))
+                    : shownBaseOptsRaw;
                 const emptyMsg = hasPosteOnModel
                     ? `Aucune ligne « option de base » pour ce modèle (mots-clés + filtre poste <strong>${escapeHtml(String(model.posteNumber))}</strong>). Vérifiez les libellés ou le n° de poste du modèle.`
                     : 'Aucune ligne détectée pour ce modèle (heuristique sur le libellé : remplacement, fourni de base, moins-value / plus-value, etc.).';
@@ -5998,13 +8252,17 @@ Format:
                         <thead>
                             <tr style="background:#f8f9fa;">
                                 <th style="padding:6px 8px; border-bottom:1px solid #eee; text-align:left;">ID</th>
-                                <th style="padding:6px 8px; border-bottom:1px solid #eee; text-align:left;">Réf.</th>
+                                <th style="padding:6px 8px; border-bottom:1px solid #eee; text-align:left;">Nouvelle réf. base</th>
                                 <th style="padding:6px 8px; border-bottom:1px solid #eee; text-align:left;">Libellé (brut)</th>
                                 <th style="padding:6px 8px; border-bottom:1px solid #eee; text-align:left;">Produit initial</th>
                                 <th style="padding:6px 8px; border-bottom:1px solid #eee; text-align:left;">Produit final</th>
-                                <th style="padding:6px 8px; border-bottom:1px solid #eee; text-align:left;">Confiance IA</th>
+                                ${showAiConfidence ? '<th style="padding:6px 8px; border-bottom:1px solid #eee; text-align:left;">Confiance IA</th>' : ''}
+                                <th style="padding:6px 8px; border-bottom:1px solid #eee; text-align:left;">Famille</th>
+                                <th style="padding:6px 8px; border-bottom:1px solid #eee; text-align:left;">Sous-famille</th>
+                                <th style="padding:6px 8px; border-bottom:1px solid #eee; text-align:left;">Base incluse</th>
+                                <th style="padding:6px 8px; border-bottom:1px solid #eee; text-align:left;">Prix ref. inclus</th>
                                 <th style="padding:6px 8px; border-bottom:1px solid #eee; text-align:left;">Action</th>
-                                <th style="padding:6px 8px; border-bottom:1px solid #eee; text-align:left;">Catégorie</th>
+                                <th style="padding:6px 8px; border-bottom:1px solid #eee; text-align:left;">Vue métier</th>
                                 <th style="padding:6px 8px; border-bottom:1px solid #eee; text-align:left;">Poste</th>
                                 <th style="padding:6px 8px; border-bottom:1px solid #eee; text-align:center;">✕</th>
                             </tr>
@@ -6017,10 +8275,17 @@ Format:
                                     const isSuspect = suspectIds.has(optId);
                                     const isValidated = isBaseIncoherenceValidated(model.id, optId);
                                     const isUnresolved = isSuspect && !isValidated;
+                                    const parsedFamily = parseValidatedFamilyLabel(getSelectedFamilyLabelForOption(optId, opt.familyLabel));
+                                    const baseIncluded = !!opt.baseIncluded;
+                                    const baseIncludedPrice = Number.isFinite(Number(opt.baseIncludedPrice))
+                                        ? Number(opt.baseIncludedPrice)
+                                        : (Number.isFinite(Number(opt.priceClient)) ? Number(opt.priceClient) : 0);
                                     return `
                                 <tr>
                                     <td style="padding:6px 8px; border-bottom:1px solid #eee; font-family:monospace; white-space:nowrap;">${escapeHtml(opt.id || '')}</td>
-                                    <td style="padding:6px 8px; border-bottom:1px solid #eee; font-family:monospace;">${escapeHtml(opt.refUgap || '—')}</td>
+                                    <td style="padding:6px 8px; border-bottom:1px solid #eee;">
+                                        <input id="base-ref-${opt.id || ''}" value="${escapeHtml(opt.baseRefUgap || '')}" placeholder="Nouvelle référence base" style="width:180px; max-width:100%; padding:4px 6px; border:1px solid #ddd; border-radius:4px; font-family:monospace;">
+                                    </td>
                                     <td style="padding:6px 8px; border-bottom:1px solid #eee;">${escapeHtml(opt.name || '')}</td>
                                     <td style="padding:6px 8px; border-bottom:1px solid #eee; color:#444;">
                                         <input id="base-initial-${opt.id || ''}" value="${escapeHtml(parsed.initialProduct || '')}" placeholder="Produit initial" style="width:220px; max-width:100%; padding:4px 6px; border:1px solid #ddd; border-radius:4px;">
@@ -6028,9 +8293,20 @@ Format:
                                     <td style="padding:6px 8px; border-bottom:1px solid #eee; color:#111; font-weight:600;">
                                         <input id="base-final-${opt.id || ''}" value="${escapeHtml(parsed.finalProduct || '')}" placeholder="Produit final" style="width:220px; max-width:100%; padding:4px 6px; border:1px solid #ddd; border-radius:4px;">
                                     </td>
-                                    <td style="padding:6px 8px; border-bottom:1px solid #eee; white-space:nowrap;">${escapeHtml(formatBaseConfidence(opt.baseAiConfidence))}</td>
+                                    ${showAiConfidence ? `<td style="padding:6px 8px; border-bottom:1px solid #eee; white-space:nowrap;">${escapeHtml(formatBaseConfidence(opt.baseAiConfidence))}</td>` : ''}
+                                    <td style="padding:6px 8px; border-bottom:1px solid #eee; color:#555;">${escapeHtml(parsedFamily.familyName || '—')}</td>
+                                    <td style="padding:6px 8px; border-bottom:1px solid #eee; color:#777;">${escapeHtml(parsedFamily.subFamilyName || '—')}</td>
                                     <td style="padding:6px 8px; border-bottom:1px solid #eee;">
-                                        <button class="btn btn-secondary" style="padding:4px 8px; font-size:12px;" onclick="saveBaseProducts('${opt.id || ''}')">Enregistrer</button>
+                                        <label style="display:flex; align-items:center; gap:6px; white-space:nowrap;">
+                                            <input id="base-included-${opt.id || ''}" type="checkbox" ${baseIncluded ? 'checked' : ''}>
+                                            <span>0 € client</span>
+                                        </label>
+                                    </td>
+                                    <td style="padding:6px 8px; border-bottom:1px solid #eee;">
+                                        <input id="base-price-${opt.id || ''}" type="number" step="0.01" value="${escapeHtml(String(baseIncludedPrice))}" style="width:130px; max-width:100%; padding:4px 6px; border:1px solid #ddd; border-radius:4px;">
+                                    </td>
+                                    <td style="padding:6px 8px; border-bottom:1px solid #eee;">
+                                        <button class="btn btn-secondary" style="padding:4px 8px; font-size:12px;" onclick="saveBaseModelOption('${opt.id || ''}')">Enregistrer</button>
                                         ${isUnresolved ? `<span style="margin-left:8px; padding:2px 6px; border-radius:4px; background:#fff3cd; color:#856404; font-size:11px;">Incohérence ?</span>` : ''}
                                         ${isValidated ? `<span style="margin-left:8px; padding:2px 6px; border-radius:4px; background:#d1e7dd; color:#0f5132; font-size:11px;">Validée</span>` : ''}
                                     </td>
@@ -6077,12 +8353,12 @@ Format:
                                     <option value="only" ${getBaseIncoherenceFilterMode() === 'only' ? 'selected' : ''}>Incohérences uniquement</option>
                                 </select>
                             </label>
-                            <button id="btn-base-options-complete-ia" class="btn btn-primary" onclick="runBaseOptionsAiCompletion()">Compléter avec l'IA</button>
+                            ${showAiControls ? '<button id="btn-base-options-complete-ia" class="btn btn-primary" onclick="runBaseOptionsAiCompletion()">Compléter avec l\'IA</button>' : ''}
                         </div>
                     </div>
-                    <div id="base-options-ai-progress" style="display:none; margin-bottom:8px; padding:8px 10px; border-radius:6px; background:#fff; border:1px solid #b6d4fe; color:#084298;">
+                    ${showAiControls ? `<div id="base-options-ai-progress" style="display:none; margin-bottom:8px; padding:8px 10px; border-radius:6px; background:#fff; border:1px solid #b6d4fe; color:#084298;">
                         Traitement IA en cours...
-                    </div>
+                    </div>` : ''}
                     mots-clés dans le libellé :
                     <em>en remplacement de</em>, <em>en lieu et place</em>, <em>non fourniture</em> / <em>non fourni</em>, <em>fourni de base</em>, <em>équipement de base</em>, <em>configuration de base</em>.
                     <span style="display:block; margin-top:6px; color:#555;">
@@ -6092,6 +8368,461 @@ Format:
                 </div>
                 ${blocks}
             `;
+        }
+
+        function getNextManualBaseOptionId() {
+            const all = getAllOptionsForSummary();
+            let maxNum = 0;
+            (all || []).forEach((opt) => {
+                const m = String(opt?.id || '').match(/^opt_(\d+)$/i);
+                if (!m) return;
+                const n = Number(m[1]);
+                if (Number.isFinite(n) && n > maxNum) maxNum = n;
+            });
+            return `opt_${maxNum + 1}`;
+        }
+
+        function getBaseModelFamilyChoices() {
+            const heuristics = getFamilleHeuristicRules();
+            return Array.from(new Set((Array.isArray(heuristics) ? heuristics : [])
+                .map((f) => parseValidatedFamilyLabel(f?.familyLabel || '').familyName)
+                .filter(Boolean)))
+                .sort((a, b) => String(a).localeCompare(String(b), 'fr', { sensitivity: 'base' }));
+        }
+
+        function getBaseModelSubFamilyChoices(familyName) {
+            const family = String(familyName || '').trim();
+            if (!family) return [];
+            const heuristics = getFamilleHeuristicRules();
+            return Array.from(new Set((Array.isArray(heuristics) ? heuristics : [])
+                .map((f) => parseValidatedFamilyLabel(f?.familyLabel || ''))
+                .filter((p) => String(p?.familyName || '') === family && String(p?.subFamilyName || '').trim())
+                .map((p) => p.subFamilyName)))
+                .sort((a, b) => String(a).localeCompare(String(b), 'fr', { sensitivity: 'base' }));
+        }
+
+        function renderBaseModelTab(rootId = 'base-model-content') {
+            const root = document.getElementById(rootId);
+            if (!root) return;
+            const models = Array.isArray(currentData?.models) ? currentData.models : [];
+            if (!models.length) {
+                root.innerHTML = '<div class="alert alert-info">Aucune donnée chargée.</div>';
+                return;
+            }
+
+            if (!window.__baseModelCreateState) {
+                window.__baseModelCreateState = {
+                    modelId: String(models?.[0]?.id || ''),
+                    familyName: '',
+                    subFamilyName: '',
+                    refUgap: '',
+                    name: '',
+                    baseIncludedPrice: '',
+                    selectedOptionId: '',
+                    customFamilies: [],
+                    customSubFamilies: {}
+                };
+            }
+            const state = window.__baseModelCreateState;
+            if (!state.modelId && models[0]?.id) state.modelId = String(models[0].id);
+
+            const modelChoices = [...models]
+                .sort((a, b) => String(a?.name || '').localeCompare(String(b?.name || ''), 'fr', { sensitivity: 'base' }))
+                .map((m) => ({ id: String(m?.id || ''), label: String(m?.name || m?.id || 'Modèle') }))
+                .filter((m) => m.id);
+            const selectedModelId = String(state.modelId || '').trim();
+            const selectedModelName = modelChoices.find((m) => m.id === selectedModelId)?.label || selectedModelId;
+            const familyChoices = getBaseModelFamilyChoices()
+                .sort((a, b) => String(a).localeCompare(String(b), 'fr', { sensitivity: 'base' }));
+            if (state.familyName && !familyChoices.includes(state.familyName)) state.familyName = '';
+            const subFamilyChoices = getBaseModelSubFamilyChoices(state.familyName);
+            if (state.subFamilyName && !subFamilyChoices.includes(state.subFamilyName)) state.subFamilyName = '';
+            const optionChoices = getBaseModalOptionsForSelection(state.familyName, state.subFamilyName);
+            if (!optionChoices.some(({ opt }) => String(opt?.id || '') === String(state.selectedOptionId || ''))) {
+                state.selectedOptionId = '';
+            }
+
+            const modelBaseOptions = getAllOptionsForSummary()
+                .map((opt) => ({ opt, rec: findOptionRecordById(opt.id)?.option || null }))
+                .filter(({ rec }) => {
+                    const comp = Array.isArray(rec?.compatibleModels) ? rec.compatibleModels.map((x) => String(x)) : [];
+                    return !!rec && !!rec.baseIncluded && comp.includes(selectedModelId);
+                })
+                .sort((a, b) => (a.opt.rowOrder || 0) - (b.opt.rowOrder || 0));
+            const rowsHtml = modelBaseOptions.length
+                ? modelBaseOptions.map(({ opt, rec }) => {
+                    const parsedFamily = parseValidatedFamilyLabel(getSelectedFamilyLabelForOption(opt.id, rec.familyLabel));
+                    return `<tr>
+                        <td style="padding:8px; border-bottom:1px solid #eee; font-family:monospace;">${escapeHtml(opt.id || '')}</td>
+                        <td style="padding:8px; border-bottom:1px solid #eee; font-family:monospace;">${escapeHtml(rec.baseRefUgap || rec.refUgap || '')}</td>
+                        <td style="padding:8px; border-bottom:1px solid #eee;">${escapeHtml(opt.name || '')}</td>
+                        <td style="padding:8px; border-bottom:1px solid #eee;">${escapeHtml(parsedFamily.familyName || '—')}</td>
+                        <td style="padding:8px; border-bottom:1px solid #eee;">${escapeHtml(parsedFamily.subFamilyName || '—')}</td>
+                        <td style="padding:8px; border-bottom:1px solid #eee; text-align:right;">0.00 €</td>
+                        <td style="padding:8px; border-bottom:1px solid #eee; text-align:right;">${Number.isFinite(Number(rec.baseIncludedPrice)) ? Number(rec.baseIncludedPrice).toFixed(2) : '0.00'} €</td>
+                        <td style="padding:8px; border-bottom:1px solid #eee; text-align:center;">
+                            <button type="button" title="Retirer du modèle" onclick="removeBaseOptionFromModel('${escapeHtml(String(opt.id || ''))}', '${escapeHtml(selectedModelId)}')" style="border:none; background:#dc3545; color:#fff; border-radius:4px; width:24px; height:24px; cursor:pointer; font-weight:700;">×</button>
+                        </td>
+                    </tr>`;
+                }).join('')
+                : '<tr><td colspan="8" style="padding:10px; color:#777;">Aucune option de base associée à ce modèle.</td></tr>';
+
+            root.innerHTML = `
+                <div style="margin-bottom:12px; padding:10px; border:1px solid #e9ecef; border-radius:6px; background:#f8f9fa; color:#444; font-size:13px;">
+                    Associer une option de base se fait <strong>par modèle</strong> pour éviter les doublons.
+                </div>
+
+                <div style="margin-bottom:14px; padding:12px; border:1px solid #dbe3ea; border-radius:8px; background:#fff;">
+                    <div style="display:flex; gap:12px; flex-wrap:wrap; align-items:flex-end; justify-content:space-between;">
+                        <div>
+                            <label style="display:block; font-size:12px; color:#666; margin-bottom:4px;">Modèle</label>
+                            <select id="base-model-new-model" onchange="onBaseModelFilterChange()" style="padding:6px 8px; border:1px solid #ddd; border-radius:4px; min-width:260px;">
+                                ${modelChoices.map((m) => `<option value="${escapeHtml(m.id)}" ${state.modelId === m.id ? 'selected' : ''}>${escapeHtml(m.label)}</option>`).join('')}
+                            </select>
+                        </div>
+                        <div>
+                            <label style="display:block; font-size:12px; color:#666; margin-bottom:4px;">Famille</label>
+                            <div style="display:flex; gap:6px;">
+                                <select id="base-model-family-select" onchange="onBaseAssociationSelectionChange()" style="padding:6px 8px; border:1px solid #ddd; border-radius:4px; min-width:240px;">
+                                    <option value="">-- Sélectionner --</option>
+                                    ${familyChoices.map((f) => `<option value="${escapeHtml(f)}" ${state.familyName === f ? 'selected' : ''}>${escapeHtml(f)}</option>`).join('')}
+                                </select>
+                                <button type="button" class="btn btn-outline" title="Créer une famille" onclick="openBaseCreationModal('family')">+</button>
+                            </div>
+                        </div>
+                        <div>
+                            <label style="display:block; font-size:12px; color:#666; margin-bottom:4px;">Sous-famille</label>
+                            <div style="display:flex; gap:6px;">
+                                <select id="base-model-subfamily-select" onchange="onBaseAssociationSelectionChange()" style="padding:6px 8px; border:1px solid #ddd; border-radius:4px; min-width:220px;" ${state.familyName ? '' : 'disabled'}>
+                                    <option value="">-- Aucune --</option>
+                                    ${subFamilyChoices.map((s) => `<option value="${escapeHtml(s)}" ${state.subFamilyName === s ? 'selected' : ''}>${escapeHtml(s)}</option>`).join('')}
+                                </select>
+                                <button type="button" class="btn btn-outline" title="Créer une sous-famille" onclick="openBaseCreationModal('subfamily')">+</button>
+                            </div>
+                        </div>
+                        <div style="min-width:320px;">
+                            <label style="display:block; font-size:12px; color:#666; margin-bottom:4px;">Option de base</label>
+                            <div style="display:flex; gap:6px;">
+                                <select id="base-model-option-select" onchange="onBaseAssociationSelectionChange()" style="padding:6px 8px; border:1px solid #ddd; border-radius:4px; min-width:320px; width:100%;">
+                                    <option value="">-- Sélectionner une option --</option>
+                                    ${optionChoices.map(({ opt, rec }) => `<option value="${escapeHtml(opt.id)}" ${String(state.selectedOptionId || '') === String(opt.id || '') ? 'selected' : ''}>${escapeHtml((rec.baseRefUgap || rec.refUgap || '-') + ' | ' + (opt.name || opt.id))}</option>`).join('')}
+                                </select>
+                                <button type="button" class="btn btn-outline" title="Créer une option" onclick="openBaseCreationModal('option')">+</button>
+                            </div>
+                        </div>
+                        <div>
+                            <button class="btn btn-primary" onclick="assignBaseOptionToModel()">Associer au modèle</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div style="border:1px solid #e9ecef; border-radius:8px; background:#fff;">
+                    <div style="padding:10px 12px; border-bottom:1px solid #e9ecef; font-weight:600;">Options de base du modèle ${escapeHtml(selectedModelName)} (${modelBaseOptions.length})</div>
+                    <table style="width:100%; border-collapse:collapse; font-size:13px;">
+                        <thead>
+                            <tr style="background:#f8f9fa;">
+                                <th style="padding:8px; border-bottom:1px solid #eee; text-align:left;">ID</th>
+                                <th style="padding:8px; border-bottom:1px solid #eee; text-align:left;">Réf.</th>
+                                <th style="padding:8px; border-bottom:1px solid #eee; text-align:left;">Libellé</th>
+                                <th style="padding:8px; border-bottom:1px solid #eee; text-align:left;">Famille</th>
+                                <th style="padding:8px; border-bottom:1px solid #eee; text-align:left;">Sous-famille</th>
+                                <th style="padding:8px; border-bottom:1px solid #eee; text-align:right;">Prix client</th>
+                                <th style="padding:8px; border-bottom:1px solid #eee; text-align:right;">Prix produit</th>
+                                <th style="padding:8px; border-bottom:1px solid #eee; text-align:center;">✕</th>
+                            </tr>
+                        </thead>
+                        <tbody>${rowsHtml}</tbody>
+                    </table>
+                </div>
+            `;
+        }
+
+        function onBaseModelFilterChange() {
+            if (!window.__baseModelCreateState) return;
+            window.__baseModelCreateState.modelId = String(document.getElementById('base-model-new-model')?.value || '').trim();
+            renderBaseModelTab();
+        }
+
+        function onBaseAssociationSelectionChange() {
+            if (!window.__baseModelCreateState) return;
+            window.__baseModelCreateState.familyName = String(document.getElementById('base-model-family-select')?.value || '').trim();
+            window.__baseModelCreateState.subFamilyName = String(document.getElementById('base-model-subfamily-select')?.value || '').trim();
+            window.__baseModelCreateState.selectedOptionId = String(document.getElementById('base-model-option-select')?.value || '').trim();
+            renderBaseModelTab();
+        }
+
+        function getBaseModalOptionsForSelection(familyName, subFamilyName) {
+            const family = String(familyName || '').trim();
+            const sub = String(subFamilyName || '').trim();
+            return getAllOptionsForSummary()
+                .map((opt) => ({ opt, rec: findOptionRecordById(opt.id)?.option || {} }))
+                .filter(({ opt, rec }) => {
+                    const parsed = parseValidatedFamilyLabel(getSelectedFamilyLabelForOption(opt.id, rec.familyLabel));
+                    if (family && String(parsed.familyName || '') !== family) return false;
+                    if (sub && String(parsed.subFamilyName || '') !== sub) return false;
+                    return true;
+                })
+                .sort((a, b) => String(a.opt?.name || '').localeCompare(String(b.opt?.name || ''), 'fr', { sensitivity: 'base' }));
+        }
+
+        function openBaseCreationModal(type) {
+            const modalType = String(type || '').trim();
+            if (!['family', 'subfamily', 'option'].includes(modalType)) return;
+            if (document.getElementById('base-option-modal')) return;
+            const state = window.__baseModelCreateState || {};
+            const modal = document.createElement('div');
+            modal.id = 'base-option-modal';
+            modal.style.cssText = 'position:fixed; inset:0; background:rgba(0,0,0,.35); z-index:10000; display:flex; align-items:center; justify-content:center; padding:20px;';
+            modal.innerHTML = `
+                <div style="background:#fff; width:min(980px, 96vw); max-height:90vh; overflow:auto; border-radius:10px; box-shadow:0 10px 30px rgba(0,0,0,.2);">
+                    <div style="padding:12px 14px; border-bottom:1px solid #e9ecef; display:flex; justify-content:space-between; align-items:center;">
+                        <strong>${modalType === 'family' ? 'Créer une famille' : (modalType === 'subfamily' ? 'Créer une sous-famille' : 'Créer une option')}</strong>
+                        <button type="button" onclick="closeBaseOptionModal()" style="border:none; background:transparent; font-size:20px; cursor:pointer;">×</button>
+                    </div>
+                    <div style="padding:14px;">
+                        ${modalType === 'family' ? `
+                            <label style="display:block; font-size:12px; color:#666; margin-bottom:4px;">Nom famille</label>
+                            <input id="base-create-family-name" placeholder="Ex: Console de pilotage" style="width:100%; padding:7px; border:1px solid #ddd; border-radius:4px;">
+                        ` : ''}
+                        ${modalType === 'subfamily' ? `
+                            <label style="display:block; font-size:12px; color:#666; margin-bottom:4px;">Famille parent</label>
+                            <input id="base-create-subfamily-family" value="${escapeHtml(String(state.familyName || ''))}" readonly style="width:100%; padding:7px; border:1px solid #ddd; border-radius:4px; background:#f8f9fa; margin-bottom:8px;">
+                            <label style="display:block; font-size:12px; color:#666; margin-bottom:4px;">Nom sous-famille</label>
+                            <input id="base-create-subfamily-name" placeholder="Ex: Couleur" style="width:100%; padding:7px; border:1px solid #ddd; border-radius:4px;">
+                        ` : ''}
+                        ${modalType === 'option' ? `
+                            <label style="display:block; font-size:12px; color:#666; margin-bottom:4px;">Réf.</label>
+                            <input id="base-create-option-ref" placeholder="Référence" style="width:100%; padding:7px; border:1px solid #ddd; border-radius:4px; margin-bottom:8px;">
+                            <label style="display:block; font-size:12px; color:#666; margin-bottom:4px;">Libellé</label>
+                            <input id="base-create-option-name" placeholder="Libellé option" style="width:100%; padding:7px; border:1px solid #ddd; border-radius:4px; margin-bottom:8px;">
+                            <label style="display:block; font-size:12px; color:#666; margin-bottom:4px;">Prix produit (optionnel)</label>
+                            <input id="base-create-option-price" type="number" step="0.01" min="0" placeholder="0.00" style="width:220px; padding:7px; border:1px solid #ddd; border-radius:4px;">
+                        ` : ''}
+                        <div style="margin-top:14px; display:flex; justify-content:flex-end; gap:8px;">
+                            <button type="button" class="btn btn-outline" onclick="closeBaseOptionModal()">Annuler</button>
+                            <button type="button" class="btn btn-primary" onclick="submitBaseCreationModal('${modalType}')">Créer</button>
+                        </div>
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(modal);
+        }
+
+        function closeBaseOptionModal() {
+            document.getElementById('base-option-modal')?.remove();
+        }
+
+        async function submitBaseCreationModal(type) {
+            try {
+                const modalType = String(type || '').trim();
+                const state = window.__baseModelCreateState || {};
+                if (modalType === 'family') {
+                    const name = String(document.getElementById('base-create-family-name')?.value || '').trim();
+                    if (!name) return showAlert('Nom famille requis.', 'warning');
+                    const list = getFamilleValidatedFamilies();
+                    const exists = (Array.isArray(list) ? list : []).some((f) => String(f?.familyLabel || '').trim() === name);
+                    if (!exists) {
+                        setFamilleValidatedFamilies([...(Array.isArray(list) ? list : []), { familyLabel: name, optionIds: [] }]);
+                    }
+                    const rules = getFamilleHeuristicRules();
+                    const ruleExists = (Array.isArray(rules) ? rules : []).some((r) => String(r?.familyLabel || '').trim() === name);
+                    if (!ruleExists) {
+                        setFamilleHeuristicRules([...(Array.isArray(rules) ? rules : []), { familyLabel: name, keywords: '', scope: 'all' }]);
+                    }
+                    state.familyName = name;
+                    state.subFamilyName = '';
+                } else if (modalType === 'subfamily') {
+                    const family = String(state.familyName || '').trim();
+                    const sub = String(document.getElementById('base-create-subfamily-name')?.value || '').trim();
+                    if (!family) return showAlert('Sélectionnez une famille.', 'warning');
+                    if (!sub) return showAlert('Nom sous-famille requis.', 'warning');
+                    const fullLabel = `${family} / ${sub}`;
+                    const list = getFamilleValidatedFamilies();
+                    const exists = (Array.isArray(list) ? list : []).some((f) => String(f?.familyLabel || '').trim() === fullLabel);
+                    if (!exists) {
+                        setFamilleValidatedFamilies([...(Array.isArray(list) ? list : []), { familyLabel: fullLabel, optionIds: [] }]);
+                    }
+                    const rules = getFamilleHeuristicRules();
+                    const ruleExists = (Array.isArray(rules) ? rules : []).some((r) => String(r?.familyLabel || '').trim() === fullLabel);
+                    if (!ruleExists) {
+                        setFamilleHeuristicRules([...(Array.isArray(rules) ? rules : []), { familyLabel: fullLabel, keywords: '', scope: 'all' }]);
+                    }
+                    state.subFamilyName = sub;
+                } else if (modalType === 'option') {
+                    const modelId = String(state.modelId || '').trim();
+                    const familyName = String(state.familyName || '').trim();
+                    const subFamilyName = String(state.subFamilyName || '').trim();
+                    if (!modelId || !familyName) return showAlert('Modèle et famille requis.', 'warning');
+                    const refUgap = String(document.getElementById('base-create-option-ref')?.value || '').trim();
+                    const name = String(document.getElementById('base-create-option-name')?.value || '').trim();
+                    const n = Number(String(document.getElementById('base-create-option-price')?.value || '').replace(',', '.'));
+                    const baseIncludedPrice = Number.isFinite(n) ? n : 0;
+                    if (!name) return showAlert('Libellé option requis.', 'warning');
+                    const id = getNextManualBaseOptionId();
+                    const categoryId = String(currentData?.categories?.[0]?.id || '').trim();
+                    const fullFamilyLabel = subFamilyName ? `${familyName} / ${subFamilyName}` : familyName;
+                    await apiCall('/options', {
+                        method: 'POST',
+                        body: JSON.stringify({
+                            categoryId,
+                            id,
+                            name,
+                            refUgap,
+                            baseRefUgap: refUgap,
+                            compatibleModels: [modelId],
+                            familyLabel: fullFamilyLabel,
+                            subFamily: subFamilyName,
+                            manualBaseOption: true,
+                            baseIncludedPrice,
+                            priceUgap: baseIncludedPrice
+                        })
+                    });
+                    await loadData(true);
+                    state.selectedOptionId = id;
+                }
+                closeBaseOptionModal();
+                renderBaseModelTab();
+            } catch (error) {
+                showAlert('Erreur création: ' + error.message, 'error');
+            }
+        }
+
+        async function assignBaseOptionToModel() {
+            try {
+                const modelId = String(window.__baseModelCreateState?.modelId || '').trim();
+                const id = String(window.__baseModelCreateState?.selectedOptionId || '').trim();
+                if (!modelId) {
+                    showAlert('Modèle requis.', 'warning');
+                    return;
+                }
+                if (!id) {
+                    showAlert('Choisissez une option.', 'warning');
+                    return;
+                }
+                const rec = findOptionRecordById(id)?.option || null;
+                if (!rec) {
+                    showAlert(`Option introuvable (${id}).`, 'error');
+                    return;
+                }
+                const compatible = Array.isArray(rec.compatibleModels) ? rec.compatibleModels.map((x) => String(x)) : [];
+                if (!compatible.includes(modelId)) compatible.push(modelId);
+                await apiCall(`/options/${encodeURIComponent(id)}`, {
+                    method: 'PUT',
+                    body: JSON.stringify({
+                        ...rec,
+                        compatibleModels: compatible,
+                        baseIncluded: true,
+                        priceClient: 0
+                    })
+                });
+                await loadData(true);
+                closeBaseOptionModal();
+                renderBaseModelTab();
+                showAlert(`Option "${id}" associée au modèle.`, 'success');
+            } catch (error) {
+                showAlert('Erreur association option: ' + error.message, 'error');
+            }
+        }
+
+        function purgeDeletedOptionFromLocalStores(optionId) {
+            const id = String(optionId || '').trim();
+            if (!id) return;
+
+            // Nettoyage familles validées (optionIds + defaultOptionId)
+            const families = getFamilleValidatedFamilies();
+            const cleanedFamilies = (Array.isArray(families) ? families : []).map((f) => {
+                const optionIds = (Array.isArray(f?.optionIds) ? f.optionIds : [])
+                    .map((x) => String(x || '').trim())
+                    .filter((x) => x && x !== id);
+                const defaultOptionId = String(f?.defaultOptionId || '').trim();
+                return {
+                    ...f,
+                    optionIds,
+                    ...(defaultOptionId && defaultOptionId !== id ? { defaultOptionId } : {})
+                };
+            });
+            setFamilleValidatedFamilies(cleanedFamilies);
+
+            const normalizeLegacyOptId = (value) => {
+                const v = String(value || '').trim();
+                const m = v.match(/^(.*)__\d+$/);
+                return m && m[1] ? String(m[1]).trim() : v;
+            };
+            const splitItem = (value) => {
+                const raw = String(value || '').trim();
+                const sep = raw.lastIndexOf('::');
+                if (sep < 0) return { col: '', opt: '' };
+                return {
+                    col: raw.slice(0, sep),
+                    opt: normalizeLegacyOptId(raw.slice(sep + 2))
+                };
+            };
+            const keepItem = (itemKey) => {
+                const parsed = splitItem(itemKey);
+                return !!parsed.col && !!parsed.opt && parsed.opt !== id;
+            };
+
+            // Nettoyage couplages persistés
+            const couplings = getCouplingRules();
+            const cleanedCouplings = (Array.isArray(couplings) ? couplings : []).map((cp) => {
+                const links = (Array.isArray(cp?.links) ? cp.links : []).map((lnk) => ({
+                    ...lnk,
+                    masterItems: (Array.isArray(lnk?.masterItems) ? lnk.masterItems : []).filter(keepItem),
+                    slaveItems: (Array.isArray(lnk?.slaveItems) ? lnk.slaveItems : []).filter(keepItem),
+                    masterLabels: [],
+                    slaveLabels: []
+                })).filter((lnk) => (lnk.masterItems || []).length > 0 || (lnk.slaveItems || []).length > 0);
+
+                return {
+                    ...cp,
+                    selectedMasterItems: (Array.isArray(cp?.selectedMasterItems) ? cp.selectedMasterItems : []).filter(keepItem),
+                    selectedSlaveItems: (Array.isArray(cp?.selectedSlaveItems) ? cp.selectedSlaveItems : []).filter(keepItem),
+                    links
+                };
+            });
+            setCouplingRules(cleanedCouplings);
+
+            // Nettoyage état couplage en mémoire
+            if (window.__ugapCouplingColumnState && Array.isArray(window.__ugapCouplingColumnState.couplings)) {
+                window.__ugapCouplingColumnState.couplings = cleanedCouplings;
+            }
+
+            const autoMap = getOptionsAutoAssignments();
+            if (autoMap[id]) {
+                delete autoMap[id];
+                setOptionsAutoAssignments(autoMap);
+            }
+        }
+
+        async function removeBaseOptionFromModel(optionId, modelId) {
+            try {
+                const id = String(optionId || '').trim();
+                const model = String(modelId || '').trim();
+                if (!id) return;
+                const rec = findOptionRecordById(id)?.option || null;
+                if (!rec) return;
+
+                if (rec.manualBaseOption) {
+                    if (!confirm(`Supprimer définitivement l'option créée "${id}" ?`)) return;
+                    await apiCall(`/options/${encodeURIComponent(id)}`, { method: 'DELETE' });
+                    purgeDeletedOptionFromLocalStores(id);
+                } else {
+                    if (!confirm(`Retirer l'option "${id}" du modèle sélectionné ?`)) return;
+                    const compatible = (Array.isArray(rec.compatibleModels) ? rec.compatibleModels : []).map((x) => String(x)).filter((x) => x && x !== model);
+                    await apiCall(`/options/${encodeURIComponent(id)}`, {
+                        method: 'PUT',
+                        body: JSON.stringify({
+                            ...rec,
+                            compatibleModels: compatible
+                        })
+                    });
+                }
+                await loadData(true);
+                renderBaseModelTab();
+                showAlert(`Option "${id}" supprimée.`, 'success');
+            } catch (error) {
+                showAlert('Erreur suppression option: ' + error.message, 'error');
+            }
         }
 
         function getBaseLikeOptionsForAiRun() {
@@ -6262,7 +8993,7 @@ Format:
             renderExtractionInsights();
         }
 
-        async function saveBaseProducts(optionId) {
+        async function saveBaseModelOption(optionId) {
             try {
                 const id = String(optionId || '').trim();
                 if (!id) return;
@@ -6274,10 +9005,26 @@ Format:
 
                 const initialInput = document.getElementById(`base-initial-${id}`);
                 const finalInput = document.getElementById(`base-final-${id}`);
+                const baseRefInput = document.getElementById(`base-ref-${id}`);
+                const includedInput = document.getElementById(`base-included-${id}`);
+                const priceInput = document.getElementById(`base-price-${id}`);
                 const initialProduct = String(initialInput?.value || '').trim();
                 const finalProduct = String(finalInput?.value || '').trim();
+                const baseRefUgap = String(baseRefInput?.value || '').trim();
+                const baseIncluded = !!includedInput?.checked;
+                const parsedBasePrice = Number(String(priceInput?.value || '').replace(',', '.'));
+                const baseIncludedPrice = Number.isFinite(parsedBasePrice) ? parsedBasePrice : 0;
 
-                const payload = { ...rec.option, initialProduct, finalProduct };
+                const payload = {
+                    ...rec.option,
+                    initialProduct,
+                    finalProduct,
+                    baseRefUgap,
+                    baseIncluded,
+                    baseIncludedPrice,
+                    // Règle métier: une option fournie de base reste à 0€ côté client.
+                    priceClient: baseIncluded ? 0 : rec.option?.priceClient
+                };
                 await apiCall(`/options/${encodeURIComponent(id)}`, {
                     method: 'PUT',
                     body: JSON.stringify(payload)
@@ -6285,11 +9032,20 @@ Format:
 
                 rec.option.initialProduct = initialProduct;
                 rec.option.finalProduct = finalProduct;
-                renderExtractionInsights();
+                rec.option.baseRefUgap = baseRefUgap;
+                rec.option.baseIncluded = baseIncluded;
+                rec.option.baseIncludedPrice = baseIncludedPrice;
+                if (baseIncluded) rec.option.priceClient = 0;
+                const activeTab = document.querySelector('.tab.active')?.getAttribute('data-tab') || 'models';
+                renderActiveTab(activeTab);
                 showAlert('Valeurs enregistrées', 'success');
             } catch (error) {
-                showAlert('Erreur enregistrement option de base: ' + error.message, 'error');
+                showAlert('Erreur enregistrement modèle de base: ' + error.message, 'error');
             }
+        }
+
+        async function saveBaseProducts(optionId) {
+            return saveBaseModelOption(optionId);
         }
 
         async function runBaseOptionsAiCompletion() {
@@ -6346,15 +9102,166 @@ Format:
             }
         }
 
+        function buildViewOptionsHtml(selectedViewLabel) {
+            const rules = getViewHeuristicRules();
+            const labels = Array.from(new Set(
+                (Array.isArray(rules) ? rules : [])
+                    .map((r) => String(r?.viewLabel || '').trim())
+                    .filter(Boolean)
+            ));
+            const selected = String(selectedViewLabel || '').trim();
+            return labels.map((label) => {
+                const isSelected = selected === label ? 'selected' : '';
+                return `<option value="${escapeHtml(label)}" ${isSelected}>${escapeHtml(label)}</option>`;
+            }).join('');
+        }
+
+        function getSelectedFamilyLabelForOption(optionId, fallbackLabel) {
+            const wanted = String(optionId || '').trim();
+            const list = getFamilleValidatedFamilies();
+            const row = (Array.isArray(list) ? list : []).find((f) => {
+                const ids = Array.isArray(f?.optionIds) ? f.optionIds.map((x) => String(x)) : [];
+                return ids.includes(wanted);
+            });
+            if (row && String(row.familyLabel || '').trim()) return String(row.familyLabel || '').trim();
+            return String(fallbackLabel || '').trim();
+        }
+
+        function assignOptionToValidatedFamily(optionId, familyLabel) {
+            const wanted = String(optionId || '').trim();
+            const targetLabel = String(familyLabel || '').trim();
+            const list = getFamilleValidatedFamilies();
+            const cleaned = (Array.isArray(list) ? list : []).map((f) => {
+                const ids = Array.isArray(f?.optionIds) ? f.optionIds.map((x) => String(x)).filter((x) => x && x !== wanted) : [];
+                return { ...f, optionIds: ids };
+            });
+            if (!targetLabel) {
+                setFamilleValidatedFamilies(cleaned);
+                return;
+            }
+            const idx = cleaned.findIndex((f) => String(f?.familyLabel || '').trim() === targetLabel);
+            if (idx < 0) {
+                setFamilleValidatedFamilies(cleaned);
+                return;
+            }
+            const ids = Array.isArray(cleaned[idx].optionIds) ? cleaned[idx].optionIds.slice() : [];
+            if (!ids.includes(wanted)) ids.push(wanted);
+            cleaned[idx].optionIds = ids;
+            setFamilleValidatedFamilies(cleaned);
+        }
+
+        function clearValidatedFamilyAssignments() {
+            const list = getFamilleValidatedFamilies();
+            const cleaned = (Array.isArray(list) ? list : []).map((f) => ({
+                ...f,
+                optionIds: []
+            }));
+            setFamilleValidatedFamilies(cleaned);
+        }
+
+        function buildFamilyOptionsHtml(viewLabel, selectedFamilyLabel) {
+            const selectedViewLabel = String(viewLabel || '').trim();
+            const selectedLabel = String(selectedFamilyLabel || '').trim();
+            const allFamilies = getFamilleValidatedFamilies();
+            const filtered = (Array.isArray(allFamilies) ? allFamilies : []).filter((f) => {
+                const byLabel = String(f?.businessViewLabel || '').trim();
+                return !selectedViewLabel || !byLabel || byLabel === selectedViewLabel;
+            });
+            const labels = Array.from(new Set(filtered.map((f) => String(f?.familyLabel || '').trim()).filter(Boolean)));
+            const noneSelected = !selectedLabel ? 'selected' : '';
+            return [
+                `<option value="" ${noneSelected}>-- Aucune --</option>`,
+                ...labels.map((label) => {
+                    const selected = selectedLabel === label ? 'selected' : '';
+                    return `<option value="${escapeHtml(label)}" ${selected}>${escapeHtml(label)}</option>`;
+                })
+            ].join('');
+        }
+
+        function onExtractionViewChange(optionId) {
+            const viewSel = document.getElementById(`ext-view-${optionId}`);
+            const famSel = document.getElementById(`ext-family-${optionId}`);
+            if (!viewSel || !famSel) return;
+            famSel.innerHTML = buildFamilyOptionsHtml(viewSel.value, '');
+        }
+
+        async function saveExtractionRow(optionId) {
+            const record = findOptionRecordById(optionId);
+            if (!record) {
+                showAlert('Option introuvable', 'error');
+                return;
+            }
+            const nameInput = document.getElementById(`ext-name-${optionId}`);
+            const refInput = document.getElementById(`ext-ref-${optionId}`);
+            const pcInput = document.getElementById(`ext-pc-${optionId}`);
+            const puInput = document.getElementById(`ext-pu-${optionId}`);
+
+            const parseNumOrNull = (v) => {
+                const s = String(v ?? '').trim().replace(',', '.');
+                if (!s) return null;
+                const n = Number(s);
+                return Number.isFinite(n) ? n : null;
+            };
+
+            const mergedOption = {
+                ...(record.option || {}),
+                name: String(nameInput?.value || record.option?.name || '').trim(),
+                refUgap: String(refInput?.value || '').trim(),
+                priceClient: parseNumOrNull(pcInput?.value),
+                priceUgap: parseNumOrNull(puInput?.value),
+                isDivers: extractionActiveSubtab === 'divers'
+                    ? true
+                    : (extractionActiveSubtab === 'option' ? false : !!record.option?.isDivers),
+                category: String(record.option?.category || record.category?.name || '')
+            };
+
+            try {
+                await apiCall(`/options/${optionId}`, {
+                    method: 'PUT',
+                    body: JSON.stringify(mergedOption)
+                });
+
+                await loadData(true);
+                renderExtractionInsights();
+                showAlert('Ligne enregistrée', 'success');
+            } catch (error) {
+                showAlert('Erreur enregistrement ligne: ' + error.message, 'error');
+            }
+        }
+
+        function renderEditableExtractionRows(options, emptyLabel) {
+            if (!Array.isArray(options) || options.length === 0) {
+                return `<tr><td colspan="5" style="padding:10px; color:#666; text-align:center;">${escapeHtml(emptyLabel || 'Aucune donnée')}</td></tr>`;
+            }
+            return options.map((opt) => {
+                const optionId = String(opt?.id || '').trim();
+                const record = findOptionRecordById(optionId);
+                if (!record) return '';
+                return `
+                    <tr>
+                        <td style="padding:8px; border-bottom:1px solid #eee;">
+                            <input id="ext-name-${optionId}" value="${escapeHtml(opt?.name || '')}" style="width:100%; padding:6px; border:1px solid #ddd; border-radius:4px;">
+                        </td>
+                        <td style="padding:8px; border-bottom:1px solid #eee;"><input id="ext-pc-${optionId}" value="${escapeHtml(opt?.priceClient ?? '')}" style="width:110px; padding:6px; border:1px solid #ddd; border-radius:4px;"></td>
+                        <td style="padding:8px; border-bottom:1px solid #eee;"><input id="ext-pu-${optionId}" value="${escapeHtml(opt?.priceUgap ?? '')}" style="width:110px; padding:6px; border:1px solid #ddd; border-radius:4px;"></td>
+                        <td style="padding:8px; border-bottom:1px solid #eee;"><input id="ext-ref-${optionId}" value="${escapeHtml(opt?.refUgap || '')}" style="width:130px; padding:6px; border:1px solid #ddd; border-radius:4px;"></td>
+                        <td style="padding:8px; border-bottom:1px solid #eee; text-align:center;">
+                            <button class="btn btn-outline" onclick="saveExtractionRow('${optionId}')">Enregistrer</button>
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+        }
+
+        // Compatibilité: certains écrans de synthèse utilisent encore un rendu simple à 2 colonnes.
         function renderOptionRows(options, emptyLabel) {
             if (!Array.isArray(options) || options.length === 0) {
                 return `<tr><td colspan="2" style="padding:10px; color:#666; text-align:center;">${escapeHtml(emptyLabel || 'Aucune donnée')}</td></tr>`;
             }
-
             return options.map(opt => `
                 <tr>
-                    <td style="padding: 8px; border-bottom: 1px solid #eee;">${escapeHtml(opt.name || '-')}</td>
-                    <td style="padding: 8px; border-bottom: 1px solid #eee; color: #666;">${escapeHtml(opt.categoryName || '-')}</td>
+                    <td style="padding: 8px; border-bottom: 1px solid #eee;">${escapeHtml(opt?.name || '-')}</td>
+                    <td style="padding: 8px; border-bottom: 1px solid #eee; color: #666;">${escapeHtml(opt?.refUgap || '-')}</td>
                 </tr>
             `).join('');
         }
@@ -6472,6 +9379,41 @@ Format:
             }
         }
 
+        function getFamilleChoicesForOptionTab() {
+            const heuristics = getFamilleHeuristicRules();
+            return Array.from(new Set(
+                (Array.isArray(heuristics) ? heuristics : [])
+                    .map((r) => {
+                        const full = String(r?.familyLabel || '').trim();
+                        if (!full) return '';
+                        const parts = full.split(' / ').map((x) => String(x || '').trim()).filter(Boolean);
+                        return parts.length ? parts[0] : full;
+                    })
+                    .filter(Boolean)
+            )).sort((a, b) => a.localeCompare(b, 'fr', { sensitivity: 'base' }));
+        }
+
+        function getFamilleSubFamilyMapForOptionTab() {
+            const heuristics = getFamilleHeuristicRules();
+            const byParent = new Map();
+            (Array.isArray(heuristics) ? heuristics : []).forEach((r) => {
+                const full = String(r?.familyLabel || '').trim();
+                if (!full) return;
+                const parts = full.split(' / ').map((x) => String(x || '').trim()).filter(Boolean);
+                if (parts.length < 2) return;
+                const parent = parts[0];
+                const subPath = parts.slice(1).join(' / ');
+                if (!parent || !subPath) return;
+                if (!byParent.has(parent)) byParent.set(parent, new Set());
+                byParent.get(parent).add(subPath);
+            });
+            const out = new Map();
+            byParent.forEach((setVals, parent) => {
+                out.set(parent, Array.from(setVals).sort((a, b) => a.localeCompare(b, 'fr', { sensitivity: 'base' })));
+            });
+            return out;
+        }
+
         function getFamilleValidatedFamilies() {
             try {
                 const raw = localStorage.getItem('ugap.famille.validatedFamilies');
@@ -6485,6 +9427,7 @@ Format:
         function setFamilleValidatedFamilies(families) {
             try {
                 localStorage.setItem('ugap.famille.validatedFamilies', JSON.stringify(Array.isArray(families) ? families : []));
+                scheduleUiStatePersistence();
             } catch (_) {
                 // no-op
             }
@@ -6608,6 +9551,7 @@ Format:
                     optionIds: selected,
                     optionLabels,
                     defaultOptionId: f.defaultOptionId,
+                    uniqueChoice: !!f.uniqueChoice,
                     businessViewId: String(f.businessViewId || '').trim(),
                     businessViewLabel: viewNameById.get(String(f.businessViewId || '').trim()) || ''
                 };
@@ -6627,7 +9571,8 @@ Format:
                     subFamilyLabel: String(f?.subFamilyLabel || '').trim(),
                     optionIds: ids.slice(),
                     selectedOptionIds: ids.slice(),
-                    defaultOptionId: String(f?.defaultOptionId || '').trim() || (ids[0] || '')
+                    defaultOptionId: String(f?.defaultOptionId || '').trim() || (ids[0] || ''),
+                    uniqueChoice: !!f?.uniqueChoice
                 };
             };
             return [
@@ -6653,6 +9598,7 @@ Format:
                 const entry = { familyLabel: label, optionIds: selected };
                 const def = String(f.defaultOptionId || '').trim();
                 if (def && selected.includes(def)) entry.defaultOptionId = def;
+                entry.uniqueChoice = !!f.uniqueChoice;
                 merged.push(entry);
             });
             window.__ugapFamilleIa = { families: merged };
@@ -6677,6 +9623,16 @@ Format:
                 };
             }
             return window.__ugapFamilleValidatedFilter;
+        }
+
+        function getFamilleRawListFilterState() {
+            if (!window.__ugapFamilleRawFilter) {
+                window.__ugapFamilleRawFilter = {
+                    search: '',
+                    onlyUnassigned: false
+                };
+            }
+            return window.__ugapFamilleRawFilter;
         }
 
         function parseValidatedFamilyLabel(rawLabel) {
@@ -6767,6 +9723,7 @@ Format:
                     optionIds: ids.slice(),
                     selectedOptionIds: ids.slice(),
                     defaultOptionId: String(entry.defaultOptionId || '').trim() || (ids[0] || ''),
+                    uniqueChoice: !!entry.uniqueChoice,
                     optionLabels: rebuiltLabels,
                     businessViewId: String(entry.businessViewId || '').trim(),
                     businessViewIds: String(entry.businessViewId || '').trim() ? [String(entry.businessViewId || '').trim()] : []
@@ -7662,66 +10619,13 @@ Format:
         }
 
         function renderFamilyCardsList(families, byId, sourceKey, allFamilies) {
-            if (!Array.isArray(families) || families.length === 0) {
-                return '<p style="color:#666; margin:0;">Aucune famille.</p>';
+            if (window.UgapFamilleTab?.renderFamilyCardsList) {
+                return window.UgapFamilleTab.renderFamilyCardsList(families, byId, sourceKey, allFamilies);
             }
-            const ui = getFamilleUiState();
-            const familyStageValidated = true;
-            const review = window.__ugapFamilleReview || {};
-            const allNames = Array.from(new Set((review.editFamilies || []).map((x) => String(x.familyLabel || '').trim()).filter(Boolean)));
-            return families.map((f) => {
-                if ((ui.hiddenIds || []).includes(f.reviewId)) return '';
-                const label = f.familyLabel || 'Famille';
-                const lockBadge = isFamNameOptionsLocked(f)
-                    ? '<span style="display:inline-block; padding:2px 6px; border-radius:999px; background:#fff3cd; color:#856404; font-size:9px; font-weight:700; border:1px solid #ffe69c;">Verrouillée</span>'
-                    : '';
-                const ids = Array.isArray(f.optionIds) ? f.optionIds : [];
-                const defId = f.defaultOptionId != null && String(f.defaultOptionId).trim() !== '' ? String(f.defaultOptionId).trim() : null;
-                const rows = ids.map((id) => byId.get(id)).filter(Boolean);
-                const isChild = !!f.parentReviewId;
-                const childOffset = isChild ? 'margin-left:14px;' : '';
-                const existingSubs = Array.from(new Set(Object.values(f.optionSubFamilies || {}).map((x) => String(x || '').trim()).filter(Boolean)));
-                const subChoices = Array.from(new Set([...allNames, ...existingSubs])).sort((a, b) => a.localeCompare(b, 'fr', { sensitivity: 'base' }));
-                const rowsHtml = rows.map((row) => {
-                    const curSub = String((f.optionSubFamilies && f.optionSubFamilies[row.id]) || '').trim();
-                    return `
-                    <tr style="white-space:nowrap;">
-                        <td style="padding:4px 6px; border-bottom:1px solid #eee; font-size:11px; width:26px; text-align:center; vertical-align:middle;">
-                            ${familyStageValidated ? `<input type="checkbox" class="fam-option-cb" data-review-id="${escapeHtml(f.reviewId || '')}" data-option-id="${escapeHtml(row.id || '')}" ${(Array.isArray(f.selectedOptionIds) ? f.selectedOptionIds : []).includes(row.id) ? 'checked' : ''}>` : ''}
-                        </td>
-                        <td style="padding:4px 6px; border-bottom:1px solid #eee; font-size:11px; overflow:hidden; text-overflow:ellipsis; max-width:min(380px,50vw); vertical-align:middle;" draggable="${familyStageValidated ? 'true' : 'false'}" data-option-drag-id="${escapeHtml(row.id || '')}" data-option-from-family="${escapeHtml(f.reviewId || '')}" title="${escapeHtml(row.name || '')}">${escapeHtml(row.lineKindLabel || '')} · ${escapeHtml(row.name || '—')}${defId === row.id ? ' <span style="font-size:10px; color:#664d03;">(défaut)</span>' : ''}</td>
-                        <td style="padding:4px 6px; border-bottom:1px solid #eee; font-size:11px; width:130px; vertical-align:middle;">
-                            <select class="fam-card-sub-select" data-review-id="${escapeHtml(f.reviewId || '')}" data-option-id="${escapeHtml(row.id || '')}" style="width:100%; max-width:124px; padding:3px 4px; font-size:11px; border:1px solid #ddd; border-radius:4px; box-sizing:border-box;">
-                                <option value="">Aucune</option>
-                                ${subChoices.map((s) => `<option value="${escapeHtml(s)}" ${curSub === s ? 'selected' : ''}>${escapeHtml(s)}</option>`).join('')}
-                            </select>
-                        </td>
-                    </tr>`;
-                }).join('');
-                const labelReadonly = f.source === 'ia' ? '' : 'readonly';
-                return `
-                    <div class="fam-review-card" draggable="true" data-review-id="${escapeHtml(f.reviewId || '')}" style="margin-bottom:8px; border:1px solid #ddd; border-radius:6px; overflow:hidden; background:#fff; ${childOffset}">
-                        <div class="fam-card-header" style="padding:6px 8px; background:#f8f9fa; border-bottom:1px solid #eee; display:flex; justify-content:space-between; align-items:center; gap:6px; flex-wrap:wrap;">
-                            <label style="display:flex; align-items:center; gap:6px; margin:0; cursor:pointer; flex-shrink:0;" title="Fusion">
-                                <input type="checkbox" class="fam-col-merge-cb" data-merge-col="${escapeHtml(sourceKey)}" data-review-id="${escapeHtml(f.reviewId || '')}" value="${escapeHtml(f.reviewId || '')}">
-                            </label>
-                            <div style="display:flex; align-items:center; gap:6px; margin:0; flex:1; flex-wrap:wrap; min-width:0;">
-                                <strong style="font-size:11px; flex-shrink:0;">Famille</strong>
-                                ${lockBadge}
-                                <input type="text" class="fam-label-input" data-review-id="${escapeHtml(f.reviewId || '')}" value="${escapeHtml(label)}" style="padding:3px 6px; border:1px solid #ddd; border-radius:4px; font-size:11px; min-width:120px; flex:1;" ${labelReadonly}>
-                            </div>
-                            <span style="font-size:10px; color:#666; white-space:nowrap;">${ids.length} ligne(s)</span>
-                        </div>
-                        <div style="padding:6px 8px; max-height:26vh; overflow:auto;">
-                            <table style="width:100%; border-collapse:collapse;"><tbody>${rowsHtml || '<tr><td colspan="3" style="padding:6px; color:#999;">Aucune ligne</td></tr>'}</tbody></table>
-                        </div>
-                        <p style="margin:0; padding:3px 8px 5px; font-size:9px; color:#888;">Glisser carte sur carte : sous-famille · double-clic : panneau d’édition</p>
-                    </div>
-                `;
-            }).join('');
+            return '<p style="color:#666; margin:0;">Aucune famille.</p>';
         }
 
-        function renderFamilleTabInner(splitOptions) {
+        function __legacyRenderFamilleTabInner(splitOptions) {
             pruneFamilleMergePick();
             if (!window.__ugapFamilleRepassIndices) window.__ugapFamilleRepassIndices = new Set();
             const combined = buildFamilleCombinedRows(splitOptions);
@@ -7740,6 +10644,9 @@ Format:
             const showNonAssigned = !!filterState.showNonAssigned;
             const selectedFamilyName = String(filterState.familyName || '').trim();
             const selectedSubFamilyName = String(filterState.subFamilyName || '').trim();
+            const rawFilter = getFamilleRawListFilterState();
+            const rawSearch = String(rawFilter.search || '').trim().toLowerCase();
+            const rawOnlyUnassigned = !!rawFilter.onlyUnassigned;
             const parsedValidatedFamilies = validatedFamilies.map((f) => parseValidatedFamilyLabel(f?.familyLabel || ''));
             const familyChoices = Array.from(
                 new Set(parsedValidatedFamilies.map((x) => x.familyName).filter(Boolean))
@@ -7768,15 +10675,41 @@ Format:
                 return `<option value="${escapeHtml(f.reviewId)}">${escapeHtml(f.familyLabel || 'Famille')} (${n} él.)</option>`;
             }).join('');
 
-            const flatBody = combined.length === 0
-                ? '<tr><td colspan="6" style="padding:14px; color:#666;">Aucune ligne.</td></tr>'
-                : combined.map((row) => `
+            const rawFamilyChoices = Array.from(new Set(
+                validatedFamilies.map((f) => String(f?.familyLabel || '').trim()).filter(Boolean)
+            )).sort((a, b) => a.localeCompare(b, 'fr', { sensitivity: 'base' }));
+
+            const combinedFiltered = (combined || []).filter((row) => {
+                const label = String(row?.name || '').toLowerCase();
+                const ref = String(row?.refUgap || '').toLowerCase();
+                const view = String(row?.categoryName || '').toLowerCase();
+                const fam = String(getSelectedFamilyLabelForOption(row?.id, row?.familyLabel) || '').toLowerCase();
+                if (rawOnlyUnassigned && !!fam) return false;
+                if (!rawSearch) return true;
+                return label.includes(rawSearch) || ref.includes(rawSearch) || view.includes(rawSearch) || fam.includes(rawSearch);
+            });
+            const unassignedRowsForAssignment = (combined || []).filter((row) => {
+                const selectedFamily = String(getSelectedFamilyLabelForOption(row?.id, row?.familyLabel) || '').trim();
+                if (selectedFamily) return false;
+                if (!rawSearch) return true;
+                const label = String(row?.name || '').toLowerCase();
+                const ref = String(row?.refUgap || '').toLowerCase();
+                const view = String(row?.categoryName || '').toLowerCase();
+                return label.includes(rawSearch) || ref.includes(rawSearch) || view.includes(rawSearch);
+            });
+
+            const flatBody = combinedFiltered.length === 0
+                ? '<tr><td colspan="7" style="padding:14px; color:#666;">Aucune ligne pour ce filtre.</td></tr>'
+                : combinedFiltered.map((row) => `
                     <tr>
                         <td style="padding:8px; border-bottom:1px solid #eee; white-space:nowrap;">
                             <span style="display:inline-block; padding:2px 8px; border-radius:4px; font-size:12px; font-weight:600; color:#fff; background:${row.lineKind === 'mino' ? '#6f42c1' : '#0d6efd'};">${escapeHtml(row.lineKindLabel)}</span>
                         </td>
                         <td style="padding:8px; border-bottom:1px solid #eee;">${escapeHtml(row.name || '—')}</td>
                         <td style="padding:8px; border-bottom:1px solid #eee; color:#666;">${escapeHtml(row.categoryName || '—')}</td>
+                        <td style="padding:8px; border-bottom:1px solid #eee; color:${getSelectedFamilyLabelForOption(row.id, row.familyLabel) ? '#111827' : '#9ca3af'};">
+                            ${escapeHtml(getSelectedFamilyLabelForOption(row.id, row.familyLabel) || 'Non attribuée')}
+                        </td>
                         <td style="padding:8px; border-bottom:1px solid #eee; text-align:right;">${formatPriceUgapCell(row.priceClient)}</td>
                         <td style="padding:8px; border-bottom:1px solid #eee; text-align:right;">${formatPriceUgapCell(row.priceUgap)}</td>
                         <td style="padding:8px; border-bottom:1px solid #eee; color:#666; font-size:12px;">${escapeHtml(row.refUgap || '—')}</td>
@@ -7804,13 +10737,121 @@ Format:
                     if (!showNonAssigned && !fv) return false;
                     return true;
                 });
+            const heurUiState = getFamilleHeuristicUiState();
+            const collapsedParents = heurUiState.collapsedParents && typeof heurUiState.collapsedParents === 'object'
+                ? heurUiState.collapsedParents
+                : {};
+            const heurViewAssignments = getFamilleHeuristicViewAssignments();
+            const rowsByLabel = new Map();
+            const childrenByParent = new Map();
+            const roots = [];
+            rules.forEach((r, idx) => {
+                const fullLabel = String(r?.familyLabel || '').trim();
+                if (!fullLabel) return;
+                const parts = fullLabel.split(' / ').map((x) => String(x || '').trim()).filter(Boolean);
+                const parentLabel = parts.length > 1 ? parts.slice(0, -1).join(' / ') : '';
+                rowsByLabel.set(fullLabel, { r, idx, fullLabel, parts, parentLabel });
+                if (parentLabel) {
+                    if (!childrenByParent.has(parentLabel)) childrenByParent.set(parentLabel, []);
+                    childrenByParent.get(parentLabel).push(fullLabel);
+                } else {
+                    roots.push(fullLabel);
+                }
+            });
+            const sortLabels = (labels) => labels.sort((a, b) => {
+                const aLeaf = String(a.split(' / ').pop() || a);
+                const bLeaf = String(b.split(' / ').pop() || b);
+                return aLeaf.localeCompare(bLeaf, 'fr', { sensitivity: 'base' });
+            });
+            sortLabels(roots);
+            childrenByParent.forEach((arr) => sortLabels(arr));
+            const renderHeurRowTree = (label, hiddenByAncestor) => {
+                const rowData = rowsByLabel.get(label);
+                if (!rowData) return '';
+                const { r, idx, fullLabel, parts } = rowData;
+                const depth = Math.max(0, parts.length - 1);
+                const leafLabel = parts.length ? parts[parts.length - 1] : (fullLabel || 'Famille');
+                const children = childrenByParent.get(fullLabel) || [];
+                const hasChildren = children.length > 0;
+                const isCollapsed = !!collapsedParents[fullLabel];
+                const indentPx = depth * 14;
+                const bg = depth > 0 ? '#ffffff' : '#ffffff';
+                const leftBar = depth > 0 ? '#dbeafe' : '#eef2f7';
+                const levelBadge = depth > 0
+                    ? `<span style="display:inline-flex; align-items:center; padding:1px 6px; border-radius:999px; font-size:10px; font-weight:600; color:#1d4ed8; background:#e0ecff; border:1px solid #bfdbfe;">Sous-famille</span>`
+                    : `<span style="display:inline-flex; align-items:center; padding:1px 6px; border-radius:999px; font-size:10px; font-weight:600; color:#334155; background:#f1f5f9; border:1px solid #e2e8f0;">Famille</span>`;
+                const assignedRaw = heurViewAssignments[fullLabel];
+                const assignedViews = Array.isArray(assignedRaw)
+                    ? assignedRaw
+                    : (assignedRaw && typeof assignedRaw === 'object' && assignedRaw.viewId
+                        ? [assignedRaw]
+                        : []);
+                const viewTags = assignedViews.map((av) => {
+                    const assignedViewId = String(av?.viewId || '').trim();
+                    const assignedViewLabel = String(av?.viewLabel || '').trim();
+                    if (!assignedViewId || !assignedViewLabel) return '';
+                    return `<span style="display:inline-flex; align-items:center; gap:6px; padding:1px 6px; border-radius:999px; font-size:10px; font-weight:600; color:#155e75; background:#ecfeff; border:1px solid #a5f3fc;">
+                        <span>${escapeHtml(assignedViewLabel)}</span>
+                        <button type="button" class="fam-heur-view-clear" data-family-key="${escapeHtml(fullLabel)}" data-view-id="${escapeHtml(assignedViewId)}" title="Retirer la vue métier" style="border:none; background:transparent; color:#0f766e; cursor:pointer; font-size:12px; line-height:1; padding:0;">✕</button>
+                    </span>`;
+                }).filter(Boolean).join('');
+                const viewSelectHtml = `
+                    <select class="fam-heur-view-select" data-family-key="${escapeHtml(fullLabel)}" style="min-width:190px; max-width:260px; padding:4px 6px; border:1px solid #cbd5e1; border-radius:6px; font-size:11px; color:#334155; background:#fff;">
+                        <option value="">-- Vue métier --</option>
+                        ${businessViews.map((v) => `<option value="${escapeHtml(String(v.id || ''))}">${escapeHtml(v.label || 'Vue métier')}</option>`).join('')}
+                    </select>`;
+                const rowHtml = `
+                    <div class="fam-heur-row" draggable="true" data-fam-heur-index="${idx}" data-family-key="${escapeHtml(fullLabel)}" data-family-label="${escapeHtml(fullLabel)}" style="display:flex; justify-content:space-between; gap:8px; align-items:center; padding:8px 10px 8px ${10 + indentPx}px; cursor:move; background:${bg}; border-left:3px solid ${leftBar}; border-radius:6px;">
+                        <div style="display:flex; align-items:flex-start; gap:8px; min-width:0;">
+                            <span style="color:#94a3b8; font-size:14px; line-height:1.2; margin-top:1px;" title="Glisser pour réordonner / déposer sur une famille">⋮⋮</span>
+                            ${hasChildren
+                                ? `<button type="button" class="btn btn-outline fam-heur-toggle" data-family-key="${escapeHtml(fullLabel)}" style="padding:2px 6px; font-size:10px; line-height:1; min-width:24px;">${isCollapsed ? '▸' : '▾'}</button>`
+                                : `<span style="display:inline-block; width:24px;"></span>`}
+                            <div style="min-width:0;">
+                                <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
+                                    <strong style="display:block; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${escapeHtml(leafLabel)}</strong>
+                                    ${levelBadge}
+                                    ${viewTags}
+                                </div>
+                                <span style="color:#666;">(${escapeHtml(r.scope || 'all')})</span>
+                                <div style="color:#666; font-size:12px;">${escapeHtml(r.keywords || '')}</div>
+                            </div>
+                        </div>
+                        <div style="display:flex; gap:6px;">
+                            ${viewSelectHtml}
+                            <button type="button" class="btn btn-outline" data-edit-fam-heur="${idx}">Affecter options</button>
+                            <button type="button" class="btn btn-outline" data-del-fam-heur="${idx}">Supprimer</button>
+                        </div>
+                    </div>
+                `;
+                const childrenHtml = children.map((childLabel) => renderHeurRowTree(childLabel, hiddenByAncestor || isCollapsed)).join('');
+                const branchStyle = hasChildren
+                    ? 'border:1px solid #dbeafe; border-radius:10px; background:#f8fbff; margin:8px 0; padding:8px;'
+                    : 'margin:6px 0;';
+                const childrenWrapStyle = hasChildren
+                    ? `display:${isCollapsed ? 'none' : 'block'}; margin-left:20px; margin-top:6px; padding-left:8px; border-left:2px solid #bfdbfe;`
+                    : '';
+                if (hasChildren) {
+                    return `
+                        <div style="display:${hiddenByAncestor ? 'none' : 'block'}; ${branchStyle}">
+                            ${rowHtml}
+                            <div style="${childrenWrapStyle}">
+                                ${childrenHtml}
+                            </div>
+                        </div>
+                    `;
+                }
+                return `<div style="display:${hiddenByAncestor ? 'none' : 'block'}; ${branchStyle}">${rowHtml}</div>`;
+            };
+            const heurRowsHtml = nRules === 0
+                ? '<span style="color:#666;">Aucune règle heuristique pour le moment.</span>'
+                : roots.map((rootLabel) => renderHeurRowTree(rootLabel, false)).join('');
 
             return `
                 <div class="famille-tab-root" style="padding-bottom:32px;">
-                <div style="padding:4px 0 14px 0; color:#444; font-size:14px; line-height:1.5;">
-                    <p style="margin:0 0 10px 0;">Les onglets <em>Option</em> et <em>Minoration</em> restent inchangés. Ici, vous pouvez créer des <strong>familles heuristiques</strong> (mots-clés) puis compléter avec l’IA.</p>
-                </div>
-                <div style="margin-bottom:12px; border:1px solid #e9ecef; border-radius:8px; padding:10px; background:#fafbfc;">
+                <div style="margin-bottom:12px; border:1px solid #e2e8f0; border-radius:10px; padding:12px; background:#fafbfc;">
+                    <div style="font-weight:600; margin-bottom:6px;">Création de familles (règles heuristiques)</div>
+                    <div style="color:#666; font-size:13px; margin-bottom:12px;">Créez et éditez vos règles de regroupement manuelles.</div>
                     <div style="display:flex; flex-wrap:wrap; gap:8px; align-items:end; margin-bottom:8px;">
                         <div style="min-width:220px; flex:1;">
                             <label style="display:block; font-size:12px; color:#555; margin-bottom:4px;">Nom de famille</label>
@@ -7832,185 +10873,49 @@ Format:
                         <button type="button" class="btn btn-outline" id="btn-cancel-fam-heur-edit" style="display:none;">Annuler édition</button>
                     </div>
                     <div id="fam-heur-list" style="font-size:13px; color:#444;">
-                        ${nRules === 0
-                            ? '<span style="color:#666;">Aucune règle heuristique pour le moment.</span>'
-                            : rules.map((r, idx) => `
-                                <div style="display:flex; justify-content:space-between; gap:8px; align-items:center; border-top:1px solid #eee; padding:8px 0;">
-                                    <div>
-                                        <strong>${escapeHtml(r.familyLabel || 'Famille')}</strong>
-                                        <span style="color:#666;">(${escapeHtml(r.scope || 'all')})</span>
-                                        <div style="color:#666; font-size:12px;">${escapeHtml(r.keywords || '')}</div>
-                                    </div>
-                                    <div style="display:flex; gap:6px;">
-                                        <button type="button" class="btn btn-outline" data-edit-fam-heur="${idx}">Modifier</button>
-                                        <button type="button" class="btn btn-outline" data-del-fam-heur="${idx}">Supprimer</button>
-                                    </div>
-                                </div>
-                            `).join('')}
+                        ${heurRowsHtml}
                     </div>
-                </div>
                 <div style="display:flex; flex-wrap:wrap; align-items:center; gap:10px; margin-bottom:12px;">
                     <span class="badge">${nOpt} option(s)</span>
                     <span class="badge" style="background:#6f42c1;">${nMino} minoration / MV / PV</span>
                     <span class="badge" style="background:#198754;">${combined.length} ligne(s) envoyées à l’IA</span>
                     <span class="badge" style="background:#6c757d;">${nRules} règle(s)</span>
                     ${nFamIa ? `<span class="badge" style="background:#0d6efd;">${nFamIa} famille(s) IA</span>` : ''}
-                    <button type="button" class="btn btn-primary" id="btn-run-famille-traitement">Détecter familles</button>
                     <button type="button" class="btn btn-success" id="btn-validate-family-stage" title="Enregistre heuristique + IA + réglages manuels (familles affichées ci-dessous)">Enregistrer</button>
                     <button type="button" class="btn btn-outline" id="btn-fam-show-all">Afficher tout</button>
                     <button type="button" class="btn btn-outline" id="btn-fam-reset-view">Réinitialiser affichage</button>
                     <button type="button" class="btn btn-outline" onclick="window.__ugapFamilleIa=null; renderExtractionInsights();" title="Effacer le résultat IA affiché">Réinitialiser l’affichage IA</button>
                 </div>
-                <div style="display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:10px; margin:16px 0 10px 0;">
-                    <h4 style="margin:0; font-size:15px; color:#333;">Zone familles (grille + liste)</h4>
-                    <button type="button" class="btn btn-outline" id="btn-fam-merge-grid-selection" style="font-size:12px;">Fusionner la sélection (grille)…</button>
+                <div style="margin:0 0 12px 0; padding:10px; border:1px solid #93c5fd; border-radius:8px; background:#eff6ff; display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+                    <strong style="font-size:12px; color:#1e3a8a;">Assignation vue métier (famille + sous-familles)</strong>
+                    <select id="fam-assign-tree-family" style="min-width:260px; padding:6px; border:1px solid #cbd5e1; border-radius:6px;">
+                        <option value="">-- Choisir une famille --</option>
+                        ${Array.from(new Set(
+                            rules.map((r) => String(r?.familyLabel || '').trim()).filter(Boolean)
+                        )).sort((a, b) => a.localeCompare(b, 'fr', { sensitivity: 'base' }))
+                            .map((name) => `<option value="${escapeHtml(name)}">${escapeHtml(name)}</option>`).join('')}
+                    </select>
+                    <select id="fam-assign-tree-view" style="min-width:230px; padding:6px; border:1px solid #cbd5e1; border-radius:6px;">
+                        <option value="">-- Choisir une vue métier --</option>
+                        ${businessViews.map((v) => `<option value="${escapeHtml(String(v.id || ''))}">${escapeHtml(v.label || 'Vue métier')}</option>`).join('')}
+                    </select>
+                    <button type="button" class="btn btn-outline" id="btn-fam-assign-tree">Affecter récursivement</button>
+                    <span style="font-size:12px; color:#475569;">Action disponible dans l’onglet Famille.</span>
                 </div>
-                <p style="margin:0 0 8px 0; font-size:12px; color:#666;">Cochez la case pour la fusion ; double-clic sur une carte pour ouvrir l’édition dans le panneau ci-dessous.</p>
-                <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(260px, 1fr)); gap:10px; margin-bottom:12px; align-items:stretch;">
-                    ${editFamilies.length === 0
-                        ? '<span style="color:#666;">Aucune famille détectée.</span>'
-                        : editFamilies.map((f) => `
-                            <div class="fam-name-card" data-review-id="${escapeHtml(f.reviewId || '')}" title="Case à cocher = fusion · Double-clic = éditer" draggable="true"
-                                 style="position:relative; padding:10px 12px 10px 36px; border:1px solid #ddd; border-radius:8px; background:#fff; cursor:pointer; user-select:none; min-height:64px; display:flex; flex-direction:column; justify-content:space-between; gap:6px;">
-                                <label class="fam-grid-merge-label" style="position:absolute; left:8px; top:10px; margin:0; cursor:pointer;">
-                                    <input type="checkbox" class="fam-grid-merge-cb" data-review-id="${escapeHtml(f.reviewId || '')}" value="${escapeHtml(f.reviewId || '')}">
-                                </label>
-                                <strong style="font-size:13px; line-height:1.3;">${escapeHtml(f.familyLabel || 'Famille')}</strong>
-                                <span style="font-size:11px; color:#666;">${(f.optionIds || []).length} élément(s)</span>
-                            </div>
-                        `).join('')}
-                </div>
-                <div style="margin:16px 0;">
-                    <h4 style="margin:0 0 8px 0; font-size:14px; color:#333;">Familles en cours (révision)</h4>
-                    <p style="margin:0 0 8px 0; font-size:12px; color:#666;">Une ligne par option ; sous-catégorie compacte. Glisser-déposer les cartes ou les lignes comme avant.</p>
-                    <div id="fam-unified-revision-list" style="max-height:40vh; overflow:auto; border:1px solid #dee2e6; border-radius:8px; padding:8px; background:#fff;">
-                        ${editFamilies.length ? renderFamilyCardsList(editFamilies, byId, 'heur', editFamilies) : '<span style="color:#666; font-size:13px;">Aucune famille dans la révision.</span>'}
-                    </div>
-                </div>
-                <div id="fam-inline-editor-wrap" style="margin:16px 0;">
-                    <h4 style="margin:0 0 8px 0; font-size:14px; color:#333;">Édition détaillée (double-clic sur une famille)</h4>
-                    <div id="fam-inline-editor-mount" style="border:1px solid #dee2e6; border-radius:10px; padding:12px; background:#f8f9fa; min-height:100px;">
-                        <p style="margin:0; color:#888; font-size:13px;">Double-cliquez une carte famille dans la grille ou la liste pour afficher l’édition ici.</p>
-                    </div>
-                </div>
-                <div style="margin:0 0 14px 0; padding:12px; border:1px solid #e3f2fd; border-radius:8px; background:#f8fbff;">
-                    <div style="font-size:14px; font-weight:600; color:#0d47a1; margin-bottom:6px;">Fusionner deux familles</div>
-                    <p style="margin:0 0 10px 0; font-size:12px; color:#555;">Les options de la <strong>source</strong> sont ajoutées à la <strong>cible</strong> ; la source est supprimée. Le nom et la colonne conservés sont ceux de la cible.</p>
-                    ${editFamilies.length < 2
-                        ? '<p style="margin:0; font-size:12px; color:#666;">Au moins deux familles sont nécessaires pour fusionner.</p>'
-                        : `<div style="display:flex; flex-wrap:wrap; gap:10px; align-items:flex-end;">
-                            <div style="min-width:200px; flex:1;">
-                                <label style="display:block; font-size:12px; color:#555; margin-bottom:4px;">Source (supprimée)</label>
-                                <select id="fam-merge-source" style="width:100%; padding:8px; border:1px solid #ddd; border-radius:4px; font-size:13px;">${mergeOpts}</select>
-                            </div>
-                            <div style="min-width:200px; flex:1;">
-                                <label style="display:block; font-size:12px; color:#555; margin-bottom:4px;">Cible (conservée)</label>
-                                <select id="fam-merge-target" style="width:100%; padding:8px; border:1px solid #ddd; border-radius:4px; font-size:13px;">${mergeOpts}</select>
-                            </div>
-                            <button type="button" class="btn btn-primary" id="btn-fam-merge">Fusionner</button>
-                        </div>`}
-                </div>
-                <div style="margin:20px 0 16px; padding:14px; border:1px solid #dee2e6; border-radius:10px; background:#f8f9fa;">
-                    <div style="display:flex; flex-wrap:wrap; justify-content:space-between; align-items:center; gap:10px; margin-bottom:10px;">
-                        <div>
-                            <strong style="font-size:15px; color:#333;">Familles enregistrées</strong>
-                            <p style="margin:4px 0 0; font-size:12px; color:#555; max-width:920px;">Glissez une famille enregistrée sur une carte <strong>vue métier</strong> (colonne gauche sticky) pour l’assigner. Cliquez une vue métier pour filtrer instantanément.</p>
-                        </div>
-                    </div>
-                    <div style="display:grid; grid-template-columns:minmax(220px,260px) 1fr; gap:14px; align-items:start;">
-                        <aside style="position:sticky; top:12px; align-self:start; border:1px solid #dbe3ea; border-radius:8px; background:#fff; padding:10px; max-height:66vh; overflow:auto;">
-                            <div style="font-size:12px; font-weight:700; color:#334155; margin-bottom:8px;">Vues métier</div>
-                            ${businessViews.length === 0
-                                ? '<div style="font-size:12px; color:#888;">Aucune vue métier disponible.</div>'
-                                : businessViews.map((v) => `
-                                    <div class="fam-business-view-card" data-view-id="${escapeHtml(v.id)}" title="Cliquer = filtrer · déposer famille = assigner"
-                                         style="margin-bottom:8px; padding:8px 10px; border:1px solid ${selectedBusinessViewId === v.id ? '#2563eb' : '#cbd5e1'}; border-radius:8px; background:${selectedBusinessViewId === v.id ? '#eff6ff' : '#f8fafc'}; cursor:pointer;">
-                                        <strong style="display:block; font-size:12px; color:#0f172a;">${escapeHtml(v.label)}</strong>
-                                    </div>
-                                `).join('')}
-                        </aside>
-                        <div>
-                            <div style="display:flex; flex-wrap:wrap; gap:10px; align-items:flex-end; margin-bottom:10px;">
-                                <div style="min-width:230px;">
-                                    <label style="display:block; font-size:12px; color:#555; margin-bottom:4px;">Filtrer par vue métier</label>
-                                    <select id="fam-validated-filter-view" style="width:100%; padding:7px 8px; border:1px solid #cbd5e1; border-radius:6px; font-size:12px;">
-                                        <option value="">Toutes les vues métier</option>
-                                        ${businessViews.map((v) => `<option value="${escapeHtml(v.id)}" ${selectedBusinessViewId === v.id ? 'selected' : ''}>${escapeHtml(v.label)}</option>`).join('')}
-                                    </select>
-                                </div>
-                                <div style="min-width:230px;">
-                                    <label style="display:block; font-size:12px; color:#555; margin-bottom:4px;">Filtrer par famille</label>
-                                    <select id="fam-validated-filter-family" style="width:100%; padding:7px 8px; border:1px solid #cbd5e1; border-radius:6px; font-size:12px;">
-                                        <option value="">Toutes les familles</option>
-                                        ${familyChoices.map((name) => `<option value="${escapeHtml(name)}" ${selectedFamilyName === name ? 'selected' : ''}>${escapeHtml(name)}</option>`).join('')}
-                                    </select>
-                                </div>
-                                <div style="min-width:230px;">
-                                    <label style="display:block; font-size:12px; color:#555; margin-bottom:4px;">Filtrer par sous-famille</label>
-                                    <select id="fam-validated-filter-subfamily" style="width:100%; padding:7px 8px; border:1px solid #cbd5e1; border-radius:6px; font-size:12px;">
-                                        <option value="">Toutes les sous-familles</option>
-                                        ${subFamilyChoices.map((name) => `<option value="${escapeHtml(name)}" ${selectedSubFamilyName === name ? 'selected' : ''}>${escapeHtml(name)}</option>`).join('')}
-                                    </select>
-                                </div>
-                                <label style="display:flex; align-items:center; gap:6px; margin:0 0 2px; font-size:12px; color:#475569;">
-                                    <input type="checkbox" id="fam-validated-filter-non-assigned" ${showNonAssigned ? 'checked' : ''}>
-                                    Afficher non attribuées
-                                </label>
-                            </div>
-                            <div id="fam-validated-list" style="display:grid; grid-template-columns:repeat(auto-fill, minmax(240px, 1fr)); gap:10px;">
-                                ${validatedRows.length === 0
-                                    ? '<span style="color:#666; font-size:13px; grid-column:1/-1;">Aucune famille enregistrée pour ce filtre.</span>'
-                                    : validatedRows.map(({ f, i }) => {
-                                        const repassOn = window.__ugapFamilleRepassIndices.has(i);
-                                        const repassStyle = repassOn ? 'background:#fff8e1;border-color:#f0ad4e;color:#856404;font-weight:600;' : '';
-                                        const viewLabel = businessViews.find((v) => v.id === String(f.businessViewId || '').trim())?.label || String(f.businessViewLabel || '').trim() || '';
-                                        const viewBadge = viewLabel
-                                            ? `<span style="display:inline-block; margin-top:2px; font-size:11px; color:#155e75; background:#ecfeff; border:1px solid #a5f3fc; border-radius:999px; padding:2px 8px;">${escapeHtml(viewLabel)}</span>`
-                                            : '<span style="display:inline-block; margin-top:2px; font-size:11px; color:#64748b; background:#f1f5f9; border:1px solid #cbd5e1; border-radius:999px; padding:2px 8px;">Non attribuée</span>';
-                                        return `
-                                        <div class="fam-validated-card" data-validated-index="${i}" draggable="true" title="Double-clic pour ouvrir le détail · glisser vers vue métier pour assigner" style="border:1px solid #dee2e6; border-radius:8px; padding:12px; background:#fff; box-shadow:0 1px 3px rgba(0,0,0,.06); display:flex; flex-direction:column; gap:10px; min-height:120px; cursor:pointer;">
-                                            <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:8px;">
-                                                <div style="flex:1; min-width:0;">
-                                                    <strong style="font-size:13px; line-height:1.35; color:#333; display:block;">${escapeHtml(f.familyLabel || 'Famille')}</strong>
-                                                    ${viewBadge}
-                                                </div>
-                                                <button type="button" class="btn btn-outline fam-validated-del-btn" data-validated-index="${i}" style="padding:4px 10px; font-size:11px; white-space:nowrap; border-color:#dc3545; color:#c82333;">Effacer</button>
-                                            </div>
-                                            <span style="font-size:11px; color:#666;">${(f.optionIds || []).length} ligne(s) figée(s)</span>
-                                            <div style="margin-top:auto; padding-top:8px; border-top:1px dashed #dee2e6;">
-                                                <button type="button" class="btn btn-outline fam-repass-ia-btn" data-validated-index="${i}" style="width:100%; font-size:12px; padding:8px; ${repassStyle}">${repassOn ? '✓ Repasser l’IA (activé)' : 'Repasser l’IA'}</button>
-                                            </div>
-                                        </div>`;
-                                    }).join('')}
-                            </div>
-                        </div>
-                    </div>
-                </div>
-                <h4 style="margin:24px 0 10px 0; font-size:15px; color:#333;">Liste brute (référence)</h4>
-                <table style="width:100%; border-collapse:collapse; border:1px solid #eee;">
-                    <thead>
-                        <tr style="background:#f8f9fa;">
-                            <th style="padding:8px; border-bottom:1px solid #eee;">Type</th>
-                            <th style="padding:8px; border-bottom:1px solid #eee;">Libellé</th>
-                            <th style="padding:8px; border-bottom:1px solid #eee;">Catégorie</th>
-                            <th style="padding:8px; border-bottom:1px solid #eee; text-align:right;">Prix client</th>
-                            <th style="padding:8px; border-bottom:1px solid #eee; text-align:right;">Prix UGAP</th>
-                            <th style="padding:8px; border-bottom:1px solid #eee;">Réf.</th>
-                        </tr>
-                    </thead>
-                    <tbody>${flatBody}</tbody>
-                </table>
-                <div style="margin:12px 0; display:flex; flex-wrap:wrap; align-items:center; justify-content:center; gap:10px;">
-                    <button type="button" class="btn btn-primary" id="btn-fam-merge-selection-fixed" style="font-size:14px; padding:10px 20px; white-space:nowrap;">Fusionner la sélection…</button>
-                    <span style="font-size:12px; color:#444; text-align:center; max-width:520px;">Utilise la sélection <strong>grille + liste de révision</strong>.</span>
                 </div>
                 </div>
             `;
         }
 
-        async function runFamilleTraitement() {
+        async function __legacyRunFamilleTraitement() {
             const btn = document.getElementById('btn-run-famille-traitement');
+            const statusEl = document.getElementById('fam-traitement-status');
+            window.__familleTraitementRunning = true;
             showAlert('Lancement du regroupement IA…', 'info');
+            if (statusEl) {
+                statusEl.textContent = 'Traitement en cours…';
+                statusEl.style.color = '#0d6efd';
+            }
             const splitOptions = splitModelOptionsByType(getAllOptionsForSummary());
             const combined = buildFamilleCombinedRows(splitOptions);
             upsertFamilleOptionLabelCache(combined.map((r) => ({ id: r.id, name: r.name })));
@@ -8086,16 +10991,40 @@ Format:
             } catch (err) {
                 showAlert(err.message || 'Erreur IA', 'error');
             } finally {
+                window.__familleTraitementRunning = false;
                 if (btn) {
                     btn.disabled = false;
                     btn.textContent = 'Détecter familles (Heuristique + IA)';
+                }
+                if (statusEl) {
+                    statusEl.textContent = 'Traitement terminé';
+                    statusEl.style.color = '#198754';
                 }
             }
             renderExtractionInsights();
         }
 
+        function renderFamilleTabInner(splitOptions) {
+            if (window.UgapFamilleTab?.renderFamilleTabInner) {
+                return window.UgapFamilleTab.renderFamilleTabInner(splitOptions);
+            }
+            return __legacyRenderFamilleTabInner(splitOptions);
+        }
+
+        async function runFamilleTraitement() {
+            if (window.UgapFamilleTab?.runFamilleTraitement) {
+                return window.UgapFamilleTab.runFamilleTraitement();
+            }
+            return __legacyRunFamilleTraitement();
+        }
+
         let extractionActiveSubtab = 'model';
         let extractionSelectedModelId = null;
+        let extractionOptionsModelFilterId = '';
+        let __famRawSearchDebounce = null;
+        let __isRenderingExtractionInsights = false;
+        let __pendingExtractionInsightsRender = false;
+        let __disableFamilleTabFeatures = false;
 
         function switchExtractionSubtab(tabId) {
             extractionActiveSubtab = tabId;
@@ -8113,106 +11042,251 @@ Format:
 
         // Fallback global: garantit drag + double-clic des cartes famille après tout re-render.
         function ensureFamilleCardGlobalInteractions() {
-            if (window.__familleCardGlobalInteractionsBound) return;
-            window.__familleCardGlobalInteractionsBound = true;
+            if (window.UgapFamilleTab?.ensureFamilleCardGlobalInteractions) {
+                window.UgapFamilleTab.ensureFamilleCardGlobalInteractions();
+            }
+        }
 
-            document.addEventListener('dragstart', (e) => {
-                const card = e.target?.closest?.('.fam-name-card, .fam-review-card, .fam-validated-card');
-                if (!card) return;
-                let reviewId = card.getAttribute('data-review-id');
-                if (!reviewId && card.classList.contains('fam-validated-card')) {
-                    const savedIdx = card.getAttribute('data-validated-index');
-                    const fam = ensureReviewFamilyFromSavedIndex(savedIdx);
-                    reviewId = fam?.reviewId || '';
+        function getFamilleHeuristicUiState() {
+            if (!window.__ugapFamilleHeuristicUiState || typeof window.__ugapFamilleHeuristicUiState !== 'object') {
+                window.__ugapFamilleHeuristicUiState = {
+                    activeTab: 'found',
+                    search: '',
+                    assignmentFilter: 'all',
+                    collapsedParents: {}
+                };
+            }
+            const s = window.__ugapFamilleHeuristicUiState;
+            const allowedTabs = new Set(['found', 'search']);
+            const activeTab = allowedTabs.has(String(s.activeTab || '')) ? String(s.activeTab) : 'found';
+            return {
+                activeTab,
+                search: String(s.search || ''),
+                assignmentFilter: String(s.assignmentFilter || 'all'),
+                collapsedParents: s.collapsedParents && typeof s.collapsedParents === 'object' ? s.collapsedParents : {}
+            };
+        }
+
+        function setFamilleHeuristicUiState(next) {
+            const prev = getFamilleHeuristicUiState();
+            window.__ugapFamilleHeuristicUiState = {
+                ...prev,
+                ...(next || {})
+            };
+        }
+
+        function getFamilleHeuristicViewAssignments() {
+            try {
+                const raw = localStorage.getItem('ugap.famille.heuristicViewAssignments');
+                const parsed = raw ? JSON.parse(raw) : {};
+                return parsed && typeof parsed === 'object' ? parsed : {};
+            } catch (_) {
+                return {};
+            }
+        }
+
+        function setFamilleHeuristicViewAssignments(assignments) {
+            const safe = assignments && typeof assignments === 'object' ? assignments : {};
+            localStorage.setItem('ugap.famille.heuristicViewAssignments', JSON.stringify(safe));
+        }
+
+        function renderFamilleHeuristicOnly() {
+            const ui = getFamilleHeuristicUiState();
+            const rules = getFamilleHeuristicRules();
+            const review = window.__ugapFamilleReview || null;
+            const ia = window.__ugapFamilleIa || null;
+            const validated = getFamilleValidatedFamilies();
+            const rawFoundFamilies = [
+                ...(Array.isArray(review?.editFamilies) ? review.editFamilies : []),
+                ...(Array.isArray(ia?.families) ? ia.families : []),
+                ...(Array.isArray(validated) ? validated : [])
+            ];
+            const foundFamiliesMap = new Map();
+            rawFoundFamilies.forEach((f) => {
+                const label = String(f?.familyLabel || '').trim();
+                if (!label) return;
+                const key = label.toLowerCase();
+                const currentCount = Array.isArray(f?.optionIds) ? f.optionIds.length : 0;
+                const prev = foundFamiliesMap.get(key);
+                if (!prev || currentCount > prev.count) {
+                    foundFamiliesMap.set(key, { label, count: currentCount });
                 }
-                if (!reviewId || !e.dataTransfer) return;
-                e.dataTransfer.effectAllowed = 'move';
-                e.dataTransfer.setData('text/family-review-id', reviewId);
-            }, true);
+            });
+            const defaultSortedFamilies = Array.from(foundFamiliesMap.values())
+                .sort((a, b) => a.label.localeCompare(b.label, 'fr', { sensitivity: 'base' }));
+            const preferredOrder = getFamilleFoundOrder();
+            const rank = new Map(preferredOrder.map((name, idx) => [name.toLowerCase(), idx]));
+            const foundFamilies = defaultSortedFamilies.slice().sort((a, b) => {
+                const ra = rank.has(String(a?.label || '').toLowerCase()) ? rank.get(String(a?.label || '').toLowerCase()) : Number.MAX_SAFE_INTEGER;
+                const rb = rank.has(String(b?.label || '').toLowerCase()) ? rank.get(String(b?.label || '').toLowerCase()) : Number.MAX_SAFE_INTEGER;
+                if (ra !== rb) return ra - rb;
+                return String(a?.label || '').localeCompare(String(b?.label || ''), 'fr', { sensitivity: 'base' });
+            });
+            const assignedViewByFamily = new Map();
+            (Array.isArray(validated) ? validated : []).forEach((f) => {
+                const familyLabel = String(f?.familyLabel || '').trim();
+                if (!familyLabel) return;
+                const viewLabel = String(f?.businessViewLabel || '').trim();
+                const viewId = String(f?.businessViewId || '').trim();
+                if (!viewLabel && !viewId) return;
+                const key = familyLabel.toLowerCase();
+                if (!assignedViewByFamily.has(key)) assignedViewByFamily.set(key, new Set());
+                assignedViewByFamily.get(key).add(viewLabel || viewId);
+            });
+            const businessViews = getBusinessViewsForAssignationTab();
+            const validatedIndexByFamily = new Map();
+            (Array.isArray(validated) ? validated : []).forEach((f, idx) => {
+                const label = String(f?.familyLabel || '').trim();
+                if (!label) return;
+                const key = label.toLowerCase();
+                if (!validatedIndexByFamily.has(key)) validatedIndexByFamily.set(key, idx);
+            });
 
-            document.addEventListener('dblclick', (e) => {
-                const card = e.target?.closest?.('.fam-name-card, .fam-review-card, .fam-validated-card');
-                if (!card) return;
-                const mainTab = document.querySelector('.tab.active')?.getAttribute('data-tab');
-                if (mainTab !== 'famille') return;
-                if (e.target?.closest?.('button, input, select, textarea, label')) return;
-                let reviewId = card.getAttribute('data-review-id');
-                if (!reviewId && card.classList.contains('fam-validated-card')) {
-                    const savedIdx = card.getAttribute('data-validated-index');
-                    const fam = ensureReviewFamilyFromSavedIndex(savedIdx);
-                    reviewId = fam?.reviewId || '';
-                }
-                if (!reviewId) return;
-                const byId = buildFamilleModalByIdMap();
-                mountFamilleInlineEditor(reviewId, byId);
-            }, true);
+            const search = String(ui.search || '').trim().toLowerCase();
+            const assignmentFilter = String(ui.assignmentFilter || 'all').trim();
+            const searchRows = foundFamilies.filter((f) => {
+                const key = String(f?.label || '').toLowerCase();
+                const isAssigned = assignedViewByFamily.has(key);
+                if (assignmentFilter === 'assigned' && !isAssigned) return false;
+                if (assignmentFilter === 'unassigned' && isAssigned) return false;
+                if (!search) return true;
+                return key.includes(search);
+            });
+            const viewAssignRows = foundFamilies.map((f) => {
+                const key = String(f?.label || '').toLowerCase();
+                const validatedIdx = validatedIndexByFamily.get(key);
+                const canAssign = Number.isInteger(validatedIdx);
+                const currentId = canAssign ? String(validated?.[validatedIdx]?.businessViewId || '').trim() : '';
+                return {
+                    familyLabel: String(f?.label || '').trim(),
+                    canAssign,
+                    validatedIdx,
+                    currentId
+                };
+            });
+            const allFlatOptions = getAllFlatOptionsWithContext();
+            const unassignedOptions = allFlatOptions.filter((row) => {
+                const option = row?.option || {};
+                const optionId = String(option?.id || '').trim();
+                if (!optionId) return false;
+                const optionType = String(option?.type || '').trim().toLowerCase();
+                const optionName = String(option?.name || '').trim().toLowerCase();
+                const isPr = optionType === 'pr' || optionName.startsWith('pr ');
+                if (isPr) return false;
+                // Ici on ne doit considérer que les familles vraiment validées (optionIds),
+                // pas le fallback "familyLabel" brut de la ligne.
+                const assignedFamily = String(getSelectedFamilyLabelForOption(optionId, '') || '').trim();
+                return !assignedFamily;
+            });
+            const assignableFamilies = Array.from(new Set([
+                ...rules.map((r) => String(r?.familyLabel || '').trim()).filter(Boolean),
+                ...validated.map((f) => String(f?.familyLabel || '').trim()).filter(Boolean)
+            ])).sort((a, b) => a.localeCompare(b, 'fr', { sensitivity: 'base' }));
 
-            // Drag & drop global pour rester stable malgré les rerenders.
-            document.addEventListener('dragover', (e) => {
-                if (e.target?.closest?.('.fam-review-card, .fam-modal-col-right-drop')) {
-                    e.preventDefault();
-                }
-            }, true);
+            return `
+                <div style="padding:14px; border:1px solid #eee; border-radius:8px; background:#fff;">
+                    <div style="font-weight:600; margin-bottom:6px;">Onglet Famille (mode progressif)</div>
+                    <div style="color:#666; font-size:13px; margin-bottom:12px;">Seule la gestion des règles heuristiques est active.</div>
 
-            document.addEventListener('drop', (e) => {
-                const mainTab = document.querySelector('.tab.active')?.getAttribute('data-tab');
-                if (mainTab !== 'famille') return;
+                    <div style="display:flex; flex-wrap:wrap; gap:8px; align-items:end; margin-bottom:8px;">
+                        <div style="min-width:220px; flex:1;">
+                            <label style="display:block; font-size:12px; color:#555; margin-bottom:4px;">Nom de famille</label>
+                            <input id="fam-heur-label" type="text" placeholder="Ex: Couleur du flotteur" style="width:100%; padding:8px; border:1px solid #ddd; border-radius:4px;">
+                        </div>
+                        <div style="min-width:260px; flex:2;">
+                            <label style="display:block; font-size:12px; color:#555; margin-bottom:4px;">Mots-clés (séparés par virgule)</label>
+                            <input id="fam-heur-keywords" type="text" placeholder="Ex: coloris flotteur, rouge etna, vert army" style="width:100%; padding:8px; border:1px solid #ddd; border-radius:4px;">
+                        </div>
+                        <div style="min-width:160px;">
+                            <label style="display:block; font-size:12px; color:#555; margin-bottom:4px;">Scope</label>
+                            <select id="fam-heur-scope" style="width:100%; padding:8px; border:1px solid #ddd; border-radius:4px;">
+                                <option value="all">Toutes les lignes</option>
+                                <option value="option">Options uniquement</option>
+                                <option value="minoration">Minorations uniquement</option>
+                            </select>
+                        </div>
+                        <button type="button" class="btn btn-outline" id="btn-add-fam-heur">Créer / Enregistrer</button>
+                        <button type="button" class="btn btn-outline" id="btn-cancel-fam-heur-edit" style="display:none;">Annuler édition</button>
+                    </div>
 
-                const state = window.__ugapFamilleReview;
-                const fams = Array.isArray(state?.editFamilies) ? state.editFamilies : [];
-                if (fams.length === 0) return;
+                    <div id="fam-heur-list" style="font-size:13px; color:#444;">
+                        ${rules.length === 0
+                            ? '<span style="color:#666;">Aucune règle heuristique pour le moment.</span>'
+                            : rules.map((r, idx) => `
+                                <div class="fam-heur-row" data-fam-heur-index="${idx}" style="display:flex; justify-content:space-between; gap:8px; align-items:center; border-top:1px solid #eee; padding:8px 0; cursor:pointer;">
+                                    <div>
+                                        <strong>${escapeHtml(r.familyLabel || 'Famille')}</strong>
+                                        <span style="color:#666;">(${escapeHtml(r.scope || 'all')})</span>
+                                        <div style="color:#666; font-size:12px;">${escapeHtml(r.keywords || '')}</div>
+                                    </div>
+                                    <div style="display:flex; gap:6px;">
+                                        <button type="button" class="btn btn-outline" data-edit-fam-heur="${idx}">Affecter options</button>
+                                        <button type="button" class="btn btn-outline" data-del-fam-heur="${idx}">Supprimer</button>
+                                    </div>
+                                </div>
+                            `).join('')}
+                    </div>
 
-                const familyDraggedId = String(e.dataTransfer?.getData('text/family-review-id') || '').trim();
-                const optionId = String(e.dataTransfer?.getData('text/option-id') || '').trim();
-                const optionFromFamily = String(e.dataTransfer?.getData('text/option-from-family') || '').trim();
-                const dropOnCard = e.target?.closest?.('.fam-review-card');
-
-                // Dépôt d'une famille sur une autre => sous-famille.
-                if (familyDraggedId && dropOnCard) {
-                    e.preventDefault();
-                    const targetId = dropOnCard.getAttribute('data-review-id');
-                    if (!targetId || targetId === familyDraggedId) return;
-                    const dragged = fams.find((x) => x.reviewId === familyDraggedId);
-                    if (!dragged) return;
-                    dragged.parentReviewId = targetId;
-                    syncReviewStateIntoIaResult();
-                    renderExtractionInsights();
-                    return;
-                }
-
-                // Dépôt d'une option sur une famille.
-                if (optionId && optionFromFamily && dropOnCard) {
-                    e.preventDefault();
-                    const targetFamily = dropOnCard.getAttribute('data-review-id');
-                    if (!targetFamily || targetFamily === optionFromFamily) return;
-                    const from = fams.find((x) => x.reviewId === optionFromFamily);
-                    const to = fams.find((x) => x.reviewId === targetFamily);
-                    if (!from || !to) return;
-                    if (isFamNameOptionsLocked(from)) {
-                        const locked = new Set((Array.isArray(from.lockedOptionIds) ? from.lockedOptionIds : []).map((id) => String(id)));
-                        if (locked.has(optionId)) {
-                            showAlert('Option verrouillée: déplacement interdit depuis cette famille.', 'warning');
-                            return;
-                        }
-                    }
-                    from.optionIds = (from.optionIds || []).filter((id) => id !== optionId);
-                    from.selectedOptionIds = (from.selectedOptionIds || []).filter((id) => id !== optionId);
-                    if (!to.optionIds.includes(optionId)) to.optionIds.push(optionId);
-                    if (!to.selectedOptionIds.includes(optionId)) to.selectedOptionIds.push(optionId);
-                    syncReviewStateIntoIaResult();
-                    renderExtractionInsights();
-                }
-            }, true);
+                    <div style="margin-top:14px; border-top:1px solid #eee; padding-top:12px;">
+                        <h4 style="margin:0 0 8px 0; font-size:14px;">Options non assignées</h4>
+                        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; gap:10px;">
+                            <span id="fam-traitement-status" style="font-size:12px; color:${window.__familleTraitementRunning ? '#0d6efd' : '#666'};">
+                                ${window.__familleTraitementRunning ? 'Traitement en cours…' : 'Prêt'}
+                            </span>
+                            <div style="display:flex; gap:8px; align-items:center;">
+                                <button type="button" class="btn btn-outline" id="btn-clear-old-family-assignments">Effacer anciens assignements</button>
+                                <button type="button" class="btn btn-primary" id="btn-run-famille-traitement">Détecter familles</button>
+                            </div>
+                        </div>
+                        <div style="border:1px solid #eee; border-radius:8px; overflow:hidden;">
+                            <table style="width:100%; border-collapse:collapse;">
+                                <thead>
+                                    <tr style="background:#f8f9fa;">
+                                        <th style="padding:8px; text-align:left;">Option</th>
+                                        <th style="padding:8px; text-align:left;">Catégorie</th>
+                                        <th style="padding:8px; text-align:left;">Affecter à une famille</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    ${unassignedOptions.length === 0
+                                        ? '<tr><td colspan="3" style="padding:10px; color:#666;">Toutes les options sont déjà assignées.</td></tr>'
+                                        : unassignedOptions.map((row) => `
+                                            <tr>
+                                                <td style="padding:8px; border-top:1px solid #eee;">${escapeHtml(String(row?.option?.name || 'Option'))}</td>
+                                                <td style="padding:8px; border-top:1px solid #eee; color:#666;">${escapeHtml(String(row?.categoryName || '—'))}</td>
+                                                <td style="padding:8px; border-top:1px solid #eee;">
+                                                    <select id="fam-raw-select-${escapeHtml(String(row?.option?.id || ''))}" style="min-width:220px; width:100%; max-width:420px; padding:6px; border:1px solid #ddd; border-radius:4px; font-size:12px;">
+                                                        <option value="">-- Choisir une famille --</option>
+                                                        ${assignableFamilies.map((familyLabel) => `<option value="${escapeHtml(familyLabel)}">${escapeHtml(familyLabel)}</option>`).join('')}
+                                                    </select>
+                                                </td>
+                                            </tr>
+                                        `).join('')}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            `;
         }
 
         function renderExtractionInsights() {
+            if (__isRenderingExtractionInsights) {
+                __pendingExtractionInsightsRender = true;
+                return;
+            }
+            __isRenderingExtractionInsights = true;
+            try {
+            updateFamilleTabWarningBadge();
             ensureFamilleCardGlobalInteractions();
+            const mainActiveTab = document.querySelector('.tab.active')?.getAttribute('data-tab') || '';
             const optionRoot = document.getElementById('extraction-options-content');
             const minorationRoot = document.getElementById('extraction-minoration-content');
             const prRoot = document.getElementById('extraction-pr-content');
+            const diversRoot = document.getElementById('extraction-divers-content');
             const baseOptionsRoot = document.getElementById('extraction-base-options-content');
             const familleRoot = document.getElementById('extraction-famille-content');
-            if (!optionRoot || !minorationRoot || !prRoot) return;
+            if (!optionRoot || !minorationRoot || !prRoot || !diversRoot) return;
 
             const models = Array.isArray(currentData?.models) ? currentData.models : [];
             if (models.length === 0) {
@@ -8220,6 +11294,7 @@ Format:
                 optionRoot.innerHTML = empty;
                 minorationRoot.innerHTML = empty;
                 prRoot.innerHTML = empty;
+                diversRoot.innerHTML = empty;
                 if (baseOptionsRoot) baseOptionsRoot.innerHTML = empty;
                 if (familleRoot) familleRoot.innerHTML = empty;
                 return;
@@ -8228,69 +11303,119 @@ Format:
             const splitOptions = splitModelOptionsByType(getAllOptionsForSummary());
             const optionsCount = splitOptions.regularOptions.length;
             const minorationsCount = splitOptions.minorationOptions.length;
+            const diversCount = splitOptions.diversOptions.length;
             const mvPvFamilyGroups = buildMvPvFamilyGroupsFromOptions(splitOptions.minorationOptions);
 
-            optionRoot.innerHTML = `
-                <div style="display:flex; align-items:center; gap:8px; margin-bottom:10px;">
-                    <span class="badge">${optionsCount} option(s) globales</span>
-                </div>
-                <table style="width:100%; border-collapse:collapse; border:1px solid #eee;">
-                    <thead>
-                        <tr style="background:#f8f9fa;">
-                            <th style="padding:8px; border-bottom:1px solid #eee;">Option trouvée</th>
-                            <th style="padding:8px; border-bottom:1px solid #eee;">Catégorie</th>
-                        </tr>
-                    </thead>
-                    <tbody>${renderOptionRows(splitOptions.regularOptions, 'Aucune option standard trouvée')}</tbody>
-                </table>
-            `;
+            if (extractionActiveSubtab === 'option') {
+                const modelFilterChoices = models
+                    .map((m) => `<option value="${escapeHtml(String(m?.id || ''))}" ${String(extractionOptionsModelFilterId || '') === String(m?.id || '') ? 'selected' : ''}>${escapeHtml(String(m?.name || m?.id || 'Modèle'))}</option>`)
+                    .join('');
+                const optionsForRender = extractionOptionsModelFilterId
+                    ? splitOptions.regularOptions.filter((opt) => {
+                        const ids = Array.isArray(opt?.compatibleModels) ? opt.compatibleModels.map((x) => String(x)) : [];
+                        return ids.includes(String(extractionOptionsModelFilterId));
+                    })
+                    : splitOptions.regularOptions;
+                optionRoot.innerHTML = `
+                    <div style="display:flex; align-items:center; gap:8px; margin-bottom:10px;">
+                        <span class="badge">${optionsForRender.length} option(s) assignee(s) a au moins un bateau</span>
+                        <label for="ext-option-model-filter" style="font-size:12px; color:#555; margin-left:6px;">Modèle bateau:</label>
+                        <select id="ext-option-model-filter" style="min-width:260px; padding:6px; border:1px solid #ddd; border-radius:4px;">
+                            <option value="">Tous les modèles</option>
+                            ${modelFilterChoices}
+                        </select>
+                    </div>
+                    <table style="width:100%; border-collapse:collapse; border:1px solid #eee;">
+                        <thead>
+                            <tr style="background:#f8f9fa;">
+                                <th style="padding:8px; border-bottom:1px solid #eee;">Option</th>
+                                <th style="padding:8px; border-bottom:1px solid #eee;">Prix client</th>
+                                <th style="padding:8px; border-bottom:1px solid #eee;">Prix UGAP</th>
+                                <th style="padding:8px; border-bottom:1px solid #eee;">Réf.</th>
+                                <th style="padding:8px; border-bottom:1px solid #eee;">Action</th>
+                            </tr>
+                        </thead>
+                        <tbody>${renderEditableExtractionRows(optionsForRender, 'Aucune option standard trouvée')}</tbody>
+                    </table>
+                `;
+            }
 
-            minorationRoot.innerHTML = `
-                <div style="display:flex; align-items:center; gap:8px; margin-bottom:10px;">
-                    <span class="badge">${minorationsCount} ligne(s) moins-value / plus-value / minoration</span>
-                </div>
-                ${renderMinorationDoublonSummaryLine(mvPvFamilyGroups)}
-                <div style="margin-bottom:10px; display:flex; justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap;">
-                    <div style="color:#666; font-size:13px;">Liste triée par <strong>famille</strong> — les doublons apparaissent en colonne (même famille, plusieurs lignes).</div>
-                    <button class="btn btn-primary" onclick="showAlert('Assignation IA des minorations à implémenter', 'info')">Assigner les minorations</button>
-                </div>
-                <table style="width:100%; border-collapse:collapse; border:1px solid #eee;">
-                    <thead>
-                        <tr style="background:#f8f9fa;">
-                            <th style="padding:8px; border-bottom:1px solid #eee;">Famille</th>
-                            <th style="padding:8px; border-bottom:1px solid #eee;">Doublon</th>
-                            <th style="padding:8px; border-bottom:1px solid #eee;">Libellé</th>
-                            <th style="padding:8px; border-bottom:1px solid #eee;">Catégorie</th>
-                        </tr>
-                    </thead>
-                    <tbody>${renderMinorationOptionRows(splitOptions.minorationOptions, 'Aucune minoration détectée')}</tbody>
-                </table>
-            `;
+            if (extractionActiveSubtab === 'divers') {
+                diversRoot.innerHTML = `
+                    <div style="display:flex; align-items:center; gap:8px; margin-bottom:10px;">
+                        <span class="badge">${diversCount} ligne(s) en divers</span>
+                    </div>
+                    <p style="color:#666; font-size:13px; margin-top:0;">Lignes standard sans croix d'assignation poste/bateau.</p>
+                    <table style="width:100%; border-collapse:collapse; border:1px solid #eee;">
+                        <thead>
+                            <tr style="background:#f8f9fa;">
+                                <th style="padding:8px; border-bottom:1px solid #eee;">Libellé</th>
+                                <th style="padding:8px; border-bottom:1px solid #eee;">Prix client</th>
+                                <th style="padding:8px; border-bottom:1px solid #eee;">Prix UGAP</th>
+                                <th style="padding:8px; border-bottom:1px solid #eee;">Réf.</th>
+                                <th style="padding:8px; border-bottom:1px solid #eee;">Action</th>
+                            </tr>
+                        </thead>
+                        <tbody>${renderEditableExtractionRows(splitOptions.diversOptions, 'Aucune ligne divers détectée')}</tbody>
+                    </table>
+                `;
+            }
 
-            prRoot.innerHTML = `
-                <div style="display:flex; align-items:center; gap:8px; margin-bottom:10px;">
-                    <span class="badge">${splitOptions.prOptions.length} pièce(s) détachée(s) PR</span>
-                </div>
-                <p style="color:#666; font-size:13px; margin-top:0;">Pièces détachées commençant par PR.</p>
-                <table style="width:100%; border-collapse:collapse; border:1px solid #eee;">
-                    <thead>
-                        <tr style="background:#f8f9fa;">
-                            <th style="padding:8px; border-bottom:1px solid #eee;">Libellé PR</th>
-                            <th style="padding:8px; border-bottom:1px solid #eee;">Catégorie</th>
-                        </tr>
-                    </thead>
-                    <tbody>${renderOptionRows(splitOptions.prOptions, 'Aucune ligne PR détectée')}</tbody>
-                </table>
-            `;
+            if (extractionActiveSubtab === 'minoration') {
+                minorationRoot.innerHTML = `
+                    <div style="display:flex; align-items:center; gap:8px; margin-bottom:10px;">
+                        <span class="badge">${minorationsCount} ligne(s) moins-value / plus-value / minoration</span>
+                    </div>
+                    ${renderMinorationDoublonSummaryLine(mvPvFamilyGroups)}
+                    <div style="margin-bottom:10px; display:flex; justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap;">
+                        <div style="color:#666; font-size:13px;">Liste triée par <strong>famille</strong> — les doublons apparaissent en colonne (même famille, plusieurs lignes).</div>
+                        <button class="btn btn-primary" onclick="showAlert('Assignation IA des minorations à implémenter', 'info')">Assigner les minorations</button>
+                    </div>
+                    <table style="width:100%; border-collapse:collapse; border:1px solid #eee;">
+                        <thead>
+                            <tr style="background:#f8f9fa;">
+                                <th style="padding:8px; border-bottom:1px solid #eee;">Libellé</th>
+                                <th style="padding:8px; border-bottom:1px solid #eee;">Prix client</th>
+                                <th style="padding:8px; border-bottom:1px solid #eee;">Prix UGAP</th>
+                                <th style="padding:8px; border-bottom:1px solid #eee;">Réf.</th>
+                                <th style="padding:8px; border-bottom:1px solid #eee;">Action</th>
+                            </tr>
+                        </thead>
+                        <tbody>${renderEditableExtractionRows(splitOptions.minorationOptions, 'Aucune minoration détectée')}</tbody>
+                    </table>
+                `;
+            }
 
-            if (baseOptionsRoot) {
+            if (extractionActiveSubtab === 'pr') {
+                prRoot.innerHTML = `
+                    <div style="display:flex; align-items:center; gap:8px; margin-bottom:10px;">
+                        <span class="badge">${splitOptions.prOptions.length} pièce(s) détachée(s) PR</span>
+                    </div>
+                    <p style="color:#666; font-size:13px; margin-top:0;">Pièces détachées commençant par PR.</p>
+                    <table style="width:100%; border-collapse:collapse; border:1px solid #eee;">
+                        <thead>
+                            <tr style="background:#f8f9fa;">
+                                <th style="padding:8px; border-bottom:1px solid #eee;">Libellé PR</th>
+                                <th style="padding:8px; border-bottom:1px solid #eee;">Réf.</th>
+                            </tr>
+                        </thead>
+                        <tbody>${renderOptionRows(splitOptions.prOptions, 'Aucune ligne PR détectée')}</tbody>
+                    </table>
+                `;
+            }
+
+            if (baseOptionsRoot && extractionActiveSubtab === 'baseoptions') {
                 baseOptionsRoot.innerHTML = renderExtractionBaseOptionsByModelHtml(models);
                 updateBaseOptionsAiProgressUi();
             }
 
-            if (familleRoot) {
-                familleRoot.innerHTML = renderFamilleTabInner(splitOptions);
-                applyFamilleMergePickToDom();
+            if (familleRoot && mainActiveTab === 'famille') {
+                if (__disableFamilleTabFeatures) {
+                    familleRoot.innerHTML = renderFamilleHeuristicOnly();
+                } else {
+                    familleRoot.innerHTML = renderFamilleTabInner(splitOptions);
+                    applyFamilleMergePickToDom();
+                }
             }
 
             // Liaison robuste du bouton (évite de dépendre de onclick inline).
@@ -8298,6 +11423,16 @@ Format:
             if (runBtn) {
                 runBtn.onclick = null;
                 runBtn.addEventListener('click', runFamilleTraitement, { once: false });
+            }
+            const clearAssignmentsBtn = document.getElementById('btn-clear-old-family-assignments');
+            if (clearAssignmentsBtn) {
+                clearAssignmentsBtn.onclick = null;
+                clearAssignmentsBtn.addEventListener('click', () => {
+                    if (!confirm('Effacer tous les anciens assignements d’options vers les familles ?')) return;
+                    clearValidatedFamilyAssignments();
+                    showAlert('Anciens assignements effacés.', 'success');
+                    renderExtractionInsights();
+                }, { once: false });
             }
             const addRuleBtn = document.getElementById('btn-add-fam-heur');
             const cancelEditBtn = document.getElementById('btn-cancel-fam-heur-edit');
@@ -8435,6 +11570,153 @@ Format:
                     if (cancelBtn) cancelBtn.style.display = '';
                 }, { once: false });
             });
+            document.querySelectorAll('.fam-heur-row').forEach((row) => {
+                row.onclick = null;
+                row.addEventListener('click', (e) => {
+                    if (e.target?.closest?.('button, input, select, textarea, a, label')) return;
+                    const idx = Number(row.getAttribute('data-fam-heur-index'));
+                    if (!Number.isInteger(idx)) return;
+                    const btnEdit = row.querySelector(`[data-edit-fam-heur="${idx}"]`);
+                    if (btnEdit) btnEdit.click();
+                }, { once: false });
+            });
+            document.querySelectorAll('.fam-heur-toggle').forEach((btn) => {
+                btn.onclick = null;
+                btn.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    const familyKey = String(btn.getAttribute('data-family-key') || '').trim();
+                    if (!familyKey) return;
+                    const state = getFamilleHeuristicUiState();
+                    const current = state.collapsedParents && typeof state.collapsedParents === 'object'
+                        ? { ...state.collapsedParents }
+                        : {};
+                    current[familyKey] = !current[familyKey];
+                    setFamilleHeuristicUiState({ collapsedParents: current });
+                    renderExtractionInsights();
+                }, { once: false });
+            });
+            document.querySelectorAll('.fam-heur-view-select').forEach((sel) => {
+                sel.onchange = null;
+                sel.addEventListener('change', () => {
+                    const familyKey = String(sel.getAttribute('data-family-key') || '').trim();
+                    if (!familyKey) return;
+                    const viewId = String(sel.value || '').trim();
+                    const assignments = getFamilleHeuristicViewAssignments();
+                    if (!viewId) return;
+                    const view = getBusinessViewsForAssignationTab().find((v) => String(v.id || '') === viewId);
+                    if (!view) return;
+                    const existingRaw = assignments[familyKey];
+                    const existingList = Array.isArray(existingRaw)
+                        ? existingRaw
+                        : (existingRaw && typeof existingRaw === 'object' && existingRaw.viewId ? [existingRaw] : []);
+                    const exists = existingList.some((x) => String(x?.viewId || '') === viewId);
+                    if (!exists) {
+                        existingList.push({
+                            viewId,
+                            viewLabel: String(view.label || '').trim()
+                        });
+                    }
+                    assignments[familyKey] = existingList;
+                    setFamilleHeuristicViewAssignments(assignments);
+                    sel.value = '';
+                    renderExtractionInsights();
+                }, { once: false });
+            });
+            document.querySelectorAll('.fam-heur-view-clear').forEach((btn) => {
+                btn.onclick = null;
+                btn.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    const familyKey = String(btn.getAttribute('data-family-key') || '').trim();
+                    const viewId = String(btn.getAttribute('data-view-id') || '').trim();
+                    if (!familyKey) return;
+                    const assignments = getFamilleHeuristicViewAssignments();
+                    if (!viewId) {
+                        delete assignments[familyKey];
+                    } else {
+                        const existingRaw = assignments[familyKey];
+                        const existingList = Array.isArray(existingRaw)
+                            ? existingRaw
+                            : (existingRaw && typeof existingRaw === 'object' && existingRaw.viewId ? [existingRaw] : []);
+                        const next = existingList.filter((x) => String(x?.viewId || '') !== viewId);
+                        if (next.length) assignments[familyKey] = next;
+                        else delete assignments[familyKey];
+                    }
+                    setFamilleHeuristicViewAssignments(assignments);
+                    renderExtractionInsights();
+                }, { once: false });
+            });
+            document.querySelectorAll('.fam-heur-tab-btn').forEach((btn) => {
+                btn.onclick = null;
+                btn.addEventListener('click', () => {
+                    const tab = String(btn.getAttribute('data-fam-heur-tab') || 'found').trim() || 'found';
+                    setFamilleHeuristicUiState({ activeTab: tab });
+                    renderExtractionInsights();
+                }, { once: false });
+            });
+            const famHeurSearchInput = document.getElementById('fam-heur-search-name');
+            if (famHeurSearchInput) {
+                famHeurSearchInput.oninput = null;
+                famHeurSearchInput.addEventListener('input', () => {
+                    setFamilleHeuristicUiState({ search: String(famHeurSearchInput.value || '') });
+                    renderExtractionInsights();
+                }, { once: false });
+            }
+            const famHeurAssignmentFilter = document.getElementById('fam-heur-assignment-filter');
+            if (famHeurAssignmentFilter) {
+                famHeurAssignmentFilter.onchange = null;
+                famHeurAssignmentFilter.addEventListener('change', () => {
+                    setFamilleHeuristicUiState({ assignmentFilter: String(famHeurAssignmentFilter.value || 'all') });
+                    renderExtractionInsights();
+                }, { once: false });
+            }
+            document.querySelectorAll('.fam-found-card').forEach((card) => {
+                card.addEventListener('dragstart', (e) => {
+                    if (!e.dataTransfer) return;
+                    const label = String(card.getAttribute('data-family-label') || '').trim();
+                    if (!label) return;
+                    e.dataTransfer.effectAllowed = 'move';
+                    e.dataTransfer.setData('text/fam-found-label', label);
+                    card.style.opacity = '0.5';
+                });
+                card.addEventListener('dragend', () => {
+                    card.style.opacity = '';
+                    card.style.outline = '';
+                });
+                card.addEventListener('dragover', (e) => {
+                    e.preventDefault();
+                    card.style.outline = '2px dashed #0d6efd';
+                    card.style.outlineOffset = '-2px';
+                });
+                card.addEventListener('dragleave', () => {
+                    card.style.outline = '';
+                    card.style.outlineOffset = '';
+                });
+                card.addEventListener('drop', (e) => {
+                    e.preventDefault();
+                    card.style.outline = '';
+                    card.style.outlineOffset = '';
+                    const from = String(e.dataTransfer?.getData('text/fam-found-label') || '').trim().toLowerCase();
+                    const to = String(card.getAttribute('data-family-label') || '').trim().toLowerCase();
+                    if (!from || !to || from === to) return;
+                    const order = getFamilleFoundOrder();
+                    const cards = Array.from(document.querySelectorAll('.fam-found-card'))
+                        .map((c) => String(c.getAttribute('data-family-label') || '').trim())
+                        .filter(Boolean);
+                    const base = order.length ? order.slice() : cards;
+                    if (!base.includes(from) && cards.find((x) => x.toLowerCase() === from)) base.push(cards.find((x) => x.toLowerCase() === from));
+                    if (!base.includes(to) && cards.find((x) => x.toLowerCase() === to)) base.push(cards.find((x) => x.toLowerCase() === to));
+                    const norm = base.slice();
+                    const fromIdx = norm.findIndex((x) => String(x || '').toLowerCase() === from);
+                    const toIdx = norm.findIndex((x) => String(x || '').toLowerCase() === to);
+                    if (fromIdx < 0 || toIdx < 0) return;
+                    const [moved] = norm.splice(fromIdx, 1);
+                    norm.splice(toIdx, 0, moved);
+                    setFamilleFoundOrder(norm);
+                    renderExtractionInsights();
+                });
+            });
             const validateFamilyBtn = document.getElementById('btn-validate-family-stage');
             const showAllBtn = document.getElementById('btn-fam-show-all');
             const resetViewBtn = document.getElementById('btn-fam-reset-view');
@@ -8471,6 +11753,21 @@ Format:
                     window.__ugapFamilleIa = { families: merged };
                     showAlert(`Passe enregistrée : ${merged.length} famille(s) — heuristique, IA et réglages manuels sont pris en compte (cartes ci-dessous).`, 'success');
                     renderExtractionInsights();
+                });
+            }
+            const assignTreeBtn = document.getElementById('btn-fam-assign-tree');
+            if (assignTreeBtn) {
+                assignTreeBtn.onclick = null;
+                assignTreeBtn.addEventListener('click', () => {
+                    const familySel = document.getElementById('fam-assign-tree-family');
+                    const viewSel = document.getElementById('fam-assign-tree-view');
+                    const familyLabel = String(familySel?.value || '').trim();
+                    const viewId = String(viewSel?.value || '').trim();
+                    if (!familyLabel || !viewId) {
+                        showAlert('Choisissez une famille et une vue métier.', 'warning');
+                        return;
+                    }
+                    assignFamilyTreeToBusinessView(familyLabel, viewId);
                 });
             }
             const validatedViewFilter = document.getElementById('fam-validated-filter-view');
@@ -8521,6 +11818,27 @@ Format:
                     renderExtractionInsights();
                 });
             }
+            const rawSearchInput = document.getElementById('fam-raw-search');
+            const rawOnlyUnassignedCb = document.getElementById('fam-raw-only-unassigned');
+            if (rawSearchInput) {
+                rawSearchInput.oninput = null;
+                rawSearchInput.addEventListener('input', () => {
+                    const st = getFamilleRawListFilterState();
+                    st.search = String(rawSearchInput.value || '');
+                    if (__famRawSearchDebounce) clearTimeout(__famRawSearchDebounce);
+                    __famRawSearchDebounce = setTimeout(() => {
+                        renderExtractionInsights();
+                    }, 180);
+                });
+            }
+            if (rawOnlyUnassignedCb) {
+                rawOnlyUnassignedCb.onchange = null;
+                rawOnlyUnassignedCb.addEventListener('change', () => {
+                    const st = getFamilleRawListFilterState();
+                    st.onlyUnassigned = !!rawOnlyUnassignedCb.checked;
+                    renderExtractionInsights();
+                });
+            }
             document.querySelectorAll('.fam-business-view-card').forEach((card) => {
                 card.addEventListener('click', () => {
                     const vid = String(card.getAttribute('data-view-id') || '').trim();
@@ -8540,6 +11858,31 @@ Format:
                     list[idx].businessViewLabel = viewLabel;
                     setFamilleValidatedFamilies(list);
                     showAlert('Vue métier assignée à la famille.', 'success');
+                    renderExtractionInsights();
+                });
+            });
+            document.querySelectorAll('.fam-view-select').forEach((sel) => {
+                sel.onchange = null;
+                sel.addEventListener('change', () => {
+                    const idx = Number(sel.getAttribute('data-validated-index'));
+                    const viewId = String(sel.value || '').trim();
+                    assignFamilyToBusinessView(idx, viewId);
+                });
+            });
+            const extOptionModelFilter = document.getElementById('ext-option-model-filter');
+            if (extOptionModelFilter) {
+                extOptionModelFilter.onchange = null;
+                extOptionModelFilter.addEventListener('change', () => {
+                    extractionOptionsModelFilterId = String(extOptionModelFilter.value || '').trim();
+                    renderExtractionInsights();
+                }, { once: false });
+            }
+            document.querySelectorAll('[id^="fam-raw-select-"]').forEach((sel) => {
+                sel.onchange = null;
+                sel.addEventListener('change', () => {
+                    const optionId = String(sel.id || '').replace('fam-raw-select-', '');
+                    const familyLabel = String(sel.value || '').trim();
+                    assignOptionToValidatedFamily(optionId, familyLabel);
                     renderExtractionInsights();
                 });
             });
@@ -8661,90 +12004,17 @@ Format:
                     renderExtractionInsights();
                 });
             });
-            // Drag families between columns / nested as subfamily.
-            document.querySelectorAll('.fam-review-card').forEach((card) => {
-                card.addEventListener('dragstart', (e) => {
-                    e.dataTransfer.setData('text/family-review-id', card.getAttribute('data-review-id'));
-                });
-                card.addEventListener('dblclick', () => {
-                    const reviewId = card.getAttribute('data-review-id');
-                    const byId = buildFamilleModalByIdMap();
-                    mountFamilleInlineEditor(reviewId, byId);
-                });
-                card.addEventListener('dragover', (e) => e.preventDefault());
-                card.addEventListener('drop', (e) => {
-                    e.preventDefault();
-                    const draggedId = e.dataTransfer.getData('text/family-review-id');
-                    const targetId = card.getAttribute('data-review-id');
-                    if (!draggedId || !targetId || draggedId === targetId) return;
-                    const state = window.__ugapFamilleReview;
-                    const fams = Array.isArray(state?.editFamilies) ? state.editFamilies : [];
-                    const dragged = fams.find((x) => x.reviewId === draggedId);
-                    if (!dragged) return;
-                    dragged.parentReviewId = targetId;
-                    syncReviewStateIntoIaResult();
-                    renderExtractionInsights();
-                });
-            });
-            document.querySelectorAll('[data-option-drag-id]').forEach((cell) => {
-                cell.addEventListener('dragstart', (e) => {
-                    e.dataTransfer.setData('text/option-id', cell.getAttribute('data-option-drag-id'));
-                    e.dataTransfer.setData('text/option-from-family', cell.getAttribute('data-option-from-family'));
-                });
-            });
-            document.querySelectorAll('.fam-review-card').forEach((card) => {
-                card.addEventListener('dragover', (e) => e.preventDefault());
-                card.addEventListener('drop', (e) => {
-                    const optionId = e.dataTransfer.getData('text/option-id');
-                    const fromFamily = e.dataTransfer.getData('text/option-from-family');
-                    const targetFamily = card.getAttribute('data-review-id');
-                    if (!optionId || !fromFamily || !targetFamily || fromFamily === targetFamily) return;
-                    const state = window.__ugapFamilleReview;
-                    const fams = Array.isArray(state?.editFamilies) ? state.editFamilies : [];
-                    const from = fams.find((x) => x.reviewId === fromFamily);
-                    const to = fams.find((x) => x.reviewId === targetFamily);
-                    if (!from || !to) return;
-                    if (isFamNameOptionsLocked(from)) {
-                        const locked = new Set((Array.isArray(from.lockedOptionIds) ? from.lockedOptionIds : []).map((id) => String(id)));
-                        if (locked.has(String(optionId || ''))) {
-                            showAlert('Option verrouillée: déplacement interdit depuis cette famille.', 'warning');
-                            return;
-                        }
-                    }
-                    from.optionIds = (from.optionIds || []).filter((id) => id !== optionId);
-                    from.selectedOptionIds = (from.selectedOptionIds || []).filter((id) => id !== optionId);
-                    if (!to.optionIds.includes(optionId)) to.optionIds.push(optionId);
-                    if (!to.selectedOptionIds.includes(optionId)) to.selectedOptionIds.push(optionId);
-                    syncReviewStateIntoIaResult();
-                    renderExtractionInsights();
-                });
-            });
-            document.querySelectorAll('.fam-name-card').forEach((card) => {
-                card.addEventListener('dragstart', (e) => {
-                    e.dataTransfer.setData('text/family-review-id', card.getAttribute('data-review-id'));
-                });
-                card.addEventListener('dblclick', (e) => {
-                    e.preventDefault();
-                    const reviewId = card.getAttribute('data-review-id');
-                    const byId = buildFamilleModalByIdMap();
-                    mountFamilleInlineEditor(reviewId, byId);
-                });
-            });
-            document.querySelectorAll('.fam-card-sub-select').forEach((sel) => {
-                sel.addEventListener('change', () => {
-                    const rid = sel.getAttribute('data-review-id');
-                    const oid = sel.getAttribute('data-option-id');
-                    const v = String(sel.value || '').trim();
-                    const state = window.__ugapFamilleReview;
-                    const fam = state?.editFamilies?.find((x) => x.reviewId === rid);
-                    if (!fam || !oid) return;
-                    if (!fam.optionSubFamilies) fam.optionSubFamilies = {};
-                    if (v) fam.optionSubFamilies[oid] = v;
-                    else delete fam.optionSubFamilies[oid];
-                    syncReviewStateIntoIaResult();
-                });
-            });
+            if (window.UgapFamilleTab?.bindPostRenderInteractions) {
+                window.UgapFamilleTab.bindPostRenderInteractions();
+            }
             syncFamilleColumnsDock();
+            } finally {
+                __isRenderingExtractionInsights = false;
+                if (__pendingExtractionInsightsRender) {
+                    __pendingExtractionInsightsRender = false;
+                    requestAnimationFrame(() => renderExtractionInsights());
+                }
+            }
         }
 
         function switchMappedSummaryTab(tabId) {
@@ -8933,7 +12203,7 @@ Format:
                             <thead>
                                 <tr style="background:#f8f9fa;">
                                     <th style="padding:8px; border-bottom:1px solid #eee;">Option trouvée</th>
-                                    <th style="padding:8px; border-bottom:1px solid #eee;">Catégorie</th>
+                                    <th style="padding:8px; border-bottom:1px solid #eee;">Réf.</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -8954,7 +12224,7 @@ Format:
                                     <th style="padding:8px; border-bottom:1px solid #eee;">Famille</th>
                                     <th style="padding:8px; border-bottom:1px solid #eee;">Doublon</th>
                                     <th style="padding:8px; border-bottom:1px solid #eee;">Libellé</th>
-                                    <th style="padding:8px; border-bottom:1px solid #eee;">Catégorie</th>
+                                    <th style="padding:8px; border-bottom:1px solid #eee;">Réf.</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -8969,7 +12239,7 @@ Format:
                             <thead>
                                 <tr style="background:#f8f9fa;">
                                     <th style="padding:8px; border-bottom:1px solid #eee;">Libellé PR</th>
-                                    <th style="padding:8px; border-bottom:1px solid #eee;">Catégorie</th>
+                                    <th style="padding:8px; border-bottom:1px solid #eee;">Vue métier</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -10317,8 +13587,11 @@ Format:
         // Les cookies sont gérés par le système GDRI central, pas par ce module
         document.addEventListener('DOMContentLoaded', () => {
             applyEmbeddedLayout();
+            setWorkspaceMode('backoffice');
+            refreshImportStagingIndicator();
             loadData();
         });
     </script>
+    <script src="/modules/ugap/frontend/assets/js/tabs/famille-tab.js?v=1"></script>
 </body>
 </html>
