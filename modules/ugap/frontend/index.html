@@ -215,12 +215,13 @@
         // API helper
         async function apiCall(endpoint, options = {}) {
             try {
+                const { allowBusinessError = false, ...fetchOptions } = options || {};
                 const response = await fetch(`${API_BASE}${endpoint}`, {
-                    ...options,
+                    ...fetchOptions,
                     credentials: 'include',
                     headers: {
                         'Content-Type': 'application/json',
-                        ...options.headers
+                        ...fetchOptions.headers
                     }
                 });
 
@@ -238,7 +239,7 @@
                     throw new Error(data.message || `Erreur HTTP ${response.status}`);
                 }
 
-                if (!data.success) {
+                if (!data.success && !allowBusinessError) {
                     throw new Error(data.message || 'Erreur API');
                 }
                 return data;
@@ -254,14 +255,18 @@
         // Load data
         async function loadData() {
             try {
-                const result = await apiCall('/data');
-                state.models = result.data.models || [];
-                state.categories = result.data.categories || [];
+                const result = await apiCall('/data', { allowBusinessError: true });
+                if (!result.success && result.message === 'Aucune donnée configurée') {
+                    state.models = [];
+                    state.categories = [];
+                } else {
+                    state.models = (result.data && result.data.models) || [];
+                    state.categories = (result.data && result.data.categories) || [];
+                }
                 render();
             } catch (error) {
                 const errorMsg = error.message || 'Erreur inconnue';
                 if (errorMsg.includes('404') || errorMsg.includes('Aucune donnée')) {
-                    // Pas de données configurées, c'est normal
                     state.models = [];
                     state.categories = [];
                     render();

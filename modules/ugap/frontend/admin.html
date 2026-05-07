@@ -7,6 +7,15 @@
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
     <title>UGAP Admin - Gestion des données</title>
+    <script>
+        (function redirectToPhpAdmin() {
+            var path = window.location.pathname || '';
+            if (!/admin\.html$/i.test(path)) return;
+            var phpPath = path.replace(/admin\.html$/i, 'admin.php');
+            var target = phpPath + (window.location.search || '') + (window.location.hash || '');
+            window.location.replace(target);
+        })();
+    </script>
     <link rel="stylesheet" href="/frontend/assets/css/variables.css">
     <link rel="stylesheet" href="/frontend/assets/css/main.css">
     <style>
@@ -721,12 +730,13 @@ LIGNE_EXEMPLE_2`,
         // API helpers
         async function apiCall(endpoint, options = {}) {
             try {
+                const { allowBusinessError = false, ...fetchOptions } = options || {};
                 const response = await fetch(`${API_BASE}${endpoint}`, {
-                    ...options,
+                    ...fetchOptions,
                     credentials: 'include',
                     headers: {
                         'Content-Type': 'application/json',
-                        ...options.headers
+                        ...fetchOptions.headers
                     }
                 });
 
@@ -744,7 +754,7 @@ LIGNE_EXEMPLE_2`,
                     throw new Error(data.message || `Erreur HTTP ${response.status}`);
                 }
 
-                if (!data.success) {
+                if (!data.success && !allowBusinessError) {
                     throw new Error(data.message || 'Erreur API');
                 }
                 return data;
@@ -760,7 +770,7 @@ LIGNE_EXEMPLE_2`,
         // Load data
         async function loadData(skipRender = false) {
             try {
-                const result = await apiCall('/data');
+                const result = await apiCall('/data', { allowBusinessError: true });
                 
                 // Gérer le cas où il n'y a pas de données
                 if (!result.success && result.message === 'Aucune donnée configurée') {
@@ -7864,6 +7874,7 @@ LIGNE_EXEMPLE_2`,
                                 <input type="checkbox" class="fam-col-merge-cb" data-merge-col="${escapeHtml(sourceKey)}" data-review-id="${escapeHtml(f.reviewId || '')}" value="${escapeHtml(f.reviewId || '')}">
                             </label>
                             <div style="display:flex; align-items:center; gap:6px; margin:0; flex:1; flex-wrap:wrap; min-width:0;">
+                                <span class="fam-card-drag-handle" draggable="true" data-review-id="${escapeHtml(f.reviewId || '')}" title="Glisser pour déplacer sous une autre famille" style="display:inline-flex; align-items:center; justify-content:center; width:22px; height:20px; border:1px solid #d1d5db; border-radius:4px; cursor:grab; color:#475569; background:#f8fafc; user-select:none;">⋮⋮</span>
                                 <strong style="font-size:11px; flex-shrink:0;">Famille</strong>
                                 ${lockBadge}
                                 <input type="text" class="fam-label-input" data-review-id="${escapeHtml(f.reviewId || '')}" value="${escapeHtml(label)}" style="padding:3px 6px; border:1px solid #ddd; border-radius:4px; font-size:11px; min-width:120px; flex:1;" ${labelReadonly}>
@@ -8753,7 +8764,16 @@ LIGNE_EXEMPLE_2`,
             // Drag families between columns / nested as subfamily.
             document.querySelectorAll('.fam-review-card').forEach((card) => {
                 card.addEventListener('dragstart', (e) => {
+                    const target = e.target;
+                    if (target?.closest?.('input, select, textarea, button, label')) {
+                        e.preventDefault();
+                        return;
+                    }
                     e.dataTransfer.setData('text/family-review-id', card.getAttribute('data-review-id'));
+                    card.style.opacity = '0.65';
+                });
+                card.addEventListener('dragend', () => {
+                    card.style.opacity = '';
                 });
                 card.addEventListener('dblclick', () => {
                     const reviewId = card.getAttribute('data-review-id');
@@ -8773,6 +8793,13 @@ LIGNE_EXEMPLE_2`,
                     dragged.parentReviewId = targetId;
                     syncReviewStateIntoIaResult();
                     renderExtractionInsights();
+                });
+            });
+            document.querySelectorAll('.fam-card-drag-handle').forEach((handle) => {
+                handle.addEventListener('dragstart', (e) => {
+                    e.stopPropagation();
+                    e.dataTransfer.setData('text/family-review-id', handle.getAttribute('data-review-id'));
+                    e.dataTransfer.effectAllowed = 'move';
                 });
             });
             document.querySelectorAll('[data-option-drag-id]').forEach((cell) => {

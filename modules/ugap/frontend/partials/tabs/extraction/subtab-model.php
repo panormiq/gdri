@@ -10,7 +10,6 @@
                 <th>Image</th>
                 <th>Configurations</th>
                 <th>Options</th>
-                <th>Minorations</th>
                 <th>Actions</th>
             </tr>
         </thead>

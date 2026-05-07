@@ -1,8 +1,6 @@
 <div id="tab-categories" class="tab-panel">
-    <div style="margin-bottom: 15px; display: flex; gap: 10px; align-items: center;">
-        <button id="btn-add-category" class="btn btn-success">+ Ajouter une vue métier</button>
-        <button id="btn-improve-categorization" class="btn btn-primary">🤖 Améliorer vues métier (IA)</button>
-        <button id="btn-clear-categories" class="btn btn-danger">🧹 Effacer vues métier</button>
+    <div style="margin-bottom: 15px; color:#666; font-size:13px;">
+        Gestion des vues métier (indépendante des mots-clés de familles).
     </div>
     <div style="margin-bottom:12px; border:1px solid #e9ecef; border-radius:8px; padding:10px; background:#fafbfc;">
         <div style="display:flex; flex-wrap:wrap; gap:8px; align-items:end; margin-bottom:8px;">
@@ -11,7 +9,7 @@
                 <input id="view-heur-label" type="text" placeholder="Ex: Design" style="width:100%; padding:8px; border:1px solid #ddd; border-radius:4px;">
             </div>
             <div style="min-width:260px; flex:2;">
-                <label style="display:block; font-size:12px; color:#555; margin-bottom:4px;">Mots-clés (séparés par virgule)</label>
+                <label style="display:block; font-size:12px; color:#555; margin-bottom:4px;">Mots-clés (optionnel)</label>
                 <input id="view-heur-keywords" type="text" placeholder="Ex: coloris, finition, teinte" style="width:100%; padding:8px; border:1px solid #ddd; border-radius:4px;">
             </div>
             <div style="min-width:160px;">
@@ -27,15 +25,4 @@
         </div>
         <div id="view-heur-list" style="font-size:13px; color:#444;"></div>
     </div>
-    <table id="categories-management-table">
-        <thead>
-            <tr>
-                <th>Vue métier</th>
-                <th>Structure</th>
-                <th>Ordre</th>
-                <th>Actions</th>
-            </tr>
-        </thead>
-        <tbody></tbody>
-    </table>
 </div>
