@@ -72,6 +72,7 @@ async function configureFacebookSDK() {
 // Service singleton
 let webhookService = null;
 let pollingService = null;
+const catchupJobs = new Map();
 
 // L'initialisation du SDK se fera à la première utilisation (lazy loading)
 
@@ -252,15 +253,19 @@ async function processWebhookEvent(webhookData) {
       // Enregistrer la dernière interaction et détecter un éventuel rattrapage (serveur down, etc.)
       if (webhookData.entry && Array.isArray(webhookData.entry)) {
         for (const entry of webhookData.entry) {
-          const catchUp = await webhookService.recordWebhookReceived(entry.id, entry.time, entry);
-          if (catchUp && catchUp.shouldCatchUp && catchUp.pageAccessToken) {
+          const catchUps = await webhookService.recordWebhookReceived(entry.id, entry.time, entry);
+          const catchUpList = Array.isArray(catchUps)
+            ? catchUps
+            : (catchUps ? [catchUps] : []);
+          for (const catchUp of catchUpList) {
+            if (!catchUp || !catchUp.shouldCatchUp || !catchUp.pageAccessToken) continue;
             if (!pollingService) {
               pollingService = new PollingService(database);
               await pollingService.init();
             }
             pollingService
               .pullMessages(catchUp.pageId, catchUp.pageAccessToken, catchUp.sinceDate || null)
-              .then(() => webhookService.markWebhookCatchupCompleted(catchUp.pageId, entry.time))
+              .then(() => webhookService.markWebhookCatchupCompleted(catchUp.pageId, entry.time, catchUp.entrepriseId || null))
               .catch((err) => {
                 console.warn('⚠️ Rattrapage webhook échoué:', err && err.message ? err.message : err);
               });
@@ -277,6 +282,262 @@ async function processWebhookEvent(webhookData) {
     console.error('Stack:', error.stack);
   }
 }
+
+async function getValidEmailActionToken(token) {
+  const coll = database.getCollection('facebook_email_action_tokens');
+  const row = await coll.findOne({ token: String(token || '') });
+  if (!row) return { ok: false, status: 404, message: 'Lien invalide ou expiré' };
+  if (row.used) return { ok: false, status: 410, message: 'Ce lien a déjà été utilisé' };
+  if (row.expires_at && new Date(row.expires_at).getTime() < Date.now()) {
+    return { ok: false, status: 410, message: 'Ce lien a expiré' };
+  }
+  return { ok: true, row };
+}
+
+/**
+ * GET /api/facebook/email-actions/:token
+ * Prévisualise le message ciblé par un lien e-mail sécurisé.
+ */
+router.get('/email-actions/:token', async (req, res) => {
+  try {
+    const token = String(req.params.token || '');
+    const check = await getValidEmailActionToken(token);
+    if (!check.ok) {
+      return res.status(check.status).json({ success: false, message: check.message });
+    }
+    const payload = check.row.payload || {};
+    const { ObjectId } = require('mongodb');
+    if (!payload.messageId || !ObjectId.isValid(payload.messageId)) {
+      return res.status(400).json({ success: false, message: 'Token sans message valide' });
+    }
+    const coll = database.getCollection('facebook_analyzed_messages');
+    const doc = await coll.findOne({ _id: new ObjectId(payload.messageId) });
+    if (!doc) {
+      return res.status(404).json({ success: false, message: 'Message introuvable' });
+    }
+    return res.json({
+      success: true,
+      payload,
+      message: {
+        id: doc._id.toString(),
+        text: doc.message || '',
+        created_time: doc.created_time || null,
+        author: doc.author || {},
+        intentions: doc.intentions || [],
+        analysis_details: extractStoredAnalysis(doc)
+      }
+    });
+  } catch (error) {
+    console.error('Erreur GET /email-actions/:token:', error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+/**
+ * POST /api/facebook/email-actions/:token/reply-suggest
+ * Génère une suggestion de réponse IA puis consomme le token.
+ */
+router.post('/email-actions/:token/reply-suggest', async (req, res) => {
+  try {
+    const token = String(req.params.token || '');
+    const check = await getValidEmailActionToken(token);
+    if (!check.ok) {
+      return res.status(check.status).json({ success: false, message: check.message });
+    }
+    const payload = check.row.payload || {};
+    if (payload.action !== 'reply_with_ai') {
+      return res.status(400).json({ success: false, message: 'Token non autorisé pour cette action' });
+    }
+    const { ObjectId } = require('mongodb');
+    if (!payload.messageId || !ObjectId.isValid(payload.messageId)) {
+      return res.status(400).json({ success: false, message: 'messageId invalide' });
+    }
+    const coll = database.getCollection('facebook_analyzed_messages');
+    const doc = await coll.findOne({ _id: new ObjectId(payload.messageId) });
+    if (!doc) return res.status(404).json({ success: false, message: 'Message introuvable' });
+
+    const ai = new AIService({
+      ollamaUrl: process.env.OLLAMA_URL || 'http://localhost:11434',
+      model: process.env.OLLAMA_MODEL || 'mistral:latest'
+    });
+    const intentions = Array.isArray(doc.intentions) ? doc.intentions.map((i) => i.name || i.category).filter(Boolean) : [];
+    const prompt = [
+      'Tu es community manager.',
+      'Rédige une réponse courte, polie et utile en français pour Facebook.',
+      `Intentions détectées: ${intentions.join(', ') || 'général'}.`,
+      `Message client: ${doc.message || ''}`
+    ].join('\n');
+    const suggestion = String(await ai.chat(prompt)).trim();
+
+    // Ne pas consommer le token ici : l'utilisateur doit pouvoir éditer
+    // puis cliquer "Envoyer la réponse" avec le même lien.
+    await database.getCollection('facebook_email_action_tokens').updateOne(
+      { _id: check.row._id },
+      { $set: { previewed_at: new Date() } }
+    );
+    return res.json({
+      success: true,
+      suggestion: suggestion || 'Merci pour votre message, nous revenons vers vous rapidement.'
+    });
+  } catch (error) {
+    console.error('Erreur POST /email-actions/:token/reply-suggest:', error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+/**
+ * POST /api/facebook/email-actions/:token/send-reply
+ * Envoie la réponse proposée via Facebook (commentaire ou MP), puis consomme le token.
+ */
+router.post('/email-actions/:token/send-reply', async (req, res) => {
+  try {
+    const token = String(req.params.token || '');
+    const check = await getValidEmailActionToken(token);
+    if (!check.ok) {
+      return res.status(check.status).json({ success: false, message: check.message });
+    }
+    const payload = check.row.payload || {};
+    if (payload.action !== 'reply_with_ai') {
+      return res.status(400).json({ success: false, message: 'Token non autorisé pour cette action' });
+    }
+
+    const replyText = String((req.body && req.body.message) || '').trim();
+    if (!replyText) {
+      return res.status(400).json({ success: false, message: 'Le message de réponse est requis' });
+    }
+
+    const { ObjectId } = require('mongodb');
+    if (!payload.messageId || !ObjectId.isValid(payload.messageId)) {
+      return res.status(400).json({ success: false, message: 'messageId invalide' });
+    }
+
+    const analyzedCollection = database.getCollection('facebook_analyzed_messages');
+    const analyzed = await analyzedCollection.findOne({ _id: new ObjectId(payload.messageId) });
+    if (!analyzed) {
+      return res.status(404).json({ success: false, message: 'Message introuvable' });
+    }
+
+    const entityId = payload.entityId ? String(payload.entityId) : (analyzed.entityId ? String(analyzed.entityId) : null);
+    const pageId = payload.pageId ? String(payload.pageId) : (analyzed.pageId ? String(analyzed.pageId) : null);
+    if (!entityId || !pageId) {
+      return res.status(400).json({ success: false, message: 'Contexte page/entreprise manquant' });
+    }
+
+    const configCollection = database.getCollection('facebook_configs');
+    const config = await configCollection.findOne({ entrepriseId: entityId, pageId: pageId });
+    if (!config || !config.pageAccessToken) {
+      return res.status(400).json({ success: false, message: 'Page non connectée ou token manquant' });
+    }
+
+    let response = null;
+    const commentId = analyzed.comment_id ? String(analyzed.comment_id) : '';
+    const postId = analyzed.post_id ? String(analyzed.post_id) : '';
+    const recipientId = analyzed.sender_psid || (analyzed.author && analyzed.author.id ? String(analyzed.author.id) : '');
+
+    if (commentId) {
+      const replyUrl = `https://graph.facebook.com/${FACEBOOK_API_VERSION}/${commentId}/comments`;
+      response = await httpsPostRequest(replyUrl, {
+        message: replyText,
+        access_token: config.pageAccessToken
+      });
+    } else if (postId) {
+      const postCommentUrl = `https://graph.facebook.com/${FACEBOOK_API_VERSION}/${postId}/comments`;
+      response = await httpsPostRequest(postCommentUrl, {
+        message: replyText,
+        access_token: config.pageAccessToken
+      });
+    } else if (recipientId) {
+      const sendUrl = `https://graph.facebook.com/${FACEBOOK_API_VERSION}/me/messages?` +
+        `access_token=${encodeURIComponent(config.pageAccessToken)}`;
+      response = await httpsPostRequest(sendUrl, {
+        recipient: JSON.stringify({ id: recipientId }),
+        message: JSON.stringify({ text: replyText })
+      });
+    } else {
+      return res.status(400).json({
+        success: false,
+        message: 'Aucun canal Facebook disponible (comment_id, post_id ou recipientId manquant)'
+      });
+    }
+
+    if (response && response.error) {
+      return res.status(500).json({
+        success: false,
+        message: response.error.message || 'Erreur lors de l’envoi de la réponse'
+      });
+    }
+
+    await analyzedCollection.updateOne(
+      { _id: new ObjectId(payload.messageId) },
+      { $set: { replied_at: new Date(), replied_message: replyText, updated_at: new Date() } }
+    );
+
+    await database.getCollection('facebook_email_action_tokens').updateOne(
+      { _id: check.row._id },
+      { $set: { used: true, used_at: new Date() } }
+    );
+
+    return res.json({ success: true, facebookResponse: response || {} });
+  } catch (error) {
+    console.error('Erreur POST /email-actions/:token/send-reply:', error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+/**
+ * POST /api/facebook/email-actions/:token/correct-analysis
+ * Enregistre un feedback de correction puis consomme le token.
+ */
+router.post('/email-actions/:token/correct-analysis', async (req, res) => {
+  try {
+    const token = String(req.params.token || '');
+    const check = await getValidEmailActionToken(token);
+    if (!check.ok) {
+      return res.status(check.status).json({ success: false, message: check.message });
+    }
+    const payload = check.row.payload || {};
+    if (payload.action !== 'correct_analysis') {
+      return res.status(400).json({ success: false, message: 'Token non autorisé pour cette action' });
+    }
+    const reason = String((req.body && req.body.reason) || '').trim();
+    const expectedPriority = String((req.body && req.body.expectedPriority) || '').trim();
+    const correctionType = String((req.body && req.body.correctionType) || 'other').trim();
+    if (!reason || reason.length < 5) {
+      return res.status(400).json({ success: false, message: 'Le motif doit contenir au moins 5 caractères' });
+    }
+
+    const { ObjectId } = require('mongodb');
+    if (!payload.messageId || !ObjectId.isValid(payload.messageId)) {
+      return res.status(400).json({ success: false, message: 'messageId invalide' });
+    }
+    const analyzedCollection = database.getCollection('facebook_analyzed_messages');
+    const analyzed = await analyzedCollection.findOne({ _id: new ObjectId(payload.messageId) });
+    if (!analyzed) {
+      return res.status(404).json({ success: false, message: 'Message introuvable' });
+    }
+
+    const feedbackCollection = database.getCollection('facebook_analysis_feedback');
+    await feedbackCollection.insertOne({
+      entityId: payload.entityId ? String(payload.entityId) : null,
+      pageId: payload.pageId ? String(payload.pageId) : null,
+      messageId: String(payload.messageId),
+      reason,
+      expectedPriority: expectedPriority || null,
+      correctionType,
+      source: 'email_link',
+      created_at: new Date()
+    });
+
+    await database.getCollection('facebook_email_action_tokens').updateOne(
+      { _id: check.row._id },
+      { $set: { used: true, used_at: new Date() } }
+    );
+    return res.json({ success: true, message: 'Correction enregistrée' });
+  } catch (error) {
+    console.error('Erreur POST /email-actions/:token/correct-analysis:', error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+});
 
 /**
  * POST /api/facebook/pull
@@ -800,7 +1061,9 @@ router.get('/pages/:pageId/messages/analyzed', authenticateJWT, async (req, res)
       };
     } else {
       filter = { pageId: String(pageId), entityId: String(entrepriseId) };
-      if (status === 'repondu') {
+      if (status === 'all') {
+        // Tous les messages : pas de filtre de statut/réponse requise
+      } else if (status === 'repondu') {
         filter.replied_at = { $exists: true, $ne: null };
       } else if (status === 'a_ne_pas_repondre') {
         filter.$and = [
@@ -829,17 +1092,19 @@ router.get('/pages/:pageId/messages/analyzed', authenticateJWT, async (req, res)
       message: doc.message,
       author: doc.author,
       created_time: doc.created_time,
+      analyzed_at: doc.analyzed_at,
       type: doc.type,
       post_id: doc.post_id,
       comment_id: doc.comment_id,
+      mid: doc.mid || null,
+      dedup_key: doc.dedup_key || null,
       intentions: doc.intentions || [],
       reportPriority: doc.reportPriority,
       reponse_requise: doc.reponse_requise,
       analysis_details: extractStoredAnalysis(doc),
       replied_at: doc.replied_at ? (doc.replied_at instanceof Date ? doc.replied_at.toISOString() : doc.replied_at) : null,
       replied_message: doc.replied_message || null,
-      sender_psid: doc.sender_psid,
-      analyzed_at: doc.analyzed_at
+      sender_psid: doc.sender_psid
     }));
     return res.json({ success: true, pageId, messages: items });
   } catch (error) {
@@ -1000,6 +1265,214 @@ router.post('/pages/:pageId/messages/analyzed/:messageId/rerun-analysis', authen
 });
 
 /**
+ * POST /api/facebook/pages/:pageId/messages/analyzed/:messageId/feedback
+ * Enregistre une correction de classification pour enrichir le prompt.
+ */
+router.post('/pages/:pageId/messages/analyzed/:messageId/feedback', authenticateJWT, async (req, res) => {
+  try {
+    const { pageId, messageId } = req.params;
+    const entrepriseId = req.user.entrepriseId;
+    if (!entrepriseId) {
+      return res.status(400).json({ success: false, message: 'entrepriseId requis' });
+    }
+
+    const reason = String((req.body && req.body.reason) || '').trim();
+    const correctionType = String((req.body && req.body.correctionType) || 'other').trim();
+    const expectedPriority = String((req.body && req.body.expectedPriority) || '').trim();
+    if (!reason || reason.length < 5) {
+      return res.status(400).json({
+        success: false,
+        message: 'Veuillez fournir un motif de correction (minimum 5 caractères).'
+      });
+    }
+
+    const { ObjectId } = require('mongodb');
+    if (!ObjectId.isValid(messageId)) {
+      return res.status(400).json({ success: false, message: 'messageId invalide' });
+    }
+
+    const analyzedCollection = database.getCollection('facebook_analyzed_messages');
+    const analyzed = await analyzedCollection.findOne({
+      _id: new ObjectId(messageId),
+      pageId: String(pageId),
+      entityId: String(entrepriseId)
+    });
+    if (!analyzed) {
+      return res.status(404).json({ success: false, message: 'Message analysé introuvable' });
+    }
+
+    const feedbackCollection = database.getCollection('facebook_analysis_feedback');
+    await feedbackCollection.insertOne({
+      entityId: String(entrepriseId),
+      pageId: String(pageId),
+      messageId: String(messageId),
+      correctionType,
+      expectedPriority: expectedPriority || null,
+      reason,
+      source: 'ui',
+      created_at: new Date()
+    });
+
+    await analyzedCollection.updateOne(
+      { _id: new ObjectId(messageId) },
+      {
+        $set: {
+          feedback_last_reason: reason,
+          feedback_last_type: correctionType,
+          feedback_last_priority: expectedPriority || null,
+          feedback_last_at: new Date(),
+          updated_at: new Date()
+        },
+        $inc: { feedback_count: 1 }
+      }
+    );
+
+    return res.json({ success: true, message: 'Correction enregistrée' });
+  } catch (error) {
+    console.error('Erreur POST /pages/:pageId/messages/analyzed/:messageId/feedback:', error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+/**
+ * POST /api/facebook/pages/:pageId/messages/analyzed/:messageId/feedback/suggest-context
+ * Génère une proposition de contexte enrichi (éditable) à partir du message + correction.
+ */
+router.post('/pages/:pageId/messages/analyzed/:messageId/feedback/suggest-context', authenticateJWT, async (req, res) => {
+  try {
+    const { pageId, messageId } = req.params;
+    const entrepriseId = req.user.entrepriseId;
+    if (!entrepriseId) {
+      return res.status(400).json({ success: false, message: 'entrepriseId requis' });
+    }
+    const reason = String((req.body && req.body.reason) || '').trim();
+    const correctionType = String((req.body && req.body.correctionType) || 'other').trim();
+    const expectedPriority = String((req.body && req.body.expectedPriority) || '').trim();
+    if (!reason || reason.length < 5) {
+      return res.status(400).json({ success: false, message: 'Motif de correction requis (min 5 caractères)' });
+    }
+
+    const { ObjectId } = require('mongodb');
+    if (!ObjectId.isValid(messageId)) {
+      return res.status(400).json({ success: false, message: 'messageId invalide' });
+    }
+
+    const analyzedCollection = database.getCollection('facebook_analyzed_messages');
+    const analyzed = await analyzedCollection.findOne({
+      _id: new ObjectId(messageId),
+      pageId: String(pageId),
+      entityId: String(entrepriseId)
+    });
+    if (!analyzed) {
+      return res.status(404).json({ success: false, message: 'Message analysé introuvable' });
+    }
+
+    const agentConfigCollection = database.getCollection('analyse_intention_configs');
+    let aiConfig = await agentConfigCollection.findOne({
+      entrepriseId: String(entrepriseId),
+      pageId: String(pageId)
+    });
+    if (!aiConfig) {
+      aiConfig = await agentConfigCollection.findOne({
+        entrepriseId: String(entrepriseId),
+        $or: [{ pageId: null }, { pageId: '' }, { pageId: { $exists: false } }]
+      });
+    }
+    const currentContext = aiConfig && aiConfig.config && aiConfig.config.feedbackLearnedContext
+      ? String(aiConfig.config.feedbackLearnedContext)
+      : '';
+
+    const ai = new AIService({
+      ollamaUrl: process.env.OLLAMA_URL || 'http://localhost:11434',
+      model: process.env.OLLAMA_MODEL || 'mistral:latest'
+    });
+
+    const prompt = [
+      'Tu améliores un contexte de classification d’intentions Facebook.',
+      'Retourne UNIQUEMENT un texte de contexte opérationnel (pas de JSON, pas de markdown).',
+      'Le texte doit être court, actionnable, et éviter les faux positifs.',
+      '',
+      `Message client: ${analyzed.message || ''}`,
+      `Intentions actuelles: ${JSON.stringify(analyzed.intentions || [])}`,
+      `Type de correction: ${correctionType}`,
+      `Priorité attendue: ${expectedPriority || 'non précisée'}`,
+      `Motif de correction: ${reason}`,
+      '',
+      'Contexte actuel:',
+      currentContext || '(vide)',
+      '',
+      'Produis une version améliorée complète du contexte.'
+    ].join('\n');
+
+    const suggestion = String(await ai.chat(prompt)).trim();
+    return res.json({
+      success: true,
+      contextSuggestion: suggestion || currentContext || '',
+      currentContext
+    });
+  } catch (error) {
+    console.error('Erreur POST /feedback/suggest-context:', error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+/**
+ * POST /api/facebook/pages/:pageId/messages/analyzed/:messageId/feedback/apply-context
+ * Applique le contexte validé (édité) dans la config d'analyse d'intention.
+ */
+router.post('/pages/:pageId/messages/analyzed/:messageId/feedback/apply-context', authenticateJWT, async (req, res) => {
+  try {
+    const { pageId } = req.params;
+    const entrepriseId = req.user.entrepriseId;
+    if (!entrepriseId) {
+      return res.status(400).json({ success: false, message: 'entrepriseId requis' });
+    }
+    const contextText = String((req.body && req.body.contextText) || '').trim();
+    if (!contextText) {
+      return res.status(400).json({ success: false, message: 'contextText requis' });
+    }
+
+    const agentConfigCollection = database.getCollection('analyse_intention_configs');
+    const now = new Date();
+
+    // Priorité config par page ; sinon création d'une config par page.
+    const pageFilter = { entrepriseId: String(entrepriseId), pageId: String(pageId) };
+    const existing = await agentConfigCollection.findOne(pageFilter);
+    if (existing) {
+      await agentConfigCollection.updateOne(
+        { _id: existing._id },
+        {
+          $set: {
+            'config.feedbackLearnedContext': contextText,
+            updated_at: now
+          }
+        }
+      );
+    } else {
+      await agentConfigCollection.updateOne(
+        pageFilter,
+        {
+          $set: {
+            entrepriseId: String(entrepriseId),
+            pageId: String(pageId),
+            config: {
+              feedbackLearnedContext: contextText
+            },
+            updated_at: now
+          }
+        },
+        { upsert: true }
+      );
+    }
+
+    return res.json({ success: true, message: 'Contexte appliqué avec succès' });
+  } catch (error) {
+    console.error('Erreur POST /feedback/apply-context:', error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+/**
  * POST /api/facebook/pages/:pageId/messages/analyzed/:messageId/email
  * Envoie un message analysé par email (destinataire de config Facebook ou email explicite).
  * Body optionnel: { to: "destinataire@exemple.com" }
@@ -1017,7 +1490,6 @@ router.post('/pages/:pageId/messages/analyzed/:messageId/email', authenticateJWT
     const { ObjectId } = require('mongodb');
     const analyzedCollection = database.getCollection('facebook_analyzed_messages');
     const configCollection = database.getCollection('facebook_configs');
-    const agentConfigCollection = database.getCollection('analyse_intention_configs');
 
     const analyzedMessage = await analyzedCollection.findOne({
       _id: new ObjectId(messageId),
@@ -1038,26 +1510,58 @@ router.post('/pages/:pageId/messages/analyzed/:messageId/email', authenticateJWT
       return res.status(404).json({ success: false, message: 'Configuration de page introuvable' });
     }
 
-    // La config de l'agent est stockée dans analyse_intention_configs avec entrepriseId
-    // et peut être spécifique à une page (pageId) ou globale (sans pageId).
-    let aiConfig = await agentConfigCollection.findOne({
-      entrepriseId: String(entrepriseId),
-      pageId: String(pageId)
-    });
-    if (!aiConfig) {
-      aiConfig = await agentConfigCollection.findOne({
-        entrepriseId: String(entrepriseId),
+    // Charger la config agent avec la même logique robuste que WebhookService.
+    const formatter = new WebhookService(database);
+    await formatter.init();
+    const agentCfg = await formatter.loadFacebookAgentConfig(String(entrepriseId), String(pageId));
+    let defaultEmail = agentCfg
+      ? String(agentCfg.defaultEmail || agentCfg.default_email || '').trim()
+      : '';
+
+    // Fallbacks legacy pour éviter les régressions de configuration.
+    if (!defaultEmail) {
+      const legacyCandidates = [];
+      const eidStr = String(entrepriseId);
+      legacyCandidates.push({ entrepriseId: eidStr, pageId: String(pageId) });
+      legacyCandidates.push({
+        entrepriseId: eidStr,
         $or: [{ pageId: null }, { pageId: '' }, { pageId: { $exists: false } }]
       });
-    }
-    // Compat ascendante: anciens documents pouvaient utiliser entity_id
-    if (!aiConfig) {
-      aiConfig = await agentConfigCollection.findOne({ entity_id: String(entrepriseId) });
+      legacyCandidates.push({ entity_id: eidStr, pageId: String(pageId) });
+      legacyCandidates.push({
+        entity_id: eidStr,
+        $or: [{ pageId: null }, { pageId: '' }, { pageId: { $exists: false } }]
+      });
+
+      try {
+        const { ObjectId } = require('mongodb');
+        if (ObjectId.isValid(eidStr)) {
+          const eidObj = new ObjectId(eidStr);
+          legacyCandidates.push({ entrepriseId: eidObj, pageId: String(pageId) });
+          legacyCandidates.push({
+            entrepriseId: eidObj,
+            $or: [{ pageId: null }, { pageId: '' }, { pageId: { $exists: false } }]
+          });
+          legacyCandidates.push({ entity_id: eidObj, pageId: String(pageId) });
+          legacyCandidates.push({
+            entity_id: eidObj,
+            $or: [{ pageId: null }, { pageId: '' }, { pageId: { $exists: false } }]
+          });
+        }
+      } catch (_) {}
+
+      for (const q of legacyCandidates) {
+        const row = await database.getCollection('analyse_intention_configs').findOne(q);
+        if (!row) continue;
+        const cfg = row.config && typeof row.config === 'object' ? row.config : row;
+        const mail = String(cfg.defaultEmail || cfg.default_email || '').trim();
+        if (mail) {
+          defaultEmail = mail;
+          break;
+        }
+      }
     }
 
-    const defaultEmail = aiConfig && aiConfig.config
-      ? String(aiConfig.config.defaultEmail || aiConfig.config.default_email || '').trim()
-      : '';
     const targetEmail = toOverride || defaultEmail;
 
     if (!targetEmail) {
@@ -1071,50 +1575,46 @@ router.post('/pages/:pageId/messages/analyzed/:messageId/email', authenticateJWT
     const createdAt = analyzedMessage.created_time ? new Date(analyzedMessage.created_time) : new Date();
     const storedAnalysis = extractStoredAnalysis(analyzedMessage);
 
-    // Relancer l'analyse d'intention au moment de l'envoi afin de vérifier
-    // si les corrections de classification sont bien prises en compte.
+    // Relance IA optionnelle (désactivée par défaut pour éviter les timeouts proxy sur envoi manuel).
+    const enableRerunOnSend = String(process.env.FACEBOOK_EMAIL_RERUN_ANALYSIS || '').toLowerCase() === 'true';
     let rerunAnalysis = null;
-    try {
-      const aiService = new AIService({
-        ollamaUrl: process.env.OLLAMA_URL || 'http://localhost:11434',
-        model: process.env.OLLAMA_MODEL || 'mistral:latest'
-      });
-      const intentionService = new IntentionService(database);
-      intentionService.setAIService(aiService);
+    if (enableRerunOnSend) {
+      try {
+        const aiService = new AIService({
+          ollamaUrl: process.env.OLLAMA_URL || 'http://localhost:11434',
+          model: process.env.OLLAMA_MODEL || 'mistral:latest'
+        });
+        const intentionService = new IntentionService(database);
+        intentionService.setAIService(aiService);
 
-      const rerunMessages = [{
-        message: analyzedMessage.message || '',
-        author: analyzedMessage.author || {},
-        created_time: analyzedMessage.created_time || new Date().toISOString(),
-        type: analyzedMessage.type || 'message',
-        post_id: analyzedMessage.post_id || null,
-        comment_id: analyzedMessage.comment_id || null
-      }];
+        const rerunMessages = [{
+          message: analyzedMessage.message || '',
+          author: analyzedMessage.author || {},
+          created_time: analyzedMessage.created_time || new Date().toISOString(),
+          type: analyzedMessage.type || 'message',
+          post_id: analyzedMessage.post_id || null,
+          comment_id: analyzedMessage.comment_id || null
+        }];
 
-      const basePrompt = aiConfig && aiConfig.config
-        ? (aiConfig.config.basePrompt || aiConfig.config.base_prompt || null)
-        : null;
-      const customIntentions = aiConfig && aiConfig.config
-        ? (aiConfig.config.customIntentions || aiConfig.config.intentions || [])
-        : [];
+        const basePrompt = agentCfg
+          ? (agentCfg.basePrompt || agentCfg.base_prompt || null)
+          : null;
+        const customIntentions = agentCfg
+          ? (agentCfg.customIntentions || agentCfg.intentions || [])
+          : [];
 
-      const rerunResult = await intentionService.analyzeIntentions(rerunMessages, basePrompt, customIntentions);
-      if (rerunResult && rerunResult.success) {
-        rerunAnalysis = rerunResult.data || null;
+        const rerunResult = await intentionService.analyzeIntentions(rerunMessages, basePrompt, customIntentions);
+        if (rerunResult && rerunResult.success) {
+          rerunAnalysis = rerunResult.data || null;
+        }
+      } catch (rerunError) {
+        console.warn('⚠️ Impossible de relancer l’analyse pour envoi mail:', rerunError.message);
       }
-    } catch (rerunError) {
-      console.warn('⚠️ Impossible de relancer l’analyse pour envoi mail:', rerunError.message);
     }
 
-    const subject = `📊 Analyse d'intention Facebook - ${pageConfig.pageName || pageId}`;
-    const storedAnalysisText = storedAnalysis
-      ? JSON.stringify(storedAnalysis, null, 2)
-      : 'Aucune analyse initiale enregistrée';
-    const rerunAnalysisText = rerunAnalysis
-      ? JSON.stringify(rerunAnalysis, null, 2)
-      : 'Relance de l’analyse indisponible';
     const baseMessages = [{
       message: analyzedMessage.message || '',
+      message_id: analyzedMessage._id ? String(analyzedMessage._id) : null,
       author: analyzedMessage.author || { name: authorName },
       created_time: analyzedMessage.created_time || createdAt.toISOString(),
       type: analyzedMessage.type || 'message',
@@ -1129,67 +1629,18 @@ router.post('/pages/:pageId/messages/analyzed/:messageId/email', authenticateJWT
         resume: 'Analyse indisponible'
       }]
     };
-    const formatter = new WebhookService(database);
-    const formatted = formatter.formatAnalysisEmail(analysisForTemplate, baseMessages);
-
-    const comparisonText = [
-      '',
-      '════════ COMPARAISON ANALYSE ════════',
-      'Analyse initiale (stockée):',
-      storedAnalysisText,
-      '',
-      'Analyse relancée (au moment de l’envoi):',
-      rerunAnalysisText
-    ].join('\n');
-
-    const comparisonHtml = `
-      <section style="margin-top:24px;">
-        <h3 style="color:#0d6efd;margin-bottom:8px;">🔁 Comparaison analyse</h3>
-        <p style="margin:6px 0 4px 0;"><strong>Analyse initiale (stockée) :</strong></p>
-        <pre style="margin:0;background:#f8f9fa;border:1px solid #dee2e6;border-radius:6px;padding:10px;white-space:pre-wrap;">${storedAnalysisText.replace(/</g, '&lt;')}</pre>
-        <p style="margin:12px 0 4px 0;"><strong>Analyse relancée (au moment de l’envoi) :</strong></p>
-        <pre style="margin:0;background:#f8f9fa;border:1px solid #dee2e6;border-radius:6px;padding:10px;white-space:pre-wrap;">${rerunAnalysisText.replace(/</g, '&lt;')}</pre>
-      </section>
-    `;
-
-    const textBody = `${formatted.text}\n${comparisonText}`;
-    const htmlBody = `${formatted.html}${comparisonHtml}`;
-
-    const mail = mailModule.getMailService();
-    const mailConfigFacebook = await mail.loadConfigFromDB(String(entrepriseId), 'facebook');
-    const mailConfigDefault = await mail.loadConfigFromDB(String(entrepriseId), 'mail');
-    const effectiveMailConfig =
-      mailConfigFacebook && mailConfigFacebook.smtp_profiles && Object.keys(mailConfigFacebook.smtp_profiles).length > 0
-        ? mailConfigFacebook
-        : mailConfigDefault;
-
-    if (!effectiveMailConfig || !effectiveMailConfig.smtp_profiles || Object.keys(effectiveMailConfig.smtp_profiles).length === 0) {
-      return res.status(400).json({ success: false, message: 'Aucune configuration SMTP disponible' });
-    }
-
-    const smtpProfile = effectiveMailConfig.default_profile && effectiveMailConfig.smtp_profiles[effectiveMailConfig.default_profile]
-      ? effectiveMailConfig.default_profile
-      : Object.keys(effectiveMailConfig.smtp_profiles)[0];
-
-    mail.initModule({
-      module_name: 'facebook',
-      ...effectiveMailConfig
-    });
-
-    const sendResult = await mail.send({
-      to: targetEmail,
-      subject,
-      body: textBody,
-      body_html: htmlBody,
-      module_name: 'facebook',
-      entity_id: String(entrepriseId),
-      profile: smtpProfile
-    });
+    const sendResult = await formatter.sendAnalysisEmail(
+      analysisForTemplate,
+      baseMessages,
+      String(entrepriseId),
+      String(pageId),
+      { forcedRecipients: [targetEmail] }
+    );
 
     if (!sendResult || !sendResult.success) {
       return res.status(500).json({
         success: false,
-        message: sendResult && sendResult.error ? sendResult.error : 'Erreur lors de l’envoi de l’email'
+        message: sendResult && sendResult.reason ? sendResult.reason : 'Erreur lors de l’envoi de l’email'
       });
     }
 
@@ -1976,6 +2427,234 @@ router.post('/pages/pull', authenticateJWT, async (req, res) => {
     });
   } catch (error) {
     console.error('Erreur POST /pages/pull:', error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+/**
+ * POST /api/facebook/pages/:pageId/catchup
+ * Lance un rattrapage immédiat pour une page précise et attend la fin.
+ * Retourne le nombre d'éléments récupérés pour affichage dans le résumé.
+ */
+router.post('/pages/:pageId/catchup', authenticateJWT, async (req, res) => {
+  try {
+    const entrepriseId = req.user.entrepriseId;
+    const pageId = req.params.pageId != null ? String(req.params.pageId) : '';
+    if (!entrepriseId || !pageId) {
+      return res.status(400).json({ success: false, message: 'entrepriseId et pageId requis' });
+    }
+
+    const configCollection = database.getCollection('facebook_configs');
+    const config = await configCollection.findOne({
+      entrepriseId,
+      $or: [{ pageId }, { pageId: String(Number(pageId)) }],
+      pageAccessToken: { $exists: true, $ne: null }
+    });
+
+    if (!config || !config.pageAccessToken) {
+      return res.status(404).json({
+        success: false,
+        message: 'Page non trouvée ou token Facebook manquant pour cette entreprise'
+      });
+    }
+
+    if (!pollingService) {
+      pollingService = new PollingService(database);
+      await pollingService.init();
+    }
+
+    let sinceDate = config.lastPullAt || config.lastWebhookProcessedAt
+      ? new Date(config.lastPullAt || config.lastWebhookProcessedAt)
+      : null;
+    let requestedSinceDate = null;
+    if (req.body && req.body.sinceDate) {
+      const manualSince = new Date(req.body.sinceDate);
+      if (Number.isNaN(manualSince.getTime())) {
+        return res.status(400).json({
+          success: false,
+          message: 'sinceDate invalide (format attendu ISO/date-heure valide)'
+        });
+      }
+      sinceDate = manualSince;
+      requestedSinceDate = manualSince;
+    }
+
+    const pullResult = await pollingService.pullMessages(pageId, config.pageAccessToken, sinceDate);
+    if (!pullResult || !pullResult.success) {
+      return res.status(500).json({
+        success: false,
+        message: (pullResult && pullResult.error) ? pullResult.error : 'Échec du rattrapage Facebook'
+      });
+    }
+
+    const recoveredCount = Number(pullResult.messagesCount || 0) + Number(pullResult.commentsCount || 0);
+    return res.json({
+      success: true,
+      message: 'Rattrapage terminé',
+      pageId,
+      requestedSinceDate: requestedSinceDate ? requestedSinceDate.toISOString() : null,
+      sinceDateUsed: pullResult && pullResult.effectiveSinceDate
+        ? new Date(pullResult.effectiveSinceDate).toISOString()
+        : (sinceDate ? new Date(sinceDate).toISOString() : null),
+      recoveredCount,
+      postsCount: Number(pullResult.postsCount || 0),
+      messagesCount: Number(pullResult.messagesCount || 0),
+      commentsCount: Number(pullResult.commentsCount || 0),
+      diagnostics: pullResult && pullResult.diagnostics ? pullResult.diagnostics : null,
+      completedAt: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error('Erreur POST /pages/:pageId/catchup:', error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+/**
+ * POST /api/facebook/pages/:pageId/catchup/start
+ * Démarre un rattrapage asynchrone et retourne un jobId.
+ */
+router.post('/pages/:pageId/catchup/start', authenticateJWT, async (req, res) => {
+  try {
+    const entrepriseId = req.user.entrepriseId;
+    const pageId = req.params.pageId != null ? String(req.params.pageId) : '';
+    if (!entrepriseId || !pageId) {
+      return res.status(400).json({ success: false, message: 'entrepriseId et pageId requis' });
+    }
+
+    const configCollection = database.getCollection('facebook_configs');
+    const config = await configCollection.findOne({
+      entrepriseId,
+      $or: [{ pageId }, { pageId: String(Number(pageId)) }],
+      pageAccessToken: { $exists: true, $ne: null }
+    });
+
+    if (!config || !config.pageAccessToken) {
+      return res.status(404).json({
+        success: false,
+        message: 'Page non trouvée ou token Facebook manquant pour cette entreprise'
+      });
+    }
+
+    let sinceDate = config.lastPullAt || config.lastWebhookProcessedAt
+      ? new Date(config.lastPullAt || config.lastWebhookProcessedAt)
+      : null;
+    let requestedSinceDate = null;
+    if (req.body && req.body.sinceDate) {
+      const manualSince = new Date(req.body.sinceDate);
+      if (Number.isNaN(manualSince.getTime())) {
+        return res.status(400).json({
+          success: false,
+          message: 'sinceDate invalide (format attendu ISO/date-heure valide)'
+        });
+      }
+      sinceDate = manualSince;
+      requestedSinceDate = manualSince;
+    }
+
+    if (!pollingService) {
+      pollingService = new PollingService(database);
+      await pollingService.init();
+    }
+
+    const jobId = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    catchupJobs.set(jobId, {
+      jobId,
+      entrepriseId: String(entrepriseId),
+      pageId: String(pageId),
+      status: 'running',
+      phase: 'fetching',
+      message: 'Démarrage du rattrapage',
+      requestedSinceDate: requestedSinceDate ? requestedSinceDate.toISOString() : null,
+      sinceDateUsed: sinceDate ? new Date(sinceDate).toISOString() : null,
+      postsCount: 0,
+      messagesCount: 0,
+      commentsCount: 0,
+      recoveredCount: 0,
+      aiProcessed: 0,
+      aiTotal: 0,
+      diagnostics: null,
+      error: null,
+      startedAt: new Date().toISOString(),
+      completedAt: null
+    });
+
+    pollingService.pullMessages(pageId, config.pageAccessToken, sinceDate, {
+      onProgress: (p) => {
+        const job = catchupJobs.get(jobId);
+        if (!job || job.status !== 'running') return;
+        if (p.phase) job.phase = p.phase;
+        if (p.message) job.message = p.message;
+        if (p.postsCount != null) job.postsCount = Number(p.postsCount || 0);
+        if (p.sinceDateUsed) job.sinceDateUsed = p.sinceDateUsed;
+        if (p.ai) {
+          job.aiProcessed = Number(p.ai.processed || 0);
+          job.aiTotal = Number(p.ai.total || 0);
+        }
+      }
+    }).then((pullResult) => {
+      const job = catchupJobs.get(jobId);
+      if (!job) return;
+      if (!pullResult || !pullResult.success) {
+        job.status = 'failed';
+        job.phase = 'failed';
+        job.error = (pullResult && pullResult.error) ? pullResult.error : 'Échec du rattrapage Facebook';
+        job.completedAt = new Date().toISOString();
+        return;
+      }
+      job.status = 'done';
+      job.phase = 'done';
+      job.message = 'Rattrapage terminé';
+      job.sinceDateUsed = pullResult && pullResult.effectiveSinceDate
+        ? new Date(pullResult.effectiveSinceDate).toISOString()
+        : job.sinceDateUsed;
+      job.postsCount = Number(pullResult.postsCount || 0);
+      job.messagesCount = Number(pullResult.messagesCount || 0);
+      job.commentsCount = Number(pullResult.commentsCount || 0);
+      job.recoveredCount = job.messagesCount + job.commentsCount;
+      job.aiProcessed = pullResult && pullResult.progress ? Number(pullResult.progress.aiProcessed || 0) : job.aiProcessed;
+      job.aiTotal = pullResult && pullResult.progress ? Number(pullResult.progress.aiDiscovered || 0) : job.aiTotal;
+      job.diagnostics = pullResult && pullResult.diagnostics ? pullResult.diagnostics : null;
+      job.completedAt = new Date().toISOString();
+    }).catch((err) => {
+      const job = catchupJobs.get(jobId);
+      if (!job) return;
+      job.status = 'failed';
+      job.phase = 'failed';
+      job.error = err && err.message ? err.message : 'Erreur inconnue';
+      job.completedAt = new Date().toISOString();
+    });
+
+    return res.status(202).json({
+      success: true,
+      jobId,
+      pageId,
+      status: 'running'
+    });
+  } catch (error) {
+    console.error('Erreur POST /pages/:pageId/catchup/start:', error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+/**
+ * GET /api/facebook/pages/:pageId/catchup/status/:jobId
+ * Retourne l'état d'avancement d'un rattrapage asynchrone.
+ */
+router.get('/pages/:pageId/catchup/status/:jobId', authenticateJWT, async (req, res) => {
+  try {
+    const entrepriseId = req.user.entrepriseId;
+    const pageId = String(req.params.pageId || '');
+    const jobId = String(req.params.jobId || '');
+    const job = catchupJobs.get(jobId);
+    if (!job) {
+      return res.status(404).json({ success: false, message: 'Job introuvable' });
+    }
+    if (job.pageId !== pageId || job.entrepriseId !== String(entrepriseId)) {
+      return res.status(403).json({ success: false, message: 'Accès refusé à ce job' });
+    }
+    return res.json({ success: true, job });
+  } catch (error) {
+    console.error('Erreur GET /pages/:pageId/catchup/status/:jobId:', error);
     return res.status(500).json({ success: false, message: error.message });
   }
 });

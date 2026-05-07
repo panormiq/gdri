@@ -5,6 +5,7 @@
 
 const IntentionService = require('../../analyse-intention/services/IntentionService');
 const AIService = require('../../analyse-intention/services/AIService');
+const crypto = require('crypto');
 let mailModule;
 try {
   // Ancien emplacement (backend/modules/mail)
@@ -20,6 +21,18 @@ class WebhookService {
     this.initialized = false;
     this.intentionService = null;
     this.aiService = null;
+  }
+
+  getDefaultIntentionsPreset() {
+    return [
+      { name: 'commercial', category: 'commercial', label: 'Commercial', description: 'Demandes de produits, prix, devis, informations commerciales' },
+      { name: 'sav', category: 'sav', label: 'SAV', description: 'Problèmes techniques, bugs, dysfonctionnements' },
+      { name: 'technique', category: 'technique', label: 'Technique', description: 'Questions d\'utilisation, configuration, installation' },
+      { name: 'critique', category: 'critique', label: 'Critique', description: 'Signalements d\'erreurs, corrections d\'informations' },
+      { name: 'positif', category: 'positif', label: 'Positif', description: 'Commentaires positifs, remerciements' },
+      { name: 'spam', category: 'spam', label: 'Spam', description: 'Messages publicitaires, indésirables' },
+      { name: 'generic', category: 'generic', label: 'Général', description: 'Intentions génériques non spécialisées' }
+    ];
   }
 
   /**
@@ -58,19 +71,25 @@ class WebhookService {
 
       // Traiter chaque entry
       for (const entry of webhookData.entry) {
-        // Déterminer l'entreprise à partir du pageId (facebook_configs puis legacy)
-        const entityId = await this.resolveEntrepriseIdForPage(entry.id);
+        // Une même page Facebook peut être utilisée par plusieurs entreprises :
+        // on duplique le traitement pour chaque entreprise liée au pageId.
+        const entityIds = await this.resolveEntrepriseIdsForPage(entry.id);
+        const effectiveEntityIds = entityIds.length > 0 ? entityIds : [null];
 
-        // Sauvegarder l'entry complète
-        await this.saveWebhook(entry, entityId);
+        // Sauvegarder l'entry complète pour chaque entreprise concernée
+        for (const entityId of effectiveEntityIds) {
+          await this.saveWebhook(entry, entityId);
+        }
 
         // Compter les événements
         const eventCount = this.countEvents(entry);
         totalEvents += eventCount;
 
-        // Traiter les événements si nécessaire
+        // Traiter les événements si nécessaire pour chaque entreprise liée
         if (eventCount > 0) {
-          await this.processEntryEvents(entry, entityId);
+          for (const entityId of effectiveEntityIds) {
+            await this.processEntryEvents(entry, entityId);
+          }
         }
       }
 
@@ -141,20 +160,35 @@ class WebhookService {
    * @returns {Promise<string|null>}
    */
   async resolveEntrepriseIdForPage(pageId) {
+    const ids = await this.resolveEntrepriseIdsForPage(pageId);
+    return ids.length > 0 ? ids[0] : null;
+  }
+
+  /**
+   * Résout toutes les entreprises liées à une page Facebook.
+   * Permet de traiter un webhook pour plusieurs entreprises clientes partageant le même pageId.
+   * @param {string} pageId
+   * @returns {Promise<string[]>}
+   */
+  async resolveEntrepriseIdsForPage(pageId) {
     try {
       const pid = pageId != null ? String(pageId) : '';
-      if (!pid) return null;
+      if (!pid) return [];
       const configs = this.database.getCollection('facebook_configs');
-      const row = await configs.findOne({
+      const rows = await configs.find({
         $or: [{ pageId: pid }, { pageId: String(Number(pid)) }]
-      });
-      if (row && row.entrepriseId != null) {
-        return String(row.entrepriseId);
+      }).toArray();
+      const ids = (rows || [])
+        .map((row) => (row && row.entrepriseId != null ? String(row.entrepriseId) : null))
+        .filter(Boolean);
+      if (ids.length > 0) {
+        return Array.from(new Set(ids));
       }
     } catch (e) {
-      console.warn('resolveEntrepriseIdForPage facebook_configs:', e.message);
+      console.warn('resolveEntrepriseIdsForPage facebook_configs:', e.message);
     }
-    return this.getEntityIdFromPageId(pageId);
+    const legacyId = await this.getEntityIdFromPageId(pageId);
+    return legacyId ? [String(legacyId)] : [];
   }
 
   /**
@@ -184,10 +218,18 @@ class WebhookService {
       if (!doc) {
         doc = await coll.findOne({ entity_id: eid });
       }
-      return doc && doc.config ? doc.config : null;
+      if (doc && doc.config) {
+        return doc.config;
+      }
+      // Fallback métier: toujours proposer 7 intentions par défaut.
+      return {
+        customIntentions: this.getDefaultIntentionsPreset()
+      };
     } catch (error) {
       console.error('Erreur loadAnalyseIntentionConfig:', error);
-      return null;
+      return {
+        customIntentions: this.getDefaultIntentionsPreset()
+      };
     }
   }
 
@@ -215,7 +257,9 @@ class WebhookService {
       console.log(`  🔍 processEntryEvents appelé pour entry.id=${entry.id}, entityId=${entityId || 'null'}`);
       
       // Extraire les messages des événements
-      const messages = this.extractMessagesFromEntry(entry);
+      const extractedMessages = this.extractMessagesFromEntry(entry);
+      const facebookPageId = entry.id != null ? String(entry.id) : null;
+      const messages = await this.filterAlreadyAnalyzedMessages(entityId, facebookPageId, extractedMessages);
       
       console.log(`  📋 Messages extraits: ${messages.length}`);
       if (messages.length > 0) {
@@ -249,22 +293,23 @@ class WebhookService {
       console.log(`  📤 Envoi à Ollama (${this.aiService?.ollamaUrl || 'N/A'})...`);
       console.log(`  🤖 Modèle: ${this.aiService?.model || 'N/A'}`);
 
-        const facebookPageId = entry.id != null ? String(entry.id) : null;
-
         // Configuration Agent IA : par page Facebook si enregistrée, sinon défaut entreprise
         let basePrompt = null;
         let customIntentions = [];
 
         if (entityId) {
           const cfg = await this.loadAnalyseIntentionConfig(entityId, facebookPageId);
-          if (cfg) {
-            basePrompt = cfg.basePrompt || cfg.base_prompt || null;
-            customIntentions = cfg.customIntentions || cfg.intentions || [];
-            console.log(
-              `  📋 Configuration agent IA (${facebookPageId ? `page ${facebookPageId}` : 'défaut entreprise'}): ` +
-              `${customIntentions.length} intention(s) configurée(s)`
-            );
-          }
+          basePrompt = cfg && (cfg.basePrompt || cfg.base_prompt) ? (cfg.basePrompt || cfg.base_prompt) : null;
+          customIntentions = cfg && (cfg.customIntentions || cfg.intentions)
+            ? (cfg.customIntentions || cfg.intentions)
+            : this.getDefaultIntentionsPreset();
+          console.log(
+            `  📋 Configuration agent IA (${facebookPageId ? `page ${facebookPageId}` : 'défaut entreprise'}): ` +
+            `${customIntentions.length} intention(s) configurée(s)`
+          );
+        } else {
+          console.log('  ⚠️ Entité introuvable pour cette page : traitement ignoré.');
+          return;
         }
 
         const startTime = Date.now();
@@ -289,7 +334,12 @@ class WebhookService {
           );
 
           if (sendNow) {
-            await this.sendAnalysisEmail(analysisResult.data, messages, entityId, facebookPageId);
+            const immediateBatch = this.buildImmediateEmailBatch(analysisResult.data, messages, cfgFull);
+            if (immediateBatch.originalMessages.length > 0 && immediateBatch.analysisData.analyses.length > 0) {
+              await this.sendAnalysisEmail(immediateBatch.analysisData, immediateBatch.originalMessages, entityId, facebookPageId);
+            } else {
+              console.log('  📭 Aucun message réellement "immediate" dans ce lot, envoi immédiat ignoré.');
+            }
           } else {
             console.log('  📭 Rapport différé : envoi au prochain créneau quotidien (sync Graph + file d’attente).');
           }
@@ -310,11 +360,16 @@ class WebhookService {
    */
   extractMessagesFromEntry(entry) {
     const messages = [];
+    const pageId = entry && entry.id != null ? String(entry.id) : '';
     
     // Traiter les changements (commentaires, mentions)
     if (entry.changes) {
       entry.changes.forEach(change => {
         if (change.value && change.value.message) {
+          const authorId = change.value.from && change.value.from.id != null ? String(change.value.from.id) : '';
+          if (this.isOwnPageAuthor(authorId, pageId)) {
+            return;
+          }
           messages.push({
             message: change.value.message,
             author: {
@@ -334,6 +389,10 @@ class WebhookService {
     if (entry.messaging) {
       entry.messaging.forEach(msg => {
         if (msg.message && msg.message.text) {
+          const authorId = msg.sender && msg.sender.id != null ? String(msg.sender.id) : '';
+          if (this.isOwnPageAuthor(authorId, pageId)) {
+            return;
+          }
           messages.push({
             message: msg.message.text,
             author: {
@@ -342,13 +401,48 @@ class WebhookService {
             },
             created_time: new Date(msg.timestamp * 1000).toISOString(),
             type: 'message',
-            mid: msg.message.mid
+            mid: msg.message.mid,
+            sender_psid: msg.sender?.id || null
           });
         }
       });
     }
     
     return messages;
+  }
+
+  isOwnPageAuthor(authorId, pageId) {
+    return Boolean(authorId && pageId && String(authorId) === String(pageId));
+  }
+
+  async filterAlreadyAnalyzedMessages(entityId, pageId, messages) {
+    if (!entityId || !pageId || !Array.isArray(messages) || messages.length === 0) {
+      return Array.isArray(messages) ? messages : [];
+    }
+
+    const coll = this.database.getCollection('facebook_analyzed_messages');
+    const messageWithKeys = messages.map((msg) => ({
+      msg,
+      dedupKey: this.buildMessageDedupKey(msg)
+    }));
+    const keys = messageWithKeys.map((row) => row.dedupKey).filter(Boolean);
+    if (keys.length === 0) return messages;
+
+    const existing = await coll.find({
+      entityId: String(entityId),
+      pageId: String(pageId),
+      dedup_key: { $in: keys }
+    }).project({ dedup_key: 1 }).toArray();
+
+    const existingKeys = new Set((existing || []).map((row) => row && row.dedup_key).filter(Boolean));
+    const filtered = messageWithKeys
+      .filter((row) => !existingKeys.has(row.dedupKey))
+      .map((row) => row.msg);
+
+    if (filtered.length !== messages.length) {
+      console.log(`  🛡️ Doublons ignorés: ${messages.length - filtered.length}/${messages.length}`);
+    }
+    return filtered;
   }
   
   /**
@@ -358,7 +452,7 @@ class WebhookService {
    * @param {string} entityId - ID de l'entité (entrepriseId)
    * @param {string|null} facebookPageId - ID page Facebook (config par page)
    */
-  async sendAnalysisEmail(analysisData, originalMessages, entityId, facebookPageId = null) {
+  async sendAnalysisEmail(analysisData, originalMessages, entityId, facebookPageId = null, options = {}) {
     try {
       console.log('  📧 Préparation de l\'envoi d\'email...');
       console.log(`  🔍 Entity ID: ${entityId || 'NON DÉFINI'}`);
@@ -368,6 +462,7 @@ class WebhookService {
 
       // Charger la configuration de l'agent Facebook (même logique que l'analyse)
       const config = await this.loadFacebookAgentConfig(entityId, facebookPageId);
+      const defaultFallbackEmails = this.getDefaultFallbackEmails(config);
       
       if (!config) {
         console.log('  ⚠️  Pas de configuration trouvée dans MongoDB pour cette entité');
@@ -376,17 +471,22 @@ class WebhookService {
       }
       
       console.log('  ✅ Configuration chargée');
-      console.log(`  📧 Email par défaut: ${config.defaultEmail || 'NON DÉFINI'}`);
+      console.log(`  📧 Emails par défaut: ${defaultFallbackEmails.length > 0 ? defaultFallbackEmails.join(', ') : 'NON DÉFINI'}`);
       console.log(`  📋 Intentions configurées: ${config.customIntentions?.length || 0}`);
       
-      if (!config.defaultEmail) {
+      if (defaultFallbackEmails.length === 0) {
         console.log('  ⚠️  Pas d\'email par défaut configuré, email non envoyé');
-        console.log('  💡 Configurez un email par défaut dans la page de configuration de l\'agent Facebook');
+        console.log('  💡 Configurez au moins un email par défaut dans la page de configuration de l\'agent Facebook');
         return;
       }
       
       // Déterminer les destinataires selon les intentions détectées
-      let recipients = this.getRecipientsFromAnalysis(analysisData, config);
+      let recipients = Array.isArray(options.forcedRecipients) && options.forcedRecipients.length > 0
+        ? options.forcedRecipients
+            .map((email) => String(email || '').trim())
+            .filter(Boolean)
+            .map((email) => ({ email, intentions: ['manuel'], urgent: false }))
+        : this.getRecipientsFromAnalysis(analysisData, config);
       
       console.log(`  📬 Destinataires trouvés: ${recipients.length}`);
       recipients.forEach((r, i) => {
@@ -396,15 +496,21 @@ class WebhookService {
       if (recipients.length === 0) {
         console.log('  ⚠️  Aucun destinataire spécifique trouvé, fallback sur l\'email par défaut');
         const defaultIntentions = this.getAllIntentionsFromAnalysis(analysisData);
-        recipients = [{
-          email: config.defaultEmail,
+        recipients = defaultFallbackEmails.map((email) => ({
+          email,
           intentions: defaultIntentions.length > 0 ? defaultIntentions : ['global'],
           urgent: false
-        }];
+        }));
       }
       
+      // Préparer des liens d'action sécurisés (usage unique, durée limitée)
+      const actionLinksByIndex = await this.buildEmailActionLinks(originalMessages, entityId, facebookPageId);
+      const pageContext = await this.resolveFacebookPageContext(entityId, facebookPageId);
+
       // Préparer le contenu de l'email
-      const emailContent = this.formatAnalysisEmail(analysisData, originalMessages);
+      const emailContent = this.formatAnalysisEmail(analysisData, originalMessages, actionLinksByIndex, {
+        pageLabel: pageContext.pageLabel
+      });
       
       // Récupérer le service Mail
       const mail = mailModule.getMailService();
@@ -414,15 +520,25 @@ class WebhookService {
       console.log('  🔍 Chargement de la configuration SMTP...');
       const mailConfig = await mail.loadConfigFromDB(entityId, 'facebook');
       let smtpProfileName = null;
+      const hasUsableMailConfig = (cfg) => {
+        if (!cfg || typeof cfg !== 'object') return false;
+        const hasLegacy = cfg.smtp_profiles && Object.keys(cfg.smtp_profiles).length > 0;
+        const hasNewFormat =
+          Array.isArray(cfg.profils_smtp) &&
+          cfg.profils_smtp.length > 0 &&
+          Array.isArray(cfg.comptes) &&
+          cfg.comptes.some((c) => c && c.profil_smtp_id && c.email);
+        return Boolean(hasLegacy || hasNewFormat);
+      };
       
-      if (!mailConfig || !mailConfig.smtp_profiles || Object.keys(mailConfig.smtp_profiles).length === 0) {
+      if (!hasUsableMailConfig(mailConfig)) {
         console.log('  ⚠️  Pas de configuration SMTP trouvée pour le module Facebook');
         console.log('  💡 Configurez un profil SMTP dans la page de configuration Mail');
         console.log('  💡 Ou utilisez la configuration par défaut du module Mail');
         
         // Essayer avec la config par défaut du module Mail
         const defaultMailConfig = await mail.loadConfigFromDB(entityId, 'mail');
-        if (defaultMailConfig && defaultMailConfig.smtp_profiles) {
+        if (hasUsableMailConfig(defaultMailConfig)) {
           console.log('  ✅ Configuration Mail par défaut trouvée, utilisation de celle-ci');
           smtpProfileName = this.getDefaultSmtpProfileName(defaultMailConfig);
           mail.initModule({
@@ -430,8 +546,38 @@ class WebhookService {
             ...defaultMailConfig
           });
         } else {
-          console.log('  ❌ Aucune configuration SMTP disponible, email non envoyé');
-          return;
+          // Fallback supplémentaire : config mail globale (sans entity_id) utilisée comme défaut GDRI.
+          try {
+            const globalMailDoc = await this.database.getCollection('mail_configs').findOne({
+              module_name: 'mail',
+              $or: [
+                { entity_id: null },
+                { entity_id: '' },
+                { entity_id: { $exists: false } }
+              ]
+            });
+            const globalMailConfig = globalMailDoc && globalMailDoc.config ? globalMailDoc.config : null;
+            if (hasUsableMailConfig(globalMailConfig)) {
+              console.log('  ✅ Configuration SMTP globale GDRI trouvée, utilisation en fallback');
+              smtpProfileName = this.getDefaultSmtpProfileName(globalMailConfig);
+              mail.initModule({
+                module_name: 'facebook',
+                ...globalMailConfig
+              });
+            }
+          } catch (globalErr) {
+            console.warn('  ⚠️ Impossible de charger la configuration SMTP globale:', globalErr.message);
+          }
+
+          // Dernier fallback : profil SMTP d'environnement (gdri_app) si disponible côté module Mail.
+          if (!smtpProfileName && typeof mail.hasFallbackProfile === 'function' && mail.hasFallbackProfile()) {
+            console.log('  ⚠️  Aucune config DB trouvée, fallback vers profil SMTP d’environnement (gdri_app)');
+            smtpProfileName = 'gdri_app';
+            mail.initModule({ module_name: 'facebook' });
+          } else if (!smtpProfileName) {
+            console.log('  ❌ Aucune configuration SMTP disponible, email non envoyé');
+            return { success: false, reason: 'smtp_config_missing' };
+          }
         }
       } else {
         console.log('  ✅ Configuration SMTP trouvée');
@@ -444,15 +590,18 @@ class WebhookService {
       
       if (!smtpProfileName) {
         console.log('  ⚠️  Aucun profil SMTP sélectionné, tentative avec le premier profil disponible');
-        const effectiveConfig = mailConfig && mailConfig.smtp_profiles && Object.keys(mailConfig.smtp_profiles).length > 0
+        const effectiveConfig = hasUsableMailConfig(mailConfig)
           ? mailConfig
           : await mail.loadConfigFromDB(entityId, 'mail');
         smtpProfileName = this.getDefaultSmtpProfileName(effectiveConfig);
+        if (!smtpProfileName && typeof mail.hasFallbackProfile === 'function' && mail.hasFallbackProfile()) {
+          smtpProfileName = 'gdri_app';
+        }
       }
       
       if (!smtpProfileName) {
         console.log('  ❌ Impossible de déterminer un profil SMTP, email non envoyé');
-        return;
+        return { success: false, reason: 'smtp_profile_missing' };
       }
       console.log(`  ✉️  Profil SMTP utilisé: ${smtpProfileName}`);
       
@@ -462,7 +611,7 @@ class WebhookService {
         
         const emailResult = await mail.send({
           to: recipient.email,
-          subject: `📊 Analyse d'intention Facebook - ${recipient.intentions.join(', ')}`,
+          subject: `📊 Analyse d'intention Facebook${pageContext.subjectSuffix} - ${recipient.intentions.join(', ')}`,
           body: emailContent.text,
           body_html: emailContent.html,
           module_name: 'facebook',
@@ -481,10 +630,54 @@ class WebhookService {
           console.error(`  ❌ Erreur envoi email à ${recipient.email}:`, emailResult.error);
         }
       }
+      return { success: true, recipientsCount: recipients.length };
       
     } catch (error) {
       console.error('  ❌ Erreur sendAnalysisEmail:', error);
+      return { success: false, reason: error.message };
     }
+  }
+
+  getFrontendBaseUrl() {
+    return String(process.env.FRONTEND_BASE_URL || 'https://www.gdr-innovation.fr').replace(/\/+$/, '');
+  }
+
+  async createEmailActionToken(payload, ttlMinutes = 60 * 24 * 3) {
+    const coll = this.database.getCollection('facebook_email_action_tokens');
+    const token = crypto.randomBytes(24).toString('hex');
+    const now = new Date();
+    const expiresAt = new Date(now.getTime() + Math.max(5, Number(ttlMinutes || 0)) * 60 * 1000);
+    await coll.insertOne({
+      token,
+      payload: payload || {},
+      used: false,
+      created_at: now,
+      expires_at: expiresAt
+    });
+    return token;
+  }
+
+  async buildEmailActionLinks(originalMessages, entityId, facebookPageId) {
+    const map = {};
+    if (!Array.isArray(originalMessages)) return map;
+    const base = this.getFrontendBaseUrl();
+
+    for (let i = 0; i < originalMessages.length; i++) {
+      const m = originalMessages[i] || {};
+      if (!m.message_id) continue;
+      const commonPayload = {
+        entityId: entityId != null ? String(entityId) : null,
+        pageId: facebookPageId != null ? String(facebookPageId) : null,
+        messageId: String(m.message_id)
+      };
+      const replyToken = await this.createEmailActionToken({ ...commonPayload, action: 'reply_with_ai' });
+      const correctToken = await this.createEmailActionToken({ ...commonPayload, action: 'correct_analysis' });
+      map[i] = {
+        replyUrl: `${base}/frontend/pages/modules/facebook-email-action.php?token=${encodeURIComponent(replyToken)}&action=reply`,
+        correctUrl: `${base}/frontend/pages/modules/facebook-email-action.php?token=${encodeURIComponent(correctToken)}&action=correct`
+      };
+    }
+    return map;
   }
   
   /**
@@ -495,6 +688,35 @@ class WebhookService {
    */
   async loadFacebookAgentConfig(entityId, facebookPageId = null) {
     return this.loadAnalyseIntentionConfig(entityId, facebookPageId);
+  }
+
+  async resolveFacebookPageContext(entityId, facebookPageId = null) {
+    const pageId = facebookPageId != null && facebookPageId !== '' ? String(facebookPageId) : '';
+    if (!pageId) {
+      return { pageId: null, pageLabel: null, subjectSuffix: '' };
+    }
+
+    try {
+      const config = await this.database.getCollection('facebook_configs').findOne({
+        entrepriseId: String(entityId),
+        pageId: pageId
+      });
+      const pageName = config && config.pageName ? String(config.pageName).trim() : '';
+      const fallbackLabel = `Page ${pageId}`;
+      const pageLabel = pageName || fallbackLabel;
+      return {
+        pageId,
+        pageLabel,
+        subjectSuffix: ` - ${pageLabel}`
+      };
+    } catch (error) {
+      console.warn('resolveFacebookPageContext:', error.message);
+      return {
+        pageId,
+        pageLabel: `Page ${pageId}`,
+        subjectSuffix: ` - Page ${pageId}`
+      };
+    }
   }
   
   /**
@@ -513,15 +735,17 @@ class WebhookService {
 
         intentionsList.forEach(intention => {
           const intentionName = intention.category || intention.name;
-          const email = this.getEmailForIntention(intentionName, config);
+          const intentionEmails = this.getEmailsForIntention(intentionName, config);
           const urgent = intention.urgent || false;
 
-          if (email && intentionName) {
+          intentionEmails.forEach((email) => {
+            if (!email || !intentionName) return;
+
             if (!recipients.has(email)) {
               recipients.set(email, {
-                email: email,
+                email,
                 intentions: [],
-                urgent: urgent
+                urgent
               });
             }
 
@@ -533,7 +757,7 @@ class WebhookService {
             if (urgent) {
               recipient.urgent = true;
             }
-          }
+          });
         });
       });
     }
@@ -542,25 +766,44 @@ class WebhookService {
   }
   
   /**
-   * Récupère l'email pour une intention donnée
+   * Récupère les emails pour une intention donnée
    * @param {string} intentionName - Nom de l'intention
    * @param {Object} config - Configuration de l'agent
-   * @returns {string|null} Email ou null
+   * @returns {string[]} Emails sans doublons
    */
-  getEmailForIntention(intentionName, config) {
+  getEmailsForIntention(intentionName, config) {
     // Chercher dans les intentions personnalisées
     if (config.customIntentions && Array.isArray(config.customIntentions)) {
       const intention = config.customIntentions.find(i => 
         (i.name || i.category) === intentionName
       );
       
-      if (intention && intention.email) {
-        return intention.email;
+      if (intention) {
+        const intentionEmails = Array.isArray(intention.emails)
+          ? intention.emails
+          : (intention.email ? [intention.email] : []);
+        const normalized = intentionEmails
+          .map((email) => String(email || '').trim())
+          .filter(Boolean);
+        if (normalized.length > 0) {
+          return Array.from(new Set(normalized));
+        }
       }
     }
     
     // Sinon, utiliser l'email par défaut
-    return config.defaultEmail || null;
+    return this.getDefaultFallbackEmails(config);
+  }
+
+  getDefaultFallbackEmails(config) {
+    const fromList = Array.isArray(config && (config.defaultEmails || config.default_emails))
+      ? (config.defaultEmails || config.default_emails)
+      : [];
+    const fromSingle = String(config && (config.defaultEmail || config.default_email) || '').trim();
+    const merged = [...fromList, fromSingle]
+      .map((email) => String(email || '').trim().toLowerCase())
+      .filter(Boolean);
+    return Array.from(new Set(merged));
   }
 
   /**
@@ -734,24 +977,56 @@ class WebhookService {
    * Priorité de rapport pour une intention (message normal vs urgent selon l’analyse).
    */
   resolveIntentionReportPriority(intentionName, isUrgent, config) {
-    if (!config || !intentionName) return 'immediate';
+    if (!config || !intentionName) return 'daily';
     const list = config.customIntentions || config.intentions || [];
-    const row = list.find((i) => (i.name || i.category) === intentionName);
-    if (!row) return 'immediate';
-    const legacy = row.priority || 'immediate';
+    const normalize = (v) => String(v || '')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .trim()
+      .toLowerCase();
+    const target = normalize(intentionName);
+    const row = list.find((i) => {
+      const candidates = [
+        i && i.name,
+        i && i.category,
+        i && i.label,
+        i && i.intention
+      ];
+      return candidates.some((c) => normalize(c) === target);
+    });
+    if (!row) return 'daily';
+    const legacy = row.priority || 'daily';
     const pNormal = row.priorityNormal != null ? row.priorityNormal : legacy;
     const pUrgent = row.priorityUrgent != null ? row.priorityUrgent : legacy;
     return isUrgent ? pUrgent : pNormal;
+  }
+
+  hasFastResponseOverride(analysis) {
+    try {
+      return Boolean(
+        analysis && (
+          analysis.reponse_rapide_requise === true ||
+          analysis.quick_response_required === true ||
+          analysis.rapid_response_required === true ||
+          analysis.response_required_quickly === true
+        )
+      );
+    } catch (_) {
+      return false;
+    }
   }
 
   /**
    * Envoi mail tout de suite si au moins une intention détectée est en priorité « immediate ».
    */
   shouldSendEmailImmediately(analysisData, config) {
-    if (!analysisData || !Array.isArray(analysisData.analyses)) return true;
-    if (!config) return true;
+    if (!analysisData || !Array.isArray(analysisData.analyses)) return false;
+    if (!config) return false;
     let sawIntention = false;
     for (const analysis of analysisData.analyses) {
+      if (this.hasFastResponseOverride(analysis)) {
+        return true;
+      }
       const intents = this.normalizeIntentions(analysis);
       for (const int of intents) {
         const name = int.category || int.name;
@@ -762,8 +1037,46 @@ class WebhookService {
         if (pr === 'immediate') return true;
       }
     }
-    if (!sawIntention) return true;
+    if (!sawIntention) return false;
     return false;
+  }
+
+  buildImmediateEmailBatch(analysisData, originalMessages, config) {
+    const analyses = Array.isArray(analysisData && analysisData.analyses) ? analysisData.analyses : [];
+    const messages = Array.isArray(originalMessages) ? originalMessages : [];
+    const maxItems = Math.min(analyses.length, messages.length);
+    const selectedAnalyses = [];
+    const selectedMessages = [];
+
+    for (let i = 0; i < maxItems; i++) {
+      const analysis = analyses[i];
+      const intentions = this.normalizeIntentions(analysis);
+      let isImmediate = this.hasFastResponseOverride(analysis);
+
+      for (const it of intentions) {
+        if (isImmediate) break;
+        const name = it && (it.category || it.name);
+        if (!name) continue;
+        const pr = this.resolveIntentionReportPriority(name, Boolean(it.urgent), config || {});
+        if (pr === 'immediate') {
+          isImmediate = true;
+        }
+      }
+
+      if (isImmediate) {
+        selectedAnalyses.push(analysis);
+        selectedMessages.push(messages[i]);
+      }
+    }
+
+    return {
+      analysisData: {
+        ...analysisData,
+        analyses: selectedAnalyses,
+        reponse_requise: selectedAnalyses.some((a) => this.getAnalysisResponseRecommendation(a, '').requiresResponse)
+      },
+      originalMessages: selectedMessages
+    };
   }
 
   /**
@@ -783,7 +1096,11 @@ class WebhookService {
       let reportPriority = deferredDaily ? 'daily' : 'immediate';
       if (config && intentions.length > 0) {
         reportPriority = 'daily';
+        if (this.hasFastResponseOverride(analysis)) {
+          reportPriority = 'immediate';
+        }
         for (const it of intentions) {
+          if (reportPriority === 'immediate') break;
           const name = it.category || it.name;
           if (!name) continue;
           const pr = this.resolveIntentionReportPriority(name, Boolean(it.urgent), config);
@@ -799,7 +1116,7 @@ class WebhookService {
           ? analysis.reponse_requise
           : typeof analysisData.reponse_requise === 'boolean'
             ? analysisData.reponse_requise
-            : true;
+            : false;
 
       const doc = {
         entityId: String(entityId),
@@ -810,22 +1127,24 @@ class WebhookService {
         type: msg.type || 'unknown',
         post_id: msg.post_id || null,
         comment_id: msg.comment_id || null,
+        mid: msg.mid || null,
         sender_psid: msg.sender_psid || null,
+        dedup_key: this.buildMessageDedupKey(msg),
         analysis_details: { analyses: [analysis], reponse_requise: analysis.reponse_requise },
         intentions,
         reportPriority,
         reponse_requise: reponseRequise,
         analyzed_at: new Date(),
-        deferred_daily_report: !!deferredDaily,
-        daily_report_sent_at: null
+        deferred_daily_report: reportPriority !== 'immediate',
+        daily_report_sent_at: null,
+        report_sent_at: null,
+        report_sent_frequency: null
       };
 
       const filter = {
         entityId: doc.entityId,
         pageId: doc.pageId,
-        post_id: doc.post_id,
-        comment_id: doc.comment_id,
-        created_time: doc.created_time
+        dedup_key: doc.dedup_key
       };
 
       await coll.updateOne(
@@ -839,25 +1158,66 @@ class WebhookService {
     }
   }
 
+  buildMessageDedupKey(msg = {}) {
+    const messageType = String(msg.type || 'unknown');
+    const createdTime = String(msg.created_time || '');
+    const authorId = String((msg.author && msg.author.id) || msg.sender_psid || '');
+
+    // Commentaires/feed : identifiant Facebook le plus fiable
+    if (msg.comment_id) {
+      return `comment:${String(msg.comment_id)}`;
+    }
+
+    // Messenger : mid est l'identifiant d'événement le plus robuste
+    if (msg.mid) {
+      return `mid:${String(msg.mid)}`;
+    }
+
+    // Fallback défensif si un provider n'envoie pas d'ID
+    const textPreview = String(msg.message || '').trim().slice(0, 120);
+    return `fallback:${messageType}:${authorId}:${createdTime}:${textPreview}`;
+  }
+
   /**
    * Envoie les rapports en attente (priorités non immédiates) après le sync quotidien.
    */
   async sendDeferredDailyReports(entrepriseId, pageId) {
+    return this.sendDeferredReportsForFrequency(entrepriseId, pageId, 'daily', false);
+  }
+
+  /**
+   * Envoie les rapports différés pour une fréquence donnée.
+   * @param {string} entrepriseId
+   * @param {string} pageId
+   * @param {'daily'|'weekly'|'monthly'} frequency
+   * @param {boolean} sendIfNoMessages
+   */
+  async sendDeferredReportsForFrequency(entrepriseId, pageId, frequency = 'daily', sendIfNoMessages = false) {
     try {
       const coll = this.database.getCollection('facebook_analyzed_messages');
       const pending = await coll
         .find({
           entityId: String(entrepriseId),
           pageId: String(pageId),
-          deferred_daily_report: true,
-          $or: [{ daily_report_sent_at: null }, { daily_report_sent_at: { $exists: false } }]
+          reportPriority: String(frequency),
+          $or: [{ report_sent_at: null }, { report_sent_at: { $exists: false } }]
         })
         .sort({ analyzed_at: 1 })
         .limit(100)
         .toArray();
 
       if (pending.length === 0) {
-        console.log(`  📭 Aucun rapport différé à envoyer pour la page ${pageId}`);
+        if (sendIfNoMessages) {
+          console.log(`  📭 Aucun message différé (${frequency}) pour ${pageId} : envoi d'un rapport vide.`);
+          const emptyData = {
+            analyses: [],
+            reponse_requise: false,
+            resume_global: `Aucun message à traiter pour la période ${frequency}.`
+          };
+          await this.sendAnalysisEmail(emptyData, [], entrepriseId, pageId);
+        } else {
+          console.log(`  📭 Aucun rapport différé (${frequency}) à envoyer pour la page ${pageId}`);
+        }
         return;
       }
 
@@ -865,11 +1225,21 @@ class WebhookService {
       const originalMessages = [];
       for (const p of pending) {
         const ad = p.analysis_details;
-        if (ad && ad.analyses && ad.analyses[0]) {
-          analyses.push(ad.analyses[0]);
+        const firstAnalysis = ad && Array.isArray(ad.analyses) && ad.analyses[0]
+          ? ad.analyses[0]
+          : null;
+        const messageText = p && typeof p.message === 'string' ? p.message : '';
+        const hasMessage = messageText.trim().length > 0;
+
+        // On n'assemble que des paires cohérentes message+analyse.
+        if (!firstAnalysis || !hasMessage) {
+          continue;
         }
+
+        analyses.push(firstAnalysis);
         originalMessages.push({
-          message: p.message,
+          message_id: p && p._id ? String(p._id) : null,
+          message: messageText,
           author: p.author,
           created_time: p.created_time,
           type: p.type,
@@ -878,21 +1248,43 @@ class WebhookService {
         });
       }
 
+      if (analyses.length === 0 || originalMessages.length === 0) {
+        if (sendIfNoMessages) {
+          console.log(`  📭 Aucune paire message/analyse exploitable (${frequency}) pour ${pageId} : envoi d'un rapport vide.`);
+          const emptyData = {
+            analyses: [],
+            reponse_requise: false,
+            resume_global: `Aucun message à traiter pour la période ${frequency}.`
+          };
+          await this.sendAnalysisEmail(emptyData, [], entrepriseId, pageId);
+        } else {
+          console.log(`  ⚠️ Aucun couple message/analyse exploitable (${frequency}) pour ${pageId}, envoi ignoré.`);
+        }
+        return;
+      }
+
       const combinedData = {
         analyses,
         reponse_requise: analyses.some((a) => a.reponse_requise)
       };
 
-      console.log(`  📧 Envoi du rapport quotidien groupé (${pending.length} message(s)) pour ${pageId}...`);
+      console.log(`  📧 Envoi du rapport ${frequency} groupé (${pending.length} message(s)) pour ${pageId}...`);
       await this.sendAnalysisEmail(combinedData, originalMessages, entrepriseId, pageId);
 
       const ids = pending.map((p) => p._id);
       await coll.updateMany(
         { _id: { $in: ids } },
-        { $set: { daily_report_sent_at: new Date(), deferred_daily_report: false } }
+        {
+          $set: {
+            daily_report_sent_at: new Date(),
+            deferred_daily_report: false,
+            report_sent_at: new Date(),
+            report_sent_frequency: String(frequency)
+          }
+        }
       );
     } catch (e) {
-      console.error('  ❌ sendDeferredDailyReports:', e.message);
+      console.error(`  ❌ sendDeferredReportsForFrequency(${frequency}):`, e.message);
     }
   }
   
@@ -902,21 +1294,27 @@ class WebhookService {
    * @param {Array} originalMessages - Messages originaux
    * @returns {Object} { text, html }
    */
-  formatAnalysisEmail(analysisData, originalMessages) {
+  formatAnalysisEmail(analysisData, originalMessages, actionLinksByIndex = {}, options = {}) {
     const now = new Date().toLocaleString('fr-FR');
+    const pageLabel = options && options.pageLabel ? String(options.pageLabel) : '';
     let text = '📊 ANALYSE D\'INTENTION FACEBOOK\n';
     text += '════════════════════════════════════\n';
     text += `Date d\'analyse : ${now}\n\n`;
+    if (pageLabel) {
+      text += `Page Facebook : ${pageLabel}\n\n`;
+    }
 
     let html = '<div style="font-family:Helvetica,Arial,sans-serif;color:#1f2933;">\n';
     html += '<h2 style="color:#0d6efd;margin-bottom:4px;">📊 Analyse d\'intention Facebook</h2>\n';
     html += `<p style="margin-top:0;color:#6c757d;">Date d\'analyse : ${now}</p>\n`;
+    if (pageLabel) {
+      html += `<p style="margin-top:0;color:#6c757d;"><strong>Page Facebook :</strong> ${pageLabel}</p>\n`;
+    }
 
     // Résumé global (intentions principales, résumé)
     const primaryIntentions = analysisData.intentions_principales || analysisData.primary_intentions || [];
     const globalSummary = analysisData.resume_global || analysisData.summary || null;
-    const responseRequired = analysisData.reponse_requise || analysisData.reponse || analysisData.response_required || 
-      (analysisData.analyses && analysisData.analyses.some(a => a.etape1_generique?.reponse_requise || a.reponse_requise));
+    const responseRequired = this.getGlobalResponseRequired(analysisData);
 
     if (primaryIntentions.length > 0 || globalSummary) {
       text += '🔎 RÉSUMÉ\n';
@@ -946,88 +1344,101 @@ class WebhookService {
       html += '</section>\n';
     }
 
-    // Messages originaux
-    text += '💬 MESSAGES REÇUS\n';
+    // Vue principale : message puis analyse associée
+    text += '💬 MESSAGE + ANALYSE\n';
     text += '────────────────────────────\n';
     html += '<section style="margin-bottom:24px;">\n';
-    html += '<h3 style="color:#0d6efd;margin-bottom:8px;">💬 Messages reçus</h3>\n';
+    html += '<h3 style="color:#0d6efd;margin-bottom:8px;">💬 Message + analyse</h3>\n';
 
-    originalMessages.forEach((msg, index) => {
+    const analyses = Array.isArray(analysisData.analyses) ? analysisData.analyses : [];
+    const maxRows = Math.max(originalMessages.length, analyses.length);
+
+    for (let index = 0; index < maxRows; index++) {
+      const msg = originalMessages[index] || {};
+      const analysis = analyses[index] || {};
       const messageDate = msg.created_time ? new Date(msg.created_time).toLocaleString('fr-FR') : 'N/A';
+      const recommendation = this.getAnalysisResponseRecommendation(analysis, msg.message || '');
+      const rawIntentions = this.normalizeIntentions(analysis);
+
       text += `\n${index + 1}. ${msg.author?.name || 'Utilisateur'} (${messageDate})\n`;
-      text += `${msg.message}\n`;
+      text += `${(msg.message || '').trim() || '[Message indisponible]'}\n`;
+      text += `Analyse ${index + 1}:\n`;
+      if (rawIntentions.length === 0) {
+        text += '• Aucune intention détectée.\n';
+      } else {
+        rawIntentions.forEach((intention) => {
+          const category = intention.category || intention.name || intention.label || 'Intention non définie';
+          const certaintyValue = intention.certainty ?? intention.score ?? intention.confidence;
+          let certainty = 'N/A';
+          if (certaintyValue != null && certaintyValue !== '') {
+            const n = Number(certaintyValue);
+            if (!Number.isNaN(n)) {
+              certainty = `${n <= 1 ? Math.round(n * 100) : Math.round(n)}%`;
+            }
+          }
+          const urgent = intention.urgent || intention.priority === 'urgent' || intention.priorite === 'urgent';
+          const priorityLabel = intention.priority || intention.priorite || null;
+          const reason = intention.raison || intention.reason || intention.justification || intention.explanation || null;
+          text += `• ${category}${urgent ? ' (URGENT)' : ''} — ${certainty}${priorityLabel && !urgent ? ` · Priorité: ${priorityLabel}` : ''}\n`;
+          if (reason) text += `  Justification : ${reason}\n`;
+        });
+      }
+      if (analysis.resume || analysis.summary) {
+        text += `Résumé : ${analysis.resume || analysis.summary}\n`;
+      }
+      text += `Recommandation : ${recommendation.requiresResponse ? 'Oui' : 'Non'} (${recommendation.reason})\n`;
 
-      html += '<div style="padding:12px;border:1px solid #e5e7eb;border-radius:8px;margin-bottom:12px;">\n';
+      html += '<div style="padding:14px;border:1px solid #e5e7eb;border-radius:10px;margin-bottom:14px;">\n';
       html += `<p style="margin:0 0 6px 0;font-weight:600;">${index + 1}. ${msg.author?.name || 'Utilisateur'} <span style="color:#6c757d;font-weight:400;">(${messageDate})</span></p>\n`;
-      html += `<p style="margin:0;white-space:pre-line;">${(msg.message || '').trim()}</p>\n`;
-      html += '</div>\n';
-    });
+      html += `<p style="margin:0 0 10px 0;white-space:pre-line;">${(msg.message || '').trim() || '[Message indisponible]'}</p>\n`;
+      html += `<p style="margin:0 0 8px 0;font-weight:600;color:#0d6efd;">Analyse ${index + 1}</p>\n`;
 
-    if (originalMessages.length === 0) {
-      text += 'Aucun message reçu.\n';
-      html += '<p style="color:#6c757d;">Aucun message reçu.</p>\n';
+      if (rawIntentions.length === 0) {
+        html += '<p style="margin:0;color:#6c757d;">Aucune intention détectée.</p>\n';
+      } else {
+        rawIntentions.forEach((intention) => {
+          const category = intention.category || intention.name || intention.label || 'Intention non définie';
+          const certaintyValue = intention.certainty ?? intention.score ?? intention.confidence;
+          let certainty = 'N/A';
+          if (certaintyValue != null && certaintyValue !== '') {
+            const n = Number(certaintyValue);
+            if (!Number.isNaN(n)) {
+              certainty = `${n <= 1 ? Math.round(n * 100) : Math.round(n)}%`;
+            }
+          }
+          const urgent = intention.urgent || intention.priority === 'urgent' || intention.priorite === 'urgent';
+          const reason = intention.raison || intention.reason || intention.justification || intention.explanation || null;
+          const priorityLabel = intention.priority || intention.priorite || null;
+          html += '<div style="background:#f8f9fb;border-left:4px solid ' + (urgent ? '#d9534f' : '#0d6efd') + ';padding:10px;border-radius:8px;margin-bottom:8px;">\n';
+          html += `<p style="margin:0;font-weight:600;color:${urgent ? '#d9534f' : '#0d6efd'};">${category}${urgent ? ' <span style="color:#d9534f;">URGENT</span>' : ''}</p>\n`;
+          html += `<p style="margin:2px 0;color:#6c757d;">Confiance : <strong>${certainty}</strong>${priorityLabel && !urgent ? ` · Priorité : ${priorityLabel}` : ''}</p>\n`;
+          if (reason) html += `<p style="margin:2px 0;white-space:pre-line;">${reason}</p>\n`;
+          html += '</div>\n';
+        });
+      }
+
+      if (analysis.resume || analysis.summary) {
+        html += `<p style="margin:8px 0 0 0;"><strong>Résumé :</strong> ${analysis.resume || analysis.summary}</p>\n`;
+      }
+      html += `<p style="margin:8px 0 0 0;"><strong>Recommandation :</strong> ${recommendation.requiresResponse ? '<span style="color:#b02a37;">Oui</span>' : 'Non'} <span style="color:#6c757d;">(${recommendation.reason})</span></p>\n`;
+
+      const actionLinks = actionLinksByIndex[index];
+      if (actionLinks && (actionLinks.replyUrl || actionLinks.correctUrl)) {
+        html += '<div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;">\n';
+        if (actionLinks.replyUrl) {
+          html += `<a href="${actionLinks.replyUrl}" style="background:#0d6efd;color:#fff;text-decoration:none;padding:7px 10px;border-radius:6px;font-size:13px;">Répondre avec l'IA</a>\n`;
+        }
+        if (actionLinks.correctUrl) {
+          html += `<a href="${actionLinks.correctUrl}" style="background:#f8f9fa;color:#212529;text-decoration:none;padding:7px 10px;border-radius:6px;font-size:13px;border:1px solid #dee2e6;">Corriger l'analyse</a>\n`;
+        }
+        html += '</div>\n';
+      }
+      html += '</div>\n';
     }
 
-    text += '\n';
-    html += '</section>\n';
-
-    // Résultats détaillés
-    text += '🤖 ANALYSE DÉTAILLÉE\n';
-    text += '────────────────────────────\n';
-    html += '<section style="margin-bottom:24px;">\n';
-    html += '<h3 style="color:#0d6efd;margin-bottom:8px;">🤖 Résultats de l\'analyse</h3>\n';
-
-    if (analysisData.analyses && Array.isArray(analysisData.analyses) && analysisData.analyses.length > 0) {
-      analysisData.analyses.forEach((analysis, index) => {
-        text += `\nAnalyse ${index + 1}\n`;
-        text += '------------------------------\n';
-
-        html += '<div style="padding:16px;border:1px solid #e5e7eb;border-radius:10px;margin-bottom:16px;">\n';
-        html += `<p style="margin:0 0 10px 0;font-weight:600;color:#0d6efd;">Analyse ${index + 1}</p>\n`;
-
-        const rawIntentions = this.normalizeIntentions(analysis);
-
-        if (rawIntentions.length > 0) {
-          rawIntentions.forEach((intention, idx) => {
-            const category = intention.category || intention.name || intention.label || 'Intention non définie';
-            const certaintyValue = intention.certainty ?? intention.score ?? intention.confidence;
-            const certainty = certaintyValue != null ? `${certaintyValue}%` : 'N/A';
-            const urgent = intention.urgent || intention.priority === 'urgent' || intention.priorite === 'urgent';
-            const urgentBadge = urgent ? ' (URGENT)' : '';
-            const reason = intention.raison || intention.reason || intention.justification || intention.explanation || null;
-            const priorityLabel = intention.priority || intention.priorite || null;
-
-            text += `• ${category}${urgentBadge} — ${certainty}\n`;
-            if (priorityLabel && !urgent) {
-              text += `  Priorité : ${priorityLabel}\n`;
-            }
-            if (reason) {
-              text += `  Justification : ${reason}\n`;
-            }
-
-            html += '<div style="background:#f8f9fb;border-left:4px solid ' + (urgent ? '#d9534f' : '#0d6efd') + ';padding:12px;border-radius:8px;margin-bottom:12px;">\n';
-            html += `<p style="margin:0;font-weight:600;color:${urgent ? '#d9534f' : '#0d6efd'};">${category}${urgent ? ' <span style="color:#d9534f;">URGENT</span>' : ''}</p>\n`;
-            html += `<p style="margin:2px 0;color:#6c757d;">Confiance : <strong>${certainty}</strong>${priorityLabel && !urgent ? ` · Priorité : ${priorityLabel}` : ''}</p>\n`;
-            if (reason) {
-              html += `<p style="margin:2px 0;white-space:pre-line;">${reason}</p>\n`;
-            }
-            html += '</div>\n';
-          });
-        } else {
-          text += '• Aucune intention détectée.\n';
-          html += '<p style="margin:0;color:#6c757d;">Aucune intention détectée.</p>\n';
-        }
-
-        if (analysis.resume || analysis.summary) {
-          text += `Résumé : ${analysis.resume || analysis.summary}\n`;
-          html += `<p style="margin:8px 0 0 0;"><strong>Résumé :</strong> ${analysis.resume || analysis.summary}</p>\n`;
-        }
-
-        html += '</div>\n';
-      });
-    } else {
-      text += 'Pas de résultat disponible.\n';
-      html += '<p style="color:#6c757d;">Pas de résultat disponible.</p>\n';
+    if (maxRows === 0) {
+      text += 'Aucun message reçu.\n';
+      html += '<p style="color:#6c757d;">Aucun message reçu.</p>\n';
     }
 
     text += '\n';
@@ -1091,6 +1502,69 @@ class WebhookService {
     };
   }
 
+  getGlobalResponseRequired(analysisData) {
+    const directCandidates = [
+      analysisData && analysisData.reponse_requise,
+      analysisData && analysisData.reponse,
+      analysisData && analysisData.response_required
+    ];
+    for (const value of directCandidates) {
+      if (typeof value === 'boolean') return value;
+    }
+    if (!analysisData || !Array.isArray(analysisData.analyses)) return false;
+    return analysisData.analyses.some((a) => this.getAnalysisResponseRecommendation(a, '').requiresResponse);
+  }
+
+  getAnalysisResponseRecommendation(analysis, messageText) {
+    const normalizedIntentions = this.normalizeIntentions(analysis);
+    const hasUrgent = normalizedIntentions.some((intent) => intent && (intent.urgent || intent.priority === 'urgent' || intent.priorite === 'urgent'));
+    if (hasUrgent || this.hasFastResponseOverride(analysis)) {
+      return { requiresResponse: true, reason: 'urgence detectee' };
+    }
+
+    const directCandidates = [
+      analysis && analysis.reponse_requise,
+      analysis && analysis.reponse,
+      analysis && analysis.response_required,
+      analysis && analysis.etape1_generique && analysis.etape1_generique.reponse_requise
+    ];
+    let directDecision = null;
+    for (const value of directCandidates) {
+      if (typeof value === 'boolean') {
+        directDecision = value;
+        break;
+      }
+    }
+
+    const text = String(messageText || '').trim();
+    const hasQuestion = /[?]|(^|\s)(est-ce|etes-vous|êtes-vous|avez-vous|pouvez-vous|bonjour[,\s]+etes-vous|ouvert|ouverte|disponible|prix|tarif|devis)(\s|$)/i.test(text);
+    const positiveOnly = normalizedIntentions.length > 0 && normalizedIntentions.every((intent) => {
+      const category = String((intent && (intent.category || intent.name || intent.label)) || '').toLowerCase();
+      return ['positif', 'spam'].includes(category);
+    });
+    const isFallback = normalizedIntentions.some((intent) => {
+      const reason = String((intent && (intent.raison || intent.reason || intent.justification || intent.explanation)) || '').toLowerCase();
+      return reason.includes('classification de secours') || reason.includes('fallback');
+    });
+
+    if (hasQuestion) {
+      return { requiresResponse: true, reason: 'question explicite dans le message' };
+    }
+    if (positiveOnly && !hasQuestion) {
+      return { requiresResponse: false, reason: 'message positif sans demande explicite' };
+    }
+    if (isFallback && directDecision !== true) {
+      return { requiresResponse: false, reason: 'analyse de secours, verification manuelle conseillee' };
+    }
+    if (typeof directDecision === 'boolean') {
+      return {
+        requiresResponse: directDecision,
+        reason: directDecision ? 'decision IA: reponse requise' : 'decision IA: pas de reponse requise'
+      };
+    }
+    return { requiresResponse: false, reason: 'aucune demande explicite detectee' };
+  }
+
   /**
    * Enregistre la réception d'un webhook et indique si un rattrapage est recommandé.
    * @param {string} pageId - ID de la page Facebook
@@ -1109,60 +1583,63 @@ class WebhookService {
         ? new Date(Number(entryTimestamp) * 1000)
         : now;
 
-      const existingConfig = await configCollection.findOne({
+      const existingConfigs = await configCollection.find({
         $or: [{ pageId }, { pageId: String(pageId) }]
-      });
+      }).toArray();
 
-      const lastCatchUpCompletedAt = existingConfig && existingConfig.lastWebhookCatchupCompletedAt
-        ? new Date(existingConfig.lastWebhookCatchupCompletedAt)
-        : null;
-
-      // Déclencher un rattrapage entre chaque webhook, avec garde-fou anti-tempête.
-      const catchUpThresholdMs = 15 * 1000;
-      const lastCatchUpRequestedAt = existingConfig && existingConfig.lastWebhookCatchupRequestedAt
-        ? new Date(existingConfig.lastWebhookCatchupRequestedAt)
-        : null;
-      const shouldCatchUp = Boolean(
-        !lastCatchUpRequestedAt ||
-        webhookEventDate.getTime() - lastCatchUpRequestedAt.getTime() > catchUpThresholdMs
-      );
-
-      const updateResult = {
-        $set: {
-          lastWebhookSeenAt: webhookEventDate,
-          updated_at: now
-        }
-      };
       const latestSeenMessageId = this.extractLatestEntryMessageId(entryData);
-      if (latestSeenMessageId) {
-        updateResult.$set.lastWebhookSeenMessageId = latestSeenMessageId;
+      const catchUpThresholdMs = 15 * 1000;
+      const catchUps = [];
+
+      for (const cfg of existingConfigs || []) {
+        const lastCatchUpCompletedAt = cfg && cfg.lastWebhookCatchupCompletedAt
+          ? new Date(cfg.lastWebhookCatchupCompletedAt)
+          : null;
+        const lastCatchUpRequestedAt = cfg && cfg.lastWebhookCatchupRequestedAt
+          ? new Date(cfg.lastWebhookCatchupRequestedAt)
+          : null;
+        const shouldCatchUp = Boolean(
+          !lastCatchUpRequestedAt ||
+          webhookEventDate.getTime() - lastCatchUpRequestedAt.getTime() > catchUpThresholdMs
+        );
+
+        const updateResult = {
+          $set: {
+            lastWebhookSeenAt: webhookEventDate,
+            updated_at: now
+          }
+        };
+        if (latestSeenMessageId) {
+          updateResult.$set.lastWebhookSeenMessageId = latestSeenMessageId;
+        }
+        if (
+          !lastCatchUpCompletedAt ||
+          webhookEventDate.getTime() > lastCatchUpCompletedAt.getTime()
+        ) {
+          updateResult.$set.lastInteractionAt = webhookEventDate;
+        }
+        if (shouldCatchUp) {
+          updateResult.$set.lastWebhookCatchupRequestedAt = now;
+        }
+
+        await configCollection.updateOne({ _id: cfg._id }, updateResult);
+
+        catchUps.push({
+          shouldCatchUp,
+          entrepriseId: cfg.entrepriseId != null ? String(cfg.entrepriseId) : null,
+          pageId: cfg.pageId != null ? String(cfg.pageId) : String(pageId),
+          pageAccessToken: cfg.pageAccessToken || null,
+          sinceDate: lastCatchUpCompletedAt || null
+        });
       }
 
-      if (
-        !lastCatchUpCompletedAt ||
-        webhookEventDate.getTime() > lastCatchUpCompletedAt.getTime()
-      ) {
-        updateResult.$set.lastInteractionAt = webhookEventDate;
+      if (catchUps.length === 0) {
+        return [];
       }
-      if (shouldCatchUp) {
-        updateResult.$set.lastWebhookCatchupRequestedAt = now;
-      }
-
-      await configCollection.updateOne(
-        { $or: [{ pageId }, { pageId: String(pageId) }] },
-        updateResult,
-        { upsert: true }
-      );
-
-      return {
-        shouldCatchUp,
-        pageId: existingConfig?.pageId || String(pageId),
-        pageAccessToken: existingConfig?.pageAccessToken || null,
-        sinceDate: lastCatchUpCompletedAt || null
-      };
+      return catchUps;
     } catch (error) {
       console.error('Erreur recordWebhookReceived:', error);
-      return { shouldCatchUp: false };
+      return [];
     }
   }
 
@@ -1183,13 +1660,16 @@ class WebhookService {
   /**
    * Marque le rattrapage webhook comme terminé (curseur fiable pour prochain backfill).
    */
-  async markWebhookCatchupCompleted(pageId, entryTimestamp) {
+  async markWebhookCatchupCompleted(pageId, entryTimestamp, entrepriseId = null) {
     try {
       if (!pageId) return;
       const configCollection = this.database.getCollection('facebook_configs');
       const doneAt = Number(entryTimestamp) ? new Date(Number(entryTimestamp) * 1000) : new Date();
+      const filter = entrepriseId
+        ? { entrepriseId: String(entrepriseId), $or: [{ pageId }, { pageId: String(pageId) }] }
+        : { $or: [{ pageId }, { pageId: String(pageId) }] };
       await configCollection.updateOne(
-        { $or: [{ pageId }, { pageId: String(pageId) }] },
+        filter,
         {
           $set: {
             lastWebhookCatchupCompletedAt: doneAt,
@@ -1209,9 +1689,29 @@ class WebhookService {
    * @returns {string|null} Nom du profil ou null
    */
   getDefaultSmtpProfileName(mailConfig) {
-    if (mailConfig && mailConfig.smtp_profiles && Object.keys(mailConfig.smtp_profiles).length > 0) {
+    if (!mailConfig || typeof mailConfig !== 'object') {
+      return null;
+    }
+
+    // Ancien format
+    if (mailConfig.smtp_profiles && Object.keys(mailConfig.smtp_profiles).length > 0) {
+      if (mailConfig.default_profile && mailConfig.smtp_profiles[mailConfig.default_profile]) {
+        return mailConfig.default_profile;
+      }
       return Object.keys(mailConfig.smtp_profiles)[0];
     }
+
+    // Nouveau format (profils_smtp + comptes)
+    if (Array.isArray(mailConfig.comptes) && mailConfig.comptes.length > 0) {
+      const account =
+        mailConfig.comptes.find((c) => c && c.id) ||
+        mailConfig.comptes.find((c) => c && c.email) ||
+        null;
+      if (account) {
+        return account.id || account.email || null;
+      }
+    }
+
     return null;
   }
 }

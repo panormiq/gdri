@@ -144,11 +144,52 @@ $api_base_url = rtrim(getApiBaseUrl(), '/');
 .msg-card .msg-feedback-form textarea { border: 1px solid #dee2e6; border-radius: 4px; padding: 0.45rem 0.5rem; font-size: 0.88rem; }
 .msg-card .msg-feedback-form textarea { min-height: 70px; }
 .msg-card .msg-feedback-status { font-size: 0.82rem; color: #495057; }
+.msg-card .msg-feedback-status.running { color: #0d6efd; }
+.msg-card .msg-feedback-status.success { color: #198754; }
+.msg-card .msg-feedback-status.error { color: #dc3545; }
+.msg-card .msg-feedback-context { margin-top: 0.7rem; display: none; gap: 0.5rem; flex-direction: column; }
+.msg-card .msg-feedback-context.active { display: flex; }
+.msg-card .msg-feedback-context textarea { min-height: 120px; border: 1px solid #dee2e6; border-radius: 4px; padding: 0.45rem 0.5rem; font-size: 0.88rem; }
 .msg-card .msg-badge-replied { font-size: 0.8rem; color: #198754; background: #d1e7dd; padding: 0.25rem 0.5rem; border-radius: 4px; margin-bottom: 0.5rem; display: inline-block; }
 .msg-card .msg-replied-content { margin-top: 0.5rem; padding: 0.5rem 0.75rem; background: #e7f5ff; border-left: 3px solid #0d6efd; border-radius: 4px; }
 .msg-card .msg-replied-content .msg-replied-text { margin: 0.25rem 0 0 0; font-size: 0.9rem; color: #212529; white-space: pre-wrap; word-break: break-word; }
 .msg-card .msg-replied-content.msg-replied-no-text { font-style: italic; color: #6c757d; }
 .messages-list-empty { color: #6c757d; font-style: italic; padding: 1rem; }
+.catchup-actions { margin-bottom: 0.9rem; }
+.catchup-row { display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center; margin-bottom: 0.45rem; }
+.catchup-row input[type="datetime-local"] { max-width: 240px; }
+.catchup-progress { margin-top: 0.6rem; padding: 0.65rem 0.75rem; background: #fff; border: 1px solid #dee2e6; border-radius: 6px; font-size: 0.88rem; color: #495057; }
+.catchup-progress .line { margin: 0.2rem 0; }
+.catchup-progress .done { color: #198754; }
+.catchup-progress .running { color: #0d6efd; }
+.catchup-progress .error { color: #dc3545; }
+.hourglass {
+    display: inline-block;
+    margin-right: 0.25rem;
+}
+.catchup-progress .running .hourglass {
+    animation: hourglass-spin 1.1s linear infinite;
+}
+.mini-spinner {
+    display: inline-block;
+    width: 12px;
+    height: 12px;
+    border: 2px solid #cbd5e1;
+    border-top-color: #0d6efd;
+    border-radius: 50%;
+    margin-right: 6px;
+    vertical-align: -2px;
+    animation: mini-spin 0.8s linear infinite;
+}
+@keyframes mini-spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+@keyframes hourglass-spin {
+    0% { transform: rotate(0deg); }
+    50% { transform: rotate(180deg); }
+    100% { transform: rotate(360deg); }
+}
 </style>
 
 <script>
@@ -158,6 +199,7 @@ $api_base_url = rtrim(getApiBaseUrl(), '/');
     var publishUrl = <?= json_encode(url('pages/modules/facebook-publish.php')) ?>;
 
     var STATUS_OPTIONS = [
+        { value: 'all', label: 'Tous les messages' },
         { value: 'a_repondre', label: 'À répondre' },
         { value: 'a_ne_pas_repondre', label: 'À ne pas répondre' },
         { value: 'repondu', label: 'Répondu' }
@@ -195,7 +237,16 @@ $api_base_url = rtrim(getApiBaseUrl(), '/');
         return ' = vs période précédente';
     }
 
-    function buildCardHtml(p) {
+    function escapeHtml(str) {
+        return String(str || '')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    }
+
+    function buildCardHtml(p, pageId) {
         if (!p) return '<div class="resume-page-card"><p class="text-muted">Aucune donnée.</p></div>';
         var fmt = function(n) { return n != null && n !== undefined ? Number(n).toLocaleString('fr-FR') : '–'; };
         var last = formatDate(p.lastInteractionAt);
@@ -232,13 +283,22 @@ $api_base_url = rtrim(getApiBaseUrl(), '/');
                 'Des questions similaires reviennent souvent ? <a href="' + publishUrl + '">Rédiger un message sur ce sujet</a>.' +
                 '</p>';
         }
+        var actionsHtml = '<div class="catchup-actions">' +
+            '<div class="catchup-row">' +
+                '<label for="catchup-since-' + escapeHtml(pageId || p.pageId || '') + '" style="margin:0;">Depuis :</label>' +
+                '<input type="datetime-local" class="form-control form-control-sm catchup-since-input" id="catchup-since-' + escapeHtml(pageId || p.pageId || '') + '" />' +
+                '<button type="button" class="btn btn-primary btn-sm btn-run-catchup" data-page-id="' + escapeHtml(pageId || p.pageId || '') + '">Lancer le rattrapage</button>' +
+            '</div>' +
+            '<div class="catchup-progress" style="display:none;"></div>' +
+        '</div>';
         return '<div class="resume-page-card">' +
             '<h3>' + (p.pageName || ('Page ' + p.pageId)) + '</h3>' +
+            actionsHtml +
             statsHtml + topHtml + '</div>';
     }
 
     function loadPageSummary(pageId, sinceDays, cardContainer) {
-        cardContainer.innerHTML = '<p class="text-muted">Chargement…</p>';
+        cardContainer.innerHTML = '<p class="text-muted"><span class="mini-spinner"></span>Chargement du résumé…</p>';
         var since = sinceDays ? sinceDate(sinceDays) : '';
         var url = API_BASE + '/facebook/pages/' + encodeURIComponent(pageId) + '/summary';
         var params = [];
@@ -249,7 +309,7 @@ $api_base_url = rtrim(getApiBaseUrl(), '/');
             .then(function(r) { return r.json(); })
             .then(function(data) {
                 if (data.success && data.page) {
-                    cardContainer.innerHTML = buildCardHtml(data.page);
+                    cardContainer.innerHTML = buildCardHtml(data.page, pageId);
                 } else {
                     cardContainer.innerHTML = '<p class="text-muted">Impossible de charger le résumé.</p>';
                 }
@@ -257,6 +317,129 @@ $api_base_url = rtrim(getApiBaseUrl(), '/');
             .catch(function() {
                 cardContainer.innerHTML = '<p class="text-muted">Erreur de chargement.</p>';
             });
+    }
+
+    function renderCatchupProgress(box, lines, stateClass) {
+        if (!box) return;
+        box.style.display = 'block';
+        box.innerHTML = lines.map(function(line) {
+            var renderedLine = String(line || '');
+            if ((stateClass || '') === 'running' && renderedLine.indexOf('⏳') !== -1) {
+                renderedLine = renderedLine.replace(/⏳/g, '<span class="hourglass">⏳</span>');
+            }
+            return '<div class="line ' + (stateClass || '') + '">' + renderedLine + '</div>';
+        }).join('');
+    }
+
+    function runCatchup(pageId, cardContainer, messagesListEl, statusState, intentionState, urgentGetter) {
+        var btn = cardContainer.querySelector('.btn-run-catchup');
+        var box = cardContainer.querySelector('.catchup-progress');
+        var sinceInput = cardContainer.querySelector('.catchup-since-input');
+        if (!btn || !pageId) return;
+
+        btn.disabled = true;
+        btn.textContent = 'Rattrapage en cours…';
+        var startedAt = new Date();
+
+        var payload = {};
+        if (sinceInput && sinceInput.value) {
+            var local = new Date(sinceInput.value);
+            if (Number.isNaN(local.getTime())) {
+                renderCatchupProgress(box, ['❌ Date invalide dans "Depuis".'], 'error');
+                btn.disabled = false;
+                btn.textContent = 'Lancer le rattrapage';
+                return;
+            }
+            payload.sinceDate = local.toISOString();
+        }
+
+        fetch(API_BASE + '/facebook/pages/' + encodeURIComponent(pageId) + '/catchup/start', {
+            method: 'POST',
+            headers: { 'Authorization': 'Bearer ' + JWT, 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        })
+        .then(function(r) { return r.json(); })
+        .then(function(startData) {
+            if (!startData || !startData.success || !startData.jobId) {
+                throw new Error((startData && startData.message) ? startData.message : 'Impossible de démarrer le rattrapage');
+            }
+            var jobId = startData.jobId;
+            var pollMs = 1200;
+            var poller = setInterval(function() {
+                fetch(API_BASE + '/facebook/pages/' + encodeURIComponent(pageId) + '/catchup/status/' + encodeURIComponent(jobId), {
+                    headers: { 'Authorization': 'Bearer ' + JWT }
+                })
+                    .then(function(r) { return r.json(); })
+                    .then(function(statusData) {
+                        if (!statusData || !statusData.success || !statusData.job) {
+                            return;
+                        }
+                        var job = statusData.job;
+                        var elapsedSec = Math.max(1, Math.round((Date.now() - startedAt.getTime()) / 1000));
+                        var selectedSinceLabel = job.requestedSinceDate ? formatDate(job.requestedSinceDate) : null;
+                        var sinceLabel = job.sinceDateUsed ? formatDate(job.sinceDateUsed) : 'début par défaut';
+                        var recovered = Number(job.recoveredCount || 0);
+                        var posts = Number(job.postsCount || 0);
+                        var comments = Number(job.commentsCount || 0);
+                        var messages = Number(job.messagesCount || 0);
+                        var aiProcessed = Number(job.aiProcessed || 0);
+                        var aiTotal = Number(job.aiTotal || 0);
+
+                        var lines = [];
+                        if (selectedSinceLabel) lines.push('ℹ️ Date choisie : ' + selectedSinceLabel + '.');
+                        lines.push('ℹ️ Recherche des messages depuis : ' + sinceLabel + '.');
+                        lines.push('⏳ Récupération Facebook : ' + posts + ' post(s) scanné(s).');
+                        lines.push('⏳ Messages ciblés : ' + (messages + comments) + ' (posts: ' + messages + ', commentaires: ' + comments + ').');
+                        lines.push('⏳ Traitement IA : ' + aiProcessed + '/' + aiTotal + '.');
+                        lines.push('ℹ️ Temps écoulé : ' + elapsedSec + 's.');
+
+                        if (job.status === 'running') {
+                            renderCatchupProgress(box, lines, 'running');
+                            return;
+                        }
+
+                        clearInterval(poller);
+                        btn.disabled = false;
+                        btn.textContent = 'Lancer le rattrapage';
+
+                        if (job.status === 'failed') {
+                            lines.push('❌ Rattrapage échoué : ' + escapeHtml(job.error || 'erreur inconnue'));
+                            renderCatchupProgress(box, lines, 'error');
+                            return;
+                        }
+
+                        lines[2] = '✅ Récupération Facebook : ' + posts + ' post(s) scanné(s).';
+                        lines[3] = '✅ Messages ciblés : ' + (messages + comments) + ' (posts: ' + messages + ', commentaires: ' + comments + ').';
+                        lines[4] = '✅ Traitement IA : ' + aiProcessed + '/' + aiTotal + '.';
+                        lines.push('✅ Rattrapage terminé.');
+                        lines.push('✅ Total récupéré : ' + recovered + '.');
+
+                        var diagnostics = job.diagnostics || null;
+                        if (diagnostics && Number(diagnostics.postsWithCommentSignals || 0) > 0) {
+                            var unavailable = Number(diagnostics.postsWhereCommentsUnavailable || 0);
+                            var signaled = Number(diagnostics.postsWithCommentSignals || 0);
+                            if (unavailable > 0) {
+                                lines.push('⚠️ Diagnostic : ' + unavailable + '/' + signaled + ' post(s) signalent des commentaires non lisibles via API.');
+                            }
+                        }
+
+                        renderCatchupProgress(box, lines, 'done');
+                        if (messagesListEl && statusState && intentionState && urgentGetter) {
+                            loadAnalyzedMessages(pageId, statusState.value, intentionState.value, messagesListEl, urgentGetter());
+                        }
+                    })
+                    .catch(function() {
+                        // Keep polling on transient errors.
+                    });
+            }, pollMs);
+        })
+        .catch(function(err) {
+            btn.disabled = false;
+            btn.textContent = 'Lancer le rattrapage';
+            renderCatchupProgress(box, [
+                '❌ Rattrapage échoué : ' + escapeHtml(err.message || 'erreur inconnue')
+            ], 'error');
+        });
     }
 
     function markMessageRepliedAndRefresh(card, listEl, pageId, replyText) {
@@ -437,7 +620,7 @@ $api_base_url = rtrim(getApiBaseUrl(), '/');
                         var filterUrgentOnly = section && section.querySelector('.urgent-only-cb') ? section.querySelector('.urgent-only-cb').checked : false;
                         btn.disabled = true;
                         var previousLabel = btn.textContent;
-                        btn.textContent = 'Relance IA…';
+                        btn.innerHTML = '<span class="mini-spinner"></span>Relance IA…';
                         fetch(API_BASE + '/facebook/pages/' + encodeURIComponent(pageId) + '/messages/analyzed/' + encodeURIComponent(messageId) + '/rerun-analysis', {
                             method: 'POST',
                             headers: { 'Authorization': 'Bearer ' + JWT, 'Content-Type': 'application/json' },
@@ -476,6 +659,8 @@ $api_base_url = rtrim(getApiBaseUrl(), '/');
                         var correctionTypeEl = form.querySelector('.feedback-correction-type');
                         var expectedPriorityEl = form.querySelector('.feedback-expected-priority');
                         var statusEl = card.querySelector('.msg-feedback-status');
+                        var contextWrap = card.querySelector('.msg-feedback-context');
+                        var contextTextarea = card.querySelector('.feedback-context-text');
                         var reason = reasonEl ? reasonEl.value.trim() : '';
                         var correctionType = correctionTypeEl ? correctionTypeEl.value : 'other';
                         var expectedPriority = expectedPriorityEl ? expectedPriorityEl.value : '';
@@ -484,8 +669,11 @@ $api_base_url = rtrim(getApiBaseUrl(), '/');
                             return;
                         }
                         btn.disabled = true;
-                        btn.textContent = 'Envoi...';
-                        if (statusEl) statusEl.textContent = '';
+                        btn.innerHTML = '<span class="mini-spinner"></span>Envoi...';
+                        if (statusEl) {
+                            statusEl.className = 'msg-feedback-status running';
+                            statusEl.innerHTML = '<span class="mini-spinner"></span>Envoi de la correction en cours...';
+                        }
                         fetch(API_BASE + '/facebook/pages/' + encodeURIComponent(pageId) + '/messages/analyzed/' + encodeURIComponent(messageId) + '/feedback', {
                             method: 'POST',
                             headers: { 'Authorization': 'Bearer ' + JWT, 'Content-Type': 'application/json' },
@@ -499,15 +687,99 @@ $api_base_url = rtrim(getApiBaseUrl(), '/');
                             btn.textContent = 'Envoyer la correction';
                             if (res && res.success) {
                                 if (reasonEl) reasonEl.value = '';
-                                if (statusEl) statusEl.textContent = 'Correction enregistrée. Le prompt sera enrichi pour les prochains messages.';
-                                form.classList.remove('active');
+                                if (statusEl) {
+                                    statusEl.className = 'msg-feedback-status success';
+                                    statusEl.textContent = '✅ Correction enregistrée. Génération du contexte enrichi...';
+                                }
+                                fetch(API_BASE + '/facebook/pages/' + encodeURIComponent(pageId) + '/messages/analyzed/' + encodeURIComponent(messageId) + '/feedback/suggest-context', {
+                                    method: 'POST',
+                                    headers: { 'Authorization': 'Bearer ' + JWT, 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({
+                                        reason: reason,
+                                        correctionType: correctionType,
+                                        expectedPriority: expectedPriority
+                                    })
+                                }).then(function(r){ return r.json(); }).then(function(ctxRes) {
+                                    if (ctxRes && ctxRes.success && contextTextarea) {
+                                        contextTextarea.value = ctxRes.contextSuggestion || '';
+                                        if (contextWrap) contextWrap.classList.add('active');
+                                        if (form) form.classList.remove('active');
+                                        if (statusEl) {
+                                            statusEl.className = 'msg-feedback-status success';
+                                            statusEl.textContent = '✅ Contexte proposé. Modifiez-le puis cliquez sur "Valider ce contexte".';
+                                        }
+                                    } else if (statusEl) {
+                                        statusEl.className = 'msg-feedback-status error';
+                                        statusEl.textContent = '❌ Correction enregistrée, mais génération du contexte impossible.';
+                                    }
+                                }).catch(function() {
+                                    if (statusEl) {
+                                        statusEl.className = 'msg-feedback-status error';
+                                        statusEl.textContent = '❌ Correction enregistrée, mais erreur lors de la génération du contexte.';
+                                    }
+                                });
                             } else {
-                                if (statusEl) statusEl.textContent = (res && res.message) ? res.message : 'Erreur lors de l\'envoi de la correction.';
+                                if (statusEl) {
+                                    statusEl.className = 'msg-feedback-status error';
+                                    statusEl.textContent = '❌ ' + ((res && res.message) ? res.message : 'Erreur lors de l\'envoi de la correction.');
+                                }
                             }
                         }).catch(function() {
                             btn.disabled = false;
                             btn.textContent = 'Envoyer la correction';
-                            if (statusEl) statusEl.textContent = 'Erreur réseau lors de l\'envoi.';
+                            if (statusEl) {
+                                statusEl.className = 'msg-feedback-status error';
+                                statusEl.textContent = '❌ Erreur réseau lors de l\'envoi.';
+                            }
+                        });
+                    });
+                });
+                listEl.querySelectorAll('.btn-apply-feedback-context').forEach(function(btn) {
+                    btn.addEventListener('click', function() {
+                        var card = btn.closest('.msg-card');
+                        if (!card) return;
+                        var messageId = card.getAttribute('data-message-id');
+                        var contextWrap = card.querySelector('.msg-feedback-context');
+                        var contextTextarea = card.querySelector('.feedback-context-text');
+                        var statusEl = card.querySelector('.msg-feedback-status');
+                        var contextText = contextTextarea ? contextTextarea.value.trim() : '';
+                        if (!messageId || !contextText) {
+                            if (statusEl) {
+                                statusEl.className = 'msg-feedback-status error';
+                                statusEl.textContent = '❌ Contexte vide. Veuillez renseigner le champ.';
+                            }
+                            return;
+                        }
+                        btn.disabled = true;
+                        btn.innerHTML = '<span class="mini-spinner"></span>Validation...';
+                        if (statusEl) {
+                            statusEl.className = 'msg-feedback-status running';
+                            statusEl.innerHTML = '<span class="mini-spinner"></span>Application du contexte...';
+                        }
+                        fetch(API_BASE + '/facebook/pages/' + encodeURIComponent(pageId) + '/messages/analyzed/' + encodeURIComponent(messageId) + '/feedback/apply-context', {
+                            method: 'POST',
+                            headers: { 'Authorization': 'Bearer ' + JWT, 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ contextText: contextText })
+                        }).then(function(r){ return r.json(); }).then(function(res) {
+                            btn.disabled = false;
+                            btn.textContent = 'Valider ce contexte';
+                            if (res && res.success) {
+                                if (statusEl) {
+                                    statusEl.className = 'msg-feedback-status success';
+                                    statusEl.textContent = '✅ Contexte enrichi validé et appliqué.';
+                                }
+                                if (contextWrap) contextWrap.classList.remove('active');
+                            } else if (statusEl) {
+                                statusEl.className = 'msg-feedback-status error';
+                                statusEl.textContent = '❌ ' + ((res && res.message) ? res.message : 'Erreur de validation du contexte.');
+                            }
+                        }).catch(function() {
+                            btn.disabled = false;
+                            btn.textContent = 'Valider ce contexte';
+                            if (statusEl) {
+                                statusEl.className = 'msg-feedback-status error';
+                                statusEl.textContent = '❌ Erreur réseau lors de la validation du contexte.';
+                            }
                         });
                     });
                 });
@@ -679,6 +951,11 @@ $api_base_url = rtrim(getApiBaseUrl(), '/');
                 '<textarea class="feedback-reason" placeholder="Ex: Ce message est une simple demande d\'information, pas une urgence."></textarea>' +
                 '<div class="msg-reply-actions"><button type="button" class="btn btn-primary btn-sm btn-submit-feedback">Envoyer la correction</button></div>' +
             '</div>' +
+            '<div class="msg-feedback-context">' +
+                '<label>Contexte enrichi proposé par l\'IA (éditable)</label>' +
+                '<textarea class="feedback-context-text" placeholder="Le contexte proposé apparaîtra ici..."></textarea>' +
+                '<div class="msg-reply-actions"><button type="button" class="btn btn-primary btn-sm btn-apply-feedback-context">Valider ce contexte</button></div>' +
+            '</div>' +
             '<div class="msg-feedback-status"></div>' +
         '</div>';
         card += '</div>';
@@ -748,7 +1025,7 @@ $api_base_url = rtrim(getApiBaseUrl(), '/');
 
             var cardContainer = document.createElement('div');
             cardContainer.className = 'resume-page-card-container';
-            cardContainer.innerHTML = buildCardHtml(p);
+            cardContainer.innerHTML = buildCardHtml(p, pageId);
 
             link.addEventListener('click', function(e) {
                 e.preventDefault();
@@ -780,7 +1057,7 @@ $api_base_url = rtrim(getApiBaseUrl(), '/');
             STATUS_OPTIONS.forEach(function(s) {
                 var b = document.createElement('button');
                 b.type = 'button';
-                b.className = 'sub-tab' + (s.value === 'a_repondre' ? ' active' : '');
+                b.className = 'sub-tab' + (s.value === 'all' ? ' active' : '');
                 b.textContent = s.label;
                 b.setAttribute('data-status', s.value);
                 subTabsEl.appendChild(b);
@@ -808,7 +1085,7 @@ $api_base_url = rtrim(getApiBaseUrl(), '/');
             var messagesListEl = document.createElement('div');
             messagesListEl.className = 'messages-list';
 
-            var currentStatus = { value: 'a_repondre' };
+            var currentStatus = { value: 'all' };
             var currentIntention = { value: '' };
             function getUrgentOnly() { return urgentCb.querySelector('.urgent-only-cb') ? urgentCb.querySelector('.urgent-only-cb').checked : false; }
             function refreshMessages() {
@@ -855,6 +1132,14 @@ $api_base_url = rtrim(getApiBaseUrl(), '/');
             pane.appendChild(cardContainer);
             pane.appendChild(messagesSection);
             tabContent.appendChild(pane);
+
+            pane.addEventListener('click', function(evt) {
+                var target = evt.target;
+                if (target && target.classList && target.classList.contains('btn-run-catchup')) {
+                    evt.preventDefault();
+                    runCatchup(pageId, cardContainer, messagesListEl, currentStatus, currentIntention, getUrgentOnly);
+                }
+            });
 
             if (isFirst) {
                 loadedTabs[pageId] = true;

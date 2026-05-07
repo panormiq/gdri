@@ -29,12 +29,25 @@ class PollingService {
 
   /**
    * Récupère la date du dernier pull depuis MongoDB
+   * @param {string|null} pageId - ID de page pour un curseur par page
    * @returns {Promise<Date|null>} Date du dernier pull ou null si premier pull
    */
-  async getLastPullDate() {
+  async getLastPullDate(pageId = null) {
     try {
       const collection = this.database.getCollection('facebook_polling');
-      const lastPull = await collection.findOne({}, { sort: { last_pull_date: -1 } });
+      let lastPull = null;
+
+      if (pageId) {
+        lastPull = await collection.findOne(
+          { pageId: String(pageId) },
+          { sort: { last_pull_date: -1 } }
+        );
+      }
+
+      // Compatibilité avec les anciens enregistrements globaux (sans pageId)
+      if (!lastPull) {
+        lastPull = await collection.findOne({}, { sort: { last_pull_date: -1 } });
+      }
       
       if (lastPull && lastPull.last_pull_date) {
         return new Date(lastPull.last_pull_date);
@@ -48,19 +61,26 @@ class PollingService {
 
   /**
    * Sauvegarde la date du dernier pull dans MongoDB
+   * @param {string} pageId - ID de page
    * @param {Date} date - Date du pull
    */
-  async saveLastPullDate(date) {
+  async saveLastPullDate(pageId, date) {
     try {
       const collection = this.database.getCollection('facebook_polling');
       await collection.insertOne({
+        pageId: String(pageId),
         last_pull_date: date,
         created_at: new Date()
       });
-      console.log(`  💾 Date du dernier pull sauvegardée: ${date.toISOString()}`);
+      console.log(`  💾 Date du dernier pull sauvegardée (${pageId}): ${date.toISOString()}`);
     } catch (error) {
       console.error('❌ Erreur sauvegarde date de pull:', error);
     }
+  }
+
+  applySinceSafetyMargin(date) {
+    const safetyMarginMs = 5 * 60 * 1000;
+    return new Date(date.getTime() - safetyMarginMs);
   }
 
   /**
@@ -197,15 +217,44 @@ class PollingService {
   }
 
   /**
+   * Récupère un lot de posts récents sans filtre de date stricte.
+   * Utile pour capter de nouveaux commentaires sur d'anciens posts.
+   */
+  async getRecentPostsForCommentCatchup(pageId, accessToken, limit = 50) {
+    try {
+      const fields = [
+        'id',
+        'message',
+        'message_tags',
+        'created_time',
+        'from',
+        'permalink_url',
+        'comments.limit(100){id,message,message_tags,created_time,from}'
+      ].join(',');
+
+      const path = `/${this.graphApiVersion}/${pageId}/posts?fields=${fields}&limit=${Math.max(1, Number(limit) || 50)}`;
+      const response = await this.graphApiRequest(path, accessToken);
+      if (!response.data || !Array.isArray(response.data)) return [];
+      return response.data;
+    } catch (error) {
+      console.warn('  ⚠️ Impossible de récupérer les posts récents pour rattrapage commentaires:', error.message);
+      return [];
+    }
+  }
+
+  /**
    * Récupère tous les commentaires d'un post
    * @param {string} postId - ID du post
    * @param {string} accessToken - Token d'accès
    * @returns {Promise<Array>} Liste des commentaires
    */
-  async getAllComments(postId, accessToken) {
+  async getAllComments(postId, accessToken, sinceDate = null) {
     try {
       const comments = [];
-      let nextUrl = `/${this.graphApiVersion}/${postId}/comments?fields=id,message,message_tags,created_time,from&limit=100`;
+      const sinceParam = sinceDate
+        ? `&since=${Math.floor(new Date(sinceDate).getTime() / 1000)}`
+        : '';
+      let nextUrl = `/${this.graphApiVersion}/${postId}/comments?fields=id,message,message_tags,created_time,from&limit=100${sinceParam}`;
       
       while (nextUrl) {
         const response = await this.graphApiRequest(nextUrl, accessToken);
@@ -319,8 +368,13 @@ class PollingService {
    * @param {Date|null} sinceDate - Date depuis laquelle récupérer (null = depuis 01/01/2026)
    * @returns {Promise<Object>} Résultat du pull
    */
-  async pullMessages(pageId, accessToken, sinceDate = null) {
+  async pullMessages(pageId, accessToken, sinceDate = null, options = {}) {
     try {
+      const onProgress = options && typeof options.onProgress === 'function' ? options.onProgress : null;
+      const emitProgress = (payload) => {
+        if (!onProgress) return;
+        try { onProgress(payload || {}); } catch (_) {}
+      };
       console.log('\n🔄 ===== DÉBUT DU PULL FACEBOOK =====');
       console.log(`  ⏰ Timestamp: ${new Date().toISOString()}`);
       
@@ -328,7 +382,7 @@ class PollingService {
       let startDate = sinceDate;
       if (!startDate) {
         // Récupérer la dernière date de pull
-        const lastPullDate = await this.getLastPullDate();
+          const lastPullDate = await this.getLastPullDate(pageId);
         if (lastPullDate) {
           startDate = lastPullDate;
           console.log(`  📅 Dernier pull: ${startDate.toISOString()}`);
@@ -341,19 +395,57 @@ class PollingService {
         console.log(`  📅 Date spécifiée: ${startDate.toISOString()}`);
       }
       
-      // Récupérer les posts
-      const posts = await this.getPostsSince(pageId, accessToken, startDate);
+      // Marge de sécurité pour éviter les trous (latence webhook/réseau/écriture)
+      const safeStartDate = this.applySinceSafetyMargin(startDate);
+      console.log(`  🛟 Fenêtre sécurisée: depuis ${safeStartDate.toISOString()}`);
+      emitProgress({
+        phase: 'fetching',
+        message: 'Récupération des données Facebook',
+        sinceDateUsed: safeStartDate.toISOString()
+      });
+
+      // Récupérer les posts créés depuis la date + un lot récent pour capter
+      // les nouveaux commentaires sur d'anciens posts.
+      const postsSince = await this.getPostsSince(pageId, accessToken, safeStartDate);
+      const recentPosts = await this.getRecentPostsForCommentCatchup(pageId, accessToken, 50);
+      const postsById = new Map();
+      postsSince.forEach((p) => { if (p && p.id) postsById.set(String(p.id), p); });
+      recentPosts.forEach((p) => { if (p && p.id && !postsById.has(String(p.id))) postsById.set(String(p.id), p); });
+      const posts = Array.from(postsById.values());
+      emitProgress({
+        phase: 'fetching',
+        message: 'Posts récupérés',
+        postsCount: posts.length,
+        sinceDateUsed: safeStartDate.toISOString()
+      });
       
       let totalMessages = 0;
       let totalComments = 0;
+      let postsWithCommentSignals = 0;
+      let postsWhereCommentsUnavailable = 0;
+      let aiDiscovered = 0;
+      let aiProcessed = 0;
       
       // Traiter chaque post
       for (const post of posts) {
-        // Traiter le message du post s'il existe
-        if (post.message) {
+        // Traiter le message du post seulement s'il est dans la fenêtre temporelle
+        const postCreatedAt = post && post.created_time ? new Date(post.created_time) : null;
+        if (post.message && postCreatedAt && postCreatedAt >= safeStartDate) {
+          aiDiscovered++;
+          emitProgress({
+            phase: 'processing',
+            message: 'Traitement IA en cours',
+            ai: { processed: aiProcessed, total: aiDiscovered }
+          });
           const webhookData = this.convertPostToWebhookFormat(post, pageId);
           await this.webhookService.processWebhook(webhookData);
           totalMessages++;
+          aiProcessed++;
+          emitProgress({
+            phase: 'processing',
+            message: 'Traitement IA en cours',
+            ai: { processed: aiProcessed, total: aiDiscovered }
+          });
           
           // Logger les mentions si présentes
           if (post.message_tags && post.message_tags.length > 0) {
@@ -362,41 +454,65 @@ class PollingService {
         }
         
         // Récupérer et traiter les commentaires
-        if (post.comments && post.comments.data) {
-          // Les commentaires sont déjà dans la réponse
-          for (const comment of post.comments.data) {
-            if (comment.message) {
-              const webhookData = this.convertCommentToWebhookFormat(comment, post.id, pageId);
-              await this.webhookService.processWebhook(webhookData);
-              totalComments++;
-              
-              // Logger les mentions si présentes
-              if (comment.message_tags && comment.message_tags.length > 0) {
-                console.log(`      📌 ${comment.message_tags.length} mention(s) dans le commentaire ${comment.id}`);
-              }
-            }
-          }
-        } else {
-          // Si les commentaires ne sont pas dans la réponse, les récupérer séparément
-          const comments = await this.getAllComments(post.id, accessToken);
-          for (const comment of comments) {
-            if (comment.message) {
-              const webhookData = this.convertCommentToWebhookFormat(comment, post.id, pageId);
-              await this.webhookService.processWebhook(webhookData);
-              totalComments++;
-              
-              // Logger les mentions si présentes
-              if (comment.message_tags && comment.message_tags.length > 0) {
-                console.log(`      📌 ${comment.message_tags.length} mention(s) dans le commentaire ${comment.id}`);
-              }
+        const inlineComments = post && post.comments && Array.isArray(post.comments.data)
+          ? post.comments.data
+          : null;
+        const inlineCount = inlineComments ? inlineComments.length : 0;
+        const summaryCount = post && post.comments && post.comments.summary && Number.isFinite(Number(post.comments.summary.total_count))
+          ? Number(post.comments.summary.total_count)
+          : null;
+        const hasPagingNext = Boolean(post && post.comments && post.comments.paging && post.comments.paging.next);
+        const hasCommentSignal = hasPagingNext || (summaryCount != null && summaryCount > 0);
+        if (hasCommentSignal) {
+          postsWithCommentSignals++;
+        }
+
+        // Si comments.data est vide mais que Facebook signale des commentaires (summary/paging),
+        // forcer une requête dédiée pour éviter de rater des commentaires.
+        const shouldFetchAllComments = !inlineComments || inlineCount === 0 || hasPagingNext || (summaryCount != null && summaryCount > inlineCount);
+        const commentsSource = shouldFetchAllComments
+          ? await this.getAllComments(post.id, accessToken, safeStartDate)
+          : inlineComments;
+        if (hasCommentSignal && (!commentsSource || commentsSource.length === 0)) {
+          postsWhereCommentsUnavailable++;
+        }
+
+        for (const comment of commentsSource || []) {
+          const commentCreatedAt = comment && comment.created_time ? new Date(comment.created_time) : null;
+          if (comment.message && commentCreatedAt && commentCreatedAt >= safeStartDate) {
+            aiDiscovered++;
+            emitProgress({
+              phase: 'processing',
+              message: 'Traitement IA en cours',
+              ai: { processed: aiProcessed, total: aiDiscovered }
+            });
+            const webhookData = this.convertCommentToWebhookFormat(comment, post.id, pageId);
+            await this.webhookService.processWebhook(webhookData);
+            totalComments++;
+            aiProcessed++;
+            emitProgress({
+              phase: 'processing',
+              message: 'Traitement IA en cours',
+              ai: { processed: aiProcessed, total: aiDiscovered }
+            });
+            
+            // Logger les mentions si présentes
+            if (comment.message_tags && comment.message_tags.length > 0) {
+              console.log(`      📌 ${comment.message_tags.length} mention(s) dans le commentaire ${comment.id}`);
             }
           }
         }
       }
       
-      // Sauvegarder la date du pull
+      // Sauvegarder la date du pull seulement si des éléments ont réellement été traités.
+      // Sinon, on risque de déplacer le curseur et de masquer des messages manqués.
       const pullDate = new Date();
-      await this.saveLastPullDate(pullDate);
+      const processedCount = Number(totalMessages || 0) + Number(totalComments || 0);
+      if (processedCount > 0) {
+        await this.saveLastPullDate(pageId, pullDate);
+      } else {
+        console.log('  ℹ️ Aucun message/commentaire traité : curseur de pull conservé (pas d\'avance de fenêtre).');
+      }
 
       // Mettre à jour lastInteractionAt et lastPullAt dans facebook_configs pour cette page
       let lastInteractionAt = pullDate;
@@ -416,15 +532,19 @@ class PollingService {
       }
       try {
         const configCollection = this.database.getCollection('facebook_configs');
+        const updateSet = {
+          lastPullAttemptAt: pullDate,
+          updated_at: pullDate
+        };
+        if (processedCount > 0) {
+          updateSet.lastInteractionAt = lastInteractionAt;
+          updateSet.lastPullAt = pullDate;
+          updateSet.lastWebhookProcessedAt = pullDate;
+        }
         await configCollection.updateOne(
           { $or: [{ pageId }, { pageId: String(pageId) }] },
           {
-            $set: {
-              lastInteractionAt,
-              lastPullAt: pullDate,
-              lastWebhookProcessedAt: pullDate,
-              updated_at: pullDate
-            }
+            $set: updateSet
           }
         );
       } catch (err) {
@@ -443,7 +563,16 @@ class PollingService {
         postsCount: posts.length,
         messagesCount: totalMessages,
         commentsCount: totalComments,
-        lastPullDate: pullDate
+        lastPullDate: pullDate,
+        effectiveSinceDate: safeStartDate,
+        diagnostics: {
+          postsWithCommentSignals,
+          postsWhereCommentsUnavailable
+        },
+        progress: {
+          aiProcessed,
+          aiDiscovered
+        }
       };
     } catch (error) {
       console.error('\n❌ Erreur lors du pull:', error);
