@@ -126,7 +126,10 @@ async function importExcel(req, res) {
 
 async function getImportStaging(req, res) {
   try {
-    const data = await UgapDataService.getLatestImportStaging(req.entrepriseDb, req.entrepriseId);
+    const importId = String(req.query?.importId || '').trim();
+    const data = importId
+      ? await UgapDataService.getImportStagingById(req.entrepriseDb, req.entrepriseId, importId)
+      : await UgapDataService.getLatestImportStaging(req.entrepriseDb, req.entrepriseId);
     if (!data) {
       return res.json({ success: true, data: null, message: 'Aucun import en zone tampon' });
     }
@@ -141,11 +144,13 @@ async function validateImportModels(req, res) {
   try {
     const { importId } = req.params;
     const modelIds = Array.isArray(req.body?.modelIds) ? req.body.modelIds : [];
+    const modelUpdates = Array.isArray(req.body?.modelUpdates) ? req.body.modelUpdates : [];
     const data = await UgapDataService.markImportModelsValidated(
       req.entrepriseDb,
       req.entrepriseId,
       importId,
-      modelIds
+      modelIds,
+      modelUpdates
     );
     res.json({ success: true, message: 'Validation modèles mise à jour', data });
   } catch (error) {

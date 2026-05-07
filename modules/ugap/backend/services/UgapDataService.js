@@ -13,9 +13,38 @@ class UgapDataService {
     const businessViews = Array.isArray(source.businessViews)
       ? source.businessViews
       : (Array.isArray(source.viewHeuristicRules) ? source.viewHeuristicRules : []);
+    const baseModelTemplateFamilies = Array.isArray(source.baseModelTemplateFamilies)
+      ? source.baseModelTemplateFamilies.map((x) => String(x || '').trim()).filter(Boolean)
+      : [];
+    const normalizePreset = (preset) => {
+      const p = preset && typeof preset === 'object' ? preset : {};
+      return {
+        id: String(p.id || '').trim(),
+        label: String(p.label || '').trim(),
+        businessViewIds: Array.isArray(p.businessViewIds)
+          ? p.businessViewIds.map((x) => String(x)).filter(Boolean)
+          : []
+      };
+    };
+    const rawViewPresets = Array.isArray(source.viewPresets) ? source.viewPresets.map(normalizePreset).filter((p) => p.id) : [];
+    const defaultPreset = {
+      id: 'basic',
+      label: 'Basic',
+      businessViewIds: businessViews.map((v) => String(v?.id || '').trim()).filter(Boolean)
+    };
+    const viewPresets = rawViewPresets.length > 0
+      ? rawViewPresets
+      : [defaultPreset];
+    const activeViewPresetIdRaw = String(source.activeViewPresetId || '').trim();
+    const activeViewPresetId = viewPresets.some((p) => p.id === activeViewPresetIdRaw)
+      ? activeViewPresetIdRaw
+      : viewPresets[0]?.id || 'basic';
     return {
       families,
       businessViews,
+      baseModelTemplateFamilies,
+      viewPresets,
+      activeViewPresetId,
       updatedAt: source.updatedAt || null
     };
   }
@@ -116,6 +145,13 @@ class UgapDataService {
       businessViews: normalizedInputUiState.businessViews.length
         ? normalizedInputUiState.businessViews
         : existingUiState.businessViews,
+      baseModelTemplateFamilies: normalizedInputUiState.baseModelTemplateFamilies.length
+        ? normalizedInputUiState.baseModelTemplateFamilies
+        : existingUiState.baseModelTemplateFamilies,
+      viewPresets: normalizedInputUiState.viewPresets.length
+        ? normalizedInputUiState.viewPresets
+        : existingUiState.viewPresets,
+      activeViewPresetId: normalizedInputUiState.activeViewPresetId || existingUiState.activeViewPresetId || 'basic',
       updatedAt: normalizedInputUiState.updatedAt || existingUiState.updatedAt || null
     };
     
@@ -143,6 +179,121 @@ class UgapDataService {
 
     return document;
   }
+
+  /**
+   * Pousse les modèles validés du staging dans le catalogue publié (ugap_data)
+   * sans attendre la publication complète de l'import.
+   */
+  static async syncValidatedModelsToPublishedCatalog(db, entrepriseId, stagingModels = [], validatedModelIds = []) {
+    const ids = new Set(
+      (Array.isArray(validatedModelIds) ? validatedModelIds : [])
+        .map((x) => String(x || '').trim())
+        .filter(Boolean)
+    );
+    if (!ids.size) return;
+
+    const collection = db.collection('ugap_data');
+    const existing = await collection.findOne({ entrepriseId });
+    const existingModels = Array.isArray(existing?.models) ? existing.models : [];
+    const byId = new Map(
+      existingModels
+        .map((m) => ({ id: String(m?.id || '').trim(), model: m }))
+        .filter((row) => row.id)
+        .map((row) => [row.id, row.model])
+    );
+
+    (Array.isArray(stagingModels) ? stagingModels : []).forEach((m) => {
+      const id = String(m?.id || '').trim();
+      if (!id || !ids.has(id)) return;
+      const prev = byId.get(id) || {};
+      byId.set(id, {
+        ...prev,
+        ...m,
+        importValidationStatus: 'validated',
+        // Conserver les configurations déjà faites côté catalogue si le staging n'en a pas.
+        configurations: Array.isArray(m?.configurations)
+          ? m.configurations
+          : (Array.isArray(prev?.configurations) ? prev.configurations : [])
+      });
+    });
+
+    // Mettre à jour uniquement les IDs cochés; ne pas toucher aux autres modèles.
+    const nextModels = Array.from(byId.values());
+    const now = new Date();
+    await collection.updateOne(
+      { entrepriseId },
+      {
+        $set: {
+          models: nextModels,
+          updatedAt: now
+        },
+        $setOnInsert: {
+          entrepriseId,
+          categories: [],
+          businessViews: [],
+          dependencyRules: [],
+          uiState: this.normalizeUiState({}),
+          createdAt: now
+        }
+      },
+      { upsert: true }
+    );
+  }
+
+  /**
+   * Synchronise la liste complète des modèles du staging vers le catalogue publié.
+   * Utilisé après validation modèles pour garantir que le catalogue n'est jamais vide
+   * à cause d'un problème de sous-ensemble d'IDs.
+   */
+  static async syncAllStagingModelsToPublishedCatalog(db, entrepriseId, stagingModels = [], validatedModelIds = []) {
+    const validatedSet = new Set(
+      (Array.isArray(validatedModelIds) ? validatedModelIds : [])
+        .map((x) => String(x || '').trim())
+        .filter(Boolean)
+    );
+    const collection = db.collection('ugap_data');
+    const existing = await collection.findOne({ entrepriseId });
+    const prev = Array.isArray(existing?.models) ? existing.models : [];
+    const prevById = new Map(
+      prev
+        .map((m) => ({ id: String(m?.id || '').trim(), model: m }))
+        .filter((row) => row.id)
+        .map((row) => [row.id, row.model])
+    );
+    const next = (Array.isArray(stagingModels) ? stagingModels : []).map((m) => {
+      const id = String(m?.id || '').trim();
+      const old = id ? (prevById.get(id) || {}) : {};
+      return {
+        ...old,
+        ...m,
+        importValidationStatus: id && validatedSet.has(id) ? 'validated' : 'to_validate',
+        configurations: Array.isArray(m?.configurations)
+          ? m.configurations
+          : (Array.isArray(old?.configurations) ? old.configurations : [])
+      };
+    });
+
+    const now = new Date();
+    await collection.updateOne(
+      { entrepriseId },
+      {
+        $set: {
+          models: next,
+          updatedAt: now
+        },
+        $setOnInsert: {
+          entrepriseId,
+          categories: [],
+          businessViews: [],
+          dependencyRules: [],
+          uiState: this.normalizeUiState({}),
+          createdAt: now
+        }
+      },
+      { upsert: true }
+    );
+  }
+
 
   /**
    * Récupère les données sauvegardées
@@ -231,18 +382,27 @@ class UgapDataService {
       { entrepriseId },
       { projection: { uiState: 1 } }
     );
-    if (!existing) {
-      throw new Error('Données non trouvées');
-    }
-    const current = this.normalizeUiState(existing.uiState);
+    const current = this.normalizeUiState(existing?.uiState);
     const next = this.normalizeUiState({
       ...current,
       ...(updates && typeof updates === 'object' ? updates : {}),
       updatedAt: new Date()
     });
+    const now = new Date();
     await collection.updateOne(
       { entrepriseId },
-      { $set: { uiState: next, updatedAt: new Date() } }
+      {
+        $set: { uiState: next, updatedAt: now },
+        $setOnInsert: {
+          entrepriseId,
+          models: [],
+          categories: [],
+          businessViews: [],
+          dependencyRules: [],
+          createdAt: now
+        }
+      },
+      { upsert: true }
     );
     return next;
   }
@@ -1477,6 +1637,106 @@ Exemple de forme (ids fictifs) :
     });
   }
 
+  /**
+   * Garde progress.validatedModelIds aligné sur les modèles réellement présents dans le staging
+   * (réimport / suppression de modèles avant la fin du workflow).
+   */
+  static normalizeStagingProgressForModels(models, progress = {}) {
+    const modelIdSet = new Set(
+      (Array.isArray(models) ? models : [])
+        .map((m) => String(m?.id || '').trim())
+        .filter(Boolean)
+    );
+    const raw = Array.isArray(progress?.validatedModelIds) ? progress.validatedModelIds : [];
+    const seen = new Set();
+    const pruned = [];
+    raw.forEach((x) => {
+      const id = String(x || '').trim();
+      if (!id || !modelIdSet.has(id) || seen.has(id)) return;
+      seen.add(id);
+      pruned.push(id);
+    });
+    const modelsCompleted = modelIdSet.size > 0 && [...modelIdSet].every((mid) => seen.has(mid));
+    const base = {
+      ...progress,
+      validatedModelIds: pruned,
+      modelsCompleted
+    };
+    if (!modelsCompleted) {
+      base.optionsCompleted = false;
+      base.familiesCompleted = false;
+      base.viewsCompleted = false;
+    }
+    return base;
+  }
+
+  /**
+   * progress.optionsCompleted ne peut être vrai que si les modèles sont complets
+   * ET que le document staging indique optionsStatus === 'validated'.
+   */
+  static coerceStagingProgressOptionsWithDocument(progress, stagingDoc = {}) {
+    const p = progress && typeof progress === 'object' ? { ...progress } : {};
+    const modelsDone = !!p.modelsCompleted;
+    const optionsValidated = String(stagingDoc.optionsStatus || '').toLowerCase() === 'validated';
+    p.optionsCompleted = !!(modelsDone && optionsValidated);
+    if (!modelsDone) {
+      p.familiesCompleted = false;
+      p.viewsCompleted = false;
+    }
+    return p;
+  }
+
+  /**
+   * Source unique de vérité du statut import.
+   */
+  static computeStagingStatuses(progress = {}, stagingDoc = {}) {
+    const modelsCompleted = !!progress?.modelsCompleted;
+    const optionsValidated = String(stagingDoc?.optionsStatus || '').toLowerCase() === 'validated';
+    const modelsStatus = modelsCompleted ? 'validated' : 'to_validate';
+    const status = !modelsCompleted
+      ? 'draft'
+      : (optionsValidated ? 'validated' : 'in_review');
+    return { status, modelsStatus };
+  }
+
+
+  static _stagingModelProgressOutOfSync(doc, normalizedProgress) {
+    const prev = doc?.progress || {};
+    const prevIds = JSON.stringify((Array.isArray(prev.validatedModelIds) ? prev.validatedModelIds : []).map((x) => String(x)));
+    const nextIds = JSON.stringify((normalizedProgress.validatedModelIds || []).map((x) => String(x)));
+    const modelsMismatch = prevIds !== nextIds || Boolean(prev.modelsCompleted) !== Boolean(normalizedProgress.modelsCompleted);
+    const optionsMismatch = Boolean(prev.optionsCompleted) !== Boolean(normalizedProgress.optionsCompleted);
+    return modelsMismatch || optionsMismatch;
+  }
+
+  static async repairImportStagingModelProgressIfNeeded(db, doc) {
+    if (!doc || !doc._id || doc.status === 'published') return doc;
+    let normalized = this.normalizeStagingProgressForModels(doc.models, doc.progress || {});
+    normalized = this.coerceStagingProgressOptionsWithDocument(normalized, doc);
+    const progressDirty = this._stagingModelProgressOutOfSync(doc, normalized);
+    const computed = this.computeStagingStatuses(normalized, doc);
+    const statusDirty = String(doc.status || '').toLowerCase() !== computed.status
+      || String(doc.modelsStatus || '').toLowerCase() !== computed.modelsStatus;
+    if (!progressDirty && !statusDirty) return doc;
+    const collection = db.collection('ugap_import_staging');
+    const patch = { progress: normalized, updatedAt: new Date() };
+    if (!normalized.modelsCompleted) {
+      patch.status = 'draft';
+      patch.modelsStatus = 'to_validate';
+      patch.optionsStatus = 'to_validate';
+      patch.minorationsStatus = 'to_validate';
+      patch.diversStatus = 'to_validate';
+    } else {
+      patch.status = computed.status;
+      patch.modelsStatus = computed.modelsStatus;
+    }
+    await collection.updateOne(
+      { _id: doc._id, entrepriseId: doc.entrepriseId },
+      { $set: patch }
+    );
+    return { ...doc, ...patch };
+  }
+
   static async saveImportStaging(db, entrepriseId, payload) {
     const collection = db.collection('ugap_import_staging');
     const now = new Date();
@@ -1518,7 +1778,27 @@ Exemple de forme (ids fictifs) :
 
     if (existing) {
       document.createdAt = existing.createdAt || now;
-      document.progress = existing.progress || document.progress;
+      // Réimport du même fichier: repartir sur une validation modèles propre
+      // pour éviter de réinjecter d'anciens validatedModelIds.
+      const prevProgress = {
+        ...(existing.progress || {}),
+        validatedModelIds: [],
+        modelsCompleted: false,
+        optionsCompleted: false,
+        familiesCompleted: false,
+        viewsCompleted: false
+      };
+      const baseProg = this.normalizeStagingProgressForModels(document.models, prevProgress);
+      document.progress = this.coerceStagingProgressOptionsWithDocument(
+        baseProg,
+        document
+      );
+      const computed = this.computeStagingStatuses(document.progress, document);
+      document.status = computed.status;
+      document.modelsStatus = computed.modelsStatus;
+      document.optionsStatus = 'to_validate';
+      document.minorationsStatus = 'to_validate';
+      document.diversStatus = 'to_validate';
       await collection.updateOne({ _id: existing._id }, { $set: document });
       return { ...document, _id: existing._id, alreadyProcessed: true, alreadyValidated: existing.status === 'validated' || existing.status === 'published' };
     }
@@ -1529,36 +1809,108 @@ Exemple de forme (ids fictifs) :
 
   static async getLatestImportStaging(db, entrepriseId) {
     const collection = db.collection('ugap_import_staging');
-    return await collection.find({ entrepriseId }).sort({ updatedAt: -1 }).limit(1).next();
+    let active = await collection.find({
+      entrepriseId,
+      status: { $ne: 'published' }
+    }).sort({ updatedAt: -1 }).limit(1).next();
+    if (active) {
+      return await this.repairImportStagingModelProgressIfNeeded(db, active);
+    }
+    const latest = await collection.find({ entrepriseId }).sort({ updatedAt: -1 }).limit(1).next();
+    return latest ? this.repairImportStagingModelProgressIfNeeded(db, latest) : null;
   }
 
-  static async markImportModelsValidated(db, entrepriseId, importId, modelIds = []) {
+  static async getImportStagingById(db, entrepriseId, importId) {
+    if (!importId) return null;
+    const collection = db.collection('ugap_import_staging');
+    const _id = new ObjectId(String(importId));
+    const doc = await collection.findOne({ _id, entrepriseId });
+    return doc ? this.repairImportStagingModelProgressIfNeeded(db, doc) : null;
+  }
+
+  static async markImportModelsValidated(db, entrepriseId, importId, modelIds = [], modelUpdates = []) {
     const collection = db.collection('ugap_import_staging');
     const document = await collection.findOne({ _id: new ObjectId(String(importId)), entrepriseId });
     if (!document) throw new Error('Import staging introuvable');
-    const incoming = new Set((Array.isArray(modelIds) ? modelIds : []).map((x) => String(x)).filter(Boolean));
-    const merged = new Set([...(document?.progress?.validatedModelIds || []), ...incoming]);
-    const allModelIds = new Set((document.models || []).map((m) => String(m?.id || '')).filter(Boolean));
-    const modelsCompleted = allModelIds.size > 0 && Array.from(allModelIds).every((id) => merged.has(id));
-    const nextStatus = modelsCompleted ? 'validated' : 'in_review';
-    await collection.updateOne(
-      { _id: document._id },
-      {
-        $set: {
-          'progress.validatedModelIds': Array.from(merged),
-          'progress.modelsCompleted': modelsCompleted,
-          modelsStatus: modelsCompleted ? 'validated' : 'in_review',
-          status: nextStatus,
-          updatedAt: new Date()
-        }
-      }
+
+    const updateMap = new Map(
+      (Array.isArray(modelUpdates) ? modelUpdates : [])
+        .map((row) => ({
+          id: String(row?.id || '').trim(),
+          basePrice: Number(row?.basePrice)
+        }))
+        .filter((row) => row.id && Number.isFinite(row.basePrice))
+        .map((row) => [row.id, row.basePrice])
     );
-    return await collection.findOne({ _id: document._id });
+
+    const nextModels = (Array.isArray(document.models) ? document.models : []).map((model) => {
+      const id = String(model?.id || '').trim();
+      if (!id || !updateMap.has(id)) return model;
+      return {
+        ...model,
+        basePrice: Number(updateMap.get(id))
+      };
+    });
+
+    const allModelIds = new Set((nextModels || []).map((m) => String(m?.id || '').trim()).filter(Boolean));
+    const normalizedProgress = this.normalizeStagingProgressForModels(nextModels, document.progress || {});
+    const incoming = (Array.isArray(modelIds) ? modelIds : [])
+      .map((x) => String(x || '').trim())
+      .filter((id) => id && allModelIds.has(id));
+    if (!incoming.length) {
+      throw new Error('Aucun modele pending selectionne pour validation');
+    }
+    // IMPORTANT: on remplace la liste validée par la sélection explicite courante
+    // pour éviter toute réinjection d'anciens IDs "validés" hérités d'un staging recyclé.
+    const mergedArray = Array.from(new Set(incoming)).filter((id) => allModelIds.has(id));
+    const modelsCompleted = allModelIds.size > 0 && mergedArray.every((id) => allModelIds.has(id))
+      && [...allModelIds].every((id) => mergedArray.includes(id));
+    const mergedFinal = mergedArray;
+    const optionsValidated = String(document.optionsStatus || '').toLowerCase() === 'validated';
+    const nextOptionsCompleted = !!(modelsCompleted && optionsValidated);
+    const computed = this.computeStagingStatuses(
+      { modelsCompleted, optionsCompleted: nextOptionsCompleted },
+      { optionsStatus: optionsValidated ? 'validated' : 'to_validate' }
+    );
+    const setPayload = {
+      models: nextModels,
+      'progress.validatedModelIds': mergedFinal,
+      'progress.modelsCompleted': modelsCompleted,
+      'progress.optionsCompleted': nextOptionsCompleted,
+      modelsStatus: computed.modelsStatus,
+      status: computed.status,
+      updatedAt: new Date()
+    };
+    if (!modelsCompleted) {
+      setPayload.optionsStatus = 'to_validate';
+      setPayload.minorationsStatus = 'to_validate';
+      setPayload.diversStatus = 'to_validate';
+    }
+    const updated = await collection.findOneAndUpdate(
+      { _id: document._id, entrepriseId },
+      { $set: setPayload },
+      { returnDocument: 'after' }
+    );
+    return updated?.value || {
+      ...document,
+      ...setPayload,
+      progress: {
+        ...(document.progress || {}),
+        validatedModelIds: mergedFinal,
+        modelsCompleted,
+        optionsCompleted: nextOptionsCompleted
+      }
+    };
   }
 
   static async markImportOptionsValidated(db, entrepriseId, importId) {
     const collection = db.collection('ugap_import_staging');
     const _id = new ObjectId(String(importId));
+    const before = await collection.findOne({ _id, entrepriseId });
+    if (!before) throw new Error('Import staging introuvable');
+    if (!before.progress?.modelsCompleted) {
+      throw new Error('Validez tous les modèles avant de valider les options');
+    }
     await collection.updateOne(
       { _id, entrepriseId },
       {
@@ -1567,6 +1919,7 @@ Exemple de forme (ids fictifs) :
           minorationsStatus: 'validated',
           diversStatus: 'validated',
           'progress.optionsCompleted': true,
+          status: 'validated',
           updatedAt: new Date()
         }
       }

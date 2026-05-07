@@ -45,15 +45,23 @@ const useUgapEntrepriseDb = async (req, res, next) => {
       }
     }
 
-    req.entrepriseDb = await database.getEntrepriseDb(entrepriseId);
-    if (!req.entrepriseDb) {
-      return res.status(500).json({
+    const normalizedEntrepriseId = String(entrepriseId || '').trim();
+    if (!normalizedEntrepriseId) {
+      return res.status(400).json({
         success: false,
-        message: `Impossible de se connecter à la base de données de l'entreprise (ID: ${entrepriseId})`
+        message: 'Identifiant entreprise invalide.'
       });
     }
 
-    req.entrepriseId = entrepriseId;
+    req.entrepriseDb = await database.getEntrepriseDb(normalizedEntrepriseId);
+    if (!req.entrepriseDb) {
+      return res.status(500).json({
+        success: false,
+        message: `Impossible de se connecter à la base de données de l'entreprise (ID: ${normalizedEntrepriseId})`
+      });
+    }
+
+    req.entrepriseId = normalizedEntrepriseId;
     req.entrepriseRole = user.role;
 
     next();

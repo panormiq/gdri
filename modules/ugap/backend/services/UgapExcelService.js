@@ -7,6 +7,11 @@ const XLSX = require('xlsx');
 const path = require('path');
 
 class UgapExcelService {
+  static isCrossMarker(value) {
+    const raw = String(value ?? '').trim();
+    return raw === 'X' || raw === 'x' || raw === '×';
+  }
+
   static parseBaseModelLabel(label) {
     const raw = String(label || '').replace(/\s+/g, ' ').trim();
     if (!raw) {
@@ -55,7 +60,7 @@ class UgapExcelService {
     for (let r = startRow; r < raw.length; r++) {
       const row = raw[r] || [];
       const marker = row[modelCol];
-      if (marker !== 'X' && marker !== 'x' && marker !== '×') continue;
+      if (!this.isCrossMarker(marker)) continue;
 
       const label = row[labelCol];
       const labelStr = typeof label === 'string' ? label.trim() : '';
@@ -171,7 +176,7 @@ class UgapExcelService {
       maxLen = Math.max(maxLen, row.length);
       for (let c = 0; c < row.length; c++) {
         const v = row[c];
-        if (v === 'X' || v === 'x' || v === '×') {
+        if (this.isCrossMarker(v)) {
           counts[c] = (counts[c] || 0) + 1;
         }
       }
@@ -224,7 +229,7 @@ class UgapExcelService {
     for (let r = startRow; r < raw.length; r++) {
       const row = raw[r] || [];
       const marker = row[modelCol];
-      if (marker !== 'X' && marker !== 'x' && marker !== '×') continue;
+      if (!this.isCrossMarker(marker)) continue;
 
       const label = row[labelCol];
       const price = row[priceCol];
@@ -514,16 +519,14 @@ class UgapExcelService {
       const compatibleModels = [];
       structure.modelCols.forEach((modelCol) => {
         const val = row[modelCol];
-        if (val === 'X' || val === 'x' || val === '×') {
+        if (this.isCrossMarker(val)) {
           const model = models.find(m => m.colIndex === modelCol);
           if (model) compatibleModels.push(model.id);
         }
       });
 
-      // Si aucune compatibilité spécifique, compatible avec tous
-      const finalCompatibleModels = compatibleModels.length > 0 
-        ? compatibleModels 
-        : models.map(m => m.id);
+      // Règle métier: sans croix, l'option n'est assignée à aucun bateau (elle ira en "Divers")
+      const finalCompatibleModels = compatibleModels;
 
       const optionFamilyKey = this.computeOptionFamilyKey(labelStr);
       const baseReplacement = this.parseBaseReplacementProducts(labelStr);
@@ -590,6 +593,257 @@ class UgapExcelService {
     if (l.includes('transport') || l.includes('livraison')) return 'Services';
 
     return 'Divers';
+  }
+
+  static buildImportAudit(filePath, data = null) {
+    const raw = this.readExcelFile(filePath);
+    const structure = this.detectStructure(raw);
+    if (structure.headerRowIndex === -1) {
+      throw new Error('Impossible de detecter la structure du fichier Excel pour audit');
+    }
+
+    const startRow = structure.headerRowIndex + 1;
+    const priceCol = structure.priceClientCol > -1 ? structure.priceClientCol : structure.priceUgapCol;
+
+    const models = [];
+    const baseRowIndices = new Set();
+    structure.modelCols.forEach((colIdx) => {
+      const nameFallback = this.extractModelName(raw, colIdx, structure.headerRowIndex);
+      const baseData = this.extractBaseModelData(raw, colIdx, structure.labelCol, priceCol, startRow);
+      if (baseData.rowIndex >= 0) baseRowIndices.add(baseData.rowIndex);
+      models.push({
+        id: `model_${colIdx}`,
+        colIndex: colIdx,
+        name: baseData.modelName || nameFallback
+      });
+    });
+
+    const parsedByModel = new Map();
+    if (data && Array.isArray(data.categories)) {
+      (data.categories || []).forEach((category) => {
+        (category.options || []).forEach((opt) => {
+          const ids = Array.isArray(opt?.compatibleModels) ? opt.compatibleModels : [];
+          ids.forEach((mid) => {
+            if (!parsedByModel.has(mid)) parsedByModel.set(mid, []);
+            parsedByModel.get(mid).push(opt);
+          });
+        });
+      });
+    }
+
+    const isMinorationLine = (label, refUgap) => {
+      const ref = String(refUgap || '').trim().toUpperCase();
+      const s = String(label || '').trim();
+      return (
+        ref.startsWith('MINO') ||
+        /minorat/i.test(s) ||
+        /^(moins-value|plus-value|plus\s+value)\b/i.test(s)
+      );
+    };
+
+    const reports = models.map((model) => {
+      let crosses = 0;
+      let skippedBaseModelRow = 0;
+      let skippedEmptyLabel = 0;
+      let skippedBaseRowLabel = 0;
+      let prCount = 0;
+      let minorationCount = 0;
+      let optionCount = 0;
+      const excludedRows = [];
+
+      for (let r = startRow; r < raw.length; r++) {
+        const row = raw[r] || [];
+        if (!this.isCrossMarker(row[model.colIndex])) continue;
+        crosses += 1;
+
+        if (baseRowIndices.has(r)) {
+          skippedBaseModelRow += 1;
+          excludedRows.push({
+            rowIndex: r,
+            label: String(row[structure.labelCol] || '').trim(),
+            reason: 'base_model_row_marker',
+            reasonLabel: 'Ligne de base modele',
+            reintegrable: true
+          });
+          continue;
+        }
+
+        const label = row[structure.labelCol];
+        const labelStr = typeof label === 'string' ? label.trim() : '';
+        if (!labelStr) {
+          skippedEmptyLabel += 1;
+          excludedRows.push({
+            rowIndex: r,
+            label: '',
+            reason: 'empty_label',
+            reasonLabel: 'Libelle vide',
+            reintegrable: false
+          });
+          continue;
+        }
+
+        const labelLower = labelStr.toLowerCase();
+        const isBaseModelRow =
+          /^poste\b/.test(labelLower) ||
+          /\bconfiguration de base\b/.test(labelLower) ||
+          /^\s*base\s*$/.test(labelLower);
+        if (isBaseModelRow) {
+          skippedBaseRowLabel += 1;
+          excludedRows.push({
+            rowIndex: r,
+            label: labelStr,
+            reason: 'base_row_label',
+            reasonLabel: 'Ligne de base (filtre label)',
+            reintegrable: true
+          });
+          continue;
+        }
+
+        const refRaw = structure.refUgapCol > -1 ? row[structure.refUgapCol] : null;
+        const refUgap = (typeof refRaw === 'string' || typeof refRaw === 'number') ? String(refRaw).trim() : '';
+        if (/^PR\s/i.test(labelStr)) {
+          prCount += 1;
+        } else if (isMinorationLine(labelStr, refUgap)) {
+          minorationCount += 1;
+        } else {
+          optionCount += 1;
+        }
+      }
+
+      const parsedRows = parsedByModel.get(model.id) || [];
+      let parsedPr = 0;
+      let parsedMino = 0;
+      let parsedOption = 0;
+      parsedRows.forEach((opt) => {
+        const label = String(opt?.name || '').trim();
+        const ref = String(opt?.refUgap || '').trim();
+        if (/^PR\s/i.test(label)) parsedPr += 1;
+        else if (isMinorationLine(label, ref)) parsedMino += 1;
+        else parsedOption += 1;
+      });
+
+      return {
+        modelId: model.id,
+        modelName: model.name,
+        excel: {
+          crosses,
+          options: optionCount,
+          pr: prCount,
+          minorations: minorationCount,
+          skippedBaseModelRow,
+          skippedEmptyLabel,
+          skippedBaseRowLabel
+        },
+        parsed: {
+          totalAssigned: parsedRows.length,
+          options: parsedOption,
+          pr: parsedPr,
+          minorations: parsedMino
+        },
+        deltas: {
+          options: parsedOption - optionCount,
+          pr: parsedPr - prCount,
+          minorations: parsedMino - minorationCount
+        },
+        excludedRows
+      };
+    });
+
+    return {
+      filePath,
+      modelCount: models.length,
+      reports
+    };
+  }
+
+  static reintegrateExcludedRow(filePath, data, { modelId, rowIndex }) {
+    if (!data || !Array.isArray(data.models) || !Array.isArray(data.categories)) {
+      throw new Error('Donnees UGAP invalides');
+    }
+    const targetModel = (data.models || []).find((m) => String(m?.id || '') === String(modelId || ''));
+    if (!targetModel) {
+      throw new Error('Modele introuvable');
+    }
+    const rowIdx = Number(rowIndex);
+    if (!Number.isInteger(rowIdx) || rowIdx < 0) {
+      throw new Error('rowIndex invalide');
+    }
+
+    const raw = this.readExcelFile(filePath);
+    const structure = this.detectStructure(raw);
+    const row = raw[rowIdx] || [];
+    if (!this.isCrossMarker(row[targetModel.colIndex])) {
+      throw new Error('La ligne n\'a pas de croix pour ce modele');
+    }
+
+    const label = row[structure.labelCol];
+    const labelStr = typeof label === 'string' ? label.trim() : '';
+    if (!labelStr) {
+      throw new Error('Impossible de reintegrer une ligne sans libelle');
+    }
+
+    const priceClient = this.parsePrice(row[structure.priceClientCol] || row[structure.priceUgapCol]);
+    const priceUgap = structure.priceUgapCol > -1 ? this.parsePrice(row[structure.priceUgapCol]) : priceClient;
+    const refUgapRaw = structure.refUgapCol > -1 ? row[structure.refUgapCol] : null;
+    const refUgap = (typeof refUgapRaw === 'string' || typeof refUgapRaw === 'number')
+      ? String(refUgapRaw).trim()
+      : '';
+    const optionId = `opt_${rowIdx}`;
+    const categoryName = this.determineCategory(labelStr);
+    const optionFamilyKey = this.computeOptionFamilyKey(labelStr);
+    const baseReplacement = this.parseBaseReplacementProducts(labelStr);
+
+    let found = null;
+    let foundCategory = null;
+    (data.categories || []).forEach((cat) => {
+      const opt = (cat.options || []).find((o) => String(o?.id || '') === optionId);
+      if (opt && !found) {
+        found = opt;
+        foundCategory = cat;
+      }
+    });
+
+    if (found) {
+      const ids = new Set(Array.isArray(found.compatibleModels) ? found.compatibleModels : []);
+      ids.add(targetModel.id);
+      found.compatibleModels = Array.from(ids);
+      if (!found.refUgap) found.refUgap = refUgap;
+      if (!found.name) found.name = labelStr;
+      return { updated: true, created: false, optionId, categoryId: foundCategory?.id || null };
+    }
+
+    const newOption = {
+      id: optionId,
+      name: labelStr,
+      priceClient,
+      priceUgap,
+      refUgap,
+      category: categoryName,
+      compatibleModels: [targetModel.id],
+      subCategory: null,
+      optionFamilyKey,
+      changeType: baseReplacement.changeType,
+      initialProduct: baseReplacement.initialProduct,
+      finalProduct: baseReplacement.finalProduct
+    };
+
+    const categorySlug = String(categoryName || 'Divers')
+      .toLowerCase()
+      .replace(/[^a-z0-9]/g, '_')
+      .replace(/^_+|_+$/g, '');
+    let category = (data.categories || []).find((c) => String(c?.name || '') === categoryName);
+    if (!category) {
+      category = {
+        id: `cat_${categorySlug || 'divers'}`,
+        name: categoryName,
+        options: [],
+        subCategories: []
+      };
+      data.categories.push(category);
+    }
+    category.options = Array.isArray(category.options) ? category.options : [];
+    category.options.push(newOption);
+    return { updated: true, created: true, optionId, categoryId: category.id };
   }
 }
 
