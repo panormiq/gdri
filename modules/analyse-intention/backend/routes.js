@@ -155,6 +155,7 @@ router.get('/agent-config', authenticateJWT, async (req, res) => {
         data: {
           basePrompt: '',
           defaultEmail: '',
+          defaultEmails: [],
           customIntentions: [],
           defaultIntentionsEnabled: {},
           smtp_profiles: {},
@@ -185,6 +186,7 @@ router.get('/agent-config', authenticateJWT, async (req, res) => {
         data: {
           basePrompt: '',
           defaultEmail: '',
+          defaultEmails: [],
           customIntentions: [],
           defaultIntentionsEnabled: {},
           smtp_profiles: {},
@@ -200,6 +202,9 @@ router.get('/agent-config', authenticateJWT, async (req, res) => {
       data: {
         basePrompt: config.config.basePrompt || config.config.base_prompt || '',
         defaultEmail: config.config.defaultEmail || config.config.default_email || '',
+        defaultEmails: Array.isArray(config.config.defaultEmails)
+          ? config.config.defaultEmails
+          : (Array.isArray(config.config.default_emails) ? config.config.default_emails : []),
         customIntentions: config.config.customIntentions || config.config.intentions || [],
         defaultIntentionsEnabled: config.config.defaultIntentionsEnabled || {},
         smtp_profiles: config.config.smtp_profiles || config.config.smtpSettings || {},
@@ -208,10 +213,16 @@ router.get('/agent-config', authenticateJWT, async (req, res) => {
           urgentSchedule: rf.urgentSchedule,
           urgentSendEmail: rf.urgentSendEmail !== false,
           replyDailyHour: rf.replyDailyHour || '09:00',
+          replyDailyEnabled: rf.replyDailyEnabled !== false,
+          replyDailySendIfNoMessages: rf.replyDailySendIfNoMessages === true,
           replyWeekDay: rf.replyWeekDay != null && rf.replyWeekDay !== '' ? String(rf.replyWeekDay) : '1',
           replyWeeklyHour: rf.replyWeeklyHour || '09:00',
+          replyWeeklyEnabled: rf.replyWeeklyEnabled !== false,
+          replyWeeklySendIfNoMessages: rf.replyWeeklySendIfNoMessages === true,
           replyMonthlyAnchor: rf.replyMonthlyAnchor === 'last' ? 'last' : 'first',
           replyMonthlyHour: rf.replyMonthlyHour || '09:00',
+          replyMonthlyEnabled: rf.replyMonthlyEnabled !== false,
+          replyMonthlySendIfNoMessages: rf.replyMonthlySendIfNoMessages === true,
           interactionFrequency: rf.interactionFrequency || 'daily',
           interactionSendEmail: rf.interactionSendEmail === true,
           skipReportIfNoNewMessages: rf.skipReportIfNoNewMessages === true
@@ -237,6 +248,10 @@ router.post('/agent-config', authenticateJWT, async (req, res) => {
     const pageId = req.body.pageId != null && req.body.pageId !== '' ? String(req.body.pageId) : null;
     const basePrompt = req.body.basePrompt || req.body.base_prompt || '';
     const defaultEmail = req.body.defaultEmail || req.body.default_email || '';
+    const defaultEmailsRaw = req.body.defaultEmails || req.body.default_emails || [];
+    const defaultEmails = (Array.isArray(defaultEmailsRaw) ? defaultEmailsRaw : [defaultEmailsRaw])
+      .map((email) => String(email || '').trim().toLowerCase())
+      .filter(Boolean);
     const customIntentions = req.body.customIntentions || req.body.intentions || [];
     const defaultIntentionsEnabled = req.body.defaultIntentionsEnabled || {};
     const smtp_profiles = req.body.smtp_profiles || req.body.smtpSettings || {};
@@ -254,6 +269,7 @@ router.post('/agent-config', authenticateJWT, async (req, res) => {
     const configToSave = {
       basePrompt: basePrompt,
       defaultEmail: defaultEmail,
+      defaultEmails: defaultEmails,
       customIntentions: customIntentions,
       defaultIntentionsEnabled: defaultIntentionsEnabled,
       smtp_profiles: smtp_profiles,
@@ -261,10 +277,16 @@ router.post('/agent-config', authenticateJWT, async (req, res) => {
         urgentSchedule: rf.urgentSchedule,
         urgentSendEmail: rf.urgentSendEmail !== false,
         replyDailyHour: rf.replyDailyHour || '09:00',
+        replyDailyEnabled: rf.replyDailyEnabled !== false,
+        replyDailySendIfNoMessages: rf.replyDailySendIfNoMessages === true,
         replyWeekDay: rf.replyWeekDay != null && rf.replyWeekDay !== '' ? String(rf.replyWeekDay) : '1',
         replyWeeklyHour: rf.replyWeeklyHour || '09:00',
+        replyWeeklyEnabled: rf.replyWeeklyEnabled !== false,
+        replyWeeklySendIfNoMessages: rf.replyWeeklySendIfNoMessages === true,
         replyMonthlyAnchor: rf.replyMonthlyAnchor === 'last' ? 'last' : 'first',
         replyMonthlyHour: rf.replyMonthlyHour || '09:00',
+        replyMonthlyEnabled: rf.replyMonthlyEnabled !== false,
+        replyMonthlySendIfNoMessages: rf.replyMonthlySendIfNoMessages === true,
         interactionFrequency: rf.interactionFrequency || 'daily',
         interactionSendEmail: rf.interactionSendEmail === true,
         skipReportIfNoNewMessages: rf.skipReportIfNoNewMessages === true

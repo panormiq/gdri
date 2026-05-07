@@ -103,7 +103,9 @@ Instructions importantes :
 - Pour les messages ambigus, indique un niveau de certitude plus faible
 - Les messages urgents nécessitent une attention immédiate et doivent être traités en priorité
 
-Réponds au format JSON avec un tableau d'intentions détectées, chacune avec sa probabilité.
+Réponds au format JSON et inclue pour chaque analyse :
+- reponse_requise (booléen)
+- reponse_rapide_requise (booléen, true si une réponse doit partir rapidement)
 
 Analyse maintenant le(s) message(s) suivant(s) :</textarea>
                         <small class="form-text text-muted">
@@ -113,22 +115,26 @@ Analyse maintenant le(s) message(s) suivant(s) :</textarea>
 
                     <!-- Adresse email par défaut -->
                     <div class="form-group">
-                        <label for="defaultEmail">
+                        <label for="defaultEmailInput">
                             Adresse email par défaut *
                             <span id="defaultEmailWarning" class="email-warning" style="display: none; margin-left: 8px; color: #ff6b6b; font-size: 0.9em;">
                                 ⚠️ Aucun email configuré
                             </span>
                         </label>
-                        <input 
-                            type="email" 
-                            id="defaultEmail" 
-                            name="defaultEmail" 
-                            class="form-control" 
-                            placeholder="exemple@email.com"
-                            required
-                        />
+                        <div id="defaultRecipientsContainer" class="recipients-container"></div>
+                        <div style="display: flex; gap: 8px; margin-top: 8px;">
+                            <input
+                                type="email"
+                                id="defaultEmailInput"
+                                class="form-control"
+                                placeholder="exemple@email.com"
+                                style="flex: 1;"
+                            />
+                            <button type="button" class="btn btn-primary btn-sm" id="addDefaultEmailBtn">Valider</button>
+                        </div>
+                        <input type="hidden" id="defaultEmail" name="defaultEmail" />
                         <small class="form-text text-muted">
-                            Adresse email utilisée par défaut pour toutes les intentions non configurées.
+                            Ajoutez un ou plusieurs emails par défaut. Ils seront utilisés pour les intentions non configurées.
                         </small>
                     </div>
 
@@ -172,13 +178,25 @@ Analyse maintenant le(s) message(s) suivant(s) :</textarea>
                             <div id="replyScheduleParams" style="display: flex; flex-direction: column; gap: 0.75rem;">
                                 <div class="reply-mode-panel" style="padding: 0.75rem 1rem; background: #fff; border-radius: 6px; border: 1px solid #dee2e6;">
                                     <strong style="font-size: 0.9rem;">Quotidien</strong>
+                                    <div class="form-check" style="margin-top: 0.45rem;">
+                                        <input type="checkbox" id="reportReplyDailyEnabled" class="form-check-input" checked>
+                                        <label class="form-check-label" for="reportReplyDailyEnabled">Activer l'envoi du rapport quotidien</label>
+                                    </div>
                                     <div style="margin-top: 0.5rem;">
                                         <label for="reportReplyDailyHour">Heure d'envoi</label>
                                         <input type="time" id="reportReplyDailyHour" class="form-control" style="max-width: 120px; display: inline-block; margin-left: 0.5rem;" value="09:00">
                                     </div>
+                                    <div class="form-check" style="margin-top: 0.45rem;">
+                                        <input type="checkbox" id="reportReplyDailySendIfNoMessages" class="form-check-input">
+                                        <label class="form-check-label" for="reportReplyDailySendIfNoMessages">Envoyer un rapport même sans message à traiter</label>
+                                    </div>
                                 </div>
                                 <div class="reply-mode-panel" style="padding: 0.75rem 1rem; background: #fff; border-radius: 6px; border: 1px solid #dee2e6;">
                                     <strong style="font-size: 0.9rem;">Hebdomadaire</strong>
+                                    <div class="form-check" style="margin-top: 0.45rem;">
+                                        <input type="checkbox" id="reportReplyWeeklyEnabled" class="form-check-input" checked>
+                                        <label class="form-check-label" for="reportReplyWeeklyEnabled">Activer l'envoi du rapport hebdomadaire</label>
+                                    </div>
                                     <div style="margin-top: 0.5rem; display: flex; flex-wrap: wrap; align-items: center; gap: 0.75rem;">
                                         <div>
                                             <label for="reportReplyWeekDay">Jour</label>
@@ -197,9 +215,17 @@ Analyse maintenant le(s) message(s) suivant(s) :</textarea>
                                             <input type="time" id="reportReplyWeeklyHour" class="form-control" style="max-width: 120px; display: inline-block; margin-left: 0.35rem;" value="09:00">
                                         </div>
                                     </div>
+                                    <div class="form-check" style="margin-top: 0.45rem;">
+                                        <input type="checkbox" id="reportReplyWeeklySendIfNoMessages" class="form-check-input">
+                                        <label class="form-check-label" for="reportReplyWeeklySendIfNoMessages">Envoyer un rapport même sans message à traiter</label>
+                                    </div>
                                 </div>
                                 <div class="reply-mode-panel" style="padding: 0.75rem 1rem; background: #fff; border-radius: 6px; border: 1px solid #dee2e6;">
                                     <strong style="font-size: 0.9rem;">Mensuel</strong>
+                                    <div class="form-check" style="margin-top: 0.45rem;">
+                                        <input type="checkbox" id="reportReplyMonthlyEnabled" class="form-check-input" checked>
+                                        <label class="form-check-label" for="reportReplyMonthlyEnabled">Activer l'envoi du rapport mensuel</label>
+                                    </div>
                                     <div style="margin-top: 0.5rem; display: flex; flex-wrap: wrap; align-items: center; gap: 0.75rem;">
                                         <div>
                                             <label for="reportReplyMonthlyAnchor">Jour dans le mois</label>
@@ -212,6 +238,10 @@ Analyse maintenant le(s) message(s) suivant(s) :</textarea>
                                             <label for="reportReplyMonthlyHour">Heure d'envoi</label>
                                             <input type="time" id="reportReplyMonthlyHour" class="form-control" style="max-width: 120px; display: inline-block; margin-left: 0.35rem;" value="09:00">
                                         </div>
+                                    </div>
+                                    <div class="form-check" style="margin-top: 0.45rem;">
+                                        <input type="checkbox" id="reportReplyMonthlySendIfNoMessages" class="form-check-input">
+                                        <label class="form-check-label" for="reportReplyMonthlySendIfNoMessages">Envoyer un rapport même sans message à traiter</label>
                                     </div>
                                 </div>
                             </div>
@@ -392,11 +422,11 @@ Analyse maintenant le(s) message(s) suivant(s) :</textarea>
                             placeholder="email@exemple.com"
                             style="flex: 1;"
                         />
-                        <button type="button" class="btn btn-outline btn-sm" id="addRecipientBtn">
-                            + Ajouter
+                        <button type="button" class="btn btn-primary btn-sm" id="addRecipientBtn">
+                            Valider
                         </button>
                     </div>
-                    <small class="form-text text-muted">Un ou plusieurs emails qui recevront les notifications pour cette intention. Si vide, l'email par défaut sera utilisé.</small>
+                    <small class="form-text text-muted">Tapez un email puis cliquez sur Valider pour l'ajouter en tag. Vous pouvez en ajouter plusieurs et supprimer chaque tag avec la croix.</small>
                 </div>
             </form>
         </div>
@@ -537,6 +567,7 @@ let defaultIntentionsEnabled = {}; // Objet pour stocker l'état des intentions 
 let defaultIntentionOverrides = {}; // { name: { priorityNormal, priorityUrgent, emails } } — rétrocompat : priority
 let intentions = []; // Tableau pour stocker les intentions personnalisées uniquement
 let smtpProfiles = []; // Tableau pour stocker les profils SMTP
+let defaultRecipients = []; // Emails par défaut (fallback global)
 let editingIntentionIndex = null;
 let editingDefaultIntentionName = null; // Nom de l'intention par défaut en cours d'édition (ou null si custom)
 let editingSmtpIndex = null;
@@ -566,7 +597,9 @@ Instructions importantes :
 - Pour les messages ambigus, indique un niveau de certitude plus faible
 - Les messages urgents nécessitent une attention immédiate et doivent être traités en priorité
 
-Réponds au format JSON avec un tableau d'intentions détectées, chacune avec sa probabilité.
+Réponds au format JSON et inclue pour chaque analyse :
+- reponse_requise (booléen)
+- reponse_rapide_requise (booléen, true si une réponse doit partir rapidement)
 
 Analyse maintenant le(s) message(s) suivant(s) :`;
 
@@ -833,39 +866,101 @@ function initAutocomplete() {
 // Gérer les destinataires dans le modal
 let currentRecipients = []; // Liste des emails pour l'intention en cours d'édition
 
-// Ajouter un destinataire
-document.getElementById('addRecipientBtn').addEventListener('click', () => {
+function addRecipientFromInput() {
     const emailInput = document.getElementById('intentionEmailInput');
-    const email = emailInput.value.trim();
+    const email = emailInput.value.trim().toLowerCase();
     
     if (!email) {
         alert('Veuillez saisir un email');
-        return;
+        return false;
     }
     
     // Valider le format email
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(email)) {
         alert('Veuillez saisir un email valide');
-        return;
+        return false;
     }
     
     // Vérifier si l'email n'est pas déjà dans la liste
-    if (currentRecipients.includes(email)) {
+    if (currentRecipients.some(recipient => recipient.toLowerCase() === email)) {
         alert('Cet email est déjà dans la liste');
-        return;
+        return false;
     }
     
     currentRecipients.push(email);
     emailInput.value = '';
     renderRecipients();
-});
+    return true;
+}
+
+function renderDefaultRecipients() {
+    const container = document.getElementById('defaultRecipientsContainer');
+    const hiddenDefaultEmail = document.getElementById('defaultEmail');
+    if (!container || !hiddenDefaultEmail) return;
+
+    container.innerHTML = '';
+    hiddenDefaultEmail.value = defaultRecipients[0] || '';
+
+    if (defaultRecipients.length === 0) {
+        container.innerHTML = '<p style="color: #999; font-style: italic; margin: 0; padding: 8px;">Aucun email par défaut configuré</p>';
+        checkDefaultEmail();
+        return;
+    }
+
+    defaultRecipients.forEach((email, index) => {
+        const recipientBadge = document.createElement('div');
+        recipientBadge.className = 'recipient-badge';
+        recipientBadge.innerHTML = `
+            <span>${escapeHtml(email)}</span>
+            <button type="button" class="recipient-remove" data-index="${index}" title="Supprimer">×</button>
+        `;
+        recipientBadge.querySelector('.recipient-remove').addEventListener('click', () => {
+            defaultRecipients.splice(index, 1);
+            renderDefaultRecipients();
+            updateIntentionEmailPlaceholder();
+        });
+        container.appendChild(recipientBadge);
+    });
+    checkDefaultEmail();
+}
+
+function addDefaultRecipientFromInput() {
+    const emailInput = document.getElementById('defaultEmailInput');
+    if (!emailInput) return false;
+    const email = emailInput.value.trim().toLowerCase();
+
+    if (!email) {
+        alert('Veuillez saisir un email');
+        return false;
+    }
+
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+        alert('Veuillez saisir un email valide');
+        return false;
+    }
+
+    if (defaultRecipients.some((recipient) => recipient.toLowerCase() === email)) {
+        alert('Cet email est déjà dans la liste par défaut');
+        return false;
+    }
+
+    defaultRecipients.push(email);
+    emailInput.value = '';
+    renderDefaultRecipients();
+    updateIntentionEmailPlaceholder();
+    return true;
+}
+
+// Ajouter un destinataire
+document.getElementById('addRecipientBtn').addEventListener('click', addRecipientFromInput);
 
 // Permettre d'ajouter un destinataire avec Enter
 document.getElementById('intentionEmailInput').addEventListener('keypress', (e) => {
     if (e.key === 'Enter') {
         e.preventDefault();
-        document.getElementById('addRecipientBtn').click();
+        addRecipientFromInput();
     }
 });
 
@@ -950,12 +1045,12 @@ document.getElementById('saveIntentionBtn').addEventListener('click', () => {
     // Si pas de destinataires, utiliser l'email par défaut
     let emails = [...currentRecipients];
     if (emails.length === 0) {
-        const defaultEmail = document.getElementById('defaultEmail').value.trim();
-        if (!defaultEmail) {
+        const fallbackDefaultEmails = defaultRecipients.filter(Boolean);
+        if (fallbackDefaultEmails.length === 0) {
             alert('Veuillez ajouter au moins un destinataire ou configurer un email par défaut');
             return;
         }
-        emails = [defaultEmail]; // Utiliser l'email par défaut comme seul destinataire
+        emails = [...fallbackDefaultEmails];
     }
     
     if (editingDefaultIntentionName) {
@@ -1088,16 +1183,23 @@ document.getElementById('intentionModal').addEventListener('click', (e) => {
     }
 });
 
-// Mettre à jour le placeholder de l'email quand l'email par défaut change
-document.getElementById('defaultEmail').addEventListener('input', (e) => {
-    const defaultEmail = e.target.value.trim();
+function updateIntentionEmailPlaceholder() {
+    const firstDefaultEmail = defaultRecipients[0] || '';
     const intentionEmailInput = document.getElementById('intentionEmailInput');
     if (intentionEmailInput && !intentionEmailInput.value) {
-        if (defaultEmail) {
-            intentionEmailInput.placeholder = `Email (par défaut: ${defaultEmail})`;
+        if (firstDefaultEmail) {
+            intentionEmailInput.placeholder = `Email (par défaut: ${firstDefaultEmail})`;
         } else {
             intentionEmailInput.placeholder = "sav@example.com";
         }
+    }
+}
+
+document.getElementById('addDefaultEmailBtn').addEventListener('click', addDefaultRecipientFromInput);
+document.getElementById('defaultEmailInput').addEventListener('keypress', (e) => {
+    if (e.key === 'Enter') {
+        e.preventDefault();
+        addDefaultRecipientFromInput();
     }
 });
 
@@ -1349,20 +1451,11 @@ function renderSmtpProfiles() {
 
 // Vérifier l'email par défaut et afficher l'avertissement
 function checkDefaultEmail() {
-    const defaultEmailInput = document.getElementById('defaultEmail');
     const warning = document.getElementById('defaultEmailWarning');
-    if (defaultEmailInput && warning) {
-        if (!defaultEmailInput.value.trim()) {
-            warning.style.display = 'inline';
-        } else {
-            warning.style.display = 'none';
-        }
+    if (warning) {
+        warning.style.display = defaultRecipients.length === 0 ? 'inline' : 'none';
     }
 }
-
-// Surveiller les changements de l'email par défaut
-document.getElementById('defaultEmail').addEventListener('input', checkDefaultEmail);
-document.getElementById('defaultEmail').addEventListener('blur', checkDefaultEmail);
 
 // Vérifier au chargement
 checkDefaultEmail();
@@ -1521,9 +1614,18 @@ async function loadAgentConfig(options) {
                 // Si pas de prompt dans la config, garder le prompt par défaut
                 document.getElementById('basePrompt').value = DEFAULT_PROMPT;
             }
-            document.getElementById('defaultEmail').value = data.data.defaultEmail || data.data.default_email || '';
-            
-            // Vérifier l'email après le chargement
+            const loadedDefaultEmails = Array.isArray(data.data.defaultEmails)
+                ? data.data.defaultEmails
+                : (Array.isArray(data.data.default_emails)
+                    ? data.data.default_emails
+                    : []);
+            const loadedDefaultEmail = data.data.defaultEmail || data.data.default_email || '';
+            defaultRecipients = (loadedDefaultEmails.length > 0 ? loadedDefaultEmails : (loadedDefaultEmail ? [loadedDefaultEmail] : []))
+                .map((email) => String(email || '').trim().toLowerCase())
+                .filter(Boolean);
+            defaultRecipients = Array.from(new Set(defaultRecipients));
+            renderDefaultRecipients();
+            updateIntentionEmailPlaceholder();
             checkDefaultEmail();
             
             // Fréquence des rapports
@@ -1535,6 +1637,8 @@ async function loadAgentConfig(options) {
             }
             var replyDailyHourEl = document.getElementById('reportReplyDailyHour');
             if (replyDailyHourEl) replyDailyHourEl.value = rf.replyDailyHour || '09:00';
+            var replyDailyEnabledEl = document.getElementById('reportReplyDailyEnabled');
+            if (replyDailyEnabledEl) replyDailyEnabledEl.checked = rf.replyDailyEnabled !== false;
             var replyWeekDayEl = document.getElementById('reportReplyWeekDay');
             if (replyWeekDayEl) {
                 var wd = rf.replyWeekDay;
@@ -1545,10 +1649,20 @@ async function loadAgentConfig(options) {
             }
             var replyWeeklyHourEl = document.getElementById('reportReplyWeeklyHour');
             if (replyWeeklyHourEl) replyWeeklyHourEl.value = rf.replyWeeklyHour || '09:00';
+            var replyWeeklyEnabledEl = document.getElementById('reportReplyWeeklyEnabled');
+            if (replyWeeklyEnabledEl) replyWeeklyEnabledEl.checked = rf.replyWeeklyEnabled !== false;
             var monthlyAnchorSel = document.getElementById('reportReplyMonthlyAnchor');
             if (monthlyAnchorSel) monthlyAnchorSel.value = rf.replyMonthlyAnchor === 'last' ? 'last' : 'first';
             var replyMonthlyHourEl = document.getElementById('reportReplyMonthlyHour');
             if (replyMonthlyHourEl) replyMonthlyHourEl.value = rf.replyMonthlyHour || '09:00';
+            var replyMonthlyEnabledEl = document.getElementById('reportReplyMonthlyEnabled');
+            if (replyMonthlyEnabledEl) replyMonthlyEnabledEl.checked = rf.replyMonthlyEnabled !== false;
+            var dailyEmptyEl = document.getElementById('reportReplyDailySendIfNoMessages');
+            if (dailyEmptyEl) dailyEmptyEl.checked = rf.replyDailySendIfNoMessages === true;
+            var weeklyEmptyEl = document.getElementById('reportReplyWeeklySendIfNoMessages');
+            if (weeklyEmptyEl) weeklyEmptyEl.checked = rf.replyWeeklySendIfNoMessages === true;
+            var monthlyEmptyEl = document.getElementById('reportReplyMonthlySendIfNoMessages');
+            if (monthlyEmptyEl) monthlyEmptyEl.checked = rf.replyMonthlySendIfNoMessages === true;
             var interactionFreqEl = document.getElementById('reportInteractionFrequency');
             if (interactionFreqEl) interactionFreqEl.value = rf.interactionFrequency || 'daily';
             var interactionSendEmailEl = document.getElementById('reportInteractionSendEmail');
@@ -1734,7 +1848,8 @@ document.getElementById('agentConfigForm').addEventListener('submit', async (e) 
     
     const configData = {
         base_prompt: document.getElementById('basePrompt').value,
-        default_email: document.getElementById('defaultEmail').value,
+        default_email: defaultRecipients[0] || '',
+        default_emails: defaultRecipients,
         intentions: allActiveIntentions,
         defaultIntentionsEnabled: defaultIntentionsEnabled,
         smtp_profiles: smtpProfilesObj,
@@ -1742,10 +1857,16 @@ document.getElementById('agentConfigForm').addEventListener('submit', async (e) 
         reportFrequency: (function() {
             var urgentEl = document.getElementById('reportUrgentSchedule');
             var replyDailyEl = document.getElementById('reportReplyDailyHour');
+            var replyDailyEnabledEl = document.getElementById('reportReplyDailyEnabled');
             var weekDayEl = document.getElementById('reportReplyWeekDay');
             var weeklyHourEl = document.getElementById('reportReplyWeeklyHour');
+            var replyWeeklyEnabledEl = document.getElementById('reportReplyWeeklyEnabled');
             var monthlyAnchorEl = document.getElementById('reportReplyMonthlyAnchor');
             var monthlyHourEl = document.getElementById('reportReplyMonthlyHour');
+            var replyMonthlyEnabledEl = document.getElementById('reportReplyMonthlyEnabled');
+            var dailyEmptyEl = document.getElementById('reportReplyDailySendIfNoMessages');
+            var weeklyEmptyEl = document.getElementById('reportReplyWeeklySendIfNoMessages');
+            var monthlyEmptyEl = document.getElementById('reportReplyMonthlySendIfNoMessages');
             var interactionFreqEl = document.getElementById('reportInteractionFrequency');
             var interactionSendEl = document.getElementById('reportInteractionSendEmail');
             var skipIfNoNewEl = document.getElementById('reportSkipIfNoNewMessages');
@@ -1753,10 +1874,16 @@ document.getElementById('agentConfigForm').addEventListener('submit', async (e) 
                 urgentSchedule: urgentEl ? urgentEl.value : 'immediate',
                 urgentSendEmail: urgentEl ? (urgentEl.value === 'immediate') : true,
                 replyDailyHour: replyDailyEl ? replyDailyEl.value : '09:00',
+                replyDailyEnabled: replyDailyEnabledEl ? replyDailyEnabledEl.checked : true,
                 replyWeekDay: weekDayEl ? weekDayEl.value : '1',
                 replyWeeklyHour: weeklyHourEl ? weeklyHourEl.value : '09:00',
+                replyWeeklyEnabled: replyWeeklyEnabledEl ? replyWeeklyEnabledEl.checked : true,
                 replyMonthlyAnchor: monthlyAnchorEl ? monthlyAnchorEl.value : 'first',
                 replyMonthlyHour: monthlyHourEl ? monthlyHourEl.value : '09:00',
+                replyMonthlyEnabled: replyMonthlyEnabledEl ? replyMonthlyEnabledEl.checked : true,
+                replyDailySendIfNoMessages: dailyEmptyEl ? dailyEmptyEl.checked : false,
+                replyWeeklySendIfNoMessages: weeklyEmptyEl ? weeklyEmptyEl.checked : false,
+                replyMonthlySendIfNoMessages: monthlyEmptyEl ? monthlyEmptyEl.checked : false,
                 interactionFrequency: interactionFreqEl ? interactionFreqEl.value : 'daily',
                 interactionSendEmail: interactionSendEl ? interactionSendEl.checked : false,
                 skipReportIfNoNewMessages: skipIfNoNewEl ? skipIfNoNewEl.checked : false
