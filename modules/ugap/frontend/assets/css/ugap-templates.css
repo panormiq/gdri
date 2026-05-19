@@ -1,0 +1,266 @@
+/* Templates UGAP : tutorial + vue LC */
+
+.ugap-tutorial-shell {
+    position: relative;
+    padding-bottom: 56px;
+}
+
+.ugap-tutorial-shell__body {
+    min-height: 120px;
+}
+
+.ugap-tutorial-fab {
+    position: fixed;
+    bottom: 22px;
+    right: 22px;
+    z-index: 8500;
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    border: none;
+    background: var(--color-primary, #0d6efd);
+    color: #fff;
+    font-size: 20px;
+    font-weight: 700;
+    cursor: pointer;
+    box-shadow: 0 4px 14px rgba(13, 110, 253, 0.45);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.ugap-tutorial-fab:hover {
+    transform: scale(1.05);
+    box-shadow: 0 6px 18px rgba(13, 110, 253, 0.5);
+}
+
+.tab-panel.active .ugap-tutorial-fab {
+    display: flex;
+}
+
+.ugap-tutorial-panel {
+    position: fixed;
+    bottom: 82px;
+    right: 22px;
+    z-index: 8501;
+    width: min(360px, calc(100vw - 44px));
+    max-height: min(50vh, 420px);
+    overflow: auto;
+    background: #fff;
+    border: 1px solid #dbe3ea;
+    border-radius: 12px;
+    box-shadow: 0 8px 28px rgba(15, 23, 42, 0.18);
+    padding: 14px 16px;
+}
+
+.ugap-tutorial-panel[hidden] {
+    display: none !important;
+}
+
+.ugap-tutorial-panel__title {
+    margin: 0 0 8px;
+    font-size: 15px;
+    font-weight: 700;
+    color: #1e293b;
+}
+
+.ugap-tutorial-panel__body {
+    margin: 0;
+    font-size: 13px;
+    line-height: 1.55;
+    color: #475569;
+}
+
+/* Vue LC — liste + création */
+.ugap-vue-lc {
+    margin-bottom: 20px;
+    border: 1px solid #e5e7eb;
+    border-radius: 10px;
+    background: #fff;
+    overflow: hidden;
+}
+
+.ugap-vue-lc__header {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 14px 16px;
+    border-bottom: 1px solid #eef2f7;
+    background: #f8fafc;
+}
+
+.ugap-vue-lc__title {
+    margin: 0;
+    font-size: 16px;
+    font-weight: 700;
+    color: #1e293b;
+}
+
+.ugap-vue-lc__desc {
+    margin: 4px 0 0;
+    font-size: 12px;
+    color: #64748b;
+    line-height: 1.45;
+}
+
+.ugap-vue-lc__table-wrap {
+    overflow-x: auto;
+}
+
+.ugap-vue-lc__table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+}
+
+.ugap-vue-lc__table th {
+    padding: 10px 12px;
+    text-align: left;
+    background: #f8fafc;
+    border-bottom: 1px solid #e5e7eb;
+    font-weight: 600;
+    color: #334155;
+    white-space: nowrap;
+}
+
+.ugap-vue-lc__table td {
+    padding: 10px 12px;
+    border-bottom: 1px solid #f1f5f9;
+    vertical-align: middle;
+}
+
+.ugap-vue-lc__table tbody tr:hover {
+    background: #fafbfc;
+}
+
+.ugap-vue-lc__table tbody tr[data-ugap-lc-row-dbl] {
+    cursor: pointer;
+}
+
+.ugap-vue-lc__empty {
+    padding: 20px 16px;
+    color: #64748b;
+    font-size: 13px;
+    text-align: center;
+}
+
+.ugap-vue-lc__create-panel {
+    border-bottom: 1px solid #e5e7eb;
+    background: #fafbfc;
+    padding: 16px;
+}
+
+.ugap-vue-lc__list-header {
+    padding: 10px 16px 8px;
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: #64748b;
+    background: #fff;
+    border-bottom: 1px solid #f1f5f9;
+}
+
+.ugap-vue-lc__toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px 14px;
+    padding: 10px 16px 12px;
+    background: #fff;
+    border-bottom: 1px solid #f1f5f9;
+}
+
+.ugap-vue-lc__search {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    flex: 1;
+    min-width: 200px;
+    max-width: 360px;
+}
+
+.ugap-vue-lc__search-label {
+    font-size: 11px;
+    font-weight: 600;
+    color: #64748b;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+}
+
+.ugap-vue-lc__search-input {
+    width: 100%;
+    padding: 8px 10px;
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+    font-size: 13px;
+    color: #1e293b;
+    background: #fff;
+}
+
+.ugap-vue-lc__search-input:focus {
+    outline: none;
+    border-color: #94a3b8;
+    box-shadow: 0 0 0 2px rgba(148, 163, 184, 0.25);
+}
+
+.ugap-vue-lc__count {
+    margin-left: auto;
+    font-size: 12px;
+    color: #64748b;
+    white-space: nowrap;
+}
+
+.ugap-vue-lc__th--sortable {
+    white-space: nowrap;
+}
+
+.ugap-vue-lc__th-label {
+    margin-right: 6px;
+}
+
+.ugap-vue-lc__th-sort {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    padding: 0;
+    border: 1px solid #e2e8f0;
+    border-radius: 4px;
+    background: #fff;
+    color: #475569;
+    font-size: 11px;
+    line-height: 1;
+    cursor: pointer;
+    vertical-align: middle;
+}
+
+.ugap-vue-lc__th-sort:hover {
+    background: #f1f5f9;
+    border-color: #cbd5e1;
+}
+
+.ugap-vue-lc__th-sort.is-desc {
+    color: #0f766e;
+    border-color: #99f6e4;
+    background: #f0fdfa;
+}
+
+.ugap-vue-lc__create-panel[hidden] {
+    display: none !important;
+}
+
+.ugap-tab-intro {
+    margin: 0 0 14px;
+    color: #64748b;
+    font-size: 13px;
+    line-height: 1.5;
+}
+
+.ugap-famille-workspace {
+    margin-top: 8px;
+}

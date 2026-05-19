@@ -89,6 +89,43 @@ router.get('/health', authenticateJWT, useUgapEntrepriseDb, (req, res) => {
   });
 });
 
+/**
+ * GET /api/ugap/permissions
+ * Retourne les zones d'accès UGAP pour l'utilisateur courant
+ */
+router.get('/permissions',
+  authenticateJWT,
+  useUgapEntrepriseDb,
+  requireUgapRole(['USER_ENTITY', 'ADMIN_ENTITY']),
+  (req, res) => {
+    res.json({
+      success: true,
+      data: {
+        zones: {
+          use: Boolean(req.ugapPermissions?.use),
+          configure: Boolean(req.ugapPermissions?.configure)
+        }
+      }
+    });
+  }
+);
+
+/**
+ * GET /api/ugap/permission-zones
+ * Décrit les zones fines de permission supportées par le module.
+ */
+router.get('/permission-zones', authenticateJWT, useUgapEntrepriseDb, (req, res) => {
+  res.json({
+    success: true,
+    data: {
+      zones: [
+        { key: 'use', label: 'Utilisation', description: 'Accès au configurateur UGAP (usage métier)' },
+        { key: 'configure', label: 'Configurateur', description: 'Accès au paramétrage UGAP (admin)' }
+      ]
+    }
+  });
+});
+
 // ========================================
 // ROUTES PUBLIQUES (lecture)
 // ========================================
@@ -183,6 +220,21 @@ router.get('/imports/staging',
   ugapController.getImportStaging
 );
 
+router.get('/imports/staging/list',
+  authenticateJWT,
+  useUgapEntrepriseDb,
+  requireUgapRole(['ADMIN_ENTITY']),
+  ugapController.listImportStaging
+);
+
+router.patch('/imports/staging/:importId',
+  express.json(),
+  authenticateJWT,
+  useUgapEntrepriseDb,
+  requireUgapRole(['ADMIN_ENTITY']),
+  ugapController.renameImportStaging
+);
+
 router.post('/imports/staging/:importId/validate-models',
   express.json(),
   authenticateJWT,
@@ -196,6 +248,37 @@ router.post('/imports/staging/:importId/validate-options',
   useUgapEntrepriseDb,
   requireUgapRole(['ADMIN_ENTITY']),
   ugapController.validateImportOptions
+);
+
+router.post('/imports/staging/:importId/apply-assignments',
+  authenticateJWT,
+  useUgapEntrepriseDb,
+  requireUgapRole(['ADMIN_ENTITY']),
+  ugapController.applyImportAssignments
+);
+
+router.post('/imports/staging/:importId/minorations',
+  express.json(),
+  authenticateJWT,
+  useUgapEntrepriseDb,
+  requireUgapRole(['ADMIN_ENTITY']),
+  ugapController.updateImportMinorations
+);
+
+router.post('/imports/staging/:importId/majorations',
+  express.json(),
+  authenticateJWT,
+  useUgapEntrepriseDb,
+  requireUgapRole(['ADMIN_ENTITY']),
+  ugapController.updateImportMajorations
+);
+
+router.post('/imports/staging/:importId/base-products',
+  express.json(),
+  authenticateJWT,
+  useUgapEntrepriseDb,
+  requireUgapRole(['ADMIN_ENTITY']),
+  ugapController.updateImportBaseProducts
 );
 
 router.post('/imports/staging/:importId/publish',

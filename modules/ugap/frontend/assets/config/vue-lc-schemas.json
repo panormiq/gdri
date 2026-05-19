@@ -1,0 +1,13 @@
+{
+  "famille": {
+    "elementKey": "famille",
+    "elementLabel": "famille",
+    "title": "Familles validées",
+    "columns": [
+      { "key": "familyLabel", "label": "Famille", "type": "text" },
+      { "key": "objectName", "label": "Nom objet", "type": "text", "empty": "—" },
+      { "key": "decisionGroupsSummary", "label": "Decision groups", "type": "text" },
+      { "key": "_actionsHtml", "label": "Actions", "type": "html" }
+    ]
+  }
+}

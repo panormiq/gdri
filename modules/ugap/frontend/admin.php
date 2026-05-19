@@ -111,29 +111,6 @@
         </div>
 
         <div id="alert-container"></div>
-
-        <div class="card" id="legacy-import-card">
-            <h2 style="margin-top: 0;">Import Excel</h2>
-            <p style="color: #666;">Importez le fichier Excel pour extraire les modèles et options.</p>
-            <div style="display: flex; gap: 10px; align-items: center;">
-                <button id="btn-import" class="btn btn-success">Importer depuis Excel</button>
-                <button id="btn-import-audit" class="btn btn-outline">Audit ecarts Excel</button>
-                <button id="btn-backoffice-mode" class="btn btn-outline">Retour back-office</button>
-                <span id="import-status" style="color: #666;"></span>
-            </div>
-            <div id="import-staging-indicator" style="margin-top:10px; padding:10px 12px; border:1px solid #e3e6ea; border-radius:8px; background:#f8fafc; display:flex; align-items:center; justify-content:space-between; gap:10px;">
-                <div>
-                    <div style="font-weight:600; color:#1f2937;">Workflow import</div>
-                    <div id="import-staging-meta" style="font-size:12px; color:#6b7280; margin-top:2px;">Aucun import en cours.</div>
-                    <div id="import-staging-progress" style="font-size:12px; color:#374151; margin-top:4px;">0/0 modeles valides - 0 modeles de base configures - 0/0 options configurees</div>
-                </div>
-                <div style="display:flex; align-items:center; gap:8px;">
-                    <span id="import-staging-badge" style="font-size:12px; font-weight:600; color:#374151; background:#e5e7eb; padding:4px 8px; border-radius:999px;">Aucun</span>
-                    <button id="btn-resume-import" class="btn btn-outline" style="display:none;">Reprendre l'import</button>
-                </div>
-            </div>
-        </div>
-
         <div class="card" id="legacy-stats-card">
             <div class="stats" id="stats-container">
                 <div class="stat-card">
@@ -154,6 +131,10 @@
         <div class="card" id="legacy-backoffice-card">
             <?php require __DIR__ . '/partials/tabs/tab-navigation.php'; ?>
 
+            <?php require __DIR__ . '/partials/tabs/tab-import.php'; ?>
+            <?php if (is_file(__DIR__ . '/partials/tabs/tab-template-bateau.php')) {
+                require __DIR__ . '/partials/tabs/tab-template-bateau.php';
+            } ?>
             <?php require __DIR__ . '/partials/tabs/tab-famille.php'; ?>
             <?php require __DIR__ . '/partials/tabs/tab-models.php'; ?>
             <?php require __DIR__ . '/partials/tabs/tab-categories.php'; ?>
@@ -163,18 +144,7 @@
             <?php require __DIR__ . '/partials/tabs/tab-prompts.php'; ?>
         </div>
 
-        <div class="card" id="import-workflow-panel" style="display:none;">
-            <div style="display:flex; gap:8px; padding:10px; border-bottom:1px solid #eef2f7; background:#f9fafb;">
-                <button type="button" id="btn-import-step-models" class="btn btn-outline">1. Modèles</button>
-                <button type="button" id="btn-import-step-families-tri" class="btn btn-outline">2. Options</button>
-                <button type="button" id="btn-import-step-families-template" class="btn btn-outline">3. Assigner template</button>
-                <button type="button" id="btn-import-step-families-base" class="btn btn-outline">4. Modèle de base</button>
-                <button type="button" id="btn-import-step-families-unmatched" class="btn btn-outline">5. PR</button>
-                <button type="button" id="btn-import-step-validate" class="btn btn-outline">6. Valider</button>
-            </div>
-            <div id="import-workflow-content-models" style="padding:12px;"></div>
-            <div id="import-workflow-content-families" style="padding:12px; display:none;"></div>
-        </div>
+
     </div>
 
     <script>
@@ -188,8 +158,14 @@
             selectedModelIds: [],
             selectedBaseModelIds: [],
             modelStatusFilter: 'to_validate',
-            familyDetectionMinCount: 3
+            posteFilter: '',
+            optionTypeFilter: '',
+            familyDetectionMinCount: 3,
+            minoAutoSeeded: false,
+            majorationAutoSeeded: false
         };
+        let importViewMode = 'list';
+        let importListCache = [];
         let workspaceMode = 'backoffice';
         let __loadDataPromise = null;
         let __lastLoadDataAt = 0;
@@ -230,6 +206,106 @@
 
             const container = document.querySelector('.container-xl');
             if (container) container.style.paddingTop = '10px';
+
+            const heroCard = document.getElementById('legacy-admin-hero-card');
+            if (heroCard) heroCard.style.display = 'none';
+
+            const statsCard = document.getElementById('legacy-stats-card');
+            if (statsCard) statsCard.style.display = 'none';
+
+            document.documentElement.style.overflowY = 'visible';
+            document.body.style.overflowY = 'visible';
+            document.body.style.height = 'auto';
+            document.body.style.minHeight = '0';
+
+            scheduleParentEmbedResize();
+            if (!window.__ugapEmbedResizeObserver && typeof ResizeObserver !== 'undefined') {
+                window.__ugapEmbedResizeObserver = new ResizeObserver(() => scheduleParentEmbedResize());
+                const observeTargets = [
+                    document.getElementById('tab-import'),
+                    document.querySelector('.container-xl'),
+                    document.getElementById('legacy-backoffice-card'),
+                    document.getElementById('import-workflow-section'),
+                    document.getElementById('import-workflow-content-models'),
+                    document.getElementById('import-workflow-content-families')
+                ].filter(Boolean);
+                observeTargets.forEach((el) => window.__ugapEmbedResizeObserver.observe(el));
+            }
+        }
+
+        function measureEmbeddedContentHeight() {
+            const docH = Math.max(
+                document.documentElement?.scrollHeight || 0,
+                document.documentElement?.offsetHeight || 0,
+                document.body?.scrollHeight || 0,
+                document.body?.offsetHeight || 0
+            );
+            const importPanel = document.getElementById('tab-import');
+            const panelH = importPanel ? Math.max(importPanel.scrollHeight, importPanel.offsetHeight, 0) : 0;
+            const card = document.getElementById('legacy-backoffice-card');
+            const cardH = card ? Math.max(card.scrollHeight, card.offsetHeight, 0) : 0;
+            return Math.max(docH, panelH, cardH, 200);
+        }
+
+        let __ugapEmbedResizeTimer = null;
+        function scheduleParentEmbedResize() {
+            if (!isEmbeddedMode()) return;
+            if (__ugapEmbedResizeTimer) clearTimeout(__ugapEmbedResizeTimer);
+            __ugapEmbedResizeTimer = setTimeout(() => {
+                __ugapEmbedResizeTimer = null;
+                notifyParentEmbedResize();
+            }, 50);
+        }
+
+        function notifyParentEmbedResize() {
+            if (!isEmbeddedMode() || !window.parent || window.parent === window) return;
+            try {
+                window.parent.postMessage({ type: 'ugap-embed-resize', height: measureEmbeddedContentHeight() }, window.location.origin);
+            } catch (_e) { /* ignore */ }
+        }
+
+        function syncImportGlobalsFromWindow() {
+            if (window.currentImportStaging !== undefined && window.currentImportStaging !== null) {
+                currentImportStaging = window.currentImportStaging;
+            }
+            if (window.currentImportId !== undefined && window.currentImportId !== null) {
+                currentImportId = String(window.currentImportId || '');
+            }
+            if (window.importWorkflowState && typeof window.importWorkflowState === 'object') {
+                importWorkflowState = window.importWorkflowState;
+            }
+            if (window.importViewMode === 'editor' || window.importViewMode === 'list') {
+                importViewMode = window.importViewMode;
+            }
+        }
+
+        function publishImportWorkflowGlobals() {
+            syncImportGlobalsFromWindow();
+            window.currentImportStaging = currentImportStaging;
+            window.currentImportId = currentImportId;
+            window.importWorkflowState = importWorkflowState;
+            window.importViewMode = importViewMode;
+        }
+        window.syncImportGlobalsFromWindow = syncImportGlobalsFromWindow;
+        window.publishImportWorkflowGlobals = publishImportWorkflowGlobals;
+
+        function applyImportStagingToCurrentData() {
+            if (!currentImportStaging) return;
+            currentData = normalizeUgapDataContract({
+                models: Array.isArray(currentImportStaging.models) ? currentImportStaging.models : [],
+                categories: Array.isArray(currentImportStaging.categories) ? currentImportStaging.categories : [],
+                businessViews: Array.isArray(currentImportStaging.businessViews) ? currentImportStaging.businessViews : [],
+                dependencyRules: Array.isArray(currentImportStaging.dependencyRules) ? currentImportStaging.dependencyRules : [],
+                uiState: currentImportStaging.uiState || {}
+            });
+        }
+        window.applyImportStagingToCurrentData = applyImportStagingToCurrentData;
+
+        function hideImportMinorationRecapDockInParent() {
+            if (!isEmbeddedMode() || !window.parent || window.parent === window) return;
+            try {
+                window.parent.postMessage({ type: 'ugap-import-mino-recap', visible: false }, window.location.origin);
+            } catch (_e) { /* ignore */ }
         }
         const EXTRACTION_PROMPT_SECTIONS = {
             context: `Tu extrais les informations de base d'une ligne modèle UGAP.`,
@@ -854,6 +930,15 @@ LIGNE_EXEMPLE_2`,
         // Rendre uniquement l'onglet actif
         function renderActiveTab(tabName) {
             switch(tabName) {
+                case 'import':
+                    publishImportWorkflowGlobals();
+                    if (importViewMode === 'editor') {
+                        if (currentImportStaging && typeof applyImportStagingToCurrentData === 'function') applyImportStagingToCurrentData();
+                        if (typeof renderImportWorkflow === 'function') renderImportWorkflow();
+                    } else if (typeof loadImportList === 'function') {
+                        loadImportList();
+                    }
+                    break;
                 case 'models':
                     renderModels();
                     break;
@@ -4710,8 +4795,9 @@ Format:
             const importModeBtn = document.getElementById('btn-import-mode');
             const backofficeModeBtn = document.getElementById('btn-backoffice-mode');
             if (statsCard) statsCard.style.display = workspaceMode === 'import' ? 'none' : 'block';
-            if (backofficeCard) backofficeCard.style.display = workspaceMode === 'import' ? 'none' : 'block';
-            if (importWorkflowPanel) importWorkflowPanel.style.display = workspaceMode === 'import' ? 'block' : 'none';
+            if (backofficeCard && !isEmbeddedMode()) backofficeCard.style.display = workspaceMode === 'import' ? 'none' : 'block';
+            const importPanel = document.getElementById('import-workflow-panel');
+            if (importPanel) importPanel.style.display = 'none';
             if (importModeBtn) importModeBtn.style.display = workspaceMode === 'import' ? 'none' : 'inline-flex';
             if (backofficeModeBtn) backofficeModeBtn.style.display = workspaceMode === 'import' ? 'inline-flex' : 'none';
             // Synchronise l'indicateur de reprise selon le mode (évite un bouton "Import en cours" persistant).
@@ -4823,34 +4909,27 @@ Format:
         }
 
         function switchImportWorkflowStep(step) {
-            const allowed = new Set(['models', 'families-template', 'families-base', 'families-unmatched', 'validate', 'families-tri']);
-            const next = allowed.has(String(step || '')) ? String(step) : 'models';
+            const legacyStepRedirect = { 'families-template': 'families-tri', 'families-base': 'families-tri', 'families': 'families-tri' };
+            let stepRaw = String(step || '');
+            if (legacyStepRedirect[stepRaw]) stepRaw = legacyStepRedirect[stepRaw];
+            const allowed = new Set(['models', 'import-base-options', 'minorations', 'majorations', 'families-unmatched', 'validate', 'families-tri']);
+            const next = allowed.has(stepRaw) ? stepRaw : 'models';
             importWorkflowState.step = next;
-            const modelsBtn = document.getElementById('btn-import-step-models');
-            const familiesTemplateBtn = document.getElementById('btn-import-step-families-template');
-            const familiesTriBtn = document.getElementById('btn-import-step-families-tri');
-            const familiesBaseBtn = document.getElementById('btn-import-step-families-base');
-            const familiesPrBtn = document.getElementById('btn-import-step-families-unmatched');
-            const validateBtn = document.getElementById('btn-import-step-validate');
+            publishImportWorkflowGlobals();
+            document.querySelectorAll('[data-import-step]').forEach((btn) => {
+                const s = btn.getAttribute('data-import-step');
+                btn.classList.toggle('btn-primary', s === next);
+                btn.classList.toggle('btn-outline', s !== next);
+            });
             const modelsContent = document.getElementById('import-workflow-content-models');
             const familiesContent = document.getElementById('import-workflow-content-families');
-            if (modelsBtn) modelsBtn.classList.toggle('btn-primary', next === 'models');
-            if (modelsBtn) modelsBtn.classList.toggle('btn-outline', next !== 'models');
-            if (familiesTemplateBtn) familiesTemplateBtn.classList.toggle('btn-primary', next === 'families-template');
-            if (familiesTemplateBtn) familiesTemplateBtn.classList.toggle('btn-outline', next !== 'families-template');
-            if (familiesTriBtn) familiesTriBtn.classList.toggle('btn-primary', next === 'families-tri');
-            if (familiesTriBtn) familiesTriBtn.classList.toggle('btn-outline', next !== 'families-tri');
-            if (familiesBaseBtn) familiesBaseBtn.classList.toggle('btn-primary', next === 'families-base');
-            if (familiesBaseBtn) familiesBaseBtn.classList.toggle('btn-outline', next !== 'families-base');
-            if (familiesPrBtn) familiesPrBtn.classList.toggle('btn-primary', next === 'families-unmatched');
-            if (familiesPrBtn) familiesPrBtn.classList.toggle('btn-outline', next !== 'families-unmatched');
-            if (validateBtn) validateBtn.classList.toggle('btn-primary', next === 'validate');
-            if (validateBtn) validateBtn.classList.toggle('btn-outline', next !== 'validate');
+            const familySteps = new Set(['import-base-options', 'minorations', 'majorations', 'families-tri', 'families-unmatched', 'validate']);
             if (modelsContent) modelsContent.style.display = next === 'models' ? 'block' : 'none';
-            if (familiesContent) familiesContent.style.display = next === 'models' ? 'none' : 'block';
-            const triState = getImportFamilyTriState();
-            if (next === 'families-template') triState.activeTab = 'template';
-            if (next === 'families-tri') triState.activeTab = 'tri';
+            if (familiesContent) familiesContent.style.display = familySteps.has(next) ? 'block' : 'none';
+            if (next === 'families-tri') {
+                const triState = getImportFamilyTriState();
+                triState.activeTab = 'tri';
+            }
         }
 
         function toggleImportModelSelection(modelId, checked) {
@@ -4895,19 +4974,10 @@ Format:
             renderImportWorkflow();
         }
 
-        /** IDs des modeles du catalogue publie charge (GET /data, snapshot back-office). */
-        function getImportPublishedCatalogModelIdSet() {
-            return new Set(
-                (Array.isArray(__lastLoadDataSnapshot?.models) ? __lastLoadDataSnapshot.models : [])
-                    .map((m) => String(m?.id || '').trim())
-                    .filter(Boolean)
-            );
-        }
-
-        /** Etat affiche import: Valide seulement si valide staging ET present dans le catalogue reel. */
+        /** Etat affiche import: Valide si le modele est dans progress.validatedModelIds du staging. */
         function importModelRowDisplayValidated(modelId, stagingValidatedIdSet) {
             const id = String(modelId || '').trim();
-            return !!id && stagingValidatedIdSet.has(id) && getImportPublishedCatalogModelIdSet().has(id);
+            return !!id && stagingValidatedIdSet.has(id);
         }
 
         function collectImportModelPriceUpdates() {
@@ -5830,20 +5900,29 @@ Format:
                 </div>
             `;
 
-            const suggestions = detectImportFamilySuggestions();
-            const newSuggestions = suggestions.filter((s) => !s.alreadyExists);
-            const existingSuggestions = suggestions.filter((s) => s.alreadyExists);
-            familiesRoot.innerHTML = `
-                ${renderImportFamiliesSortStepHtml()}
-            `;
-            if (step === 'families-template') {
-                renderTemplateBateauSharedForImport();
-            }
-            if (step === 'families-base') {
-                renderImportBaseModelStep();
+            publishImportWorkflowGlobals();
+            if (step === 'import-base-options') {
+                familiesRoot.innerHTML = typeof renderImportBaseOptionsStepHtml === 'function'
+                    ? renderImportBaseOptionsStepHtml()
+                    : '<div style="color:#b45309;">Chargement options de base indisponible.</div>';
+                if (typeof onImportBaseOptionsStepRendered === 'function') onImportBaseOptionsStepRendered();
+            } else if (step === 'minorations') {
+                familiesRoot.innerHTML = typeof renderImportMinorationsStepHtml === 'function'
+                    ? renderImportMinorationsStepHtml()
+                    : '<div style="color:#b45309;">Chargement minorations indisponible.</div>';
+                if (typeof onImportMinorationsStepRendered === 'function') onImportMinorationsStepRendered();
+            } else if (step === 'majorations') {
+                familiesRoot.innerHTML = typeof renderImportMajorationsStepHtml === 'function'
+                    ? renderImportMajorationsStepHtml()
+                    : '<div style="color:#b45309;">Chargement majorations indisponible.</div>';
+                if (typeof onImportMajorationsStepRendered === 'function') onImportMajorationsStepRendered();
+            } else {
+                familiesRoot.innerHTML = renderImportFamiliesSortStepHtml();
             }
 
             switchImportWorkflowStep(importWorkflowState.step || 'models');
+            scheduleParentEmbedResize();
+            setTimeout(scheduleParentEmbedResize, 120);
         }
 
         function renderTemplateBateauSharedForImport() {
@@ -5940,25 +6019,20 @@ Format:
         }
 
         async function resumeImportWorkflow() {
-            setWorkspaceMode('import');
             await refreshImportStagingIndicator();
-            if (!currentImportStaging) {
+            if (!currentImportStaging?._id) {
                 showAlert('Aucun import en cours a reprendre.', 'warning');
                 return;
             }
-            const status = String(currentImportStaging.status || 'draft');
-            const validatedModels = Number(currentImportStaging?.progress?.validatedModelIds?.length || 0);
-            const totalModels = Number((currentImportStaging.models || []).length || 0);
-            const statusEl = document.getElementById('import-status');
-            if (statusEl) {
-                statusEl.textContent = `Workflow en reprise (${status})`;
-                statusEl.style.color = '#1d4ed8';
+            const importId = String(currentImportStaging._id || currentImportId || '').trim();
+            if (importId && typeof openImportEditor === 'function') {
+                await openImportEditor(importId, { resume: true });
+                return;
             }
+            setWorkspaceMode('import');
             importWorkflowState.step = 'models';
             renderImportWorkflow();
-            const panel = document.getElementById('import-workflow-panel');
-            if (panel) panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
-            showAlert(`Reprise import: ${validatedModels}/${totalModels} modeles valides.`, 'info');
+            document.getElementById('import-workflow-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
         }
 
         async function importExcel() {
@@ -5975,6 +6049,9 @@ Format:
                 statusEl.style.color = '#28a745';
                 await refreshImportStagingIndicator();
                 await loadData();
+                if (currentImportId && typeof openImportEditor === 'function') {
+                    await openImportEditor(currentImportId, { resume: false });
+                }
             } catch (error) {
                 showAlert('Erreur lors de l\'import: ' + error.message, 'error');
                 statusEl.textContent = 'Erreur';
@@ -8197,16 +8274,20 @@ Format:
             switchImportWorkflowStep('models');
             renderImportWorkflow();
         });
-        document.getElementById('btn-import-step-families-template')?.addEventListener('click', () => {
-            switchImportWorkflowStep('families-template');
+        document.getElementById('btn-import-step-import-base-options')?.addEventListener('click', () => {
+            switchImportWorkflowStep('import-base-options');
+            renderImportWorkflow();
+        });
+        document.getElementById('btn-import-step-minorations')?.addEventListener('click', () => {
+            switchImportWorkflowStep('minorations');
+            renderImportWorkflow();
+        });
+        document.getElementById('btn-import-step-majorations')?.addEventListener('click', () => {
+            switchImportWorkflowStep('majorations');
             renderImportWorkflow();
         });
         document.getElementById('btn-import-step-families-tri')?.addEventListener('click', () => {
             switchImportWorkflowStep('families-tri');
-            renderImportWorkflow();
-        });
-        document.getElementById('btn-import-step-families-base')?.addEventListener('click', () => {
-            switchImportWorkflowStep('families-base');
             renderImportWorkflow();
         });
         document.getElementById('btn-import-step-families-unmatched')?.addEventListener('click', () => {
@@ -8329,7 +8410,7 @@ Format:
                 document.getElementById(panelId).classList.add('active');
                 
                 // Charger les données uniquement pour l'onglet actif
-                if (currentData) {
+                if (currentData || tabName === 'import') {
                     renderActiveTab(tabName);
                 }
                 syncFamilleColumnsDock();
@@ -14698,11 +14779,22 @@ Format:
         document.addEventListener('DOMContentLoaded', () => {
             applyEmbeddedLayout();
             currentImportId = '';
-            setWorkspaceMode('backoffice');
+            importViewMode = 'list';
+            publishImportWorkflowGlobals();
+            if (isEmbeddedMode()) {
+                const statsCard = document.getElementById('legacy-stats-card');
+                if (statsCard) statsCard.style.display = 'none';
+            } else {
+                setWorkspaceMode('backoffice');
+            }
+            if (typeof initUgapImportTab === 'function') initUgapImportTab();
+            else if (typeof loadImportList === 'function') loadImportList();
             refreshImportStagingIndicator();
             loadData();
         });
     </script>
+    <script src="/modules/ugap/frontend/assets/js/ugap-import-minorations-workflow.js?v=4"></script>
+    <script src="/modules/ugap/frontend/assets/js/ugap-import-tab.js?v=2"></script>
     <script src="/modules/ugap/frontend/assets/js/tabs/famille-tab.js?v=1"></script>
 </body>
 </html>

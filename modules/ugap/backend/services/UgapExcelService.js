@@ -5,6 +5,7 @@
 
 const XLSX = require('xlsx');
 const path = require('path');
+const UgapImportAssignmentService = require('./UgapImportAssignmentService');
 
 class UgapExcelService {
   static isCrossMarker(value) {
@@ -121,6 +122,7 @@ class UgapExcelService {
       priceClientCol: -1,
       priceUgapCol: -1,
       refUgapCol: -1,
+      refFournisseurCol: -1,
       modelCols: []
     };
 
@@ -146,6 +148,14 @@ class UgapExcelService {
           )
         ) {
           structure.refUgapCol = j;
+        }
+        if (
+          structure.refFournisseurCol === -1 &&
+          (cell.includes('f/seur') || cell.includes('f /seur') || cell.includes('fournisseur')) &&
+          (cell.includes('ref') || cell.includes('réf') || cell.includes('reference')) &&
+          !cell.includes('ugap')
+        ) {
+          structure.refFournisseurCol = j;
         }
         if (structure.headerRowIndex === -1 && (structure.labelCol > -1 || structure.priceClientCol > -1)) {
           structure.headerRowIndex = i;
@@ -321,6 +331,38 @@ class UgapExcelService {
    * @param {string} label
    * @returns {{ changeType: string, initialProduct: string, finalProduct: string }}
    */
+  /**
+   * « Suppression roll bar - … » ou « Suppression VHF … prévue de base » : équipement retiré, rien en remplacement.
+   * @param {string} cleaned
+   */
+  static tryParseSuppressionProducts(cleaned) {
+    const text = String(cleaned || '').replace(/\s+/g, ' ').trim();
+    if (!/^supp?ress(?:ion)?\b/i.test(text)) return null;
+
+    const prevueMatch = text.match(/^supp?ress(?:ion)?\s+(.+?)\s+pr[eéè]v[uue]{1,2}\s+de\s+base\b/i);
+    if (prevueMatch) {
+      return {
+        changeType: 'suppression',
+        initialProduct: String(prevueMatch[1] || '').trim(),
+        finalProduct: 'Suppression'
+      };
+    }
+
+    const genericMatch = text.match(/^supp?ress(?:ion)?\s+(.+)$/i);
+    if (genericMatch) {
+      let initialProduct = String(genericMatch[1] || '').trim();
+      initialProduct = initialProduct.replace(/\s+pr[eéè]v[uue]{1,2}\s+de\s+base\s*$/i, '').trim();
+      initialProduct = initialProduct.replace(/\s*-\s*sous\s+r[eé]serve\b.*$/i, '').trim();
+      return {
+        changeType: 'suppression',
+        initialProduct,
+        finalProduct: 'Suppression'
+      };
+    }
+
+    return null;
+  }
+
   static parseBaseReplacementProducts(label) {
     const raw = String(label || '').replace(/\s+/g, ' ').trim();
     if (!raw) {
@@ -328,6 +370,9 @@ class UgapExcelService {
     }
 
     const cleaned = raw.replace(/\s*-\s*postes?\s+[\d\s,etàa\-–—]+$/i, '').trim();
+
+    const suppression = this.tryParseSuppressionProducts(cleaned);
+    if (suppression) return suppression;
 
     // Cas spécial demandé : "Non fourniture du moteur de base"
     if (/\bnon\s+fourniture\s+du\s+moteur\s+de\s+base\b/i.test(cleaned)) {
@@ -515,20 +560,29 @@ class UgapExcelService {
       // Déterminer la catégorie (sera amélioré avec l'IA)
       const category = this.determineCategory(labelStr);
 
-      // Vérifier la compatibilité avec les modèles
-      const compatibleModels = [];
-      structure.modelCols.forEach((modelCol) => {
-        const val = row[modelCol];
-        if (this.isCrossMarker(val)) {
-          const model = models.find(m => m.colIndex === modelCol);
-          if (model) compatibleModels.push(model.id);
-        }
-      });
+      const isMinorationRow = UgapImportAssignmentService.isMinorationLine(labelStr, refUgap);
+      const optionFamilyKey = this.computeOptionFamilyKey(labelStr);
+      const isPrRow = /^PR\s/i.test(labelStr);
 
-      // Règle métier: sans croix, l'option n'est assignée à aucun bateau (elle ira en "Divers")
+      const refFournisseurRaw = structure.refFournisseurCol > -1 ? row[structure.refFournisseurCol] : null;
+      const refFournisseur = (typeof refFournisseurRaw === 'string' || typeof refFournisseurRaw === 'number')
+        ? String(refFournisseurRaw).trim()
+        : '';
+
+      // Croix Excel : catalogue + minorations moteur (postes concernés). Pas pour les PR.
+      const compatibleModels = [];
+      if (!isPrRow) {
+        structure.modelCols.forEach((modelCol) => {
+          const val = row[modelCol];
+          if (this.isCrossMarker(val)) {
+            const model = models.find(m => m.colIndex === modelCol);
+            if (model) compatibleModels.push(model.id);
+          }
+        });
+      }
+
       const finalCompatibleModels = compatibleModels;
 
-      const optionFamilyKey = this.computeOptionFamilyKey(labelStr);
       const baseReplacement = this.parseBaseReplacementProducts(labelStr);
 
             const option = {
@@ -537,8 +591,10 @@ class UgapExcelService {
                 priceClient: priceClient,
                 priceUgap: priceUgap,
                 refUgap: refUgap,
+                refFournisseur: refFournisseur,
                 category: category,
                 compatibleModels: finalCompatibleModels,
+                isMinoration: isMinorationRow,
                 subCategory: null, // Sera rempli par l'IA ou manuellement
                 optionFamilyKey,
                 changeType: baseReplacement.changeType,
@@ -631,15 +687,8 @@ class UgapExcelService {
       });
     }
 
-    const isMinorationLine = (label, refUgap) => {
-      const ref = String(refUgap || '').trim().toUpperCase();
-      const s = String(label || '').trim();
-      return (
-        ref.startsWith('MINO') ||
-        /minorat/i.test(s) ||
-        /^(moins-value|plus-value|plus\s+value)\b/i.test(s)
-      );
-    };
+    const isMinorationLine = (label, refUgap) =>
+      UgapImportAssignmentService.isMinorationLine(label, refUgap);
 
     const reports = models.map((model) => {
       let crosses = 0;

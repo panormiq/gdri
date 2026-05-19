@@ -211,6 +211,7 @@
             use5Percent: false,
             budget5Percent: 0
         };
+        let ugapZones = { use: false, configure: false };
 
         // API helper
         async function apiCall(endpoint, options = {}) {
@@ -255,6 +256,12 @@
         // Load data
         async function loadData() {
             try {
+                const perms = await apiCall('/permissions');
+                ugapZones = (perms && perms.data && perms.data.zones) ? perms.data.zones : { use: false, configure: false };
+                if (!ugapZones.use) {
+                    throw new Error('Vous n\'avez pas la permission d\'utiliser le module UGAP.');
+                }
+
                 const result = await apiCall('/data', { allowBusinessError: true });
                 if (!result.success && result.message === 'Aucune donnée configurée') {
                     state.models = [];

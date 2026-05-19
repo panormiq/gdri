@@ -140,6 +140,33 @@ async function getImportStaging(req, res) {
   }
 }
 
+async function listImportStaging(req, res) {
+  try {
+    const items = await UgapDataService.listImportStaging(req.entrepriseDb, req.entrepriseId);
+    res.json({ success: true, data: items });
+  } catch (error) {
+    console.error('❌ UGAP listImportStaging error:', error);
+    res.status(500).json({ success: false, message: error.message || 'Erreur serveur' });
+  }
+}
+
+async function renameImportStaging(req, res) {
+  try {
+    const { importId } = req.params;
+    const displayName = String(req.body?.displayName || '').trim();
+    const data = await UgapDataService.updateImportStagingDisplayName(
+      req.entrepriseDb,
+      req.entrepriseId,
+      importId,
+      displayName
+    );
+    res.json({ success: true, message: 'Nom mis à jour', data });
+  } catch (error) {
+    console.error('❌ UGAP renameImportStaging error:', error);
+    res.status(500).json({ success: false, message: error.message || 'Erreur serveur' });
+  }
+}
+
 async function validateImportModels(req, res) {
   try {
     const { importId } = req.params;
@@ -170,6 +197,77 @@ async function validateImportOptions(req, res) {
     res.json({ success: true, message: 'Validation options/minorations/divers mise à jour', data });
   } catch (error) {
     console.error('❌ UGAP validateImportOptions error:', error);
+    res.status(500).json({ success: false, message: error.message || 'Erreur serveur' });
+  }
+}
+
+async function applyImportAssignments(req, res) {
+  try {
+    const { importId } = req.params;
+    const data = await UgapDataService.applyImportStagingAssignments(
+      req.entrepriseDb,
+      req.entrepriseId,
+      importId
+    );
+    res.json({ success: true, message: 'Assignations import appliquees', data });
+  } catch (error) {
+    console.error('❌ UGAP applyImportAssignments error:', error);
+    res.status(500).json({ success: false, message: error.message || 'Erreur serveur' });
+  }
+}
+
+async function updateImportMinorations(req, res) {
+  try {
+    const { importId } = req.params;
+    const updates = Array.isArray(req.body?.updates) ? req.body.updates : [];
+    const baseProducts = Array.isArray(req.body?.baseProducts) ? req.body.baseProducts : undefined;
+    const data = await UgapDataService.updateImportStagingMinorations(
+      req.entrepriseDb,
+      req.entrepriseId,
+      importId,
+      updates,
+      baseProducts
+    );
+    res.json({ success: true, message: 'Minorations mises à jour', data });
+  } catch (error) {
+    console.error('❌ UGAP updateImportMinorations error:', error);
+    res.status(500).json({ success: false, message: error.message || 'Erreur serveur' });
+  }
+}
+
+async function updateImportMajorations(req, res) {
+  try {
+    const { importId } = req.params;
+    const updates = Array.isArray(req.body?.updates) ? req.body.updates : [];
+    const baseProducts = Array.isArray(req.body?.baseProducts) ? req.body.baseProducts : undefined;
+    const data = await UgapDataService.updateImportStagingMinorations(
+      req.entrepriseDb,
+      req.entrepriseId,
+      importId,
+      updates,
+      baseProducts,
+      'majoration'
+    );
+    res.json({ success: true, message: 'Majorations mises à jour', data });
+  } catch (error) {
+    console.error('❌ UGAP updateImportMajorations error:', error);
+    res.status(500).json({ success: false, message: error.message || 'Erreur serveur' });
+  }
+}
+
+async function updateImportBaseProducts(req, res) {
+  try {
+    const { importId } = req.params;
+    const baseProducts = Array.isArray(req.body?.baseProducts) ? req.body.baseProducts : [];
+    const data = await UgapDataService.updateImportStagingBaseProducts(
+      req.entrepriseDb,
+      req.entrepriseId,
+      importId,
+      baseProducts
+    );
+    res.json({ success: true, message: 'Options de base mises à jour', data });
+  } catch (error) {
+    console.error('❌ UGAP updateImportBaseProducts error:', error);
     res.status(500).json({ success: false, message: error.message || 'Erreur serveur' });
   }
 }
@@ -2878,8 +2976,14 @@ module.exports = {
   updateUiState,
   importExcel,
   getImportStaging,
+  listImportStaging,
+  renameImportStaging,
   validateImportModels,
   validateImportOptions,
+  applyImportAssignments,
+  updateImportMinorations,
+  updateImportMajorations,
+  updateImportBaseProducts,
   publishImport,
   getImportAudit,
   reintegrateImportAuditLine,

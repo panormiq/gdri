@@ -1,4 +1,4 @@
-<div id="tab-prompts" class="tab-panel">
+<div id="tab-prompts" class="tab-panel<?= ($__ugapEmbedView ?? '') === 'prompts' ? ' active' : '' ?>">
     <div style="margin-bottom: 20px;">
         <p style="color: #666; margin-bottom: 15px;">
             Personnalisez les prompts IA du module UGAP.
