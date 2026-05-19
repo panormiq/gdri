@@ -122,6 +122,8 @@ require_once '../../includes/header.php';
 /* Zone iframe seule : le rappel mino est en position fixed (hors flux, ne réduit pas le tableau). */
 .ugap-import-embed-layout {
     width: 100%;
+    max-width: 100%;
+    overflow-x: hidden;
     position: relative;
     box-sizing: border-box;
 }
@@ -200,8 +202,19 @@ require_once '../../includes/header.php';
         try {
             var doc = frame.contentDocument || (frame.contentWindow && frame.contentWindow.document);
             if (!doc) return 0;
+            var win = frame.contentWindow;
+            var scrollY = win ? (win.scrollY || win.pageYOffset || 0) : 0;
             var docEl = doc.documentElement;
             var body = doc.body;
+            var bottoms = [];
+            var addBottom = function (el) {
+                if (!el || typeof el.getBoundingClientRect !== 'function') return;
+                var st = win.getComputedStyle(el);
+                if (st.display === 'none' || st.visibility === 'hidden') return;
+                var r = el.getBoundingClientRect();
+                if (r.height <= 0 && r.width <= 0) return;
+                bottoms.push(r.bottom + scrollY);
+            };
             var docH = Math.max(
                 docEl ? docEl.scrollHeight : 0,
                 docEl ? docEl.offsetHeight : 0,
@@ -216,7 +229,19 @@ require_once '../../includes/header.php';
             var cardH = card ? Math.max(card.scrollHeight, card.offsetHeight || 0, 0) : 0;
             var root = doc.querySelector('.container-xl') || body;
             var rootH = root ? Math.max(root.scrollHeight, root.offsetHeight || 0, 0) : 0;
-            return Math.max(docH, panelH, cardH, rootH, 200);
+            [
+                docEl,
+                body,
+                activePanel,
+                doc.getElementById('tab-import'),
+                doc.getElementById('import-editor-section'),
+                doc.getElementById('import-workflow-section'),
+                doc.getElementById('import-workflow-content-families'),
+                doc.querySelector('.ugap-import-mino-wrap'),
+                doc.querySelector('.ugap-import-opt-tri-table-wrap'),
+                doc.querySelector('.ugap-import-opt-tri-table tbody tr:last-child')
+            ].forEach(addBottom);
+            return Math.max(docH, panelH, cardH, rootH, bottoms.length ? Math.max.apply(null, bottoms) : 0, 200) + 32;
         } catch (e) {
             return 0;
         }

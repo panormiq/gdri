@@ -273,6 +273,14 @@ router.post('/imports/staging/:importId/majorations',
   ugapController.updateImportMajorations
 );
 
+router.post('/imports/staging/:importId/options-tri',
+  express.json(),
+  authenticateJWT,
+  useUgapEntrepriseDb,
+  requireUgapRole(['ADMIN_ENTITY']),
+  ugapController.updateImportOptionsTri
+);
+
 router.post('/imports/staging/:importId/base-products',
   express.json(),
   authenticateJWT,

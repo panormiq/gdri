@@ -214,9 +214,12 @@
             if (statsCard) statsCard.style.display = 'none';
 
             document.documentElement.style.overflowY = 'visible';
+            document.documentElement.style.overflowX = 'hidden';
             document.body.style.overflowY = 'visible';
+            document.body.style.overflowX = 'hidden';
             document.body.style.height = 'auto';
             document.body.style.minHeight = '0';
+            document.body.style.maxWidth = '100%';
 
             scheduleParentEmbedResize();
             if (!window.__ugapEmbedResizeObserver && typeof ResizeObserver !== 'undefined') {
@@ -227,24 +230,45 @@
                     document.getElementById('legacy-backoffice-card'),
                     document.getElementById('import-workflow-section'),
                     document.getElementById('import-workflow-content-models'),
-                    document.getElementById('import-workflow-content-families')
+                    document.getElementById('import-workflow-content-families'),
+                    document.getElementById('import-editor-section')
                 ].filter(Boolean);
                 observeTargets.forEach((el) => window.__ugapEmbedResizeObserver.observe(el));
             }
         }
 
         function measureEmbeddedContentHeight() {
+            const scrollY = window.scrollY || window.pageYOffset || 0;
+            const bottoms = [];
+            const addBottom = (el) => {
+                if (!el || typeof el.getBoundingClientRect !== 'function') return;
+                const st = window.getComputedStyle(el);
+                if (st.display === 'none' || st.visibility === 'hidden') return;
+                const r = el.getBoundingClientRect();
+                if (r.height <= 0 && r.width <= 0) return;
+                bottoms.push(r.bottom + scrollY);
+            };
+            [document.documentElement, document.body].forEach(addBottom);
+            [
+                document.getElementById('tab-import'),
+                document.getElementById('import-editor-section'),
+                document.getElementById('import-workflow-section'),
+                document.getElementById('import-workflow-content-families'),
+                document.querySelector('.ugap-import-mino-wrap'),
+                document.querySelector('.ugap-import-opt-tri-table-wrap'),
+                document.querySelector('.ugap-import-opt-tri-table tbody tr:last-child'),
+                document.getElementById('legacy-backoffice-card'),
+                document.querySelector('.container-xl')
+            ].forEach(addBottom);
             const docH = Math.max(
                 document.documentElement?.scrollHeight || 0,
                 document.documentElement?.offsetHeight || 0,
                 document.body?.scrollHeight || 0,
-                document.body?.offsetHeight || 0
+                document.body?.offsetHeight || 0,
+                ...bottoms,
+                0
             );
-            const importPanel = document.getElementById('tab-import');
-            const panelH = importPanel ? Math.max(importPanel.scrollHeight, importPanel.offsetHeight, 0) : 0;
-            const card = document.getElementById('legacy-backoffice-card');
-            const cardH = card ? Math.max(card.scrollHeight, card.offsetHeight, 0) : 0;
-            return Math.max(docH, panelH, cardH, 200);
+            return Math.max(docH, 200) + 32;
         }
 
         let __ugapEmbedResizeTimer = null;
@@ -5611,7 +5635,6 @@ Format:
             const totalModels = Number((currentImportStaging?.models || []).length || 0);
 
             return `
-                <div style="margin-bottom:10px; color:#4b5563;">Etape 2: trier les options dans les familles existantes (puis ajuster manuellement).</div>
                 <div style="display:${tabTemplate ? 'block' : 'none'}; margin-bottom:10px;">
                     <div style="margin-bottom:12px; padding:12px; border:1px solid #dbe3ea; border-radius:8px; background:#fff;">
                         <div style="display:flex; gap:12px; flex-wrap:wrap; align-items:flex-end; justify-content:space-between;">
@@ -5649,7 +5672,7 @@ Format:
                     </div>
                 </div>
 
-                <div style="display:${tabTri ? 'block' : 'none'}; margin-bottom:10px;">
+                <div style="display:none; margin-bottom:10px;">
                     <div style="margin-bottom:12px; padding:12px; border:1px solid #dbe3ea; border-radius:8px; background:#fff;">
                         <div style="display:flex; gap:12px; flex-wrap:wrap; align-items:flex-end; justify-content:space-between;">
                             <div style="min-width:240px; flex:1;">
@@ -5686,7 +5709,7 @@ Format:
                     </div>
                 </div>
                 <div style="display:${tabPr ? 'block' : 'none'}; margin-bottom:10px;">
-                    <div style="margin-bottom:12px; color:#4b5563;">Etape 5: assigner une famille aux options PR.</div>
+                    <div style="margin-bottom:12px; color:#4b5563;">Etape 6 : pièces détachées PR détectées à l'import.</div>
                     <div style="border:1px solid #e5e7eb; border-radius:8px; background:#fff;">
                         <div style="padding:10px 12px; border-bottom:1px solid #eef2f7; font-weight:600;">Options PR (${prOptions.length})</div>
                         <div style="padding:10px 12px;">
@@ -5696,25 +5719,14 @@ Format:
                                         <th style="padding:6px 8px; border-bottom:1px solid #eee; text-align:left;">ID</th>
                                         <th style="padding:6px 8px; border-bottom:1px solid #eee; text-align:left;">Option PR</th>
                                         <th style="padding:6px 8px; border-bottom:1px solid #eee; text-align:left;">Réf UGAP</th>
-                                        <th style="padding:6px 8px; border-bottom:1px solid #eee; text-align:left; width:320px;">Assigner</th>
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    ${prOptions.map((opt) => {
-                                        const encodedId = encodeURIComponent(opt.id);
-                                        const selected = String(state.assignmentsByOptionId?.[opt.id] || '').trim();
-                                        return `<tr>
+                                    ${prOptions.map((opt) => `<tr>
                                             <td style="padding:6px 8px; border-bottom:1px solid #eee; font-family:monospace;">${escapeHtml(opt.id)}</td>
                                             <td style="padding:6px 8px; border-bottom:1px solid #eee;">${escapeHtml(opt.name)}</td>
                                             <td style="padding:6px 8px; border-bottom:1px solid #eee;">${escapeHtml(opt.refUgap || '—')}</td>
-                                            <td style="padding:6px 8px; border-bottom:1px solid #eee;">
-                                                <select style="width:100%; padding:4px 6px; border:1px solid #ddd; border-radius:4px;" onchange="onImportFamilyOptionAssignmentChange(decodeURIComponent('${encodedId}'), this.value)">
-                                                    <option value="">-- Sans famille --</option>
-                                                    ${familyLabels.map((fLabel) => `<option value="${escapeHtml(fLabel)}" ${selected === fLabel ? 'selected' : ''}>${escapeHtml(fLabel)}</option>`).join('')}
-                                                </select>
-                                            </td>
-                                        </tr>`;
-                                    }).join('') || '<tr><td colspan="4" style="padding:8px; color:#16a34a;">Aucune option PR détectée.</td></tr>'}
+                                        </tr>`).join('') || '<tr><td colspan="3" style="padding:8px; color:#16a34a;">Aucune option PR détectée.</td></tr>'}
                                 </tbody>
                             </table>
                         </div>
@@ -5916,6 +5928,11 @@ Format:
                     ? renderImportMajorationsStepHtml()
                     : '<div style="color:#b45309;">Chargement majorations indisponible.</div>';
                 if (typeof onImportMajorationsStepRendered === 'function') onImportMajorationsStepRendered();
+            } else if (step === 'families-tri') {
+                familiesRoot.innerHTML = typeof renderImportOptionsSortStepHtml === 'function'
+                    ? renderImportOptionsSortStepHtml()
+                    : renderImportFamiliesSortStepHtml();
+                if (typeof onImportOptionsStepRendered === 'function') onImportOptionsStepRendered();
             } else {
                 familiesRoot.innerHTML = renderImportFamiliesSortStepHtml();
             }
@@ -14793,7 +14810,7 @@ Format:
             loadData();
         });
     </script>
-    <script src="/modules/ugap/frontend/assets/js/ugap-import-minorations-workflow.js?v=4"></script>
+    <script src="/modules/ugap/frontend/assets/js/ugap-import-minorations-workflow.js?v=13"></script>
     <script src="/modules/ugap/frontend/assets/js/ugap-import-tab.js?v=2"></script>
     <script src="/modules/ugap/frontend/assets/js/tabs/famille-tab.js?v=1"></script>
 </body>

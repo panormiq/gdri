@@ -27,7 +27,7 @@
         const el = document.createElement('style');
         el.id = IMPORT_MINO_STYLE_ID;
         el.textContent = `
-.ugap-import-mino-wrap { font-size: 13px; }
+.ugap-import-mino-wrap { font-size: 13px; max-width: 100%; overflow-x: hidden; box-sizing: border-box; }
 .ugap-import-mino-summary {
     margin-bottom: 12px; padding: 10px 12px; background: #eff6ff; border: 1px solid #bfdbfe;
     border-radius: 8px; color: #1e3a5f; font-size: 13px;
@@ -147,6 +147,66 @@
 .ugap-bp-linked-minos-list li { margin: 0 0 4px; line-height: 1.35; word-break: break-word; }
 .ugap-bp-linked-minos-list li:last-child { margin-bottom: 0; }
 .ugap-bp-linked-minos-ref { font-family: monospace; font-size: 10px; color: #94a3b8; margin-right: 4px; }
+.ugap-import-opt-tri-table-wrap {
+    overflow-x: hidden; overflow-y: visible; width: 100%; max-width: 100%;
+    border: 1px solid #e5e7eb; border-radius: 8px; box-sizing: border-box;
+}
+.ugap-import-opt-tri-table.ugap-import-mino-table {
+    width: 100% !important; max-width: 100% !important; min-width: 0 !important;
+    table-layout: fixed; border-collapse: collapse;
+}
+.ugap-import-opt-tri-table thead th { position: sticky; top: 0; z-index: 2; }
+.ugap-import-opt-tri-table-wrap .ugap-import-mino-table th,
+.ugap-import-opt-tri-table-wrap .ugap-import-mino-table td { overflow-wrap: anywhere; word-break: break-word; }
+.ugap-import-opt-tri-table .ugap-import-opt-tri-type-col { width: 100px !important; min-width: 100px !important; max-width: 100px !important; }
+.ugap-import-opt-tri-table .ugap-import-opt-tri-label-col { width: auto !important; min-width: 0 !important; }
+/* Postes : ~+20 % vs majoration (3.25rem → 3.9rem/cell) + largeur fixe pour 5 colonnes */
+.ugap-import-opt-tri-table .ugap-import-mino-poste-group,
+.ugap-import-opt-tri-table .ugap-import-mino-postes-cell {
+    width: 360px !important; min-width: 360px !important; max-width: 360px !important;
+    padding: 6px 8px !important; box-sizing: border-box;
+}
+.ugap-import-opt-tri-table .ugap-import-mino-postes-grid { gap: 6px 4px !important; width: 100% !important; }
+.ugap-import-opt-tri-table .ugap-import-mino-poste-cell {
+    max-width: 3.9rem !important; font-size: 12px !important; gap: 4px !important;
+}
+.ugap-import-opt-tri-table .ugap-import-mino-poste-cell span { min-width: 1.4em !important; font-size: 12px !important; }
+.ugap-import-opt-tri-table .ugap-import-mino-poste-cell input {
+    width: 15px !important; height: 15px !important; min-width: 15px !important; min-height: 15px !important;
+    transform: none !important; margin: 0 !important;
+}
+.ugap-import-opt-tri-label-main {
+    font-weight: 600; overflow: hidden; text-overflow: ellipsis;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+    line-height: 1.3; word-break: break-word;
+}
+.ugap-import-opt-tri-poste-missing { opacity: 0.45; cursor: not-allowed; }
+.ugap-import-opt-tri-type-select { width: 100%; max-width: 100%; min-width: 0; padding: 4px 4px; border: 1px solid #cbd5e1; border-radius: 4px; font-size: 11px; background: #fff; box-sizing: border-box; }
+.ugap-import-opt-tri-type-select.kind-option { border-color: #6ee7b7; background: #f0fdf4; }
+.ugap-import-opt-tri-type-select.kind-minoration { border-color: #93c5fd; background: #eff6ff; }
+.ugap-import-opt-tri-type-select.kind-majoration { border-color: #fcd34d; background: #fffbeb; }
+.ugap-import-opt-tri-row--opt td { background: #f0fdf4 !important; }
+.ugap-import-opt-tri-row--mino td { background: #eff6ff !important; }
+.ugap-import-opt-tri-row--majo td { background: #fffbeb !important; }
+.ugap-import-opt-tri-row--opt td.ugap-import-opt-tri-type-col,
+.ugap-import-opt-tri-row--mino td.ugap-import-opt-tri-type-col,
+.ugap-import-opt-tri-row--majo td.ugap-import-opt-tri-type-col { background: inherit !important; }
+.ugap-import-opt-tri-table thead th {
+    border-bottom: 2px solid #64748b !important;
+    box-shadow: 0 2px 0 0 #e2e8f0;
+}
+.ugap-import-opt-tri-table tbody tr td {
+    padding-top: 10px !important;
+    padding-bottom: 10px !important;
+    border-bottom: 2px solid #94a3b8 !important;
+    box-shadow: inset 0 -1px 0 0 rgba(15, 23, 42, 0.06);
+}
+.ugap-import-opt-tri-table tbody tr:last-child td { border-bottom: 1px solid #cbd5e1 !important; }
+.ugap-import-opt-tri-legend { display: flex; flex-wrap: wrap; gap: 10px 16px; margin-bottom: 10px; font-size: 12px; }
+.ugap-import-opt-tri-legend-item { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 6px; font-weight: 600; }
+.ugap-import-opt-tri-legend-item--opt { background: #dcfce7; color: #047857; border: 1px solid #86efac; }
+.ugap-import-opt-tri-legend-item--mino { background: #dbeafe; color: #1d4ed8; border: 1px solid #93c5fd; }
+.ugap-import-opt-tri-legend-item--majo { background: #fef3c7; color: #b45309; border: 1px solid #fcd34d; }
 `;
         document.head.appendChild(el);
     }
@@ -481,10 +541,20 @@
         return parsed;
     }
 
+    /** Type effectif : override manuel (étape Options) ou détection auto. */
+    function getImportResolvedLineKind(opt) {
+        const manual = String(opt?.importOptionLineKind || '').trim().toLowerCase();
+        if (manual === 'minoration' || manual === 'majoration' || manual === 'option') return manual;
+        if (isImportPrOption(opt)) return 'pr';
+        const ref = String(opt?.refUgap || '').trim().toUpperCase();
+        if (ref.includes('MINO')) return 'minoration';
+        if (isImportMajorationLabel(opt?.name)) return 'majoration';
+        return 'option';
+    }
+
     /** Une minoration = réf. UGAP contient « MINO » (aligné import backend). */
     function isImportMinorationOption(opt) {
-        const ref = String(opt?.refUgap || '').trim().toUpperCase();
-        return ref.includes('MINO');
+        return getImportResolvedLineKind(opt) === 'minoration';
     }
 
     /** PR : libellé commence par « PR » — exclu des majorations. */
@@ -520,9 +590,11 @@
     }
 
     function isImportMajorationOption(opt) {
-        if (isImportPrOption(opt)) return false;
-        if (isImportMinorationOption(opt)) return false;
-        return isImportMajorationLabel(opt?.name);
+        return getImportResolvedLineKind(opt) === 'majoration';
+    }
+
+    function isImportTriEligibleOption(opt) {
+        return getImportResolvedLineKind(opt) !== 'pr';
     }
 
     /** Suppressions : gérées via le tableau « Options de base » (haut), pas le tableau d’assignation (bas). */
@@ -2212,6 +2284,18 @@
         return seedImportAssignPosteAssignments(isImportMajorationOption);
     }
 
+    function seedImportCatalogOptionPosteAssignments() {
+        return seedImportAssignPosteAssignments((opt) => getImportResolvedLineKind(opt) === 'option');
+    }
+
+    function runSeedImportOptionsTriPostes() {
+        const n = seedImportMinorationPosteAssignments()
+            + seedImportMajorationPosteAssignments()
+            + seedImportCatalogOptionPosteAssignments();
+        showAlert(`${n} ligne(s) mise(s) à jour (postes pré-cochés).`, n ? 'success' : 'info');
+        renderImportWorkflow();
+    }
+
     function syncImportBaseProductsFromAdjRows() {
         const models = getImportStagingModelsForAssignment();
         const rows = getImportRowsForBaseProductRegistry();
@@ -2959,6 +3043,277 @@
         });
     }
 
+    const IMPORT_OPTIONS_TRI_POSTE_MAX = 10;
+
+    function getImportOptionsTriDisplayLabel(opt, models) {
+        const kind = getImportResolvedLineKind(opt);
+        if (kind === 'minoration' || kind === 'majoration') {
+            return getImportAdjOptionFusionLabel(opt, models);
+        }
+        const custom = String(opt?.importOptionLabel || '').trim();
+        if (custom) return custom;
+        return String(opt?.name || opt?.id || '').trim();
+    }
+
+    function onImportOptionsTriTypeChange(optionId, newType) {
+        const id = String(optionId || '').trim();
+        const kind = String(newType || '').trim().toLowerCase();
+        const opt = findImportStagingOptionById(id);
+        if (!opt) return;
+        if (kind !== 'minoration' && kind !== 'majoration' && kind !== 'option') return;
+        opt.importOptionLineKind = kind;
+        if (kind === 'minoration') {
+            opt.isMinoration = true;
+            opt.manualMinorationAssignment = true;
+            delete opt.manualMajorationAssignment;
+        } else if (kind === 'majoration') {
+            opt.isMinoration = false;
+            opt.manualMajorationAssignment = true;
+            delete opt.manualMinorationAssignment;
+        } else {
+            opt.isMinoration = false;
+            delete opt.manualMajorationAssignment;
+            delete opt.manualMinorationAssignment;
+        }
+    }
+
+    function getImportOptionsTriRowKindClass(kind) {
+        if (kind === 'minoration') return 'ugap-import-opt-tri-row--mino';
+        if (kind === 'majoration') return 'ugap-import-opt-tri-row--majo';
+        return 'ugap-import-opt-tri-row--opt';
+    }
+
+    function getImportOptionsTriTypeSelectClass(kind) {
+        if (kind === 'minoration') return 'kind-minoration';
+        if (kind === 'majoration') return 'kind-majoration';
+        return 'kind-option';
+    }
+
+    function renderImportOptionsTriTypeSelectHtml(opt) {
+        const current = getImportResolvedLineKind(opt);
+        const encodedId = encodeURIComponent(String(opt?.id || '').trim());
+        const selectCls = getImportOptionsTriTypeSelectClass(current);
+        const mk = (val, label) => {
+            const sel = current === val ? ' selected' : '';
+            return `<option value="${val}"${sel}>${escapeHtml(label)}</option>`;
+        };
+        return `<select class="ugap-import-opt-tri-type-select ${selectCls}"
+            onchange="onImportOptionsTriTypeChange(decodeURIComponent('${encodedId}'), this.value); renderImportWorkflow();">
+            ${mk('option', 'Option')}
+            ${mk('minoration', 'Minoration')}
+            ${mk('majoration', 'Majoration')}
+        </select>`;
+    }
+
+    function buildImportOptionsTriPosteSlots(models) {
+        const list = Array.isArray(models) ? models : getImportStagingModelsForAssignment();
+        const slots = [];
+        for (let pn = 1; pn <= IMPORT_OPTIONS_TRI_POSTE_MAX; pn += 1) {
+            const model = list.find((m) => Number(m?.posteNumber) === pn) || null;
+            const modelId = model ? String(model.id || '').trim() : '';
+            slots.push({ poste: pn, model, modelId });
+        }
+        return slots;
+    }
+
+    function renderImportOptionsTriPostesGridHtml(opt, posteSlots, posteGridCols) {
+        const assigned = new Set(
+            (Array.isArray(opt?.compatibleModels) ? opt.compatibleModels : [])
+                .map((x) => String(x || '').trim())
+                .filter(Boolean)
+        );
+        const encodedOptId = encodeURIComponent(String(opt?.id || '').trim());
+        const cells = posteSlots.map((slot) => {
+            const pn = `P${slot.poste}`;
+            if (!slot.modelId) {
+                return `<label class="ugap-import-mino-poste-cell ugap-import-opt-tri-poste-missing" title="Poste ${slot.poste} — aucun modèle validé">
+                    <input type="checkbox" disabled>
+                    <span>${escapeHtml(pn)}</span>
+                </label>`;
+            }
+            const encodedMid = encodeURIComponent(slot.modelId);
+            const checked = assigned.has(slot.modelId);
+            const suggested = slot.model && isMinorationCheckboxSuggested(opt, slot.model);
+            const sugCls = suggested ? ' ugap-import-mino-cb-suggested' : '';
+            return `<label class="ugap-import-mino-poste-cell" title="${escapeHtml(String(slot.model?.name || slot.modelId))}">
+                <input type="checkbox" class="ugap-import-opt-tri-poste-cb${sugCls}"
+                    data-opt-tri-id="${encodedOptId}"
+                    data-opt-tri-model="${encodedMid}"
+                    ${checked ? 'checked' : ''}>
+                <span>${escapeHtml(pn)}</span>
+            </label>`;
+        }).join('');
+        return `<td class="ugap-import-mino-poste-col ugap-import-mino-postes-cell">
+            <div class="ugap-import-mino-postes-grid" style="--mino-cols:${posteGridCols}">${cells}</div>
+        </td>`;
+    }
+
+    function getImportOptionsTriRows(models) {
+        const modelList = Array.isArray(models) ? models : getImportStagingModelsForAssignment();
+        const posteFilter = getImportPosteFilterValue();
+        let rows = getImportStagingOptionsFlat().filter(isImportTriEligibleOption);
+        if (posteFilter) {
+            rows = rows.filter((opt) => importOptionMatchesPosteFilter(opt, posteFilter, modelList));
+        }
+        const kindOrder = { option: 0, minoration: 1, majoration: 2 };
+        rows.sort((a, b) => {
+            const ka = getImportResolvedLineKind(a);
+            const kb = getImportResolvedLineKind(b);
+            const oa = kindOrder[ka] ?? 9;
+            const ob = kindOrder[kb] ?? 9;
+            if (oa !== ob) return oa - ob;
+            const la = getImportOptionsTriDisplayLabel(a, modelList).toLowerCase();
+            const lb = getImportOptionsTriDisplayLabel(b, modelList).toLowerCase();
+            if (la !== lb) return la.localeCompare(lb, 'fr', { sensitivity: 'base' });
+            return String(a?.name || '').localeCompare(String(b?.name || ''), 'fr', { sensitivity: 'base' });
+        });
+        return rows;
+    }
+
+    function renderImportOptionsSortStepHtml() {
+        ensureImportMinoStyles();
+        const allModels = getImportStagingModelsForAssignment();
+        if (!allModels.length) {
+            return `<div class="ugap-import-mino-wrap"><p style="color:#b45309;">Validez d'abord les modèles (étape 1) avant l'étape Options.</p></div>`;
+        }
+
+        const posteFilter = getImportPosteFilterValue();
+        const rows = getImportOptionsTriRows(allModels);
+        const posteSlots = buildImportOptionsTriPosteSlots(allModels);
+        const posteGridCols = getImportPosteGridCols(IMPORT_OPTIONS_TRI_POSTE_MAX);
+        const posteFilterHtml = renderImportPosteFilterHtml(allModels);
+        const posteFilterNote = posteFilter
+            ? ` <span style="color:#64748b;">(filtre poste P${escapeHtml(posteFilter)})</span>`
+            : '';
+
+        const tableRows = rows.length
+            ? rows.map((opt) => {
+                const displayLabel = getImportOptionsTriDisplayLabel(opt, allModels);
+                const typeSelect = renderImportOptionsTriTypeSelectHtml(opt);
+                const rawName = String(opt?.name || '').trim();
+                const kind = getImportResolvedLineKind(opt);
+                const rowCls = getImportOptionsTriRowKindClass(kind);
+                return `<tr class="${rowCls}">
+                    <td class="ugap-import-opt-tri-type-col">${typeSelect}</td>
+                    <td class="ugap-import-opt-tri-label-col" title="${escapeHtml(displayLabel)}">
+                        <div class="ugap-import-opt-tri-label-main">${escapeHtml(displayLabel)}</div>
+                        ${rawName && rawName !== displayLabel
+                            ? `<div class="ugap-import-mino-label-raw" style="margin-top:4px;"><strong>Excel :</strong> ${escapeHtml(rawName)}</div>`
+                            : ''}
+                    </td>
+                    ${renderImportOptionsTriPostesGridHtml(opt, posteSlots, posteGridCols)}
+                </tr>`;
+            }).join('')
+            : `<tr><td colspan="3" style="padding:12px;color:#64748b;">Aucune ligne pour ce filtre (hors PR).</td></tr>`;
+
+        return `<div class="ugap-import-mino-wrap">
+            <div class="ugap-import-mino-summary">
+                <strong>Étape 5 — Options</strong> — ${rows.length} ligne(s) (options catalogue, minorations et majorations ; PR exclues).${posteFilterNote}
+            </div>
+            <div class="ugap-import-opt-tri-legend">
+                <span class="ugap-import-opt-tri-legend-item ugap-import-opt-tri-legend-item--opt">Option</span>
+                <span class="ugap-import-opt-tri-legend-item ugap-import-opt-tri-legend-item--mino">Minoration</span>
+                <span class="ugap-import-opt-tri-legend-item ugap-import-opt-tri-legend-item--majo">Majoration</span>
+            </div>
+            <div class="ugap-import-mino-hint" style="display:block;margin-bottom:10px;">
+                Choisissez le <strong>type</strong> de chaque ligne, cochez les postes <strong>P1 à P10</strong> concernés, puis enregistrez.
+                Les familles catalogue seront traitées ultérieurement.
+            </div>
+            <div class="ugap-import-mino-toolbar" style="margin-bottom:10px;">
+                ${posteFilterHtml}
+                <button type="button" class="btn btn-outline" onclick="runSeedImportOptionsTriPostes()">Pré-cocher les postes (libellé / croix)</button>
+                <button type="button" class="btn btn-success" onclick="saveImportOptionsTriStep()">Enregistrer</button>
+                <button type="button" class="btn btn-outline" onclick="switchImportWorkflowStep('families-unmatched'); renderImportWorkflow();">Étape suivante → PR</button>
+            </div>
+            <div class="ugap-import-opt-tri-table-wrap">
+                <table class="ugap-import-mino-table ugap-import-opt-tri-table">
+                    <thead>
+                        <tr>
+                            <th class="ugap-import-opt-tri-type-col">Type</th>
+                            <th class="ugap-import-opt-tri-label-col">Libellé</th>
+                            <th class="ugap-import-mino-poste-col ugap-import-mino-poste-group">Poste</th>
+                        </tr>
+                    </thead>
+                    <tbody>${tableRows}</tbody>
+                </table>
+            </div>
+        </div>`;
+    }
+
+    function bindImportOptionsTriEditor() {
+        const wrap = document.querySelector('.ugap-import-opt-tri-table-wrap');
+        if (!wrap || wrap.dataset.bound === '1') return;
+        wrap.dataset.bound = '1';
+        wrap.addEventListener('change', (e) => {
+            const el = e.target;
+            if (!el?.classList?.contains('ugap-import-opt-tri-poste-cb')) return;
+            const encOptId = el.getAttribute('data-opt-tri-id');
+            const encModelId = el.getAttribute('data-opt-tri-model');
+            if (!encOptId || !encModelId) return;
+            let optId = encOptId;
+            let modelId = encModelId;
+            try { optId = decodeURIComponent(encOptId); } catch (_e) { /* ignore */ }
+            try { modelId = decodeURIComponent(encModelId); } catch (_e) { /* ignore */ }
+            toggleImportMinorationModelAssignment(optId, modelId, el.checked);
+        });
+    }
+
+    function scheduleImportOptionsTriEmbedResize() {
+        if (typeof scheduleParentEmbedResize !== 'function') return;
+        scheduleParentEmbedResize();
+        [80, 280, 600, 1000, 1500].forEach((ms) => setTimeout(scheduleParentEmbedResize, ms));
+    }
+
+    function onImportOptionsStepRendered() {
+        bindImportOptionsTriEditor();
+        syncImportMinorationRecapDock();
+        scheduleImportOptionsTriEmbedResize();
+        const triWrap = document.querySelector('.ugap-import-opt-tri-table-wrap');
+        if (triWrap && typeof ResizeObserver !== 'undefined') {
+            if (triWrap.__ugapOptTriResizeObs) {
+                triWrap.__ugapOptTriResizeObs.disconnect();
+            }
+            triWrap.__ugapOptTriResizeObs = new ResizeObserver(() => {
+                if (typeof scheduleParentEmbedResize === 'function') scheduleParentEmbedResize();
+            });
+            triWrap.__ugapOptTriResizeObs.observe(triWrap);
+            const triTable = triWrap.querySelector('.ugap-import-opt-tri-table');
+            if (triTable) triWrap.__ugapOptTriResizeObs.observe(triTable);
+        }
+    }
+
+    async function saveImportOptionsTriStep() {
+        const importId = stagingId();
+        if (!staging() || !importId) {
+            showAlert('Aucun import en cours.', 'warning');
+            return;
+        }
+        const updates = getImportStagingOptionsFlat()
+            .filter(isImportTriEligibleOption)
+            .map(mapImportAdjUpdateForSave)
+            .filter((row) => row.optionId);
+
+        try {
+            const result = await apiCall(`/imports/staging/${encodeURIComponent(importId)}/options-tri`, {
+                method: 'POST',
+                body: JSON.stringify({ updates })
+            });
+            if (result?.data) {
+                if (typeof window.__ugapSetImportStaging === 'function') {
+                    window.__ugapSetImportStaging(result.data, result.data?._id);
+                } else {
+                    window.currentImportStaging = result.data;
+                    window.currentImportId = String(result.data?._id || importId || '');
+                }
+            }
+            showAlert('Options enregistrées (types et postes).', 'success');
+            renderImportStagingIndicator(staging());
+            renderImportWorkflow();
+        } catch (error) {
+            showAlert('Erreur enregistrement options : ' + error.message, 'error');
+        }
+    }
+
     function bindImportMinorationAssignEditor() {
         const root = document.querySelector('.ugap-import-mino-assign-table-wrap');
         if (!root || root.dataset.bound === '1') return;
@@ -3110,8 +3465,10 @@
         const row = {
             optionId: String(opt.id || '').trim(),
             compatibleModels: Array.isArray(opt.compatibleModels) ? opt.compatibleModels : [],
-            importOptionLabel: String(opt.importOptionLabel || '').trim()
+            importOptionLabel: String(opt.importOptionLabel || '').trim(),
+            importOptionLineKind: getImportResolvedLineKind(opt)
         };
+        if (row.importOptionLineKind === 'pr') delete row.importOptionLineKind;
         if (opt?.importExcludeFromBaseProduct) row.importExcludeFromBaseProduct = true;
         return row;
     }
@@ -3201,9 +3558,14 @@
     window.renderImportBaseOptionsStepHtml = renderImportBaseOptionsStepHtml;
     window.renderImportMinorationsStepHtml = renderImportMinorationsStepHtml;
     window.renderImportMajorationsStepHtml = renderImportMajorationsStepHtml;
+    window.renderImportOptionsSortStepHtml = renderImportOptionsSortStepHtml;
+    window.onImportOptionsTriTypeChange = onImportOptionsTriTypeChange;
+    window.getImportResolvedLineKind = getImportResolvedLineKind;
+    window.saveImportOptionsTriStep = saveImportOptionsTriStep;
     window.syncImportMinorationRecapDock = syncImportMinorationRecapDock;
     window.runSeedImportMinorationPostes = runSeedImportMinorationPostes;
     window.runSeedImportMajorationPostes = runSeedImportMajorationPostes;
+    window.runSeedImportOptionsTriPostes = runSeedImportOptionsTriPostes;
     window.runPropagateImportMinorationPostes = runPropagateImportMinorationPostes;
     window.runCompleteImportBaseOptionsFromAdj = runCompleteImportBaseOptionsFromAdj;
     window.saveImportBaseOptionsStep = saveImportBaseOptionsStep;
@@ -3221,6 +3583,7 @@
     window.onImportBaseOptionsStepRendered = onImportBaseOptionsStepRendered;
     window.onImportMinorationsStepRendered = onImportMinorationsStepRendered;
     window.onImportMajorationsStepRendered = onImportMajorationsStepRendered;
+    window.onImportOptionsStepRendered = onImportOptionsStepRendered;
     window.formatMotorSourceHint = formatMotorSourceHint;
 
 })();

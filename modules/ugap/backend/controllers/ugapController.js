@@ -255,6 +255,23 @@ async function updateImportMajorations(req, res) {
   }
 }
 
+async function updateImportOptionsTri(req, res) {
+  try {
+    const { importId } = req.params;
+    const updates = Array.isArray(req.body?.updates) ? req.body.updates : [];
+    const data = await UgapDataService.updateImportStagingOptionsTri(
+      req.entrepriseDb,
+      req.entrepriseId,
+      importId,
+      updates
+    );
+    res.json({ success: true, message: 'Options (types et postes) mises à jour', data });
+  } catch (error) {
+    console.error('❌ UGAP updateImportOptionsTri error:', error);
+    res.status(500).json({ success: false, message: error.message || 'Erreur serveur' });
+  }
+}
+
 async function updateImportBaseProducts(req, res) {
   try {
     const { importId } = req.params;
@@ -2983,6 +3000,7 @@ module.exports = {
   applyImportAssignments,
   updateImportMinorations,
   updateImportMajorations,
+  updateImportOptionsTri,
   updateImportBaseProducts,
   publishImport,
   getImportAudit,

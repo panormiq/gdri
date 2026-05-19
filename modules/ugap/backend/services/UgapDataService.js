@@ -2196,6 +2196,93 @@ Exemple de forme (ids fictifs) :
     return await collection.findOne({ _id: document._id, entrepriseId });
   }
 
+  static applyImportOptionLineKindToOption(opt, kind) {
+    const k = String(kind || '').trim().toLowerCase();
+    if (!opt || typeof opt !== 'object') return;
+    if (k !== 'minoration' && k !== 'majoration' && k !== 'option') return;
+    opt.importOptionLineKind = k;
+    if (k === 'minoration') {
+      opt.isMinoration = true;
+      opt.manualMinorationAssignment = true;
+      delete opt.manualMajorationAssignment;
+      return;
+    }
+    if (k === 'majoration') {
+      opt.isMinoration = false;
+      opt.manualMajorationAssignment = true;
+      delete opt.manualMinorationAssignment;
+      return;
+    }
+    opt.isMinoration = false;
+    delete opt.manualMajorationAssignment;
+    delete opt.manualMinorationAssignment;
+  }
+
+  static async updateImportStagingOptionsTri(db, entrepriseId, importId, updates = []) {
+    const collection = db.collection('ugap_import_staging');
+    const document = await collection.findOne({ _id: new ObjectId(String(importId)), entrepriseId });
+    if (!document) throw new Error('Import staging introuvable');
+
+    const patchByOptionId = new Map();
+    (Array.isArray(updates) ? updates : []).forEach((row) => {
+      const optionId = String(row?.optionId || '').trim();
+      if (!optionId) return;
+      const compatibleModels = Array.isArray(row?.compatibleModels)
+        ? row.compatibleModels.map((x) => String(x || '').trim()).filter(Boolean)
+        : [];
+      const importOptionLabel = String(row?.importOptionLabel || '').trim();
+      const importOptionLineKind = String(row?.importOptionLineKind || '').trim().toLowerCase();
+      const importExcludeFromBaseProduct = row?.importExcludeFromBaseProduct === true;
+      patchByOptionId.set(optionId, {
+        compatibleModels,
+        importOptionLabel,
+        importOptionLineKind,
+        importExcludeFromBaseProduct
+      });
+    });
+
+    const categories = Array.isArray(document.categories) ? document.categories : [];
+    categories.forEach((cat) => {
+      (Array.isArray(cat?.options) ? cat.options : []).forEach((opt) => {
+        const id = String(opt?.id || '').trim();
+        if (!patchByOptionId.has(id)) return;
+        const patch = patchByOptionId.get(id);
+        opt.compatibleModels = Array.isArray(patch.compatibleModels) ? patch.compatibleModels : [];
+        const label = String(patch.importOptionLabel || '').trim();
+        if (label) opt.importOptionLabel = label;
+        else delete opt.importOptionLabel;
+        if (patch.importExcludeFromBaseProduct) {
+          opt.importExcludeFromBaseProduct = true;
+          delete opt.baseProductId;
+          delete opt.baseProductLabel;
+        }
+        if (patch.importOptionLineKind) {
+          this.applyImportOptionLineKindToOption(opt, patch.importOptionLineKind);
+        }
+      });
+    });
+
+    const draft = {
+      ...document,
+      categories,
+      importBaseProducts: document.importBaseProducts || []
+    };
+    const { doc, summary } = UgapImportAssignmentService.applyStagingAssignments(draft);
+    await collection.updateOne(
+      { _id: document._id, entrepriseId },
+      {
+        $set: {
+          categories: doc.categories,
+          importAssignmentsSummary: summary,
+          importAssignmentsAppliedAt: doc.importAssignmentsAppliedAt,
+          'progress.optionsTriCompleted': true,
+          updatedAt: new Date()
+        }
+      }
+    );
+    return await collection.findOne({ _id: document._id, entrepriseId });
+  }
+
   static async updateImportStagingMinorations(db, entrepriseId, importId, updates = [], baseProducts, scope = 'minoration') {
     const collection = db.collection('ugap_import_staging');
     const document = await collection.findOne({ _id: new ObjectId(String(importId)), entrepriseId });
@@ -2210,8 +2297,9 @@ Exemple de forme (ids fictifs) :
         ? row.compatibleModels.map((x) => String(x || '').trim()).filter(Boolean)
         : [];
       const importOptionLabel = String(row?.importOptionLabel || '').trim();
+      const importOptionLineKind = String(row?.importOptionLineKind || '').trim().toLowerCase();
       const importExcludeFromBaseProduct = row?.importExcludeFromBaseProduct === true;
-      patchByOptionId.set(optionId, { compatibleModels, importOptionLabel, importExcludeFromBaseProduct });
+      patchByOptionId.set(optionId, { compatibleModels, importOptionLabel, importOptionLineKind, importExcludeFromBaseProduct });
     });
 
     const categories = Array.isArray(document.categories) ? document.categories : [];
@@ -2232,6 +2320,9 @@ Exemple de forme (ids fictifs) :
             opt.importExcludeFromBaseProduct = true;
             delete opt.baseProductId;
             delete opt.baseProductLabel;
+          }
+          if (patch.importOptionLineKind) {
+            UgapDataService.applyImportOptionLineKindToOption(opt, patch.importOptionLineKind);
           }
         }
         if (assignScope === 'minoration' && UgapImportAssignmentService.isMinorationLine(opt?.name, opt?.refUgap)) {
