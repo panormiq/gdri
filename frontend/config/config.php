@@ -65,11 +65,16 @@ function loadBackendEnvForPhp() {
 
 loadBackendEnvForPhp();
 
-// Détecter automatiquement l'environnement
-// 1. D'abord vérifier HTTP_HOST (si www.gdri.fr ou gdr-innovation.fr = production)
-// 2. Sinon vérifier la branche Git (master = production, develop = development)
+// Détecter l'environnement :
+// 1. Variable ENVIRONMENT dans backend/.env (prioritaire)
+// 2. Sinon HTTP_HOST (domaines prod vs localhost)
+// 3. Sinon branche Git (master = production)
 function detectEnvironment() {
-    // D'abord, détecter par le hostname (plus fiable pour le serveur en ligne)
+    $fromEnv = getenv('ENVIRONMENT');
+    if ($fromEnv === 'development' || $fromEnv === 'production') {
+        return $fromEnv;
+    }
+
     $host = $_SERVER['HTTP_HOST'] ?? '';
     
     // Si on est sur un domaine de production

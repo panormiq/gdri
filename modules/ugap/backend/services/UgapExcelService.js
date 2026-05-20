@@ -640,7 +640,23 @@ class UgapExcelService {
     if (!label) return 'Autre';
     const l = label.toLowerCase();
 
-    if (l.includes('moteur') || l.includes('suzuki') || l.includes('commande')) return 'Motorisation';
+    if (
+      l.includes('moteur') ||
+      l.includes('motorisation') ||
+      l.includes('suzuki') ||
+      l.includes('mercury') ||
+      l.includes('yamaha') ||
+      l.includes('honda') ||
+      l.includes('evinrude') ||
+      l.includes('tohatsu') ||
+      l.includes('yanmar') ||
+      l.includes('volvo') ||
+      /\b\d{2,4}\s*cv\b/.test(l) ||
+      /\bdf\s*\d{2,4}\b/.test(l) ||
+      /\bcommande\s+de\s+(?:propulsion|bord)\b/.test(l)
+    ) {
+      return 'Motorisation';
+    }
     if (l.includes('flotteur') || l.includes('coloris') || l.includes('tissu')) return 'Flotteurs';
     if (l.includes('console') || l.includes('bolster') || l.includes('siège') || l.includes('assise')) return 'Aménagement';
     if (l.includes('électronique') || l.includes('gps') || l.includes('sondeur') || l.includes('vhf')) return 'Électronique';

@@ -554,6 +554,44 @@ async function purgePublishedData(req, res) {
   }
 }
 
+async function resetCatalogFromExtract(req, res) {
+  try {
+    const importId = String(req.body?.importId || '').trim() || null;
+    const summary = await UgapDataService.resetCatalogAndImportFromExtract(
+      req.entrepriseDb,
+      req.entrepriseId,
+      importId
+    );
+    res.json({
+      success: true,
+      message: 'Catalogue et import remis à l\'état post-extraction',
+      data: summary
+    });
+  } catch (error) {
+    console.error('❌ UGAP resetCatalogFromExtract error:', error);
+    res.status(500).json({ success: false, message: error.message || 'Erreur serveur' });
+  }
+}
+
+async function reopenImportStaging(req, res) {
+  try {
+    const { importId } = req.params;
+    const data = await UgapDataService.reopenImportStaging(
+      req.entrepriseDb,
+      req.entrepriseId,
+      importId
+    );
+    res.json({
+      success: true,
+      message: 'Import rouvert pour reprise',
+      data
+    });
+  } catch (error) {
+    console.error('❌ UGAP reopenImportStaging error:', error);
+    res.status(500).json({ success: false, message: error.message || 'Erreur serveur' });
+  }
+}
+
 // Clear uniquement le mapping (catégories détectées) d'une configuration (vue "Voir résultats")
 async function clearConfigurationMappedCategories(req, res) {
   try {
@@ -3014,6 +3052,8 @@ module.exports = {
   deleteCategory,
   clearAllCategories,
   purgePublishedData,
+  resetCatalogFromExtract,
+  reopenImportStaging,
   clearConfigurationMappedCategories,
   createSubCategory,
   updateSubCategory,

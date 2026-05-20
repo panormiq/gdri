@@ -23,23 +23,23 @@ require_once '../includes/header.php';
 
         <form id="firstConnectionForm">
             <div class="form-group">
-                <label for="token">Token d'invitation *</label>
-                <input type="text" id="token" name="token" required value="<?php echo htmlspecialchars($token); ?>">
+                <label for="firstConnectionToken">Token d'invitation *</label>
+                <input type="text" id="firstConnectionToken" name="token" required value="<?php echo htmlspecialchars($token); ?>">
             </div>
 
             <div class="form-group">
-                <label for="password">Nouveau mot de passe *</label>
-                <input type="password" id="password" name="password" required minlength="8">
+                <label for="firstConnectionPassword">Nouveau mot de passe *</label>
+                <input type="password" id="firstConnectionPassword" name="password" required minlength="8">
                 <small style="color: #666;">8 caractères minimum</small>
             </div>
 
             <div class="form-group">
-                <label for="passwordConfirm">Confirmation *</label>
-                <input type="password" id="passwordConfirm" name="passwordConfirm" required minlength="8">
+                <label for="firstConnectionPasswordConfirm">Confirmation *</label>
+                <input type="password" id="firstConnectionPasswordConfirm" name="passwordConfirm" required minlength="8">
             </div>
 
-            <div class="form-error" id="formError"></div>
-            <div class="form-success" id="formSuccess"></div>
+            <div class="form-error" id="firstConnectionFormError"></div>
+            <div class="form-success" id="firstConnectionFormSuccess"></div>
 
             <button type="submit" class="btn btn-primary btn-full">Activer mon compte</button>
         </form>
@@ -47,16 +47,17 @@ require_once '../includes/header.php';
 </section>
 
 <script>
-document.getElementById('firstConnectionForm').addEventListener('submit', async (e) => {
+const firstConnectionForm = document.getElementById('firstConnectionForm');
+firstConnectionForm.addEventListener('submit', async (e) => {
     e.preventDefault();
-    const formError = document.getElementById('formError');
-    const formSuccess = document.getElementById('formSuccess');
+    const formError = document.getElementById('firstConnectionFormError');
+    const formSuccess = document.getElementById('firstConnectionFormSuccess');
     formError.textContent = '';
     formSuccess.textContent = '';
 
-    const token = document.getElementById('token').value.trim();
-    const password = document.getElementById('password').value;
-    const passwordConfirm = document.getElementById('passwordConfirm').value;
+    const token = firstConnectionForm.querySelector('#firstConnectionToken').value.trim();
+    const password = firstConnectionForm.querySelector('#firstConnectionPassword').value;
+    const passwordConfirm = firstConnectionForm.querySelector('#firstConnectionPasswordConfirm').value;
 
     if (!token || !password) {
         formError.textContent = 'Veuillez remplir tous les champs.';

@@ -76,7 +76,7 @@ $entity_config_items = [
         'description' => 'Connexion des pages Facebook et paramètres pour l\'entité.',
         'icon' => '📘',
         'links' => [
-            ['url' => url('pages/modules/facebook-config.php'), 'label' => 'Connecter Facebook', 'primary' => true],
+            ['url' => url('pages/modules/facebook.php') . '?tab=config', 'label' => 'Connecter Facebook', 'primary' => true],
         ],
     ],
     [

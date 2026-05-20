@@ -77,7 +77,7 @@ $api_base_url = rtrim(getApiBaseUrl(), '/');
 
     <div id="resume-loading" class="alert alert-info">Chargement des pages…</div>
     <div id="resume-empty" class="alert alert-warning" style="display: none;">
-        Aucune page connectée. <a href="<?= url('pages/modules/facebook-config.php') ?>">Connecter Facebook</a>.
+        Aucune page connectée. <a href="<?= htmlspecialchars(url('pages/modules/facebook.php') . '?tab=config') ?>">Connecter Facebook</a>.
     </div>
 
     <div id="resume-tabs" class="resume-tabs" style="display: none;">
@@ -280,7 +280,7 @@ $api_base_url = rtrim(getApiBaseUrl(), '/');
             });
             topHtml += '</ul>' +
                 '<p style="margin: 0.75rem 0 0 0; font-size: 0.85rem; color: #666;">' +
-                'Des questions similaires reviennent souvent ? <a href="' + publishUrl + '">Rédiger un message sur ce sujet</a>.' +
+                'Des questions similaires reviennent souvent ? <a href="' + publishUrl + '">Ouvrir les posts de Page</a> pour publier depuis GDRI.' +
                 '</p>';
         }
         var actionsHtml = '<div class="catchup-actions">' +

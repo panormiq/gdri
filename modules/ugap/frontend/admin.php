@@ -3368,15 +3368,23 @@ Format:
             if (!tbody || !filterModel) return;
             if (btnOptionsResetPurgeTemp) {
                 btnOptionsResetPurgeTemp.onclick = async () => {
-                    if (!confirm('TEMPORAIRE — Supprimer tout le catalogue UGAP publié (modèles, catégories, options) pour cette entreprise ?')) return;
-                    if (!confirm('Confirmer la suppression définitive des données publiées ?')) return;
+                    if (!confirm('Réinitialiser le catalogue et l\'import à l\'état juste après extraction Excel (modèles, options, minorations) ? Les validations et fusions seront perdues.')) return;
                     try {
-                        await apiCall('/data/purge', { method: 'POST' });
+                        const importId = String(currentImportId || currentImportStaging?._id || '').trim();
+                        const body = importId ? JSON.stringify({ importId }) : undefined;
+                        const result = await apiCall('/data/reset-from-extract', {
+                            method: 'POST',
+                            ...(body ? { body } : {})
+                        });
                         __lastLoadDataAt = 0;
                         await loadData(false);
-                        showAlert('Catalogue publié purgé. Réimportez si nécessaire.', 'success');
+                        if (result?.data?.importId) {
+                            currentImportId = String(result.data.importId);
+                        }
+                        await refreshImportStagingIndicator();
+                        showAlert('Catalogue remis à l\'état post-extraction. Reprenez l\'importation depuis l\'onglet Import.', 'success');
                     } catch (error) {
-                        showAlert('Erreur purge : ' + error.message, 'error');
+                        showAlert('Erreur réinitialisation : ' + error.message, 'error');
                     }
                 };
             }
@@ -4873,7 +4881,7 @@ Format:
                 draft: 'A valider',
                 in_review: 'En cours',
                 validated: 'Valide',
-                published: 'Publie'
+                published: 'Reprendre l\'importation'
             }[status] || status;
             const colorByStatus = {
                 draft: { bg: '#fde68a', fg: '#92400e' },
@@ -4917,18 +4925,16 @@ Format:
                 baseModelsConfiguredCount = baseConfiguredModelIds.size;
             }
             progressEl.textContent = `${validatedModelsCount}/${models.length} modeles valides - ${baseModelsConfiguredCount} modeles de base configures - ${configuredOptionsCount}/${totalOptions} options configurees`;
-            if (status !== 'published') {
-                if (workspaceMode === 'import') {
-                    resumeBtn.style.display = 'none';
-                } else {
-                    resumeBtn.style.display = 'inline-flex';
-                    resumeBtn.textContent = 'Reprendre l\'import';
-                    resumeBtn.disabled = false;
-                    resumeBtn.style.opacity = '';
-                    resumeBtn.style.cursor = '';
-                }
-            } else {
+            if (workspaceMode === 'import') {
                 resumeBtn.style.display = 'none';
+            } else {
+                resumeBtn.style.display = 'inline-flex';
+                resumeBtn.textContent = status === 'published'
+                    ? 'Reprendre l\'importation'
+                    : 'Reprendre l\'import';
+                resumeBtn.disabled = false;
+                resumeBtn.style.opacity = '';
+                resumeBtn.style.cursor = '';
             }
         }
 
@@ -4954,6 +4960,7 @@ Format:
                 const triState = getImportFamilyTriState();
                 triState.activeTab = 'tri';
             }
+            if (typeof syncImportActionsDock === 'function') syncImportActionsDock();
         }
 
         function toggleImportModelSelection(modelId, checked) {
@@ -5841,6 +5848,7 @@ Format:
                 modelsRoot.innerHTML = '<div style="color:#6b7280;">Aucun workflow import actif.</div>';
                 familiesRoot.innerHTML = '<div style="color:#6b7280;">Import requis pour detecter des familles.</div>';
                 switchImportWorkflowStep('models');
+                if (typeof syncImportActionsDock === 'function') syncImportActionsDock();
                 return;
             }
 
@@ -5938,6 +5946,7 @@ Format:
             }
 
             switchImportWorkflowStep(importWorkflowState.step || 'models');
+            if (typeof syncImportActionsDock === 'function') syncImportActionsDock();
             scheduleParentEmbedResize();
             setTimeout(scheduleParentEmbedResize, 120);
         }
@@ -5999,6 +6008,10 @@ Format:
                 return;
             }
             try {
+                if (typeof saveAllImportWorkflowStepsForPublish === 'function') {
+                    showAlert('Enregistrement des étapes avant publication…', 'info');
+                    await saveAllImportWorkflowStepsForPublish();
+                }
                 const result = await apiCall(`/imports/staging/${encodeURIComponent(String(currentImportStaging._id))}/publish`, {
                     method: 'POST'
                 });
@@ -6042,6 +6055,16 @@ Format:
                 return;
             }
             const importId = String(currentImportStaging._id || currentImportId || '').trim();
+            const published = String(currentImportStaging?.status || '').toLowerCase() === 'published';
+            if (published && importId) {
+                try {
+                    await apiCall(`/imports/staging/${encodeURIComponent(importId)}/reopen`, { method: 'POST' });
+                    await refreshImportStagingIndicator();
+                } catch (error) {
+                    showAlert('Erreur reprise import: ' + error.message, 'error');
+                    return;
+                }
+            }
             if (importId && typeof openImportEditor === 'function') {
                 await openImportEditor(importId, { resume: true });
                 return;

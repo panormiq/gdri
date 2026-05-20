@@ -27,7 +27,51 @@
         const el = document.createElement('style');
         el.id = IMPORT_MINO_STYLE_ID;
         el.textContent = `
-.ugap-import-mino-wrap { font-size: 13px; max-width: 100%; overflow-x: hidden; box-sizing: border-box; }
+.ugap-import-mino-wrap { font-size: 13px; max-width: 100%; overflow-x: visible; box-sizing: border-box; }
+.ugap-import-mino-registry-stack {
+    position: relative;
+    margin-top: 10px;
+}
+.ugap-import-mino-registry-stack .ugap-import-mino-table-scroll,
+.ugap-import-mino-registry-stack .ugap-import-opt-tri-table-wrap {
+    box-sizing: border-box;
+}
+.ugap-import-workflow-sticky {
+    position: sticky;
+    top: 0;
+    z-index: 200;
+    margin-bottom: 0;
+    border: 1px solid #eef2f7;
+    border-radius: 8px 8px 0 0;
+    background: #f9fafb;
+    box-shadow: 0 2px 8px rgba(15, 23, 42, 0.08);
+}
+.ugap-import-workflow-steps {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 10px;
+}
+.ugap-import-workflow-actions {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 10px;
+    border-top: 1px solid #eef2f7;
+    background: #fff;
+}
+.ugap-import-workflow-actions[hidden] {
+    display: none !important;
+}
+.ugap-import-workflow-pane {
+    padding: 12px;
+    border: 1px solid #eef2f7;
+    border-top: none;
+    border-radius: 0 0 8px 8px;
+    background: #fff;
+}
 .ugap-import-mino-summary {
     margin-bottom: 12px; padding: 10px 12px; background: #eff6ff; border: 1px solid #bfdbfe;
     border-radius: 8px; color: #1e3a5f; font-size: 13px;
@@ -40,7 +84,7 @@
 }
 .ugap-import-mino-table thead th { background: #f8fafc; position: sticky; top: 0; z-index: 3; }
 .ugap-import-mino-sticky-detail {
-    position: sticky; left: 0; z-index: 4; min-width: 36%; width: 36%; max-width: 640px;
+    position: sticky; left: 0; z-index: 4; min-width: 36%; width: 36%; max-width: min(42rem, 72vw);
     background: #fafbfc; box-shadow: 4px 0 10px -6px rgba(15, 23, 42, 0.12);
 }
 .ugap-import-mino-table thead .ugap-import-mino-sticky-detail { z-index: 5; background: #f8fafc; }
@@ -55,26 +99,32 @@
 .ugap-import-mino-registry ul { margin: 6px 0 0; padding-left: 18px; }
 .ugap-import-bp-table-wrap { margin-top: 8px; }
 .ugap-bp-name-type-row {
-    display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; margin-bottom: 8px;
+    display: flex; flex-wrap: wrap; align-items: flex-start; gap: 8px 12px; margin-bottom: 8px;
 }
 .ugap-bp-name-type-row .ugap-bp-name-field {
-    display: flex; align-items: center; gap: 8px; flex: 1 1 180px; min-width: 0;
+    display: flex; flex-direction: column; align-items: stretch; gap: 4px;
+    flex: 1 1 58%; min-width: 0;
 }
 .ugap-bp-name-type-row .ugap-bp-type-field {
-    display: flex; align-items: center; gap: 8px; flex: 0 1 auto;
+    display: flex; flex-direction: column; align-items: stretch; gap: 4px; flex: 0 0 auto;
 }
+.ugap-bp-name-type-row .ugap-bp-type-field--compact .ugap-import-adj-select {
+    width: 5.75rem; min-width: 5.75rem; max-width: 6.25rem; padding: 5px 6px; font-size: 11px;
+}
+.ugap-adj-field-label { font-size: 11px; font-weight: 600; color: #64748b; line-height: 1.2; }
 .ugap-bp-name-type-row .ugap-bp-name-input { flex: 1 1 auto; min-width: 120px; width: auto; }
 .ugap-bp-name-type-row .ugap-import-bp-select { min-width: 200px; max-width: 280px; }
 .ugap-bp-name-input,
 .ugap-mino-option-name-input {
     width: 100%; max-width: 100%; box-sizing: border-box; padding: 6px 8px;
-    border: 1px solid #cbd5e1; border-radius: 6px; font-size: 13px; font-weight: 600;
+    border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12px; font-weight: 600;
 }
-.ugap-mino-option-name-input { margin-top: 0; font-weight: 500; }
-.ugap-mino-option-name-row {
-    display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 6px;
+.ugap-mino-option-name-input {
+    margin-top: 0; font-weight: 500; resize: vertical; min-height: 2.65em; max-height: 5.5em;
+    line-height: 1.35; white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word;
 }
-.ugap-mino-option-name-row .ugap-mino-option-name-input { flex: 1 1 180px; min-width: 120px; }
+.ugap-mino-option-name-row { display: contents; }
+.ugap-import-mino-label-raw--multiline { line-height: 1.35; white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; }
 .ugap-import-bp-select {
     min-width: 220px; max-width: 100%; padding: 5px 8px;
     border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12px; background: #fff;
@@ -209,6 +259,46 @@
 .ugap-import-opt-tri-legend-item--majo { background: #fef3c7; color: #b45309; border: 1px solid #fcd34d; }
 `;
         document.head.appendChild(el);
+    }
+
+    /** @deprecated — barre dans #ugap-import-workflow-actions (sous les onglets). */
+    function renderImportStickyActionsHtml() {
+        return '';
+    }
+
+    function buildImportWorkflowActionsHtml(cfg) {
+        if (!cfg) return '';
+        const saveFn = String(cfg.saveHandler || '').trim();
+        const saveTxt = escapeHtml(String(cfg.saveLabel || 'Enregistrer'));
+        const step = escapeHtml(String(cfg.nextStep || ''));
+        const nextTxt = escapeHtml(String(cfg.nextLabel || 'Étape suivante'));
+        const saveBtn = saveFn
+            ? `<button type="button" class="btn btn-success" data-ugap-wf-action="save">${saveTxt}</button>`
+            : '';
+        const nextBtn = step
+            ? `<button type="button" class="btn btn-outline" data-ugap-wf-action="next">${nextTxt}</button>`
+            : '';
+        return `${saveBtn}${nextBtn}`;
+    }
+
+    function bindImportWorkflowActionsBar() {
+        const bar = document.getElementById('ugap-import-workflow-actions');
+        if (!bar || bar.dataset.bound === '1') return;
+        bar.dataset.bound = '1';
+        bar.addEventListener('click', (e) => {
+            const btn = e.target.closest('[data-ugap-wf-action]');
+            if (!btn) return;
+            const cfg = getImportActionsDockConfig();
+            if (!cfg) return;
+            const action = btn.getAttribute('data-ugap-wf-action');
+            if (action === 'save') {
+                const fn = window[cfg.saveHandler];
+                if (typeof fn === 'function') fn();
+            } else if (action === 'next' && cfg.nextStep) {
+                switchImportWorkflowStep(cfg.nextStep);
+                if (typeof renderImportWorkflow === 'function') renderImportWorkflow();
+            }
+        });
     }
 
     function parseMoney(value) {
@@ -360,13 +450,18 @@
         const mountKey = escapeHtml(getImportAdjPriceMountKey(opt, group));
         const encGroup = group?.options?.length ? mountKey : '';
         const encOptId = opt && !group?.options?.length ? escapeHtml(String(opt.id || '').trim()) : '';
-        return `<div class="ugap-bp-type-field"><strong>Type :</strong>
+        return `<div class="ugap-bp-type-field ugap-bp-type-field--compact"><span class="ugap-adj-field-label">Type</span>
                 <select class="ugap-import-adj-select" data-adj-field="pricingMode"
                     data-adj-group-opts="${encGroup}" data-mino-opt-id="${encOptId}">
-                    <option value="fixed" ${mode === 'fixed' ? 'selected' : ''}>Fixe — un prix pour tous les postes</option>
-                    <option value="per_model" ${mode === 'per_model' ? 'selected' : ''}>Par poste — prix différent par P1, P2…</option>
+                    <option value="fixed" title="Un même prix pour tous les postes cochés" ${mode === 'fixed' ? 'selected' : ''}>Fixe</option>
+                    <option value="per_model" title="Prix Excel distinct par poste P1, P2…" ${mode === 'per_model' ? 'selected' : ''}>Par poste</option>
                 </select>
             </div>`;
+    }
+
+    function renderImportAdjOptionNameInputHtml(value, attrs, motorCls = '') {
+        return `<textarea rows="2" class="ugap-mino-option-name-input${motorCls}" ${attrs}
+            placeholder="Nom de l'option (renommer)">${escapeHtml(String(value || ''))}</textarea>`;
     }
 
     function refreshImportMinorationAssignPricesDom() {
@@ -548,7 +643,9 @@
         if (isImportPrOption(opt)) return 'pr';
         const ref = String(opt?.refUgap || '').trim().toUpperCase();
         if (ref.includes('MINO')) return 'minoration';
-        if (isImportMajorationLabel(opt?.name)) return 'majoration';
+        const name = String(opt?.name || '').replace(/\s+/g, ' ').trim();
+        if (/^moins-value\b/i.test(name)) return 'minoration';
+        if (isImportMajorationLabel(name) || isImportMotorCatalogLine(opt)) return 'majoration';
         return 'option';
     }
 
@@ -562,30 +659,55 @@
         return /^PR\s/i.test(String(opt?.name || '').replace(/\s+/g, ' ').trim());
     }
 
-    /** Forfait / garantie moteur : hors majorations (ligne administrative, pas un remplacement équipement). */
-    function isImportMotorForfaitOrGarantieLabel(name) {
+    /** Forfait / garantie : hors majorations (prestation administrative, pas un remplacement équipement). */
+    function isImportExcludedFromMajorationLabel(name) {
         const n = String(name || '').replace(/\s+/g, ' ').trim();
         if (!n) return false;
-        if (!/\b(forfait|garanties?|extension\s+de\s+garantie)\b/i.test(n)) return false;
-        return /\b(moteurs?|motorisation|suzuki|mercury|yamaha|honda|evinrude)\b/i.test(n);
+        return /\b(forfait|garanties?|extension\s+de\s+garantie)\b/i.test(n);
+    }
+
+    /** @deprecated Utiliser isImportExcludedFromMajorationLabel */
+    function isImportMotorForfaitOrGarantieLabel(name) {
+        return isImportExcludedFromMajorationLabel(name);
+    }
+
+    /**
+     * Ligne catalogue moteur : catégorie Excel « Motorisation » ou libellé type « 150 CV », « DF 140 APX ».
+     */
+    function isImportMotorCatalogLine(opt) {
+        const cat = String(opt?.category || '').trim();
+        const n = String(opt?.name || '').replace(/\s+/g, ' ').trim();
+        if (!n || isImportExcludedFromMajorationLabel(n)) return false;
+        if (/^motorisation$/i.test(cat)) return true;
+        if (/\b(moteur|motorisation|suzuki|mercury|yamaha|honda|evinrude|tohatsu|yanmar|volvo)\b/i.test(n)) {
+            return true;
+        }
+        if (/\b\d{2,4}\s*cv\b/i.test(n)) return true;
+        if (/\bdf\s*\d{2,4}\b/i.test(n)) return true;
+        if (/\b(apx|apt|btx|atl)\b/i.test(n) && /\b\d{2,4}\b/.test(n)) return true;
+        if (/\b(2\s+moteurs?|bi-moteur|bimoteur|double\s+moteur|jumelage\s+(?:de\s+)?moteurs?)\b/i.test(n)) {
+            return true;
+        }
+        return false;
     }
 
     /** Majoration : libellé (en remplacement, en lieu et place, moteur…) — hors MINO et PR. */
     function isImportMajorationLabel(name) {
         const n = String(name || '').replace(/\s+/g, ' ').trim();
         if (!n || isImportPrOption({ name: n })) return false;
-        if (isImportMotorForfaitOrGarantieLabel(n)) return false;
+        if (/^supp?ress(?:ion)?\b/i.test(n)) return false;
+        if (isImportExcludedFromMajorationLabel(n)) return false;
+        if (/^(plus-value|plus\s+value)\b/i.test(n)) return true;
         if (/\ben\s+lieux?\s+et\s+place\b/i.test(n)) return true;
         if (/\bau\s+lieu\s+et\s+place\b/i.test(n)) return true;
         if (/\ben\s+remplacement\b/i.test(n)) return true;
-        if (isImportMotorNonFournitureLabel(n)) return true;
-        if (/\b(non\s+fourniture\s+du\s+moteur|moteurs?|motorisation|suzuki|mercury|yamaha|honda|evinrude|double\s+moteur)\b/i.test(n)) {
-            return true;
-        }
+        if (/\bnon\s+fourniture\b/i.test(n)) return true;
+        if (isImportMotorCatalogLine({ name: n, category: '' })) return true;
         const parsed = typeof extractBaseReplacementProductsForUi === 'function'
             ? extractBaseReplacementProductsForUi({ name: n })
             : {};
         if (parsed?.changeType === 'motor_base_non_supply') return true;
+        if (parsed?.changeType === 'non_supply') return true;
         return false;
     }
 
@@ -659,9 +781,7 @@
     function isImportMotorMinoration(opt) {
         const name = String(opt?.name || '');
         if (isImportMotorNonFournitureLabel(name)) return true;
-        if (/\b(non\s+fourniture\s+du\s+moteur|moteurs?|motorisation|suzuki|mercury|yamaha|honda|evinrude|double\s+moteur)\b/i.test(name)) {
-            return true;
-        }
+        if (isImportMotorCatalogLine(opt)) return true;
         const parsed = typeof extractBaseReplacementProductsForUi === 'function'
             ? extractBaseReplacementProductsForUi(opt)
             : {};
@@ -956,8 +1076,7 @@
 
     function isCatalogMotorLikeOption(opt) {
         if (isImportMinorationOption(opt)) return false;
-        const name = String(opt?.name || '').toLowerCase();
-        return /\b(moteur|motorisation|suzuki|mercury|yamaha|honda|evinrude|\d+\s*cv)\b/i.test(name);
+        return isImportMotorCatalogLine(opt);
     }
 
     function findCatalogMotorOptionByRef(refFournisseur, modelId) {
@@ -1319,10 +1438,31 @@
         return String(links?.finalProduct || '').trim();
     }
 
+    /**
+     * Tarif moteur catalogue (ligne Excel complète) — ne pas fusionner sur le moteur de base du poste.
+     * Ex. « Moteur hors-bord essence - Mercury 225… » ≠ « Suzuki DF225… » même si le poste a la même motorisation de base.
+     */
+    function isImportCatalogMotorTarifLine(opt) {
+        const name = String(opt?.name || '').replace(/\s+/g, ' ').trim();
+        if (!name || /\ben\s+remplacement\b/i.test(name) || /\blieu\s+et\s+place\b/i.test(name)) return false;
+        if (isImportExcludedFromMajorationLabel(name)) return false;
+        if (String(opt?.refUgap || '').trim().toUpperCase().includes('MINO')) return false;
+        return isImportMotorCatalogLine(opt);
+    }
+
+    function stripImportExcelPostesSuffix(label) {
+        return String(label || '').replace(/\s*-\s*postes?\s+[\d\s,etàa\-–—]+$/i, '').trim();
+    }
+
     /** Libellé de fusion = champ « Option » (renommé ou produit final), pas le libellé Excel ni initialProduct. */
     function getImportAdjOptionFusionLabel(opt, models) {
         const custom = String(opt?.importOptionLabel || '').trim();
         if (custom) return custom;
+
+        const name = String(opt?.name || '').replace(/\s+/g, ' ').trim();
+        if (isImportCatalogMotorTarifLine(opt) && name) {
+            return stripImportExcelPostesSuffix(name);
+        }
 
         const links = resolveImportMinorationOptionLinks(opt, models);
         if (links?.changeType === 'motor') {
@@ -1332,9 +1472,8 @@
         const display = getImportMinorationDisplayLabel(opt, links);
         if (display) return display;
 
-        const name = String(opt?.name || '').replace(/\s+/g, ' ').trim();
         if (name && !/\ben\s+remplacement\b/i.test(name) && !/\blieu\s+et\s+place\b/i.test(name) && !/^supp?ress/i.test(name)) {
-            return name.replace(/\s*-\s*postes?\s+[\d\s,etàa\-–—]+$/i, '').trim();
+            return stripImportExcelPostesSuffix(name);
         }
         return String(links?.initialProduct || '').trim();
     }
@@ -1471,9 +1610,11 @@
         });
 
         next.forEach((bp) => refreshImportBaseProductLabelFromLinkedOptions(bp, modelList));
-        const collapsed = collapseImportBaseProductsSameLabelPerPoste(next, modelList);
-        if (staging()) staging().importBaseProducts = collapsed;
-        return collapsed;
+        const out = options?.applyAutoCollapse
+            ? collapseImportBaseProductsSameLabelPerPoste(next, modelList)
+            : next;
+        if (staging()) staging().importBaseProducts = out;
+        return out;
     }
 
     function findImportBaseProductForOption(opt) {
@@ -1680,11 +1821,12 @@
     function renderImportAdjOptionNameTypeRowHtml(inputHtml, bp, models, extraHtml = '', opt = null, group = null) {
         const modelList = Array.isArray(models) ? models : getImportStagingModelsForAssignment();
         const sample = opt || (group?.options?.[0]) || null;
+        const extra = String(extraHtml || '').trim();
         return `<div class="ugap-bp-name-type-row" style="margin-bottom:6px;">
             <div class="ugap-bp-name-field ugap-mino-option-name-row" style="margin-bottom:0;">
-                <strong>Option :</strong>
+                <span class="ugap-adj-field-label">Option</span>
                 ${inputHtml}
-                ${extraHtml}
+                ${extra}
             </div>
             ${renderImportAdjPricingTypeSelectHtml(sample, group, modelList)}
         </div>`;
@@ -1826,7 +1968,8 @@
             pricesByModelId: { ...(bp.pricesByModelId || {}) },
             optionIds: filterImportBaseProductAdjOptionIds(bp.optionIds, models),
             modelIds: [...(bp.modelIds || [])],
-            aliases: Array.isArray(bp.aliases) ? bp.aliases.map((a) => String(a || '').trim()).filter(Boolean) : []
+            aliases: Array.isArray(bp.aliases) ? bp.aliases.map((a) => String(a || '').trim()).filter(Boolean) : [],
+            catalogOptionId: String(bp.catalogOptionId || '').trim()
         }));
     }
 
@@ -2304,39 +2447,6 @@
         return syncImportBaseProductsFromRegistry(registry, models);
     }
 
-    function propagateImportMinorationPostesByBaseProduct() {
-        const models = getImportStagingModelsForAssignment();
-        const adjRows = getImportRowsForBaseProductRegistry();
-        const registry = buildImportMinorationBaseProductRegistry(adjRows, models);
-        syncImportBaseProductsFromRegistry(registry, models);
-        const products = getImportBaseProductsStore();
-        let touched = 0;
-
-        const propagateEntry = (optionIds, modelIds) => {
-            if (!optionIds.length || !modelIds.length) return;
-            const union = modelIds.filter(Boolean);
-            optionIds.forEach((optId) => {
-                const opt = findImportStagingOptionById(optId);
-                if (!opt) return;
-                const prev = (Array.isArray(opt.compatibleModels) ? opt.compatibleModels : []).map(String).sort().join(',');
-                opt.compatibleModels = [...union];
-                const now = opt.compatibleModels.map(String).sort().join(',');
-                if (prev !== now) touched += 1;
-            });
-        };
-
-        products.forEach((bp) => {
-            propagateEntry(bp.optionIds || [], bp.modelIds || []);
-        });
-        if (!products.length) {
-            registry.forEach((entry) => {
-                propagateEntry(entry.optionIds, [...entry.modelIds]);
-            });
-        }
-
-        return touched;
-    }
-
     function toggleImportMinorationModelAssignment(optionId, modelId, checked) {
         const opt = findImportStagingOptionById(optionId);
         if (!opt) return;
@@ -2532,12 +2642,12 @@
         const unique = [...new Set(labels)];
         if (unique.length <= 1) {
             return unique[0]
-                ? `<div class="ugap-import-mino-label-raw"><strong>Libellé Excel :</strong> ${escapeHtml(unique[0])}</div>`
+                ? `<div class="ugap-import-mino-label-raw ugap-import-mino-label-raw--multiline"><strong>Excel :</strong> ${escapeHtml(unique[0])}</div>`
                 : '';
         }
-        const items = unique.map((l) => `<li>${escapeHtml(l)}</li>`).join('');
+        const items = unique.map((l) => `<li class="ugap-import-mino-label-raw--multiline">${escapeHtml(l)}</li>`).join('');
         return `<details class="ugap-bp-linked-minos-details" style="margin-top:6px;">
-            <summary class="ugap-import-mino-hint">${unique.length} libellé(s) Excel</summary>
+            <summary class="ugap-import-mino-hint">${unique.length} lib. Excel</summary>
             <ul class="ugap-bp-linked-minos-list">${items}</ul>
         </details>`;
     }
@@ -2553,12 +2663,13 @@
             ? `<div class="ugap-import-mino-hint"><strong>Source moteur :</strong> ${escapeHtml(links.sourceHint)}</div>`
             : '';
         const bp = ensureImportBaseProductForAdj(sample, group, models);
-        const inputHtml = `<input type="text" class="ugap-mino-option-name-input${motorCls}" data-mino-field="importOptionLabelGroup"
-                data-adj-group-opts="${encOptIdsAttr}" value="${escapeHtml(label)}"
-                placeholder="Nom de l'option (renommer)">`;
-        const extraHtml = `<span class="ugap-import-mino-hint">${group.options.length} lignes Excel regroupées</span>`;
+        const inputHtml = renderImportAdjOptionNameInputHtml(
+            label,
+            `data-mino-field="importOptionLabelGroup" data-adj-group-opts="${encOptIdsAttr}"`,
+            motorCls
+        );
         return `${sourceHint}
-        ${renderImportAdjOptionNameTypeRowHtml(inputHtml, bp, models, extraHtml, sample, group)}
+        ${renderImportAdjOptionNameTypeRowHtml(inputHtml, bp, models, '', sample, group)}
         ${renderImportMinorationPricesBlockHtml(null, group, models, priceKind)}
         ${renderImportGroupedAdjExcelLabelsHtml(group)}
         ${priceKind === 'majoration' ? renderImportDetachFromBaseProductButton(group.options) : ''}`;
@@ -2625,22 +2736,29 @@
             ? `<div class="ugap-import-mino-hint"><strong>Source moteur :</strong> ${escapeHtml(links.sourceHint)}</div>`
             : '';
         const bp = ensureImportBaseProductForAdj(opt, null, modelList);
-        const inputHtml = `<input type="text" class="ugap-mino-option-name-input${motorCls}" data-mino-opt-id="${encOptId}"
-                data-mino-field="importOptionLabel" value="${escapeHtml(displayLabel)}"
-                placeholder="Nom de l'option (renommer)">`;
+        const inputHtml = renderImportAdjOptionNameInputHtml(
+            displayLabel,
+            `data-mino-opt-id="${encOptId}" data-mino-field="importOptionLabel"`,
+            motorCls
+        );
         return `${sourceHint}
             ${renderImportAdjOptionNameTypeRowHtml(inputHtml, bp, modelList, '', opt, null)}
             ${renderImportMinorationPricesBlockHtml(opt, null, modelList, priceKind)}
-            <div class="ugap-import-mino-label-raw"><strong>Libellé Excel :</strong> ${raw}</div>
+            <div class="ugap-import-mino-label-raw ugap-import-mino-label-raw--multiline"><strong>Excel :</strong> ${raw}</div>
             ${priceKind === 'majoration' ? renderImportDetachFromBaseProductButton(opt) : ''}`;
     }
 
     function renderImportMinorationRegistrySummary(registry, models) {
-        if (!registry || !registry.size) return '';
+        if (!registry || !registry.size) {
+            return '';
+        }
         const allModels = Array.isArray(models) ? models : getImportStagingModelsForAssignment();
         const posteFilter = getImportPosteFilterValue();
         const modelList = filterImportModelsByPosteFilter(allModels, posteFilter);
-        let products = syncImportBaseProductsFromRegistry(registry, allModels);
+        let products = getImportBaseProductsStore();
+        if (!products.length && registry?.size) {
+            products = syncImportBaseProductsFromRegistry(registry, allModels);
+        }
         if (posteFilter) {
             products = products.filter((bp) => importBaseProductMatchesPosteFilter(bp, posteFilter, allModels));
         }
@@ -2671,16 +2789,18 @@
                 Autres doublons : fusion manuelle via « Fusionner cette ligne dans… ».
                 « Fixe » : un prix pour tous les postes. « Par poste » : prix différent par P1, P2…
             </div>
-            <div class="ugap-import-mino-table-scroll ugap-import-bp-table-wrap" style="margin-top:10px;">
-                <table class="ugap-import-mino-table">
-                    <thead>
-                        <tr>
-                            <th class="ugap-import-mino-sticky-detail">Détail</th>
-                            ${headerPostes}
-                        </tr>
-                    </thead>
-                    <tbody>${rows}</tbody>
-                </table>
+            <div class="ugap-import-mino-registry-stack">
+                <div class="ugap-import-mino-table-scroll ugap-import-bp-table-wrap">
+                    <table class="ugap-import-mino-table">
+                        <thead>
+                            <tr>
+                                <th class="ugap-import-mino-sticky-detail">Détail</th>
+                                ${headerPostes}
+                            </tr>
+                        </thead>
+                        <tbody>${rows}</tbody>
+                    </table>
+                </div>
             </div>
         </div>`;
     }
@@ -2743,6 +2863,72 @@
                 window.parent.postMessage(payload, window.location.origin);
             }
         } catch (_e) { /* ignore */ }
+    }
+
+    function getImportActionsDockConfig() {
+        if (String(window.importViewMode || 'list') !== 'editor') return null;
+        const step = String(wfState()?.step || '');
+        const byStep = {
+            'import-base-options': {
+                saveHandler: 'saveImportBaseOptionsStep',
+                saveLabel: 'Enregistrer options de base',
+                nextStep: 'minorations',
+                nextLabel: 'Étape suivante → Minorations'
+            },
+            minorations: {
+                saveHandler: 'saveImportMinorationsStep',
+                saveLabel: 'Enregistrer assignations',
+                nextStep: 'majorations',
+                nextLabel: 'Étape suivante → Majorations'
+            },
+            majorations: {
+                saveHandler: 'saveImportMajorationsStep',
+                saveLabel: 'Enregistrer assignations',
+                nextStep: 'families-tri',
+                nextLabel: 'Étape suivante → Options'
+            },
+            'families-tri': {
+                saveHandler: 'saveImportOptionsTriStep',
+                saveLabel: 'Enregistrer',
+                nextStep: 'families-unmatched',
+                nextLabel: 'Étape suivante → PR'
+            }
+        };
+        return byStep[step] || null;
+    }
+
+    function syncImportActionsDock() {
+        bindImportWorkflowActionsBar();
+        const cfg = getImportActionsDockConfig();
+        const bar = document.getElementById('ugap-import-workflow-actions');
+        if (!bar) return;
+        if (!cfg) {
+            bar.hidden = true;
+            bar.innerHTML = '';
+        } else {
+            bar.hidden = false;
+            bar.innerHTML = buildImportWorkflowActionsHtml(cfg);
+        }
+    }
+
+    function bindImportActionsDockInvokeListener() {
+        if (window.__ugapImportActionsDockInvokeBound) return;
+        window.__ugapImportActionsDockInvokeBound = true;
+        window.addEventListener('message', (event) => {
+            if (event.origin !== window.location.origin) return;
+            const data = event.data;
+            if (!data || !data.type) return;
+            if (data.type !== 'ugap-import-actions-invoke') return;
+            const cfg = getImportActionsDockConfig();
+            if (!cfg) return;
+            if (data.action === 'save') {
+                const fn = window[cfg.saveHandler];
+                if (typeof fn === 'function') fn();
+            } else if (data.action === 'next' && cfg.nextStep) {
+                switchImportWorkflowStep(cfg.nextStep);
+                if (typeof renderImportWorkflow === 'function') renderImportWorkflow();
+            }
+        });
     }
 
     function syncImportMinorationRecapDock() {
@@ -2816,18 +3002,6 @@
         return 'families-tri';
     }
 
-    function runCompleteImportBaseOptionsFromAdj() {
-        const rows = getImportRowsForBaseProductRegistry();
-        const products = syncImportBaseProductsFromAdjRows();
-        const majCount = rows.filter(isImportMajorationOption).length;
-        const minoCount = rows.filter(isImportMinorationOption).length;
-        showAlert(
-            `${products.length} option(s) de base (${minoCount} mino + ${majCount} majo). Libellés « base » distincts ; même nom ailleurs fusionné (prix par poste si besoin).`,
-            products.length ? 'success' : 'info'
-        );
-        renderImportWorkflow();
-    }
-
     function renderImportBaseOptionsStepHtml() {
         ensureImportMinoStyles();
         const models = getImportStagingModelsForAssignment();
@@ -2843,17 +3017,13 @@
 
         const registry = buildImportMinorationBaseProductRegistry(adjRows, models);
         const registryCount = registry.size;
-        const registryHtml = renderImportMinorationRegistrySummary(registry, models);
 
         if (!registryCount) {
             return `<div class="ugap-import-mino-wrap">
                 <div class="ugap-import-mino-summary">
                     <strong>Étape 2 — Options de base</strong> — Aucune option de base détectée pour l'instant.
                 </div>
-                <p style="color:#6b7280;">Les options de base sont dérivées des minorations (MINO) et majorations (en remplacement, moteur…). Complétez après l'étape Majorations si besoin.</p>
-                <div class="ugap-import-mino-toolbar">
-                    <button type="button" class="btn btn-outline" onclick="switchImportWorkflowStep('minorations'); renderImportWorkflow();">Étape suivante → Minorations</button>
-                </div>
+                <p style="color:#6b7280;">Les options de base sont dérivées des minorations (MINO) et majorations. Elles se mettent à jour automatiquement lors de l'enregistrement aux étapes 3 et 4.</p>
             </div>`;
         }
 
@@ -2862,6 +3032,7 @@
         const posteFilterNote = posteFilter
             ? ` <span style="color:#64748b;">(filtre poste P${escapeHtml(posteFilter)})</span>`
             : '';
+        const registryHtml = renderImportMinorationRegistrySummary(registry, models);
 
         return `<div class="ugap-import-mino-wrap">
             <div class="ugap-import-mino-summary">
@@ -2872,12 +3043,6 @@
                 ${posteFilterHtml}
             </div>
             ${registryHtml}
-            <div class="ugap-import-mino-toolbar">
-                <button type="button" class="btn btn-outline" onclick="runCompleteImportBaseOptionsFromAdj()">Actualiser depuis mino / majorations</button>
-                <button type="button" class="btn btn-outline" onclick="runPropagateImportMinorationPostes()">Compléter les postes (option de base)</button>
-                <button type="button" class="btn btn-success" onclick="saveImportBaseOptionsStep()">Enregistrer options de base</button>
-                <button type="button" class="btn btn-outline" onclick="switchImportWorkflowStep('minorations'); renderImportWorkflow();">Étape suivante → Minorations</button>
-            </div>
         </div>`;
     }
 
@@ -2958,7 +3123,7 @@
             ? ` <span style="color:#64748b;">(filtre poste P${escapeHtml(posteFilter)})</span>`
             : '';
         const groupHint = groupByFusionLabel && displayGroups && rowsForAssignTable.length > displayRowCount
-            ? ` <span style="color:#64748b;">(${rowsForAssignTable.length} lignes Excel regroupées par Option)</span>`
+            ? ` <span style="color:#64748b;">(${rowsForAssignTable.length} lignes → ${displayRowCount} options)</span>`
             : '';
 
         let rowsHtml;
@@ -2992,19 +3157,19 @@
                 ${posteFilterHtml}
                 ${extraToolbarHtml}
                 <button type="button" class="btn btn-outline" onclick="${seedHandlerName}()">Pré-cocher les postes (libellé / croix)</button>
-                <button type="button" class="btn btn-success" onclick="${saveHandlerName}()">Enregistrer assignations</button>
-                <button type="button" class="btn btn-outline" onclick="switchImportWorkflowStep('${escapeHtml(nextStep)}'); renderImportWorkflow();">${escapeHtml(nextLabel)}</button>
             </div>
-            <div class="ugap-import-mino-table-scroll ugap-import-mino-assign-table-wrap">
-                <table class="ugap-import-mino-table">
-                    <thead>
-                        <tr>
-                            <th class="ugap-import-mino-sticky-detail">Détail</th>
-                            ${headerPostes}
-                        </tr>
-                    </thead>
-                    <tbody>${rowsHtml}</tbody>
-                </table>
+            <div class="ugap-import-mino-registry ugap-import-mino-registry-stack">
+                <div class="ugap-import-mino-table-scroll ugap-import-mino-assign-table-wrap">
+                    <table class="ugap-import-mino-table">
+                        <thead>
+                            <tr>
+                                <th class="ugap-import-mino-sticky-detail">Détail</th>
+                                ${headerPostes}
+                            </tr>
+                        </thead>
+                        <tbody>${rowsHtml}</tbody>
+                    </table>
+                </div>
             </div>
         </div>`;
     }
@@ -3030,7 +3195,7 @@
             stepTitle: 'Étape 4 — Majorations',
             filterFn: isImportMajorationOption,
             emptyModelsMsg: 'Validez d\'abord les modèles (étape 1) avant d\'assigner les majorations.',
-            emptyRowsMsg: 'Aucune majoration détectée (en remplacement, en lieu et place, moteur…). Les PR et lignes MINO sont exclues.',
+            emptyRowsMsg: 'Aucune majoration détectée (remplacement, motorisation catalogue, 150 CV, DF…). Les PR, MINO et forfaits/garanties moteur sont exclus.',
             nextStep: 'families-tri',
             nextLabel: 'Étape suivante → Options',
             seedHandlerName: 'runSeedImportMajorationPostes',
@@ -3038,8 +3203,7 @@
             priceKind: 'majoration',
             hideSuppressions: true,
             groupByFusionLabel: true,
-            autoSeedFn: maybeAutoSeedImportMajorationPostes,
-            extraToolbarHtml: '<button type="button" class="btn btn-outline" onclick="runCompleteImportBaseOptionsFromAdj()">Compléter options de base</button>'
+            autoSeedFn: maybeAutoSeedImportMajorationPostes
         });
     }
 
@@ -3222,20 +3386,20 @@
             <div class="ugap-import-mino-toolbar" style="margin-bottom:10px;">
                 ${posteFilterHtml}
                 <button type="button" class="btn btn-outline" onclick="runSeedImportOptionsTriPostes()">Pré-cocher les postes (libellé / croix)</button>
-                <button type="button" class="btn btn-success" onclick="saveImportOptionsTriStep()">Enregistrer</button>
-                <button type="button" class="btn btn-outline" onclick="switchImportWorkflowStep('families-unmatched'); renderImportWorkflow();">Étape suivante → PR</button>
             </div>
-            <div class="ugap-import-opt-tri-table-wrap">
-                <table class="ugap-import-mino-table ugap-import-opt-tri-table">
-                    <thead>
-                        <tr>
-                            <th class="ugap-import-opt-tri-type-col">Type</th>
-                            <th class="ugap-import-opt-tri-label-col">Libellé</th>
-                            <th class="ugap-import-mino-poste-col ugap-import-mino-poste-group">Poste</th>
-                        </tr>
-                    </thead>
-                    <tbody>${tableRows}</tbody>
-                </table>
+            <div class="ugap-import-mino-registry ugap-import-mino-registry-stack">
+                <div class="ugap-import-opt-tri-table-wrap">
+                    <table class="ugap-import-mino-table ugap-import-opt-tri-table">
+                        <thead>
+                            <tr>
+                                <th class="ugap-import-opt-tri-type-col">Type</th>
+                                <th class="ugap-import-opt-tri-label-col">Libellé</th>
+                                <th class="ugap-import-mino-poste-col ugap-import-mino-poste-group">Poste</th>
+                            </tr>
+                        </thead>
+                        <tbody>${tableRows}</tbody>
+                    </table>
+                </div>
             </div>
         </div>`;
     }
@@ -3267,6 +3431,7 @@
     function onImportOptionsStepRendered() {
         bindImportOptionsTriEditor();
         syncImportMinorationRecapDock();
+        syncImportActionsDock();
         scheduleImportOptionsTriEmbedResize();
         const triWrap = document.querySelector('.ugap-import-opt-tri-table-wrap');
         if (triWrap && typeof ResizeObserver !== 'undefined') {
@@ -3282,36 +3447,29 @@
         }
     }
 
-    async function saveImportOptionsTriStep() {
+    async function saveImportOptionsTriStep(opts = {}) {
+        const quiet = !!opts.quiet;
         const importId = stagingId();
         if (!staging() || !importId) {
-            showAlert('Aucun import en cours.', 'warning');
-            return;
+            if (!quiet) showAlert('Aucun import en cours.', 'warning');
+            throw new Error('Aucun import en cours.');
         }
         const updates = getImportStagingOptionsFlat()
             .filter(isImportTriEligibleOption)
             .map(mapImportAdjUpdateForSave)
             .filter((row) => row.optionId);
 
-        try {
-            const result = await apiCall(`/imports/staging/${encodeURIComponent(importId)}/options-tri`, {
-                method: 'POST',
-                body: JSON.stringify({ updates })
-            });
-            if (result?.data) {
-                if (typeof window.__ugapSetImportStaging === 'function') {
-                    window.__ugapSetImportStaging(result.data, result.data?._id);
-                } else {
-                    window.currentImportStaging = result.data;
-                    window.currentImportId = String(result.data?._id || importId || '');
-                }
-            }
+        const result = await apiCall(`/imports/staging/${encodeURIComponent(importId)}/options-tri`, {
+            method: 'POST',
+            body: JSON.stringify({ updates })
+        });
+        applyImportStagingApiResult(result, importId);
+        if (!quiet) {
             showAlert('Options enregistrées (types et postes).', 'success');
             renderImportStagingIndicator(staging());
             renderImportWorkflow();
-        } catch (error) {
-            showAlert('Erreur enregistrement options : ' + error.message, 'error');
         }
+        return result?.data;
     }
 
     function bindImportMinorationAssignEditor() {
@@ -3398,6 +3556,7 @@
     function onImportBaseOptionsStepRendered() {
         bindImportBaseProductsEditor();
         syncImportMinorationRecapDock();
+        syncImportActionsDock();
         if (typeof scheduleParentEmbedResize === 'function') scheduleParentEmbedResize();
         else if (typeof notifyParentEmbedResize === 'function') notifyParentEmbedResize();
     }
@@ -3405,6 +3564,7 @@
     function onImportMinorationsStepRendered() {
         bindImportMinorationAssignEditor();
         syncImportMinorationRecapDock();
+        syncImportActionsDock();
         if (typeof scheduleParentEmbedResize === 'function') scheduleParentEmbedResize();
         else if (typeof notifyParentEmbedResize === 'function') notifyParentEmbedResize();
     }
@@ -3412,6 +3572,7 @@
     function onImportMajorationsStepRendered() {
         bindImportMinorationAssignEditor();
         syncImportMinorationRecapDock();
+        syncImportActionsDock();
         if (typeof scheduleParentEmbedResize === 'function') scheduleParentEmbedResize();
         else if (typeof notifyParentEmbedResize === 'function') notifyParentEmbedResize();
     }
@@ -3428,37 +3589,34 @@
         renderImportWorkflow();
     }
 
-    function runPropagateImportMinorationPostes() {
-        const n = propagateImportMinorationPostesByBaseProduct();
-        showAlert(`${n} ligne(s) complétée(s) par option de base commune.`, n ? 'success' : 'info');
-        renderImportWorkflow();
+    function applyImportStagingApiResult(result, importId) {
+        if (!result?.data) return;
+        if (typeof window.__ugapSetImportStaging === 'function') {
+            window.__ugapSetImportStaging(result.data, result.data?._id);
+        } else {
+            window.currentImportStaging = result.data;
+            window.currentImportId = String(result.data?._id || importId || '');
+        }
     }
 
-    async function saveImportBaseOptionsStep() {
+    async function saveImportBaseOptionsStep(opts = {}) {
+        const quiet = !!opts.quiet;
         const importId = stagingId();
         if (!staging() || !importId) {
-            showAlert('Aucun import en cours.', 'warning');
-            return;
+            if (!quiet) showAlert('Aucun import en cours.', 'warning');
+            throw new Error('Aucun import en cours.');
         }
-        try {
-            const result = await apiCall(`/imports/staging/${encodeURIComponent(importId)}/base-products`, {
-                method: 'POST',
-                body: JSON.stringify({ baseProducts: getImportBaseProductsForSave() })
-            });
-            if (result?.data) {
-                if (typeof window.__ugapSetImportStaging === 'function') {
-                    window.__ugapSetImportStaging(result.data, result.data?._id);
-                } else {
-                    window.currentImportStaging = result.data;
-                    window.currentImportId = String(result.data?._id || importId || '');
-                }
-            }
+        const result = await apiCall(`/imports/staging/${encodeURIComponent(importId)}/base-products`, {
+            method: 'POST',
+            body: JSON.stringify({ baseProducts: getImportBaseProductsForSave() })
+        });
+        applyImportStagingApiResult(result, importId);
+        if (!quiet) {
             showAlert('Options de base enregistrées.', 'success');
             renderImportStagingIndicator(staging());
             renderImportWorkflow();
-        } catch (error) {
-            showAlert('Erreur enregistrement options de base : ' + error.message, 'error');
         }
+        return result?.data;
     }
 
     function mapImportAdjUpdateForSave(opt) {
@@ -3473,83 +3631,82 @@
         return row;
     }
 
-    async function saveImportMinorationsStep() {
+    async function saveImportMinorationsStep(opts = {}) {
+        const quiet = !!opts.quiet;
         const importId = stagingId();
         if (!staging() || !importId) {
-            showAlert('Aucun import en cours.', 'warning');
-            return;
+            if (!quiet) showAlert('Aucun import en cours.', 'warning');
+            throw new Error('Aucun import en cours.');
         }
         const updates = getImportStagingOptionsFlat()
             .filter(isImportMinorationOption)
             .map(mapImportAdjUpdateForSave)
             .filter((row) => row.optionId);
 
-        try {
-            const result = await apiCall(`/imports/staging/${encodeURIComponent(importId)}/minorations`, {
-                method: 'POST',
-                body: JSON.stringify({ updates })
-            });
-            if (result?.data) {
-                if (typeof window.__ugapSetImportStaging === 'function') {
-                    window.__ugapSetImportStaging(result.data, result.data?._id);
-                } else {
-                    window.currentImportStaging = result.data;
-                    window.currentImportId = String(result.data?._id || importId || '');
-                }
-            }
+        const result = await apiCall(`/imports/staging/${encodeURIComponent(importId)}/minorations`, {
+            method: 'POST',
+            body: JSON.stringify({
+                updates,
+                baseProducts: getImportBaseProductsForSave()
+            })
+        });
+        applyImportStagingApiResult(result, importId);
+        if (!quiet) {
             showAlert('Assignations minorations enregistrées.', 'success');
             renderImportStagingIndicator(staging());
             renderImportWorkflow();
-        } catch (error) {
-            showAlert('Erreur enregistrement minorations : ' + error.message, 'error');
         }
+        return result?.data;
     }
 
-    async function saveImportMajorationsStep() {
+    async function saveImportMajorationsStep(opts = {}) {
+        const quiet = !!opts.quiet;
         const importId = stagingId();
         if (!staging() || !importId) {
-            showAlert('Aucun import en cours.', 'warning');
-            return;
+            if (!quiet) showAlert('Aucun import en cours.', 'warning');
+            throw new Error('Aucun import en cours.');
         }
         const updates = getImportStagingOptionsFlat()
             .filter(isImportMajorationOption)
             .map(mapImportAdjUpdateForSave)
             .filter((row) => row.optionId);
 
-        try {
-            const result = await apiCall(`/imports/staging/${encodeURIComponent(importId)}/majorations`, {
-                method: 'POST',
-                body: JSON.stringify({
-                    updates,
-                    baseProducts: getImportBaseProductsForSave()
-                })
-            });
-            if (result?.data) {
-                if (typeof window.__ugapSetImportStaging === 'function') {
-                    window.__ugapSetImportStaging(result.data, result.data?._id);
-                } else {
-                    window.currentImportStaging = result.data;
-                    window.currentImportId = String(result.data?._id || importId || '');
-                }
-            }
+        const result = await apiCall(`/imports/staging/${encodeURIComponent(importId)}/majorations`, {
+            method: 'POST',
+            body: JSON.stringify({
+                updates,
+                baseProducts: getImportBaseProductsForSave()
+            })
+        });
+        applyImportStagingApiResult(result, importId);
+        if (!quiet) {
             showAlert('Assignations majorations enregistrées.', 'success');
             renderImportStagingIndicator(staging());
             renderImportWorkflow();
-        } catch (error) {
-            showAlert('Erreur enregistrement majorations : ' + error.message, 'error');
         }
+        return result?.data;
+    }
+
+    async function saveAllImportWorkflowStepsForPublish() {
+        const importId = stagingId();
+        if (!staging() || !importId) throw new Error('Aucun import en cours.');
+        await saveImportBaseOptionsStep({ quiet: true });
+        await saveImportMinorationsStep({ quiet: true });
+        await saveImportMajorationsStep({ quiet: true });
+        await saveImportOptionsTriStep({ quiet: true });
+        return staging();
     }
 
     window.isImportMinorationOption = isImportMinorationOption;
     window.isImportMajorationOption = isImportMajorationOption;
     window.isImportPrOption = isImportPrOption;
     window.isImportMotorMinoration = isImportMotorMinoration;
+    window.isImportMotorCatalogLine = isImportMotorCatalogLine;
     window.getImportStagingOptionsFlat = getImportStagingOptionsFlat;
     window.getImportStagingModelsForAssignment = getImportStagingModelsForAssignment;
     window.findImportMotorBaseProduct = findImportMotorBaseProduct;
     window.resolveImportMinorationOptionLinks = resolveImportMinorationOptionLinks;
     window.seedImportMinorationPosteAssignments = seedImportMinorationPosteAssignments;
-    window.propagateImportMinorationPostesByBaseProduct = propagateImportMinorationPostesByBaseProduct;
     window.toggleImportMinorationModelAssignment = toggleImportMinorationModelAssignment;
     window.toggleImportAdjGroupModelAssignment = toggleImportAdjGroupModelAssignment;
 
@@ -3563,14 +3720,15 @@
     window.getImportResolvedLineKind = getImportResolvedLineKind;
     window.saveImportOptionsTriStep = saveImportOptionsTriStep;
     window.syncImportMinorationRecapDock = syncImportMinorationRecapDock;
+    window.syncImportActionsDock = syncImportActionsDock;
+    bindImportActionsDockInvokeListener();
     window.runSeedImportMinorationPostes = runSeedImportMinorationPostes;
     window.runSeedImportMajorationPostes = runSeedImportMajorationPostes;
     window.runSeedImportOptionsTriPostes = runSeedImportOptionsTriPostes;
-    window.runPropagateImportMinorationPostes = runPropagateImportMinorationPostes;
-    window.runCompleteImportBaseOptionsFromAdj = runCompleteImportBaseOptionsFromAdj;
     window.saveImportBaseOptionsStep = saveImportBaseOptionsStep;
     window.saveImportMinorationsStep = saveImportMinorationsStep;
     window.saveImportMajorationsStep = saveImportMajorationsStep;
+    window.saveAllImportWorkflowStepsForPublish = saveAllImportWorkflowStepsForPublish;
     window.runDetachImportAdjFromBaseProducts = runDetachImportAdjFromBaseProducts;
     window.maybeAutoSeedImportMinorationPostes = maybeAutoSeedImportMinorationPostes;
     window.maybeAutoSeedImportMajorationPostes = maybeAutoSeedImportMajorationPostes;

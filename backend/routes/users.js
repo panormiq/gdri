@@ -17,6 +17,15 @@ const mailModule = require(path.join(__dirname, '../../modules/mail/backend'));
 const TOKEN_INVITE_TTL_HOURS = 48;
 const TOKEN_RESET_TTL_HOURS = 2;
 
+function objectIdToString(value) {
+  if (!value) return '';
+  try {
+    return String(value);
+  } catch (_) {
+    return '';
+  }
+}
+
 function buildAppBaseUrl(req) {
   const forwardedProto = req.headers['x-forwarded-proto'];
   const forwardedHost = req.headers['x-forwarded-host'];
@@ -219,9 +228,6 @@ router.post('/', authenticateJWT, async (req, res) => {
     if (!['admin', 'user'].includes(roleInEntity)) {
       return res.status(400).json({ success: false, message: 'Rôle invalide' });
     }
-    if (roleInEntity === 'admin' && req.user.role !== 'ADMIN_GDRI') {
-      return res.status(403).json({ success: false, message: 'Seul un ADMIN_GDRI peut créer un administrateur' });
-    }
     if (req.user.role === 'ADMIN_ENTITY' && currentEntrepriseId && entityId !== currentEntrepriseId.toString()) {
       return res.status(403).json({ success: false, message: 'Entité non autorisée' });
     }
@@ -331,6 +337,14 @@ router.post('/', authenticateJWT, async (req, res) => {
         { $set: updateData }
       );
 
+      if (roleInEntity === 'admin' && !entity.ownerUserId) {
+        const entitiesCollection = db.collection('entities');
+        await entitiesCollection.updateOne(
+          { _id: new ObjectId(entityId), ownerUserId: { $exists: false } },
+          { $set: { ownerUserId: new ObjectId(existingUser._id), updated_at: new Date() } }
+        );
+      }
+
       try {
         const entrepriseDb = await database.getEntrepriseDb(entityId);
         const entrepriseUsersCollection = entrepriseDb.collection('users');
@@ -382,6 +396,14 @@ router.post('/', authenticateJWT, async (req, res) => {
     });
 
     const newUserId = insertResult.insertedId;
+
+    if (roleInEntity === 'admin' && !entity.ownerUserId) {
+      const entitiesCollection = db.collection('entities');
+      await entitiesCollection.updateOne(
+        { _id: new ObjectId(entityId), ownerUserId: { $exists: false } },
+        { $set: { ownerUserId: new ObjectId(newUserId), updated_at: now } }
+      );
+    }
 
     const { rawToken } = await createInviteToken(db, {
       userId: newUserId,
@@ -855,15 +877,24 @@ router.get('/me/services-context', authenticateJWT, async (req, res) => {
         services = await servicesCollection.find({ _id: { $in: authorizedIds } }).toArray();
       }
 
+      // Permissions par défaut par rôle (admin/user) au niveau entité.
+      const roleKey = role === 'ADMIN_ENTITY' ? 'admin' : 'user';
+      const defaultsRaw = Array.isArray(entity?.default_module_permissions?.[roleKey])
+        ? entity.default_module_permissions[roleKey]
+        : null;
+      if (Array.isArray(defaultsRaw)) {
+        const defaultSet = new Set(defaultsRaw.map((x) => String(x)));
+        services = services.filter((s) => defaultSet.has(String(s._id)));
+      }
+
       // Restriction complémentaire user (services_authorized dans base entreprise)
-      if (role === 'USER_ENTITY') {
+      if (role === 'USER_ENTITY' || role === 'ADMIN_ENTITY') {
         try {
           const entrepriseDb = await database.getEntrepriseDb(String(currentEntrepriseId));
           const userRef = await entrepriseDb.collection('users').findOne({ userId: new ObjectId(userId) });
-          const userAllowed = Array.isArray(userRef?.services_authorized)
-            ? userRef.services_authorized.map((x) => String(x))
-            : null;
-          if (userAllowed && userAllowed.length > 0) {
+          const hasUserSpecificRules = Array.isArray(userRef?.services_authorized);
+          const userAllowed = hasUserSpecificRules ? userRef.services_authorized.map((x) => String(x)) : null;
+          if (hasUserSpecificRules) {
             const allowSet = new Set(userAllowed);
             services = services.filter((s) => allowSet.has(String(s._id)));
           }
@@ -996,6 +1027,163 @@ router.put('/me/current-entreprise', authenticateJWT, async (req, res) => {
   } catch (error) {
     console.error('Erreur route PUT /api/users/me/current-entreprise:', error);
     res.status(500).json({
+      success: false,
+      message: error.message || 'Erreur serveur'
+    });
+  }
+});
+
+/**
+ * DELETE /api/users/:userId
+ * Supprime définitivement un compte utilisateur
+ */
+router.delete('/:userId', authenticateJWT, async (req, res) => {
+  try {
+    if (req.user.role !== 'ADMIN_GDRI' && req.user.role !== 'ADMIN_ENTITY') {
+      return res.status(403).json({
+        success: false,
+        message: 'Accès refusé'
+      });
+    }
+
+    const { userId } = req.params;
+    if (!ObjectId.isValid(userId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'ID utilisateur invalide'
+      });
+    }
+
+    if (String(req.user.user_id) === String(userId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Suppression de votre propre compte interdite'
+      });
+    }
+
+    const db = await database.connect();
+    const usersCollection = db.collection('users');
+    const userTokensCollection = db.collection('user_tokens');
+    const userObjectId = new ObjectId(userId);
+
+    const user = await usersCollection.findOne({ _id: userObjectId });
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'Utilisateur non trouvé'
+      });
+    }
+
+    const entreprises = Array.isArray(user.entreprises) ? user.entreprises : [];
+
+    // ADMIN_ENTITY: gestion limitée à son entité active (retrait ou suppression finale)
+    if (req.user.role === 'ADMIN_ENTITY') {
+      if (user.role === 'ADMIN_GDRI') {
+        return res.status(403).json({
+          success: false,
+          message: 'Suppression d\'un ADMIN_GDRI interdite'
+        });
+      }
+
+      const currentEntrepriseId = String(req.user.currentEntrepriseId || req.user.entrepriseId || '');
+      if (!/^[a-f0-9]{24}$/i.test(currentEntrepriseId)) {
+        return res.status(403).json({
+          success: false,
+          message: 'Entité active invalide pour cette opération'
+        });
+      }
+
+      const entitiesCollection = db.collection('entities');
+      const entityDoc = await entitiesCollection.findOne({ _id: new ObjectId(currentEntrepriseId) });
+      const ownerUserId = objectIdToString(entityDoc?.ownerUserId);
+      if (ownerUserId && ownerUserId === String(userId)) {
+        return res.status(403).json({
+          success: false,
+          message: 'Le propriétaire de l\'entité ne peut pas être supprimé par un administrateur'
+        });
+      }
+
+      const normalizedCurrent = currentEntrepriseId.toLowerCase();
+      const inCurrentEntity = entreprises.some((e) => {
+        const entrepriseId = e?.entrepriseId ? String(e.entrepriseId).toLowerCase() : '';
+        return entrepriseId === normalizedCurrent;
+      });
+
+      if (!inCurrentEntity) {
+        return res.status(403).json({
+          success: false,
+          message: 'Cet utilisateur n\'appartient pas à votre entité'
+        });
+      }
+
+      const nextEntreprises = entreprises.filter((e) => {
+        const entrepriseId = e?.entrepriseId ? String(e.entrepriseId).toLowerCase() : '';
+        return entrepriseId !== normalizedCurrent;
+      });
+
+      try {
+        const entrepriseDb = await database.getEntrepriseDb(currentEntrepriseId);
+        await entrepriseDb.collection('users').deleteOne({ userId: userObjectId });
+      } catch (refError) {
+        console.warn(`⚠️ Impossible de supprimer la référence utilisateur dans la base entreprise: ${refError.message}`);
+      }
+
+      if (nextEntreprises.length === 0) {
+        await userTokensCollection.deleteMany({ userId: userObjectId });
+        await usersCollection.deleteOne({ _id: userObjectId });
+        return res.json({
+          success: true,
+          message: 'Compte utilisateur supprimé avec succès',
+          data: { userId, mode: 'full_delete' }
+        });
+      }
+
+      const nextCurrentEntrepriseId = user.currentEntrepriseId
+        && String(user.currentEntrepriseId).toLowerCase() === normalizedCurrent
+        ? (nextEntreprises[0]?.entrepriseId || null)
+        : user.currentEntrepriseId;
+
+      await usersCollection.updateOne(
+        { _id: userObjectId },
+        {
+          $set: {
+            entreprises: nextEntreprises,
+            currentEntrepriseId: nextCurrentEntrepriseId,
+            updated_at: new Date()
+          }
+        }
+      );
+
+      return res.json({
+        success: true,
+        message: 'Utilisateur retiré de votre entité',
+        data: { userId, mode: 'entity_unlink' }
+      });
+    }
+
+    // ADMIN_GDRI: suppression globale
+    for (const entreprise of entreprises) {
+      try {
+        const entrepriseId = entreprise?.entrepriseId ? String(entreprise.entrepriseId) : '';
+        if (!/^[a-f0-9]{24}$/i.test(entrepriseId)) continue;
+        const entrepriseDb = await database.getEntrepriseDb(entrepriseId);
+        await entrepriseDb.collection('users').deleteOne({ userId: userObjectId });
+      } catch (refError) {
+        console.warn(`⚠️ Impossible de supprimer la référence utilisateur dans une base entreprise: ${refError.message}`);
+      }
+    }
+
+    await userTokensCollection.deleteMany({ userId: userObjectId });
+    await usersCollection.deleteOne({ _id: userObjectId });
+
+    return res.json({
+      success: true,
+      message: 'Compte utilisateur supprimé avec succès',
+      data: { userId, mode: 'full_delete' }
+    });
+  } catch (error) {
+    console.error('Erreur route DELETE /api/users/:userId:', error);
+    return res.status(500).json({
       success: false,
       message: error.message || 'Erreur serveur'
     });

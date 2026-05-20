@@ -180,6 +180,9 @@ class UgapDataService {
       entrepriseId,
       models: data.models || [],
       categories: (data.categories || []).map((cat) => this.normalizeCategory(cat)),
+      importBaseProducts: Array.isArray(data.importBaseProducts)
+        ? this.normalizeImportBaseProductsRows(data.importBaseProducts)
+        : (Array.isArray(existing?.importBaseProducts) ? existing.importBaseProducts : []),
       businessViews: Array.isArray(data.businessViews) ? data.businessViews.map((view) => this.normalizeBusinessView(view)) : [],
       dependencyRules: this.normalizeDependencyRules(data.dependencyRules),
       uiState: this.normalizeUiState(resolvedUiState),
@@ -933,6 +936,129 @@ class UgapDataService {
     return {
       deleted: result.deletedCount > 0,
       deletedCount: result.deletedCount || 0
+    };
+  }
+
+  static reextractModelsAndCategoriesFromSource(doc) {
+    const filePath = String(doc?.source?.sourceFilePath || '').trim();
+    if (!filePath || !fs.existsSync(filePath)) {
+      throw new Error('Fichier source introuvable pour ré-extraire les données');
+    }
+    const extracted = UgapExcelService.extractData(filePath);
+    return {
+      models: Array.isArray(extracted?.models) ? extracted.models : [],
+      categories: this.mergeImportedCategories(extracted?.categories || [])
+    };
+  }
+
+  static async reopenImportStaging(db, entrepriseId, importId) {
+    const collection = db.collection('ugap_import_staging');
+    const _id = new ObjectId(String(importId));
+    const doc = await collection.findOne({ _id, entrepriseId });
+    if (!doc) throw new Error('Import staging introuvable');
+    if (String(doc.status || '').toLowerCase() !== 'published') {
+      return doc;
+    }
+    const progress = doc.progress || {};
+    const computed = this.computeStagingStatuses(progress, { ...doc, status: 'validated' });
+    let nextStatus = String(computed.status || 'validated').toLowerCase();
+    if (nextStatus === 'published') nextStatus = 'validated';
+    await collection.updateOne(
+      { _id, entrepriseId },
+      {
+        $set: {
+          status: nextStatus,
+          updatedAt: new Date()
+        },
+        $unset: { publishedAt: '' }
+      }
+    );
+    return await collection.findOne({ _id, entrepriseId });
+  }
+
+  /**
+   * Ré-extrait le fichier source et remet staging + catalogue publié à l'état post-import Excel
+   * (même logique que saveImportStaging sur réimport du même fichier).
+   */
+  static async resetCatalogAndImportFromExtract(db, entrepriseId, importId = null) {
+    const collection = db.collection('ugap_import_staging');
+    let doc;
+    if (importId) {
+      doc = await collection.findOne({ _id: new ObjectId(String(importId)), entrepriseId });
+    } else {
+      doc = await collection.find({ entrepriseId }).sort({ updatedAt: -1 }).limit(1).next();
+    }
+    if (!doc) throw new Error('Aucun import trouvé');
+
+    const { models, categories } = this.reextractModelsAndCategoriesFromSource(doc);
+    const now = new Date();
+    const progress = {
+      validatedModelIds: [],
+      modelsCompleted: false,
+      optionsCompleted: false,
+      familiesCompleted: false,
+      viewsCompleted: false
+    };
+    const baseProg = this.normalizeStagingProgressForModels(models, progress);
+    const normalizedProgress = this.coerceStagingProgressOptionsWithDocument(
+      baseProg,
+      { ...doc, models, categories }
+    );
+    const computed = this.computeStagingStatuses(normalizedProgress, {
+      ...doc,
+      models,
+      categories,
+      progress: normalizedProgress
+    });
+
+    const stagingPatch = {
+      models,
+      categories,
+      importBaseProducts: [],
+      importAssignmentsSummary: null,
+      progress: normalizedProgress,
+      status: computed.status,
+      modelsStatus: 'to_validate',
+      optionsStatus: 'to_validate',
+      baseOptionsStatus: 'to_validate',
+      minorationsStatus: 'to_validate',
+      majorationsStatus: 'to_validate',
+      diversStatus: 'to_validate',
+      updatedAt: now
+    };
+
+    await collection.updateOne(
+      { _id: doc._id, entrepriseId },
+      {
+        $set: stagingPatch,
+        $unset: { publishedAt: '', importAssignmentsAppliedAt: '' }
+      }
+    );
+
+    const dataCol = db.collection('ugap_data');
+    const published = await dataCol.findOne({ entrepriseId });
+    await this.saveData(
+      db,
+      {
+        models,
+        categories,
+        importBaseProducts: [],
+        businessViews: published?.businessViews || doc.businessViews || [],
+        dependencyRules: published?.dependencyRules || doc.dependencyRules || [],
+        uiState: published?.uiState || doc.uiState || {}
+      },
+      entrepriseId
+    );
+
+    const optionsCount = categories.reduce(
+      (n, cat) => n + (Array.isArray(cat?.options) ? cat.options.length : 0),
+      0
+    );
+    return {
+      importId: String(doc._id),
+      modelsCount: models.length,
+      optionsCount,
+      status: stagingPatch.status
     };
   }
 
@@ -2133,34 +2259,150 @@ Exemple de forme (ids fictifs) :
         pricesByModelId,
         optionIds: Array.isArray(row?.optionIds) ? row.optionIds.map((x) => String(x || '').trim()).filter(Boolean) : [],
         modelIds: Array.isArray(row?.modelIds) ? row.modelIds.map((x) => String(x || '').trim()).filter(Boolean) : [],
-        aliases: Array.isArray(row?.aliases) ? row.aliases.map((x) => String(x || '').trim()).filter(Boolean) : []
+        aliases: Array.isArray(row?.aliases) ? row.aliases.map((x) => String(x || '').trim()).filter(Boolean) : [],
+        catalogOptionId: String(row?.catalogOptionId || '').trim()
       };
     }).filter((row) => (row.optionIds || []).length > 0);
   }
 
+  static IMPORT_BASE_PRODUCTS_CATEGORY_ID = 'cat_options_de_base_import';
+
+  /**
+   * Crée ou met à jour une option catalogue par regroupement importBaseProducts
+   * (dérivé des mino/majo, absentes du fichier Excel en tant qu'option distincte).
+   */
+  static materializeImportBaseProductsAsCatalogOptions(categories, importBaseProducts) {
+    const cats = Array.isArray(categories) ? categories : [...categories];
+    const products = this.normalizeImportBaseProductsRows(importBaseProducts);
+    if (!products.length) {
+      return { categories: cats, importBaseProducts: products };
+    }
+
+    const catId = this.IMPORT_BASE_PRODUCTS_CATEGORY_ID;
+    let targetCat = cats.find((c) => String(c?.id || '') === catId);
+    if (!targetCat) {
+      targetCat = {
+        id: catId,
+        name: 'Options de base (import)',
+        options: [],
+        subCategories: [],
+        selectionRules: {},
+        businessViewIds: [],
+        familyIds: []
+      };
+      cats.push(targetCat);
+    }
+
+    const options = Array.isArray(targetCat.options) ? targetCat.options : [];
+    const optionById = new Map(
+      options.map((o) => [String(o?.id || '').trim(), o]).filter(([id]) => id)
+    );
+    const allIds = new Set(
+      cats.flatMap((c) => (Array.isArray(c?.options) ? c.options : []))
+        .map((o) => String(o?.id || '').trim())
+        .filter(Boolean)
+    );
+
+    products.forEach((bp) => {
+      let catalogId = String(bp.catalogOptionId || '').trim();
+      if (catalogId && !allIds.has(catalogId)) catalogId = '';
+      if (!catalogId) {
+        const base = `opt_ibp_${String(bp.id).replace(/[^a-zA-Z0-9_]/g, '_').slice(0, 40)}`;
+        catalogId = base;
+        let n = 0;
+        while (allIds.has(catalogId)) catalogId = `${base}_${++n}`;
+      }
+      allIds.add(catalogId);
+      bp.catalogOptionId = catalogId;
+
+      const compatibleModels = Array.isArray(bp.modelIds)
+        ? bp.modelIds.map((x) => String(x || '').trim()).filter(Boolean)
+        : [];
+      let priceUgap = Number.isFinite(Number(bp.price)) ? Number(bp.price) : 0;
+      let priceClient = priceUgap;
+      const pricesByModelId = bp.pricingMode === 'per_model' && bp.pricesByModelId
+        ? { ...bp.pricesByModelId }
+        : {};
+
+      if (bp.pricingMode === 'per_model' && compatibleModels.length) {
+        const vals = compatibleModels
+          .map((mid) => Number(pricesByModelId[mid]))
+          .filter((v) => Number.isFinite(v));
+        if (vals.length) {
+          priceUgap = vals[0];
+          priceClient = vals[0];
+        }
+      }
+
+      const payload = {
+        id: catalogId,
+        name: String(bp.label || '').trim() || 'Option de base',
+        refUgap: `IBP-${String(bp.id).slice(0, 32)}`,
+        compatibleModels,
+        priceUgap,
+        priceClient,
+        baseIncluded: true,
+        manualBaseOption: true,
+        baseIncludedPrice: priceUgap,
+        importGeneratedFromBaseProduct: true,
+        importBaseProductId: bp.id,
+        importBaseProductSourceOptionIds: [...(bp.optionIds || [])],
+        isMinoration: false,
+        isSparePart: false,
+        isDivers: false
+      };
+      if (Object.keys(pricesByModelId).length) {
+        payload.pricesByModelId = pricesByModelId;
+        payload.importBaseProductPricingMode = 'per_model';
+      } else {
+        payload.importBaseProductPricingMode = 'fixed';
+      }
+
+      const existing = optionById.get(catalogId);
+      if (existing) {
+        Object.assign(existing, payload);
+      } else {
+        const normalized = this.normalizeOption(payload);
+        options.push(normalized);
+        optionById.set(catalogId, normalized);
+      }
+    });
+
+    targetCat.options = options;
+    return { categories: cats, importBaseProducts: products };
+  }
+
   static applyImportBaseProductsToCategories(categories, importBaseProducts) {
     const optionToBase = new Map();
+    const catalogByBaseId = new Map();
     (importBaseProducts || []).forEach((bp) => {
       (bp.optionIds || []).forEach((oid) => optionToBase.set(oid, bp.id));
+      if (bp.catalogOptionId) catalogByBaseId.set(bp.id, bp.catalogOptionId);
     });
     (Array.isArray(categories) ? categories : []).forEach((cat) => {
       (Array.isArray(cat?.options) ? cat.options : []).forEach((opt) => {
         const oid = String(opt?.id || '').trim();
+        if (opt?.importGeneratedFromBaseProduct) return;
         if (opt?.importExcludeFromBaseProduct) {
           delete opt.baseProductId;
           delete opt.baseProductLabel;
+          delete opt.linkedBaseCatalogOptionId;
           return;
         }
         const bpId = optionToBase.get(oid);
         if (!bpId) {
           delete opt.baseProductId;
           delete opt.baseProductLabel;
+          delete opt.linkedBaseCatalogOptionId;
           return;
         }
         opt.baseProductId = bpId;
         const bp = importBaseProducts.find((x) => x.id === bpId);
         if (bp?.label) opt.baseProductLabel = bp.label;
         else delete opt.baseProductLabel;
+        const catalogId = catalogByBaseId.get(bpId) || bp?.catalogOptionId;
+        if (catalogId) opt.linkedBaseCatalogOptionId = catalogId;
+        else delete opt.linkedBaseCatalogOptionId;
       });
     });
   }
@@ -2170,8 +2412,11 @@ Exemple de forme (ids fictifs) :
     const document = await collection.findOne({ _id: new ObjectId(String(importId)), entrepriseId });
     if (!document) throw new Error('Import staging introuvable');
 
-    const categories = Array.isArray(document.categories) ? document.categories : [];
-    const importBaseProducts = this.normalizeImportBaseProductsRows(baseProducts);
+    let categories = Array.isArray(document.categories) ? document.categories : [];
+    let importBaseProducts = this.normalizeImportBaseProductsRows(baseProducts);
+    const materialized = this.materializeImportBaseProductsAsCatalogOptions(categories, importBaseProducts);
+    categories = materialized.categories;
+    importBaseProducts = materialized.importBaseProducts;
     this.applyImportBaseProductsToCategories(categories, importBaseProducts);
 
     const draft = {
@@ -2302,7 +2547,7 @@ Exemple de forme (ids fictifs) :
       patchByOptionId.set(optionId, { compatibleModels, importOptionLabel, importOptionLineKind, importExcludeFromBaseProduct });
     });
 
-    const categories = Array.isArray(document.categories) ? document.categories : [];
+    let categories = Array.isArray(document.categories) ? document.categories : [];
     categories.forEach((cat) => {
       const opts = Array.isArray(cat?.options) ? cat.options : [];
       opts.forEach((opt) => {
@@ -2320,6 +2565,7 @@ Exemple de forme (ids fictifs) :
             opt.importExcludeFromBaseProduct = true;
             delete opt.baseProductId;
             delete opt.baseProductLabel;
+            delete opt.linkedBaseCatalogOptionId;
           }
           if (patch.importOptionLineKind) {
             UgapDataService.applyImportOptionLineKindToOption(opt, patch.importOptionLineKind);
@@ -2329,7 +2575,7 @@ Exemple de forme (ids fictifs) :
           opt.isMinoration = true;
           opt.manualMinorationAssignment = true;
         }
-        if (assignScope === 'majoration' && UgapImportAssignmentService.isMajorationLine(opt?.name, opt?.refUgap)) {
+        if (assignScope === 'majoration' && UgapImportAssignmentService.isMajorationLine(opt?.name, opt?.refUgap, opt?.category)) {
           opt.manualMajorationAssignment = true;
         }
       });
@@ -2338,6 +2584,9 @@ Exemple de forme (ids fictifs) :
     let importBaseProducts = document.importBaseProducts;
     if (Array.isArray(baseProducts)) {
       importBaseProducts = this.normalizeImportBaseProductsRows(baseProducts);
+      const materialized = this.materializeImportBaseProductsAsCatalogOptions(categories, importBaseProducts);
+      categories = materialized.categories;
+      importBaseProducts = materialized.importBaseProducts;
       this.applyImportBaseProductsToCategories(categories, importBaseProducts);
     }
 
@@ -2416,20 +2665,62 @@ Exemple de forme (ids fictifs) :
     return doc;
   }
 
+  /**
+   * Conserve le typage et les flags définis aux étapes d'import (sans heuristique publish).
+   */
+  static applyPublishFlagsFromSavedState(categories) {
+    (Array.isArray(categories) ? categories : []).forEach((cat) => {
+      (Array.isArray(cat?.options) ? cat.options : []).forEach((opt) => {
+        if (opt?.importGeneratedFromBaseProduct) return;
+        const kind = String(opt?.importOptionLineKind || '').trim().toLowerCase();
+        if (kind === 'minoration' || kind === 'majoration' || kind === 'option') {
+          this.applyImportOptionLineKindToOption(opt, kind);
+          return;
+        }
+        if (opt?.manualMinorationAssignment || UgapImportAssignmentService.isMinorationLine(opt?.name, opt?.refUgap)) {
+          opt.isMinoration = true;
+          opt.isSparePart = false;
+          opt.isDivers = false;
+          return;
+        }
+        if (opt?.manualMajorationAssignment) {
+          opt.isMinoration = false;
+          opt.isSparePart = false;
+          return;
+        }
+        if (opt?.isSparePart || UgapImportAssignmentService.isPrLabel(opt?.name)) {
+          opt.isSparePart = true;
+          return;
+        }
+        const comp = Array.isArray(opt.compatibleModels) ? opt.compatibleModels : [];
+        if (!opt.isMinoration && !opt.isSparePart) {
+          opt.isDivers = comp.length === 0;
+        }
+      });
+    });
+  }
+
   static async publishImportStaging(db, entrepriseId, importId) {
     const collection = db.collection('ugap_import_staging');
     const _id = new ObjectId(String(importId));
     let doc = await collection.findOne({ _id, entrepriseId });
     if (!doc) throw new Error('Import staging introuvable');
-    const { doc: assignedDoc } = UgapImportAssignmentService.applyStagingAssignments(doc);
-    doc = assignedDoc;
+
+    let categories = Array.isArray(doc.categories) ? doc.categories : [];
+    let importBaseProducts = this.normalizeImportBaseProductsRows(doc.importBaseProducts || []);
+    const materialized = this.materializeImportBaseProductsAsCatalogOptions(categories, importBaseProducts);
+    categories = materialized.categories;
+    importBaseProducts = materialized.importBaseProducts;
+    this.applyImportBaseProductsToCategories(categories, importBaseProducts);
+    this.applyPublishFlagsFromSavedState(categories);
+    doc = { ...doc, categories, importBaseProducts };
+
     await collection.updateOne(
       { _id, entrepriseId },
       {
         $set: {
           categories: doc.categories,
-          importAssignmentsSummary: doc.importAssignmentsSummary,
-          importAssignmentsAppliedAt: doc.importAssignmentsAppliedAt,
+          importBaseProducts: doc.importBaseProducts,
           updatedAt: new Date()
         }
       }
@@ -2437,6 +2728,7 @@ Exemple de forme (ids fictifs) :
     const payload = {
       models: doc.models || [],
       categories: doc.categories || [],
+      importBaseProducts: doc.importBaseProducts || [],
       businessViews: doc.businessViews || [],
       dependencyRules: doc.dependencyRules || [],
       uiState: doc.uiState || {}

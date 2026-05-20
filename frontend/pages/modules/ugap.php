@@ -119,40 +119,46 @@ require_once '../../includes/header.php';
     margin-top: 0;
 }
 
-/* Zone iframe seule : le rappel mino est en position fixed (hors flux, ne réduit pas le tableau). */
+/* Iframe + colonne rappel (sticky au scroll de la page, dans le flux). */
 .ugap-import-embed-layout {
+    display: flex;
+    flex-wrap: nowrap;
+    align-items: flex-start;
+    gap: 14px;
     width: 100%;
     max-width: 100%;
-    overflow-x: hidden;
+    overflow: visible;
     position: relative;
     box-sizing: border-box;
 }
 
 .ugap-import-embed-layout > .ugap-panel {
-    width: 100%;
+    position: relative;
+    flex: 1 1 auto;
+    width: auto;
     min-width: 0;
 }
 
-#ugap-import-mino-recap-dock-host {
+#ugap-import-mino-recap-dock-host.ugap-mino-recap-dock {
     --ugap-recap-sticky-top: calc(var(--header-height, 120px) + 20px);
     --ugap-recap-dock-width: 280px;
-    position: fixed;
+    position: sticky;
     top: var(--ugap-recap-sticky-top);
-    left: auto;
+    align-self: flex-start;
+    flex: 0 0 var(--ugap-recap-dock-width);
     width: var(--ugap-recap-dock-width);
     max-width: min(var(--ugap-recap-dock-width), calc(100vw - 24px));
-    z-index: 250;
+    z-index: 5;
     display: flex;
     flex-direction: column;
     overflow: hidden;
     border: 1px solid #dbe3ea;
     border-radius: 10px;
     background: #f8fafc;
-    box-shadow: 0 4px 16px rgba(15, 23, 42, 0.14);
+    box-shadow: 0 2px 8px rgba(15, 23, 42, 0.08);
     font-size: 13px;
     box-sizing: border-box;
     max-height: calc(100vh - var(--header-height, 120px) - 28px);
-    pointer-events: auto;
 }
 
 #ugap-import-mino-recap-dock-host[hidden] {
@@ -178,15 +184,28 @@ require_once '../../includes/header.php';
 }
 
 #ugap-import-mino-recap-dock-host .ugap-mino-recap-poste-title {
-    position: sticky;
-    top: 0;
-    z-index: 2;
     display: block;
     margin: 0 0 6px;
-    padding: 10px 0 6px;
-    background: #f8fafc;
-    border-bottom: 1px solid #e5e7eb;
-    box-shadow: 0 4px 6px -2px rgba(248, 250, 252, 1);
+    padding: 0 0 4px;
+    font-size: 13px;
+}
+
+section.section:has(#ugap-import-embed-root),
+section.section:has(#ugap-import-embed-root) .container {
+    overflow: visible;
+}
+
+@media (max-width: 1100px) {
+    .ugap-import-embed-layout {
+        flex-wrap: wrap;
+    }
+    #ugap-import-mino-recap-dock-host.ugap-mino-recap-dock {
+        flex: 1 1 100%;
+        width: 100%;
+        max-width: 100%;
+        position: static;
+        max-height: none;
+    }
 }
 
 </style>
@@ -194,9 +213,6 @@ require_once '../../includes/header.php';
 <script>
 (function () {
     var __ugapEmbedFrameLastHeight = 0;
-    var __ugapMinoRecapDockPosScheduled = false;
-    var __ugapMinoRecapDockIntersectionObs = null;
-    var __ugapMinoRecapDockResizeObs = null;
 
     function measureEmbedFrameContentHeight(frame) {
         try {
@@ -255,61 +271,21 @@ require_once '../../includes/header.php';
         var h = Math.max(reported, measured, 200) + 48;
         h = Math.min(h, 20000);
         if (Math.abs(h - __ugapEmbedFrameLastHeight) < 6) {
-            scheduleUgapMinoRecapDockPosition();
             return;
         }
         __ugapEmbedFrameLastHeight = h;
         frame.style.height = h + 'px';
         frame.style.maxHeight = 'none';
         frame.style.minHeight = h + 'px';
-        scheduleUgapMinoRecapDockPosition();
     }
 
-    function getUgapMinoRecapAnchor() {
-        return document.querySelector('#ugap-import-embed-root .ugap-panel')
-            || document.getElementById('ugap-import-embed-root');
-    }
-
-    function scheduleUgapMinoRecapDockPosition() {
-        if (__ugapMinoRecapDockPosScheduled) return;
-        __ugapMinoRecapDockPosScheduled = true;
-        requestAnimationFrame(function () {
-            __ugapMinoRecapDockPosScheduled = false;
-            positionUgapMinoRecapDock();
-        });
-    }
-
-    function stopUgapMinoRecapDockObservers() {
-        if (__ugapMinoRecapDockIntersectionObs) {
-            __ugapMinoRecapDockIntersectionObs.disconnect();
-            __ugapMinoRecapDockIntersectionObs = null;
-        }
-        if (__ugapMinoRecapDockResizeObs) {
-            __ugapMinoRecapDockResizeObs.disconnect();
-            __ugapMinoRecapDockResizeObs = null;
-        }
-    }
-
-    function startUgapMinoRecapDockObservers() {
-        stopUgapMinoRecapDockObservers();
+    function resetUgapMinoRecapDockStyles() {
         var host = document.getElementById('ugap-import-mino-recap-dock-host');
-        var anchor = getUgapMinoRecapAnchor();
-        if (!host || host.hidden || !anchor) return;
-
-        if (typeof IntersectionObserver !== 'undefined') {
-            __ugapMinoRecapDockIntersectionObs = new IntersectionObserver(function () {
-                scheduleUgapMinoRecapDockPosition();
-            }, { root: null, threshold: [0, 0.05, 0.1, 0.25, 0.5, 0.75, 1] });
-            __ugapMinoRecapDockIntersectionObs.observe(anchor);
-        }
-
-        if (typeof ResizeObserver !== 'undefined') {
-            __ugapMinoRecapDockResizeObs = new ResizeObserver(function () {
-                scheduleUgapMinoRecapDockPosition();
-            });
-            __ugapMinoRecapDockResizeObs.observe(anchor);
-            __ugapMinoRecapDockResizeObs.observe(host);
-        }
+        if (!host) return;
+        host.style.visibility = '';
+        host.style.top = '';
+        host.style.left = '';
+        host.style.right = '';
     }
 
     function getRecapStickyTopPx() {
@@ -319,41 +295,8 @@ require_once '../../includes/header.php';
         return header + 20;
     }
 
-    /** Panneau rappel à droite du cadre blanc (fixed, hors flux) avec comportement sticky vertical. */
-    function positionUgapMinoRecapDock() {
-        var host = document.getElementById('ugap-import-mino-recap-dock-host');
-        if (!host || host.hidden) return;
-        var anchor = getUgapMinoRecapAnchor();
-        if (!anchor) return;
-
-        var rect = anchor.getBoundingClientRect();
-        var stickyTop = getRecapStickyTopPx();
-        var dockW = host.offsetWidth || 280;
-        var dockH = host.offsetHeight || 0;
-        var gap = 14;
-        var viewportH = window.innerHeight || document.documentElement.clientHeight || 0;
-
-        if (rect.bottom < stickyTop || rect.top > viewportH) {
-            host.style.visibility = 'hidden';
-            return;
-        }
-
-        var left = rect.right + gap;
-        var minLeft = 12;
-        var maxLeft = window.innerWidth - dockW - 12;
-        if (left > maxLeft) left = maxLeft;
-        if (left < minLeft) left = minLeft;
-
-        var top = Math.max(stickyTop, rect.top);
-        if (dockH > 0) {
-            var maxTop = rect.bottom - dockH;
-            if (maxTop < top) top = Math.max(stickyTop, maxTop);
-        }
-
-        host.style.visibility = 'visible';
-        host.style.top = top + 'px';
-        host.style.left = left + 'px';
-        host.style.right = 'auto';
+    function escapeUgapDockText(s) {
+        return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
     }
 
     function isUgapEmbedFrameMessage(event) {
@@ -373,7 +316,6 @@ require_once '../../includes/header.php';
         }
         if (data.type === 'ugap-embed-scroll') {
             if (!isUgapEmbedFrameMessage(event)) return;
-            scheduleUgapMinoRecapDockPosition();
             return;
         }
         if (data.type === 'ugap-import-mino-recap') {
@@ -383,23 +325,12 @@ require_once '../../includes/header.php';
             if (!data.visible) {
                 recapHost.hidden = true;
                 recapHost.innerHTML = '';
-                recapHost.style.left = '';
-                recapHost.style.right = '';
-                recapHost.style.top = '';
-                recapHost.style.visibility = '';
-                stopUgapMinoRecapDockObservers();
+                resetUgapMinoRecapDockStyles();
                 return;
             }
             recapHost.hidden = false;
-            recapHost.style.visibility = 'visible';
             recapHost.innerHTML = data.html || '';
-            requestAnimationFrame(function () {
-                positionUgapMinoRecapDock();
-                requestAnimationFrame(function () {
-                    positionUgapMinoRecapDock();
-                    startUgapMinoRecapDockObservers();
-                });
-            });
+            resetUgapMinoRecapDockStyles();
             return;
         }
         if (data.type === 'ugap-embed-scroll-to') {
@@ -430,16 +361,7 @@ require_once '../../includes/header.php';
 
     window.addEventListener('resize', function () {
         refreshEmbedFrameHeight();
-        scheduleUgapMinoRecapDockPosition();
     }, { passive: true });
-
-    window.addEventListener('scroll', scheduleUgapMinoRecapDockPosition, { passive: true, capture: true });
-    document.addEventListener('scroll', scheduleUgapMinoRecapDockPosition, { passive: true, capture: true });
-
-    if (window.visualViewport) {
-        window.visualViewport.addEventListener('scroll', scheduleUgapMinoRecapDockPosition, { passive: true });
-        window.visualViewport.addEventListener('resize', scheduleUgapMinoRecapDockPosition, { passive: true });
-    }
 })();
 </script>
 

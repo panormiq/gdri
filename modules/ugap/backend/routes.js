@@ -470,6 +470,21 @@ router.post('/data/purge',
   ugapController.purgePublishedData
 );
 
+router.post('/data/reset-from-extract',
+  express.json(),
+  authenticateJWT,
+  useUgapEntrepriseDb,
+  requireUgapRole(['ADMIN_ENTITY']),
+  ugapController.resetCatalogFromExtract
+);
+
+router.post('/imports/staging/:importId/reopen',
+  authenticateJWT,
+  useUgapEntrepriseDb,
+  requireUgapRole(['ADMIN_ENTITY']),
+  ugapController.reopenImportStaging
+);
+
 /**
  * PUT /api/ugap/categories/:categoryId
  * Met à jour une catégorie

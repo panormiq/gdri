@@ -27,8 +27,9 @@ router.post('/login-gdri', async (req, res) => {
     if (!user) {
       return res.status(401).json({ success: false, message: 'Email ou mot de passe incorrect' });
     }
-    if ((user.status || 'inactive') !== 'active') {
-      if (user.status === 'pending') {
+    const userStatus = String(user.status || '').toLowerCase();
+    if (userStatus && userStatus !== 'active') {
+      if (userStatus === 'pending') {
         return res.status(403).json({ success: false, message: 'Votre compte n\'est pas encore activé.' });
       }
       return res.status(403).json({ success: false, message: 'Votre compte est inactif.' });

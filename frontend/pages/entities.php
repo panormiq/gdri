@@ -181,8 +181,13 @@ $usersByEntity = [];
                             <div class="user-header">
                                 <h3><?= htmlspecialchars($user['email']) ?></h3>
                                 <div class="user-actions">
-                                    <button class="btn-icon toggle-user" data-user-id="<?= htmlspecialchars((string) $user['_id']) ?>" title="<?= $user['status'] === 'active' ? 'Désactiver' : 'Activer' ?>">
-                                        <?= $user['status'] === 'active' ? '✅' : '❌' ?>
+                                    <button
+                                        class="btn-icon delete-user-account"
+                                        data-user-id="<?= htmlspecialchars((string) $user['_id']) ?>"
+                                        data-user-email="<?= htmlspecialchars((string) ($user['email'] ?? '')) ?>"
+                                        title="Supprimer définitivement ce compte"
+                                    >
+                                        ✕
                                     </button>
                                 </div>
                             </div>
@@ -800,6 +805,12 @@ $usersByEntity = [];
 .user-actions {
     display: flex;
     gap: var(--spacing-sm);
+    align-items: center;
+}
+
+.delete-user-account {
+    color: #dc3545;
+    font-weight: 700;
 }
 
 .user-details p {
@@ -856,16 +867,19 @@ async function loadEntityUsers(entityId, container) {
         if (data.success && data.data && data.data.length > 0) {
             let html = '<ul class="users-list">';
             data.data.forEach(user => {
+                const userId = typeof user._id === 'string'
+                    ? user._id
+                    : (user._id && typeof user._id === 'object' && user._id.$oid ? user._id.$oid : '');
                 html += `
                     <li class="user-item">
                         <span class="user-email">${escapeHtml(user.email)}</span>
                         <span class="badge badge-info">${escapeHtml(user.role_in_entity || user.role || 'user')}</span>
                         <button class="btn-icon remove-user" 
                                 data-entity-id="${escapeHtml(entityId)}" 
-                                data-user-id="${escapeHtml(user._id)}"
+                                data-user-id="${escapeHtml(userId)}"
                                 data-user-email="${escapeHtml(user.email || 'N/A')}"
-                                title="Retirer l'utilisateur">
-                            🗑️
+                                title="Retirer de cette entité">
+                            ✕
                         </button>
                     </li>
                 `;
@@ -1524,8 +1538,11 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // Gestion de la suppression d'utilisateur d'une entité
     document.addEventListener('click', async function(e) {
-        if (e.target.closest('.remove-user')) {
-            const button = e.target.closest('.remove-user');
+        const clickTarget = e.target instanceof Element
+            ? e.target
+            : (e.target && e.target.parentElement ? e.target.parentElement : null);
+        const button = clickTarget ? clickTarget.closest('.remove-user') : null;
+        if (button) {
             const entityId = button.getAttribute('data-entity-id');
             const userId = button.getAttribute('data-user-id');
             const userEmail = button.getAttribute('data-user-email');
@@ -1559,6 +1576,48 @@ document.addEventListener('DOMContentLoaded', function() {
                 console.error('❌ Erreur réseau lors de la suppression:', error);
                 alert('Erreur réseau lors de la suppression.');
             }
+        }
+    });
+
+    // Suppression définitive d'un compte utilisateur (onglet Users)
+    document.addEventListener('click', async function(e) {
+        const clickTarget = e.target instanceof Element
+            ? e.target
+            : (e.target && e.target.parentElement ? e.target.parentElement : null);
+        const button = clickTarget ? clickTarget.closest('.delete-user-account') : null;
+        if (!button) return;
+
+        const userId = button.getAttribute('data-user-id');
+        const userEmail = button.getAttribute('data-user-email') || 'cet utilisateur';
+        if (!userId) {
+            alert('ID utilisateur manquant.');
+            return;
+        }
+
+        if (!confirm(`Supprimer définitivement le compte "${userEmail}" ? Cette action est irréversible.`)) {
+            return;
+        }
+
+        try {
+            const apiBaseUrl = '<?php echo getApiBaseUrl(); ?>';
+            const response = await fetch(`${apiBaseUrl}/users/${encodeURIComponent(userId)}`, {
+                method: 'DELETE',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': 'Bearer <?php echo getJWTToken(); ?>'
+                },
+                credentials: 'include'
+            });
+
+            const data = await response.json();
+            if (!response.ok || !data.success) {
+                throw new Error(data.message || 'Erreur lors de la suppression du compte');
+            }
+
+            window.location.reload();
+        } catch (error) {
+            console.error('❌ Erreur suppression compte:', error);
+            alert(error.message || 'Erreur lors de la suppression du compte.');
         }
     });
     

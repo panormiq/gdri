@@ -65,10 +65,13 @@ try {
     $err = curl_error($ch);
     $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
     curl_close($ch);
-    if ($err || $code < 200 || $code >= 300) {
-        jsonResponse(false, 'Email ou mot de passe incorrect');
-    }
     $decoded = json_decode((string) $raw, true);
+    if ($err) {
+        jsonResponse(false, 'Service d\'authentification indisponible');
+    }
+    if ($code < 200 || $code >= 300) {
+        jsonResponse(false, $decoded['message'] ?? 'Erreur de connexion');
+    }
     if (empty($decoded['success']) || empty($decoded['data'])) {
         jsonResponse(false, $decoded['message'] ?? 'Email ou mot de passe incorrect');
     }

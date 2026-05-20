@@ -22,5 +22,5 @@ $ugapAdminAssetV = ($ugapAdminFs && is_file($ugapAdminFs)) ? (int) filemtime($ug
             </div>
         <?php endif; ?>
     </div>
+    <aside id="ugap-import-mino-recap-dock-host" class="ugap-mino-recap-dock" hidden aria-label="Rappel postes et modèles UGAP"></aside>
 </div>
-<aside id="ugap-import-mino-recap-dock-host" hidden aria-label="Rappel postes et modèles UGAP"></aside>

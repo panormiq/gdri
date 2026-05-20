@@ -80,27 +80,33 @@
 
             <div id="import-workflow-section">
 
-                <div style="display:flex; gap:8px; padding:10px; border:1px solid #eef2f7; border-radius:8px 8px 0 0; background:#f9fafb; flex-wrap:wrap;">
+                <div id="import-workflow-sticky" class="ugap-import-workflow-sticky">
 
-                    <button type="button" id="btn-import-step-models" class="btn btn-outline" data-import-step="models">1. Modèles</button>
+                    <div class="ugap-import-workflow-steps" role="tablist" aria-label="Étapes import Excel">
 
-                    <button type="button" id="btn-import-step-import-base-options" class="btn btn-outline" data-import-step="import-base-options">2. Options de base</button>
+                        <button type="button" id="btn-import-step-models" class="btn btn-outline" data-import-step="models">1. Modèles</button>
 
-                    <button type="button" id="btn-import-step-minorations" class="btn btn-outline" data-import-step="minorations">3. Minorations</button>
+                        <button type="button" id="btn-import-step-import-base-options" class="btn btn-outline" data-import-step="import-base-options">2. Options de base</button>
 
-                    <button type="button" id="btn-import-step-majorations" class="btn btn-outline" data-import-step="majorations">4. Majorations</button>
+                        <button type="button" id="btn-import-step-minorations" class="btn btn-outline" data-import-step="minorations">3. Minorations</button>
 
-                    <button type="button" id="btn-import-step-families-tri" class="btn btn-outline" data-import-step="families-tri">5. Options</button>
+                        <button type="button" id="btn-import-step-majorations" class="btn btn-outline" data-import-step="majorations">4. Majorations</button>
 
-                    <button type="button" id="btn-import-step-families-unmatched" class="btn btn-outline" data-import-step="families-unmatched">6. PR</button>
+                        <button type="button" id="btn-import-step-families-tri" class="btn btn-outline" data-import-step="families-tri">5. Options</button>
 
-                    <button type="button" id="btn-import-step-validate" class="btn btn-outline" data-import-step="validate">7. Valider</button>
+                        <button type="button" id="btn-import-step-families-unmatched" class="btn btn-outline" data-import-step="families-unmatched">6. PR</button>
+
+                        <button type="button" id="btn-import-step-validate" class="btn btn-outline" data-import-step="validate">7. Valider</button>
+
+                    </div>
+
+                    <div id="ugap-import-workflow-actions" class="ugap-import-workflow-actions" hidden aria-label="Enregistrer et étape suivante"></div>
 
                 </div>
 
-                <div id="import-workflow-content-models" style="padding:12px; border:1px solid #eef2f7; border-top:none; border-radius:0 0 8px 8px; background:#fff;"></div>
+                <div id="import-workflow-content-models" class="ugap-import-workflow-pane"></div>
 
-                <div id="import-workflow-content-families" style="padding:12px; border:1px solid #eef2f7; border-top:none; display:none; background:#fff;"></div>
+                <div id="import-workflow-content-families" class="ugap-import-workflow-pane" style="display:none;"></div>
 
             </div>
 

@@ -51,6 +51,7 @@
         if (listSection) listSection.style.display = window.importViewMode === 'list' ? 'block' : 'none';
         if (editorSection) editorSection.style.display = window.importViewMode === 'editor' ? 'block' : 'none';
         if (window.importViewMode !== 'editor') hideRecapDock();
+        if (typeof window.syncImportActionsDock === 'function') window.syncImportActionsDock();
     }
 
     function renderImportListTable(items) {
@@ -69,8 +70,9 @@
                 draft: 'Brouillon',
                 in_review: 'En cours',
                 validated: 'Validé',
-                published: 'Publié'
+                published: 'Reprendre l\'importation'
             }[status] || status;
+            const editLabel = status === 'published' ? 'Reprendre l\'importation' : 'Éditer';
             const importedAt = row.importedAt
                 ? new Date(row.importedAt).toLocaleString('fr-FR')
                 : '—';
@@ -88,7 +90,7 @@
                 <td style="padding:10px 12px; border-bottom:1px solid #eef2f7;">${escapeHtml(importedAt)}</td>
                 <td style="padding:10px 12px; border-bottom:1px solid #eef2f7;">${escapeHtml(progress)}</td>
                 <td style="padding:10px 12px; border-bottom:1px solid #eef2f7; text-align:right;">
-                    <button type="button" class="btn btn-primary btn-import-edit" data-import-id="${escapeHtml(id)}">Éditer</button>
+                    <button type="button" class="btn btn-primary btn-import-edit" data-import-id="${escapeHtml(id)}">${escapeHtml(editLabel)}</button>
                 </td>
             </tr>`;
         }).join('');
@@ -121,6 +123,17 @@
         });
     }
 
+    async function reopenImportIfPublished(importId) {
+        const id = String(importId || '').trim();
+        if (!id) return;
+        const cached = (window.importListCache || []).find((row) => String(row._id || '') === id);
+        const status = String(cached?.status || '').toLowerCase();
+        if (status === 'published') {
+            await apiCall(`/imports/staging/${encodeURIComponent(id)}/reopen`, { method: 'POST' });
+            if (cached) cached.status = 'validated';
+        }
+    }
+
     async function openImportEditor(importId, options) {
         const id = String(importId || '').trim();
         if (!id) return;
@@ -128,6 +141,7 @@
         window.currentImportId = id;
         publishGlobals();
         try {
+            await reopenImportIfPublished(id);
             const result = await apiCall(`/imports/staging?importId=${encodeURIComponent(id)}`);
             if (!result?.data) {
                 showAlert('Import introuvable.', 'warning');

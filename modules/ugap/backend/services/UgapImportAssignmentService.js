@@ -19,28 +19,54 @@ class UgapImportAssignmentService {
     return /^PR\s/i.test(String(label || '').trim());
   }
 
-  /** Forfait / garantie moteur : hors majorations. */
-  static isMotorForfaitOrGarantieLine(label) {
+  /** Forfait / garantie : hors majorations. */
+  static isExcludedFromMajorationLine(label) {
     const n = String(label || '').replace(/\s+/g, ' ').trim();
     if (!n) return false;
-    if (!/\b(forfait|garanties?|extension\s+de\s+garantie)\b/i.test(n)) return false;
-    return /\b(moteurs?|motorisation|suzuki|mercury|yamaha|honda|evinrude)\b/i.test(n);
+    return /\b(forfait|garanties?|extension\s+de\s+garantie)\b/i.test(n);
+  }
+
+  /** @deprecated Utiliser isExcludedFromMajorationLine */
+  static isMotorForfaitOrGarantieLine(label) {
+    return this.isExcludedFromMajorationLine(label);
+  }
+
+  /**
+   * Ligne catalogue moteur (Motorisation Excel ou libellé type « 150 CV », « DF 140 APX »).
+   * Beaucoup de références n'ont ni « moteur » ni marque dans le libellé.
+   */
+  static isMotorCatalogLine(label, category) {
+    const cat = String(category || '').trim();
+    const n = String(label || '').replace(/\s+/g, ' ').trim();
+    if (!n || this.isExcludedFromMajorationLine(n)) return false;
+    if (/^motorisation$/i.test(cat)) return true;
+    if (/\b(moteur|motorisation|suzuki|mercury|yamaha|honda|evinrude|tohatsu|yanmar|volvo)\b/i.test(n)) {
+      return true;
+    }
+    if (/\b\d{2,4}\s*cv\b/i.test(n)) return true;
+    if (/\bdf\s*\d{2,4}\b/i.test(n)) return true;
+    if (/\b(apx|apt|btx|atl)\b/i.test(n) && /\b\d{2,4}\b/.test(n)) return true;
+    if (/\b(2\s+moteurs?|bi-moteur|bimoteur|double\s+moteur|jumelage\s+(?:de\s+)?moteurs?)\b/i.test(n)) {
+      return true;
+    }
+    return false;
   }
 
   /** Majoration : libellé (en remplacement, en lieu et place, moteur…) — hors MINO et PR. */
-  static isMajorationLine(label, refUgap) {
+  static isMajorationLine(label, refUgap, category) {
     if (this.isPrLine(label)) return false;
     if (this.isMinorationLine(label, refUgap)) return false;
     const n = String(label || '').replace(/\s+/g, ' ').trim();
     if (!n) return false;
-    if (this.isMotorForfaitOrGarantieLine(n)) return false;
+    if (/^supp?ress(?:ion)?\b/i.test(n)) return false;
+    if (this.isExcludedFromMajorationLine(n)) return false;
+    // Plus-value UGAP : majoration même sans « en remplacement » dans le libellé.
+    if (/^(plus-value|plus\s+value)\b/i.test(n)) return true;
     if (/\ben\s+lieux?\s+et\s+place\b/i.test(n)) return true;
     if (/\bau\s+lieu\s+et\s+place\b/i.test(n)) return true;
     if (/\ben\s+remplacement\b/i.test(n)) return true;
-    if (/\bnon\s+fourniture\b/i.test(n) && /\bmoteurs?\b/i.test(n)) return true;
-    if (/\b(non\s+fourniture\s+du\s+moteur|moteurs?|motorisation|suzuki|mercury|yamaha|honda|evinrude|double\s+moteur)\b/i.test(n)) {
-      return true;
-    }
+    if (/\bnon\s+fourniture\b/i.test(n)) return true;
+    if (this.isMotorCatalogLine(label, category)) return true;
     return false;
   }
 
@@ -187,6 +213,59 @@ class UgapImportAssignmentService {
    * @param {Object} stagingDoc
    * @returns {{ doc: Object, summary: Object }}
    */
+  /** Typage / flags issus des étapes d'import (sans heuristique libellé Excel). */
+  static applyOptionFlagsRespectingSavedState(opt, comp, summary) {
+    const lineKind = String(opt?.importOptionLineKind || '').trim().toLowerCase();
+    const bumpOption = () => {
+      summary.totals.option += 1;
+      comp.forEach((mid) => {
+        if (summary.byModel[mid]) summary.byModel[mid].option += 1;
+      });
+    };
+
+    if (lineKind === 'minoration' || opt?.manualMinorationAssignment) {
+      opt.isSparePart = false;
+      opt.isMinoration = true;
+      opt.isDivers = false;
+      opt.baseIncluded = false;
+      opt.manualBaseOption = false;
+      summary.totals.minoration += 1;
+      comp.forEach((mid) => {
+        if (summary.byModel[mid]) summary.byModel[mid].minoration += 1;
+      });
+      return true;
+    }
+
+    if (lineKind === 'majoration' || opt?.manualMajorationAssignment) {
+      opt.isSparePart = false;
+      opt.isMinoration = false;
+      opt.isDivers = comp.length === 0;
+      opt.baseIncluded = false;
+      opt.manualBaseOption = false;
+      bumpOption();
+      return true;
+    }
+
+    if (lineKind === 'option') {
+      opt.isSparePart = false;
+      opt.isMinoration = false;
+      opt.isDivers = comp.length === 0;
+      opt.baseIncluded = false;
+      opt.manualBaseOption = false;
+      bumpOption();
+      return true;
+    }
+
+    if (opt?.isSparePart || this.isPrLabel(opt?.name)) {
+      opt.isSparePart = true;
+      opt.isMinoration = false;
+      summary.totals.spare_part += 1;
+      return true;
+    }
+
+    return false;
+  }
+
   static applyStagingAssignments(stagingDoc) {
     const doc = stagingDoc && typeof stagingDoc === 'object' ? stagingDoc : {};
     const models = Array.isArray(doc.models) ? doc.models : [];
@@ -212,10 +291,19 @@ class UgapImportAssignmentService {
     categories.forEach((cat) => {
       const opts = Array.isArray(cat?.options) ? cat.options : [];
       opts.forEach((opt) => {
-        const kind = this.classifyOption(opt);
+        if (opt?.importGeneratedFromBaseProduct) {
+          return;
+        }
+
         const comp = Array.isArray(opt.compatibleModels)
           ? opt.compatibleModels.map((x) => String(x || '').trim()).filter(Boolean)
           : [];
+
+        if (this.applyOptionFlagsRespectingSavedState(opt, comp, summary)) {
+          return;
+        }
+
+        const kind = this.classifyOption(opt);
 
         opt.isSparePart = false;
         opt.isMinoration = false;

@@ -72,7 +72,7 @@ $tabs = [
         'url' => url('pages/modules/ia-llms.php')
     ],
     'publish' => [
-        'label' => 'Publication',
+        'label' => 'Posts',
         'url' => url('pages/modules/facebook-publish.php')
     ]
 ];
@@ -80,6 +80,15 @@ $tabs = [
 $activeTab = isset($_GET['tab']) ? strtolower(trim((string) $_GET['tab'])) : 'resume';
 if (!isset($tabs[$activeTab])) {
     $activeTab = 'resume';
+}
+
+// Reprendre les paramètres OAuth / navigation vers la page chargée dans l’iframe (ex. success, reauth)
+$queryForFrame = $_GET;
+unset($queryForFrame['tab']);
+$frameSrc = $tabs[$activeTab]['url'];
+if (!empty($queryForFrame)) {
+    $sep = (strpos($frameSrc, '?') !== false) ? '&' : '?';
+    $frameSrc .= $sep . http_build_query($queryForFrame);
 }
 ?>
 
@@ -108,7 +117,7 @@ if (!isset($tabs[$activeTab])) {
     <div class="fb-tab-panel">
         <iframe
             id="fb-module-frame"
-            src="<?= htmlspecialchars($tabs[$activeTab]['url']) ?>"
+            src="<?= htmlspecialchars($frameSrc) ?>"
             title="Contenu module Facebook"
             loading="lazy"></iframe>
     </div>

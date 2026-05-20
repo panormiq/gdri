@@ -9,7 +9,7 @@ const https = require('https');
 
 class WebhookSubscriptionService {
   constructor() {
-    this.graphApiVersion = 'v24.0';
+    this.graphApiVersion = (String(process.env.FACEBOOK_GRAPH_VERSION || 'v21.0').trim() || 'v21.0');
     this.graphApiBase = 'graph.facebook.com';
   }
 

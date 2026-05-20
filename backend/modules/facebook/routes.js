@@ -23,7 +23,8 @@ try {
 }
 
 // Configuration OAuth Facebook
-const FACEBOOK_API_VERSION = 'v24.0';
+/** Version Graph API (@see https://developers.facebook.com/docs/graph-api/changelog/) — surchargeable via FACEBOOK_GRAPH_VERSION */
+const FACEBOOK_API_VERSION = (String(process.env.FACEBOOK_GRAPH_VERSION || 'v21.0').trim() || 'v21.0');
 const DEFAULT_REDIRECT_URI = 'https://www.gdr-innovation.fr/api/facebook/oauth/callback';
 
 // Fonction pour récupérer la configuration Facebook depuis la base de données ou les variables d'environnement
@@ -625,7 +626,8 @@ router.post('/pull', async (req, res) => {
 
 /**
  * GET /api/facebook/pages/:pageId/posts
- * Récupère les posts d'une page (utilise pages_manage_posts pour la révision Facebook)
+ * Liste les publications déjà publiées sur la Page (Graph: GET /{page-id}/published_posts).
+ * Query: limit (1–50, défaut 15), after (page suivante), before (page précédente).
  */
 router.get('/pages/:pageId/posts', authenticateJWT, async (req, res) => {
   try {
@@ -639,7 +641,6 @@ router.get('/pages/:pageId/posts', authenticateJWT, async (req, res) => {
       });
     }
     
-    // Récupérer la configuration de la page
     const configCollection = database.getCollection('facebook_configs');
     const config = await configCollection.findOne({ 
       entrepriseId: entrepriseId,
@@ -652,15 +653,26 @@ router.get('/pages/:pageId/posts', authenticateJWT, async (req, res) => {
         message: 'Page non connectée ou token manquant'
       });
     }
+
+    const limitRaw = req.query.limit;
+    let limit = parseInt(limitRaw, 10);
+    if (Number.isNaN(limit)) limit = 15;
+    limit = Math.min(Math.max(limit, 1), 50);
+    const after = typeof req.query.after === 'string' ? req.query.after.trim() : '';
+    const before = typeof req.query.before === 'string' ? req.query.before.trim() : '';
     
-    // Appel API qui utilise pages_manage_posts
-    // Récupérer les posts de la page (nécessite pages_manage_posts)
-    const postsUrl = `https://graph.facebook.com/${FACEBOOK_API_VERSION}/${pageId}/posts?` +
-      `access_token=${config.pageAccessToken}&` +
-      `fields=id,message,created_time,updated_time&` +
-      `limit=10`;
+    const fields = ['id', 'message', 'created_time', 'permalink_url', 'story'].join(',');
+    let postsUrl = `https://graph.facebook.com/${FACEBOOK_API_VERSION}/${pageId}/published_posts?` +
+      `access_token=${encodeURIComponent(config.pageAccessToken)}&` +
+      `fields=${encodeURIComponent(fields)}&` +
+      `limit=${limit}`;
+    if (after && !before) {
+      postsUrl += `&after=${encodeURIComponent(after)}`;
+    } else if (before) {
+      postsUrl += `&before=${encodeURIComponent(before)}`;
+    }
     
-    console.log(`📄 Récupération des posts de la page ${pageId} (utilise pages_manage_posts)...`);
+    console.log(`📄 Récupération published_posts page ${pageId} (pages_manage_posts)...`);
     const response = await httpsRequest(postsUrl);
     
     if (response.error) {
@@ -669,12 +681,22 @@ router.get('/pages/:pageId/posts', authenticateJWT, async (req, res) => {
         message: response.error.message || 'Erreur lors de la récupération des posts'
       });
     }
+
+    const cursors = (response.paging && response.paging.cursors) || {};
+    const nextAfter = cursors.after || null;
+    const prevBefore = cursors.before || null;
     
     res.json({
       success: true,
       pageId: pageId,
       posts: response.data || [],
-      count: response.data ? response.data.length : 0
+      count: response.data ? response.data.length : 0,
+      paging: {
+        nextAfter,
+        prevBefore,
+        hasNext: Boolean(response.paging && response.paging.next),
+        hasPrevious: Boolean(response.paging && response.paging.previous)
+      }
     });
     
   } catch (error) {
@@ -727,19 +749,25 @@ router.get('/pages/:pageId/top-posts', authenticateJWT, async (req, res) => {
 
 /**
  * POST /api/facebook/pages/:pageId/posts
- * Publie un post sur une page Facebook (utilise pages_manage_posts pour la révision Facebook).
- * Avec image : utilise l'endpoint /photos ; sans image : utilise /feed.
+ * Publie un post sur une page Facebook (Graph: POST /{page-id}/feed ou /photos).
  *
  * Body:
  * {
- *   "message": "Texte du post",
- *   "image_url": "https://..." (optionnel, URL publique de l'image)
+ *   "message": "…" (optionnel si link ou image),
+ *   "link": "https://…" (optionnel, aperçu lien sur le fil),
+ *   "image_url": "https://…" (optionnel, publication via /photos),
+ *   "published": true (défaut : publié)
  * }
  */
 router.post('/pages/:pageId/posts', authenticateJWT, async (req, res) => {
   try {
     const { pageId } = req.params;
-    const { message, image_url: imageUrl } = req.body || {};
+    const {
+      message,
+      image_url: imageUrl,
+      link,
+      published
+    } = req.body || {};
     const entrepriseId = req.user.entrepriseId;
 
     if (!entrepriseId) {
@@ -750,12 +778,15 @@ router.post('/pages/:pageId/posts', authenticateJWT, async (req, res) => {
     }
 
     const hasImage = typeof imageUrl === 'string' && imageUrl.trim().length > 0;
-    const messageTrimmed = (message || '').trim();
+    const messageTrimmed = typeof message === 'string' ? message.trim() : '';
+    const hasLink = typeof link === 'string' && link.trim().length > 0;
+    const linkTrimmed = hasLink ? link.trim() : '';
+    const isPublished = published === undefined || published === true || published === 'true' || published === 1;
 
-    if (!hasImage && !messageTrimmed) {
+    if (!hasImage && !messageTrimmed && !hasLink) {
       return res.status(400).json({
         success: false,
-        message: 'Le message est requis (ou une image avec message optionnel)'
+        message: 'Indiquez au moins un message, un lien ou une image'
       });
     }
 
@@ -775,23 +806,24 @@ router.post('/pages/:pageId/posts', authenticateJWT, async (req, res) => {
     let response;
 
     if (hasImage) {
-      // Publication avec image : endpoint /photos (même permission pages_manage_posts)
       const photosUrl = `https://graph.facebook.com/${FACEBOOK_API_VERSION}/${pageId}/photos`;
       const photoData = {
         url: imageUrl.trim(),
-        access_token: config.pageAccessToken
+        access_token: config.pageAccessToken,
+        published: isPublished ? 'true' : 'false'
       };
       if (messageTrimmed) photoData.message = messageTrimmed;
-      console.log(`📷 Publication d'un post avec image sur la page ${pageId} (pages_manage_posts)...`);
+      console.log(`📷 Publication photo page ${pageId} (pages_manage_posts)...`);
       response = await httpsPostRequest(photosUrl, photoData);
     } else {
-      // Publication texte seul : endpoint /feed
       const feedUrl = `https://graph.facebook.com/${FACEBOOK_API_VERSION}/${pageId}/feed`;
       const postData = {
-        message: messageTrimmed,
-        access_token: config.pageAccessToken
+        access_token: config.pageAccessToken,
+        published: isPublished ? 'true' : 'false'
       };
-      console.log(`📝 Publication d'un post sur la page ${pageId} (utilise pages_manage_posts)...`);
+      if (messageTrimmed) postData.message = messageTrimmed;
+      if (linkTrimmed) postData.link = linkTrimmed;
+      console.log(`📝 Publication fil page ${pageId} (pages_manage_posts)...`);
       response = await httpsPostRequest(feedUrl, postData);
     }
 
@@ -815,6 +847,82 @@ router.post('/pages/:pageId/posts', authenticateJWT, async (req, res) => {
       success: false,
       message: error.message
     });
+  }
+});
+
+/**
+ * PATCH /api/facebook/pages/:pageId/posts/:postId
+ * Met à jour le texte d’une publication (Graph: POST /{post-id} avec message).
+ */
+router.patch('/pages/:pageId/posts/:postId', authenticateJWT, async (req, res) => {
+  try {
+    const { pageId, postId } = req.params;
+    const entrepriseId = req.user.entrepriseId;
+    const messageRaw = req.body && req.body.message;
+    const messageTrimmed = typeof messageRaw === 'string' ? messageRaw.trim() : '';
+
+    if (!entrepriseId) {
+      return res.status(400).json({ success: false, message: 'entrepriseId requis' });
+    }
+    if (!messageTrimmed) {
+      return res.status(400).json({ success: false, message: 'Le message est requis' });
+    }
+
+    const configCollection = database.getCollection('facebook_configs');
+    const config = await configCollection.findOne({ entrepriseId, pageId });
+    if (!config || !config.pageAccessToken) {
+      return res.status(400).json({ success: false, message: 'Page non connectée ou token manquant' });
+    }
+
+    const editUrl = `https://graph.facebook.com/${FACEBOOK_API_VERSION}/${postId}`;
+    const payload = {
+      message: messageTrimmed,
+      access_token: config.pageAccessToken
+    };
+    const response = await httpsPostRequest(editUrl, payload);
+    if (response.error) {
+      return res.status(500).json({
+        success: false,
+        message: response.error.message || 'Erreur lors de la mise à jour du post'
+      });
+    }
+    return res.json({ success: true, pageId, postId, message: 'Post mis à jour' });
+  } catch (error) {
+    console.error('Erreur PATCH post:', error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+/**
+ * DELETE /api/facebook/pages/:pageId/posts/:postId
+ * Supprime une publication (Graph: DELETE /{post-id}).
+ */
+router.delete('/pages/:pageId/posts/:postId', authenticateJWT, async (req, res) => {
+  try {
+    const { pageId, postId } = req.params;
+    const entrepriseId = req.user.entrepriseId;
+    if (!entrepriseId) {
+      return res.status(400).json({ success: false, message: 'entrepriseId requis' });
+    }
+
+    const configCollection = database.getCollection('facebook_configs');
+    const config = await configCollection.findOne({ entrepriseId, pageId });
+    if (!config || !config.pageAccessToken) {
+      return res.status(400).json({ success: false, message: 'Page non connectée ou token manquant' });
+    }
+
+    const deleteUrl = `https://graph.facebook.com/${FACEBOOK_API_VERSION}/${postId}?access_token=${encodeURIComponent(config.pageAccessToken)}`;
+    const response = await httpsDeleteRequest(deleteUrl);
+    if (response && typeof response === 'object' && response.error) {
+      return res.status(500).json({
+        success: false,
+        message: response.error.message || 'Erreur lors de la suppression du post'
+      });
+    }
+    return res.json({ success: true, pageId, postId });
+  } catch (error) {
+    console.error('Erreur DELETE post:', error);
+    return res.status(500).json({ success: false, message: error.message });
   }
 });
 
@@ -851,7 +959,7 @@ router.get('/pages/:pageId/conversations', authenticateJWT, async (req, res) => 
     // Appel API qui utilise pages_messaging
     // Récupérer les conversations de la page (nécessite pages_messaging)
     const conversationsUrl = `https://graph.facebook.com/${FACEBOOK_API_VERSION}/${pageId}/conversations?` +
-      `access_token=${config.pageAccessToken}&` +
+      `access_token=${encodeURIComponent(config.pageAccessToken)}&` +
       `fields=id,updated_time&` +
       `limit=10`;
     
@@ -1933,6 +2041,16 @@ router.get('/config', authenticateJWT, async (req, res) => {
       });
     }
     
+    const mapPageSafe = (config) => ({
+      pageId: config.pageId || '',
+      pageName: config.pageName || '',
+      hasPageAccessToken: Boolean(config.pageAccessToken),
+      webhooks_subscribed: config.webhooks_subscribed || [],
+      tokenStatus: config.tokenStatus || 'active',
+      userTokenExpiresAt: config.userTokenExpiresAt || null,
+      tokenLastError: config.tokenLastError || null
+    });
+
     // Si une seule page (compatibilité avec l'ancien format)
     if (configs.length === 1) {
       const config = configs[0];
@@ -1940,36 +2058,19 @@ router.get('/config', authenticateJWT, async (req, res) => {
         success: true,
         data: {
           pageId: config.pageId || '',
-          pageAccessToken: config.pageAccessToken || '',
-          pageName: config.pageName || ''
-        },
-        pages: [{
-          pageId: config.pageId || '',
           pageName: config.pageName || '',
-          pageAccessToken: config.pageAccessToken || '',
-          webhooks_subscribed: config.webhooks_subscribed || [],
-          tokenStatus: config.tokenStatus || 'active',
-          userTokenExpiresAt: config.userTokenExpiresAt || null,
-          tokenLastError: config.tokenLastError || null
-        }]
+          hasPageAccessToken: Boolean(config.pageAccessToken)
+        },
+        pages: [mapPageSafe(config)]
       });
     }
-    
-    // Plusieurs pages
-    const pages = configs.map(config => ({
-      pageId: config.pageId || '',
-      pageName: config.pageName || '',
-      pageAccessToken: config.pageAccessToken || '',
-      webhooks_subscribed: config.webhooks_subscribed || [],
-      tokenStatus: config.tokenStatus || 'active',
-      userTokenExpiresAt: config.userTokenExpiresAt || null,
-      tokenLastError: config.tokenLastError || null
-    }));
-    
+
+    const pages = configs.map(mapPageSafe);
+
     res.json({
       success: true,
-      data: pages[0], // Page principale (première)
-      pages: pages
+      data: pages[0],
+      pages
     });
   } catch (error) {
     console.error('Erreur récupération config Facebook:', error);
@@ -3008,6 +3109,48 @@ function httpsPostRequest(url, data) {
 }
 
 /**
+ * Requête HTTPS DELETE (ex. suppression d’un post)
+ */
+function httpsDeleteRequest(url) {
+  return new Promise((resolve, reject) => {
+    const urlObj = new URL(url);
+    const options = {
+      hostname: urlObj.hostname,
+      path: urlObj.pathname + urlObj.search,
+      method: 'DELETE'
+    };
+    const req = https.request(options, (res) => {
+      let responseData = '';
+      res.on('data', (chunk) => { responseData += chunk; });
+      res.on('end', () => {
+        const ok = res.statusCode === 200 || res.statusCode === 204;
+        if (!responseData || !responseData.trim()) {
+          return ok ? resolve({ success: true }) : reject(new Error(`HTTP ${res.statusCode}`));
+        }
+        try {
+          const json = JSON.parse(responseData);
+          if (!ok) {
+            reject(new Error(json.error?.message || `HTTP ${res.statusCode}: ${responseData}`));
+          } else {
+            resolve(json);
+          }
+        } catch (e) {
+          if (!ok) {
+            reject(new Error(`HTTP ${res.statusCode}: ${responseData}`));
+          } else {
+            resolve(responseData);
+          }
+        }
+      });
+    });
+    req.on('error', (err) => {
+      reject(new Error(`Erreur réseau: ${err.message}`));
+    });
+    req.end();
+  });
+}
+
+/**
  * Échange le code OAuth contre un access token
  */
 async function exchangeCodeForToken(code) {
@@ -3185,6 +3328,7 @@ router.get('/oauth/login', authenticateJWT, async (req, res) => {
       'pages_show_list',      // Lister les pages
       'pages_read_engagement', // Lire les posts et commentaires
       'pages_manage_posts',    // Gérer les posts (nécessaire pour la révision Facebook)
+      'pages_manage_metadata', // Webhooks Page (subscribed_apps) — abonnement aux événements
       'pages_messaging'        // Messages privés (nécessite révision d'app - sera ignoré si non approuvé)
     ].join(',');
     
@@ -3232,6 +3376,24 @@ router.get('/oauth/login', authenticateJWT, async (req, res) => {
 });
 
 /**
+ * Après OAuth Facebook : redirection vers le hub module (onglets), pas la page Config seule.
+ * @param {import('express').Response} res
+ * @param {Record<string, string|number|undefined|null>} query
+ */
+function redirectFacebookModuleAfterOAuth(res, query) {
+  const params = new URLSearchParams();
+  params.set('tab', 'config');
+  if (query && typeof query === 'object') {
+    for (const [key, value] of Object.entries(query)) {
+      if (value !== undefined && value !== null && String(value) !== '') {
+        params.set(key, String(value));
+      }
+    }
+  }
+  return res.redirect(`/frontend/pages/modules/facebook.php?${params.toString()}`);
+}
+
+/**
  * GET /api/facebook/oauth/callback
  * Reçoit le callback de Facebook OAuth
  */
@@ -3240,11 +3402,11 @@ router.get('/oauth/callback', async (req, res) => {
     const { code, state, error } = req.query;
     
     if (error) {
-      return res.redirect(`/frontend/pages/modules/facebook-config.php?error=${encodeURIComponent(error)}`);
+      return redirectFacebookModuleAfterOAuth(res, { error });
     }
     
     if (!code || !state) {
-      return res.redirect('/frontend/pages/modules/facebook-config.php?error=missing_params');
+      return redirectFacebookModuleAfterOAuth(res, { error: 'missing_params' });
     }
     
     // Vérifier le state
@@ -3252,13 +3414,13 @@ router.get('/oauth/callback', async (req, res) => {
     const stateDoc = await stateCollection.findOne({ state: state });
     
     if (!stateDoc) {
-      return res.redirect('/frontend/pages/modules/facebook-config.php?error=invalid_state');
+      return redirectFacebookModuleAfterOAuth(res, { error: 'invalid_state' });
     }
     
     // Vérifier l'expiration
     if (new Date() > stateDoc.expiresAt) {
       await stateCollection.deleteOne({ state: state });
-      return res.redirect('/frontend/pages/modules/facebook-config.php?error=expired_state');
+      return redirectFacebookModuleAfterOAuth(res, { error: 'expired_state' });
     }
     
     const { entrepriseId, userId } = stateDoc;
@@ -3269,12 +3431,16 @@ router.get('/oauth/callback', async (req, res) => {
       tokenResponse = await exchangeCodeForToken(code);
     } catch (error) {
       console.error('Erreur échange token:', error);
-      return res.redirect(`/frontend/pages/modules/facebook-config.php?error=${encodeURIComponent(error.message || 'Erreur lors de l\'échange du code')}`);
+      return redirectFacebookModuleAfterOAuth(res, {
+        error: error.message || 'Erreur lors de l\'échange du code'
+      });
     }
     
     if (tokenResponse.error) {
       console.error('Erreur échange token:', tokenResponse.error);
-      return res.redirect(`/frontend/pages/modules/facebook-config.php?error=${encodeURIComponent(tokenResponse.error.message)}`);
+      return redirectFacebookModuleAfterOAuth(res, {
+        error: tokenResponse.error.message || 'Erreur lors de l\'échange du code'
+      });
     }
     
     let userAccessToken = tokenResponse.access_token;
@@ -3289,7 +3455,7 @@ router.get('/oauth/callback', async (req, res) => {
     
     if (!userAccessToken) {
       console.error('❌ Pas de token dans la réponse:', tokenResponse);
-      return res.redirect('/frontend/pages/modules/facebook-config.php?error=no_token_received');
+      return redirectFacebookModuleAfterOAuth(res, { error: 'no_token_received' });
     }
     
     console.log('✅ Token reçu, récupération des pages...');
@@ -3300,7 +3466,9 @@ router.get('/oauth/callback', async (req, res) => {
       pagesResponse = await getUserPages(userAccessToken);
     } catch (error) {
       console.error('❌ Erreur récupération pages:', error);
-      return res.redirect(`/frontend/pages/modules/facebook-config.php?error=${encodeURIComponent(error.message || 'Erreur lors de la récupération des pages')}`);
+      return redirectFacebookModuleAfterOAuth(res, {
+        error: error.message || 'Erreur lors de la récupération des pages'
+      });
     }
     
     // La réponse Facebook peut être directement un objet avec data ou un tableau
@@ -3311,13 +3479,15 @@ router.get('/oauth/callback', async (req, res) => {
       pages = pagesResponse.data;
     } else if (pagesResponse.error) {
       console.error('❌ Erreur API Facebook:', pagesResponse.error);
-      return res.redirect(`/frontend/pages/modules/facebook-config.php?error=${encodeURIComponent(pagesResponse.error.message || 'Erreur API Facebook')}`);
+      return redirectFacebookModuleAfterOAuth(res, {
+        error: pagesResponse.error.message || 'Erreur API Facebook'
+      });
     }
     
     console.log(`✅ ${pages.length} page(s) trouvée(s)`);
     
     if (pages.length === 0) {
-      return res.redirect('/frontend/pages/modules/facebook-config.php?error=no_pages');
+      return redirectFacebookModuleAfterOAuth(res, { error: 'no_pages' });
     }
     
     // Filtrer les pages déjà connectées pour cette entreprise
@@ -3333,7 +3503,7 @@ router.get('/oauth/callback', async (req, res) => {
     
     // Si toutes les pages sont déjà connectées, informer l'utilisateur
     if (newPages.length === 0) {
-      return res.redirect('/frontend/pages/modules/facebook-config.php?error=all_pages_already_connected');
+      return redirectFacebookModuleAfterOAuth(res, { error: 'all_pages_already_connected' });
     }
     
     // Si une seule nouvelle page, la sauvegarder automatiquement avec webhooks par défaut
@@ -3421,7 +3591,11 @@ router.get('/oauth/callback', async (req, res) => {
         expiresAt: new Date(Date.now() + 5 * 60 * 1000) // 5 minutes
       });
       
-      return res.redirect(`/frontend/pages/modules/facebook-config.php?success=connected&pageId=${page.id}&reauth=${encodeURIComponent(reauthToken)}`);
+      return redirectFacebookModuleAfterOAuth(res, {
+        success: 'connected',
+        pageId: String(page.id),
+        reauth: reauthToken
+      });
     }
     
     // Si plusieurs nouvelles pages, sauvegarder temporairement pour que l'utilisateur configure les webhooks
@@ -3452,11 +3626,15 @@ router.get('/oauth/callback', async (req, res) => {
     });
     
     // Rediriger vers la page de configuration avec toutes les pages en onglets
-    return res.redirect(`/frontend/pages/modules/facebook-config.php?state=${encodeURIComponent(state)}&step=configure_pages&reauth=${encodeURIComponent(reauthToken)}`);
+    return redirectFacebookModuleAfterOAuth(res, {
+      state,
+      step: 'configure_pages',
+      reauth: reauthToken
+    });
     
   } catch (error) {
     console.error('Erreur callback OAuth:', error);
-    return res.redirect(`/frontend/pages/modules/facebook-config.php?error=${encodeURIComponent(error.message)}`);
+    return redirectFacebookModuleAfterOAuth(res, { error: error.message });
   }
 });
 

@@ -384,7 +384,7 @@ router.get('/:entityId/users', authenticateJWT, async (req, res) => {
       });
 
       return {
-        _id: user._id,
+        _id: user._id ? user._id.toString() : '',
         email: user.email,
         username: user.username || null,
         role: userEntreprise?.role || 'user',
@@ -581,6 +581,12 @@ router.delete('/:entityId/users/:userId', authenticateJWT, async (req, res) => {
       return res.status(400).json({
         success: false,
         message: 'L\'ID de l\'entité et de l\'utilisateur sont requis'
+      });
+    }
+    if (!ObjectId.isValid(userId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'ID utilisateur invalide'
       });
     }
 

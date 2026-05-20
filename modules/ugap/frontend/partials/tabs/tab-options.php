@@ -30,7 +30,7 @@
                 <span id="options-unassigned-warning-count">0</span>
             </span>
             <div style="display:flex; align-items:flex-end; margin-left:auto;">
-                <button type="button" class="btn btn-danger" id="btn-options-reset-purge-temp" title="Temporaire : supprime tout le catalogue UGAP publié (ugap_data) pour cette entreprise. À retirer après usage.">Reset</button>
+                <button type="button" class="btn btn-danger" id="btn-options-reset-purge-temp" title="Ré-extrait le fichier Excel source et remet le catalogue à l'état juste après import (comme les minorations).">Reset</button>
             </div>
         </div>
     </div>
