@@ -19,7 +19,6 @@ async function init(app, db) {
     const accessCol = db.getCollection('chat_entity_user_access');
     const convCol = db.getCollection('chat_conversations');
 
-    await globalCol.createIndex({ _id: 1 }, { unique: true });
     await entityCol.createIndex({ entity_id: 1 }, { unique: true });
     await userCol.createIndex({ entity_id: 1, user_id: 1 }, { unique: true });
     await accessCol.createIndex({ entity_id: 1, user_id: 1 }, { unique: true });

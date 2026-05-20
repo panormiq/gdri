@@ -50,6 +50,11 @@
         .subcategory-card:hover { border-color: var(--primary-color, #007bff); transform: translateY(-2px); box-shadow: 0 4px 8px rgba(0,0,0,0.1); }
         .subcategory-card h3 { margin: 0 0 10px 0; font-size: 16px; }
         .subcategory-card .count { color: #666; font-size: 14px; }
+        .subcategory-card .mode-badge { display: inline-block; margin-top: 6px; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; background: #eef2ff; color: #3730a3; }
+        .modal-content.modal-wide { max-width: 960px; }
+        .modal-back-row { margin-bottom: 12px; }
+        .modal-back-btn { padding: 6px 12px; border: 1px solid #ddd; background: #fff; border-radius: 6px; cursor: pointer; font-size: 13px; font-weight: 600; color: #555; }
+        .modal-back-btn:hover { background: #f3f4f6; }
         
         .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000; }
         .modal.active { display: flex; align-items: center; justify-content: center; }
@@ -81,6 +86,31 @@
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
         
         .hidden { display: none !important; }
+
+        .excel-options-wrap { margin-top: 8px; border: 1px solid #e5e7eb; border-radius: 8px; overflow: hidden; background: #fff; }
+        .excel-options-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+        .excel-options-table thead { background: #f8fafc; position: sticky; top: 0; z-index: 1; }
+        .excel-options-table th,
+        .excel-options-table td { padding: 10px 12px; border-bottom: 1px solid #eee; text-align: left; vertical-align: middle; }
+        .excel-options-table th.num,
+        .excel-options-table td.num { text-align: right; white-space: nowrap; }
+        .excel-options-table tbody tr:hover { background: #f9fafb; }
+        .excel-options-scroll { max-height: min(65vh, 720px); overflow: auto; }
+        .excel-line-badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; color: #fff; white-space: nowrap; }
+        .excel-line-badge.option { background: #0d6efd; }
+        .excel-line-badge.minoration { background: #6f42c1; }
+        .excel-line-badge.majoration { background: #fd7e14; }
+        .excel-line-badge.pr { background: #6c757d; }
+        .excel-options-meta { padding: 10px 12px; background: #f8fafc; border-bottom: 1px solid #e5e7eb; font-size: 13px; color: #555; }
+        .excel-options-filters { display: flex; flex-wrap: wrap; gap: 12px 16px; align-items: flex-end; padding: 12px; background: #fff; border-bottom: 1px solid #e5e7eb; }
+        .excel-filter-field { display: flex; flex-direction: column; gap: 4px; min-width: 200px; flex: 1; }
+        .excel-filter-field label { font-size: 12px; font-weight: 600; color: #555; }
+        .excel-filter-field input,
+        .excel-filter-field select { padding: 8px 10px; border: 1px solid #ddd; border-radius: 6px; font-size: 14px; }
+        .excel-filter-field input:focus,
+        .excel-filter-field select:focus { outline: none; border-color: var(--primary-color, #007bff); }
+        .excel-filter-reset { padding: 8px 14px; border: 1px solid #ddd; background: #fff; border-radius: 6px; cursor: pointer; font-size: 13px; font-weight: 600; color: #555; }
+        .excel-filter-reset:hover { background: #f3f4f6; }
     </style>
 </head>
 <body>
@@ -201,6 +231,7 @@
             step: 1,
             models: [],
             categories: [],
+            uiState: null,
             optionTabs: [],
             tabFamiliesById: new Map(),
             selectedModel: null,
@@ -209,7 +240,10 @@
             fivePercentOptions: new Set(),
             fivePercentCustomOptions: [],
             use5Percent: false,
-            budget5Percent: 0
+            budget5Percent: 0,
+            excelTabFilters: { name: '', selection: 'all' },
+            excelAllRows: [],
+            familyModalContext: null
         };
         let ugapZones = { use: false, configure: false };
 
@@ -266,9 +300,12 @@
                 if (!result.success && result.message === 'Aucune donnée configurée') {
                     state.models = [];
                     state.categories = [];
+                    state.uiState = null;
                 } else {
                     state.models = (result.data && result.data.models) || [];
                     state.categories = (result.data && result.data.categories) || [];
+                    state.uiState = (result.data && result.data.uiState) || null;
+                    applyServerUiStateToLocal(state.uiState);
                 }
                 render();
             } catch (error) {
@@ -276,6 +313,7 @@
                 if (errorMsg.includes('404') || errorMsg.includes('Aucune donnée')) {
                     state.models = [];
                     state.categories = [];
+                    state.uiState = null;
                     render();
                 } else {
                     alert('Erreur lors du chargement: ' + errorMsg + '\n\nVérifiez que:\n- Le backend Node.js est démarré\n- Vous êtes authentifié\n- Le module UGAP est chargé');
@@ -385,8 +423,21 @@
             goToStep(3);
         }
 
-        // Step 3: Options
+        // Step 3: Options — aligné sur le paramétrage (vues métier activées + familles serveur)
+        function applyServerUiStateToLocal(uiState) {
+            const src = uiState && typeof uiState === 'object' ? uiState : {};
+            const families = Array.isArray(src.families) ? src.families : [];
+            if (!families.length) return;
+            try {
+                localStorage.setItem('ugap.famille.validatedFamilies', JSON.stringify(families));
+            } catch (_) {
+                // no-op
+            }
+        }
+
         function getValidatedFamiliesForBusinessViews() {
+            const serverFamilies = Array.isArray(state.uiState?.families) ? state.uiState.families : [];
+            if (serverFamilies.length) return serverFamilies;
             try {
                 const raw = localStorage.getItem('ugap.famille.validatedFamilies');
                 const parsed = raw ? JSON.parse(raw) : [];
@@ -423,9 +474,531 @@
             };
         }
 
+        function getValidatedFamilyRootLabel(fam) {
+            const parsed = parseFamilyHierarchyLabel(fam?.familyLabel || '');
+            return String(parsed.family || fam?.familyLabel || '').trim();
+        }
+
+        function normalizeFamilyDecisionGroups(rawGroups) {
+            const rows = Array.isArray(rawGroups) ? rawGroups : [];
+            return rows
+                .map((g, index) => {
+                    const id = String(g?.id || `group_${index + 1}`).trim();
+                    const label = String(g?.label || id || '').trim();
+                    const rawType = String(g?.type || '').trim().toLowerCase();
+                    const type = rawType === 'model' ? 'model' : (rawType === 'static' ? 'static' : 'option');
+                    const decisionMode = String(g?.decisionMode || '').trim().toLowerCase() === 'multi_choice'
+                        ? 'multi_choice'
+                        : 'single_choice';
+                    const optionIds = (Array.isArray(g?.optionIds) ? g.optionIds : [])
+                        .map((x) => String(x || '').trim())
+                        .filter(Boolean);
+                    return id && label ? { id, label, type, decisionMode, optionIds } : null;
+                })
+                .filter(Boolean);
+        }
+
+        function syncFamilyOptionsToDecisionGroups(family) {
+            const f = family && typeof family === 'object' ? { ...family } : {};
+            const familyOptionIds = (Array.isArray(f.optionIds) ? f.optionIds : [])
+                .map((x) => String(x || '').trim())
+                .filter(Boolean);
+            const familyOptionSet = new Set(familyOptionIds);
+            let groups = normalizeFamilyDecisionGroups(f.decisionGroups);
+            if (!groups.length) {
+                f.optionIds = familyOptionIds;
+                return f;
+            }
+            const defaultGroupId = String(groups[0]?.id || '').trim();
+            const assignedInGroups = new Set();
+            groups = groups.map((g) => {
+                const ids = (Array.isArray(g.optionIds) ? g.optionIds : [])
+                    .map((x) => String(x || '').trim())
+                    .filter((x) => x && familyOptionSet.has(x));
+                ids.forEach((id) => assignedInGroups.add(id));
+                return { ...g, optionIds: ids };
+            });
+            if (defaultGroupId) {
+                const orphans = familyOptionIds.filter((id) => !assignedInGroups.has(id));
+                if (orphans.length) {
+                    groups = groups.map((g) => {
+                        if (String(g.id) !== defaultGroupId) return g;
+                        return { ...g, optionIds: Array.from(new Set([...(g.optionIds || []), ...orphans])) };
+                    });
+                }
+            }
+            f.decisionGroups = groups;
+            return f;
+        }
+
+        function isOptionCompatibleWithSelectedModel(opt) {
+            const mid = String(state.selectedModel?.id || '').trim();
+            if (!mid) return true;
+            const comp = Array.isArray(opt?.compatibleModels) ? opt.compatibleModels.map((x) => String(x)) : [];
+            if (comp.length === 0) return !!opt?.isDivers;
+            return comp.includes(mid);
+        }
+
+        function isSelectableCatalogOption(opt) {
+            return !isBaseCatalogOption(opt) && isOptionCompatibleWithSelectedModel(opt);
+        }
+
+        function resolveGroupOptions(group, optionById) {
+            const ids = Array.isArray(group?.optionIds) ? group.optionIds : [];
+            return ids
+                .map((id) => optionById.get(String(id || '').trim()))
+                .filter((opt) => opt && isSelectableCatalogOption(opt));
+        }
+
+        function buildFamilyNodeFromRecord(fam, optionById) {
+            const familyLabel = getValidatedFamilyRootLabel(fam);
+            if (!familyLabel) return null;
+            const synced = syncFamilyOptionsToDecisionGroups(fam);
+            let groups = normalizeFamilyDecisionGroups(synced.decisionGroups);
+            const familyOptionIds = (Array.isArray(synced.optionIds) ? synced.optionIds : [])
+                .map((x) => String(x || '').trim())
+                .filter(Boolean);
+            if (!groups.length && familyOptionIds.length) {
+                groups = [{
+                    id: 'default',
+                    label: 'Choix',
+                    type: 'option',
+                    decisionMode: 'single_choice',
+                    optionIds: familyOptionIds
+                }];
+            }
+            const decisionGroups = groups.map((g) => {
+                const options = resolveGroupOptions(g, optionById);
+                return { ...g, options };
+            }).filter((g) => g.type === 'model' || g.type === 'static' || (g.options && g.options.length > 0));
+
+            const allOptions = [];
+            decisionGroups.forEach((g) => {
+                (g.options || []).forEach((opt) => {
+                    if (!allOptions.some((x) => x.id === opt.id)) allOptions.push(opt);
+                });
+            });
+
+            if (!decisionGroups.length && !allOptions.length) return null;
+
+            return {
+                id: `family:${normalizeLabelAsId(familyLabel) || 'famille'}`,
+                name: familyLabel,
+                decisionGroups,
+                allOptions
+            };
+        }
+
+        function mergeFamilyNodes(existing, incoming) {
+            if (!existing) return incoming;
+            const groupMap = new Map((existing.decisionGroups || []).map((g) => [g.id, { ...g, options: [...(g.options || [])] }]));
+            (incoming.decisionGroups || []).forEach((g) => {
+                if (!groupMap.has(g.id)) {
+                    groupMap.set(g.id, { ...g, options: [...(g.options || [])] });
+                    return;
+                }
+                const cur = groupMap.get(g.id);
+                const optMap = new Map((cur.options || []).map((o) => [o.id, o]));
+                (g.options || []).forEach((o) => optMap.set(o.id, o));
+                cur.options = Array.from(optMap.values());
+                cur.optionIds = Array.from(new Set([...(cur.optionIds || []), ...(g.optionIds || [])]));
+            });
+            const allMap = new Map((existing.allOptions || []).map((o) => [o.id, o]));
+            (incoming.allOptions || []).forEach((o) => allMap.set(o.id, o));
+            return {
+                ...existing,
+                decisionGroups: Array.from(groupMap.values()),
+                allOptions: Array.from(allMap.values())
+            };
+        }
+
+        function getDecisionModeLabel(mode) {
+            return mode === 'multi_choice' ? 'Choix multiple' : 'Choix unique';
+        }
+
+        function countSelectedOptions(options) {
+            return (Array.isArray(options) ? options : []).filter((o) =>
+                state.selectedOptions.has(o.id) || state.fivePercentOptions.has(o.id)
+            ).length;
+        }
+
         function getFamilyKeyFromLabel(value) {
             const parsed = parseFamilyHierarchyLabel(value);
             return normalizeLabelAsId(parsed.family || '');
+        }
+
+        function normalizeBusinessViewRule(rule) {
+            const r = rule && typeof rule === 'object' ? rule : {};
+            return {
+                viewLabel: String(r.viewLabel || '').trim(),
+                enabled: r.enabled !== false
+            };
+        }
+
+        function getBusinessViewIdForLabel(viewLabel) {
+            const label = String(viewLabel || '').trim();
+            if (!label) return '';
+            const key = normalizeLabelAsId(label) || label.toLowerCase();
+            return `rule:${key}`;
+        }
+
+        /** Vues métier activées dans le paramétrage (uiState.businessViews). */
+        function getConfiguredBusinessViews() {
+            let rules = Array.isArray(state.uiState?.businessViews) ? state.uiState.businessViews : [];
+            if (!rules.length) {
+                try {
+                    const raw = localStorage.getItem('ugap.vueMetier.heuristicRules');
+                    const parsed = raw ? JSON.parse(raw) : [];
+                    if (Array.isArray(parsed)) rules = parsed;
+                } catch (_) {
+                    // no-op
+                }
+            }
+            return rules
+                .map(normalizeBusinessViewRule)
+                .filter((r) => r.viewLabel && r.enabled)
+                .map((r) => ({
+                    id: getBusinessViewIdForLabel(r.viewLabel),
+                    name: r.viewLabel
+                }));
+        }
+
+        function familyMatchesBusinessView(fam, view) {
+            const viewId = String(view?.id || '').trim();
+            const viewName = String(view?.name || '').trim();
+            const famId = String(fam?.businessViewId || '').trim();
+            const famLabel = String(fam?.businessViewLabel || '').trim();
+            if (famId && viewId && famId === viewId) return true;
+            if (famLabel && viewName && famLabel === viewName) return true;
+            if (famLabel && viewId === getBusinessViewIdForLabel(famLabel)) return true;
+            return false;
+        }
+
+        const UGAP_EXCEL_VIEW_LABEL = 'Excel de base';
+
+        function escapeHtml(value) {
+            return String(value ?? '')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;');
+        }
+
+        function formatPriceCell(value) {
+            if (value == null || value === '' || (typeof value === 'number' && Number.isNaN(value))) return '—';
+            const n = Number(value);
+            if (Number.isNaN(n)) return '—';
+            return n.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €';
+        }
+
+        function isExcelBusinessViewTab(tab) {
+            const name = String(tab?.name || '').trim().toLowerCase();
+            return name === UGAP_EXCEL_VIEW_LABEL.toLowerCase() || /\bexcel\b/.test(name);
+        }
+
+        function isBaseCatalogOption(opt) {
+            if (!opt || typeof opt !== 'object') return false;
+            if (opt.isBaseOption === true) return true;
+            if (opt.importGeneratedFromBaseProduct === true) return true;
+            if (String(opt.importBaseProductId || '').trim()) return true;
+            if (opt.baseIncluded === true) return true;
+            if (opt.manualBaseOption === true && String(opt.baseRefUgap || '').trim()) return true;
+            const ref = String(opt.refUgap || '').trim().toUpperCase();
+            if (ref.startsWith('IBP-')) return true;
+            return false;
+        }
+
+        function getOptionLineKind(opt) {
+            if (opt?.isMinoration === true) {
+                return { kind: 'minoration', label: 'Minoration', badgeClass: 'minoration' };
+            }
+            const ref = String(opt?.refUgap || '').trim().toUpperCase();
+            const name = String(opt?.name || '').trim();
+            if (ref.startsWith('MINO') || /minorat/i.test(name) || /^(moins-value|plus-value|plus\s+value)\b/i.test(name)) {
+                return { kind: 'minoration', label: 'Minoration / MV / PV', badgeClass: 'minoration' };
+            }
+            if (/^PR\s/i.test(name)) {
+                return { kind: 'pr', label: 'PR', badgeClass: 'pr' };
+            }
+            if (
+                /^(plus-value|plus\s+value)\b/i.test(name) ||
+                /\ben\s+lieu\s+et\s+place\b/i.test(name) ||
+                /\bau\s+lieu\s+et\s+place\b/i.test(name) ||
+                /\ben\s+remplacement\b/i.test(name) ||
+                /\bnon\s+fourniture\b/i.test(name)
+            ) {
+                return { kind: 'majoration', label: 'Majoration', badgeClass: 'majoration' };
+            }
+            return { kind: 'option', label: 'Option', badgeClass: 'option' };
+        }
+
+        function extractRowOrder(option) {
+            if (typeof option?.rowIndex === 'number') return option.rowIndex;
+            const match = String(option?.id || '').match(/^opt_(\d+)$/i);
+            return match ? Number(match[1]) : Number.MAX_SAFE_INTEGER;
+        }
+
+        function isExcelRowVisibleForModel(opt, modelId) {
+            if (isBaseCatalogOption(opt)) return false;
+            const mid = String(modelId || '').trim();
+            const comp = Array.isArray(opt?.compatibleModels) ? opt.compatibleModels.map((x) => String(x)) : [];
+            const lineKind = getOptionLineKind(opt).kind;
+            if (lineKind === 'minoration' || lineKind === 'majoration' || lineKind === 'pr') {
+                return !mid || comp.length === 0 || comp.includes(mid);
+            }
+            if (!mid) return true;
+            if (comp.length === 0) return !!opt?.isDivers;
+            return comp.includes(mid);
+        }
+
+        function collectExcelCatalogRows() {
+            const modelId = state.selectedModel?.id;
+            const seen = new Set();
+            const rows = [];
+            (Array.isArray(state.categories) ? state.categories : []).forEach((category) => {
+                const categoryName = String(category?.name || '').trim() || '—';
+                (Array.isArray(category?.options) ? category.options : []).forEach((option) => {
+                    const id = String(option?.id || '').trim();
+                    if (!id || seen.has(id)) return;
+                    if (!isExcelRowVisibleForModel(option, modelId)) return;
+                    seen.add(id);
+                    const lineKind = getOptionLineKind(option);
+                    const poste = extractPosteSortInfo(option);
+                    rows.push({
+                        option,
+                        id,
+                        categoryName,
+                        rowOrder: extractRowOrder(option),
+                        lineKindLabel: lineKind.label,
+                        lineKindBadge: lineKind.badgeClass,
+                        posteLabel: poste.label
+                    });
+                });
+            });
+            rows.sort((a, b) => a.rowOrder - b.rowOrder);
+            return rows;
+        }
+
+        function normalizeFilterText(value) {
+            return String(value || '')
+                .normalize('NFD')
+                .replace(/[\u0300-\u036f]/g, '')
+                .toLowerCase()
+                .trim();
+        }
+
+        function isExcelRowSelected(row) {
+            const id = String(row?.id || '').trim();
+            return state.selectedOptions.has(id) || state.fivePercentOptions.has(id);
+        }
+
+        function applyExcelRowFilters(rows) {
+            const filters = state.excelTabFilters || { name: '', selection: 'all' };
+            const nameQuery = normalizeFilterText(filters.name);
+            const selection = String(filters.selection || 'all');
+            return (Array.isArray(rows) ? rows : []).filter((row) => {
+                if (selection === 'selected' && !isExcelRowSelected(row)) return false;
+                if (selection === 'unselected' && isExcelRowSelected(row)) return false;
+                if (!nameQuery) return true;
+                const opt = row.option || {};
+                const haystack = normalizeFilterText([
+                    opt.name,
+                    opt.refUgap,
+                    row.categoryName,
+                    row.posteLabel,
+                    row.lineKindLabel
+                ].join(' '));
+                return haystack.includes(nameQuery);
+            });
+        }
+
+        function buildExcelTableRowHtml(row) {
+            const opt = row.option;
+            const checked = isExcelRowSelected(row);
+            const fivePct = state.fivePercentOptions.has(row.id);
+            const priceClient = formatPriceCell(opt.priceClient);
+            const priceUgap = formatPriceCell(opt.priceUgap);
+            return `
+                <tr data-excel-row-id="${escapeHtml(row.id)}">
+                    <td style="text-align:center; width:44px;">
+                        <input type="checkbox" id="${escapeHtml(row.id)}" data-option-name="${escapeHtml(opt.name || '')}" ${checked ? 'checked' : ''} ${fivePct && !state.use5Percent ? 'disabled' : ''}>
+                    </td>
+                    <td><span class="excel-line-badge ${escapeHtml(row.lineKindBadge)}">${escapeHtml(row.lineKindLabel)}</span></td>
+                    <td>${escapeHtml(opt.name || '—')}${fivePct ? ' <span style="margin-left:6px;padding:2px 6px;background:#ffe08a;color:#856404;border-radius:4px;font-size:11px;font-weight:600;">5% Devis</span>' : ''}</td>
+                    <td class="num">${priceClient}</td>
+                    <td class="num">${priceUgap}</td>
+                    <td style="font-size:12px;color:#666;">${escapeHtml(opt.refUgap || '—')}</td>
+                    <td style="font-size:12px;color:#666;">${escapeHtml(row.posteLabel)}</td>
+                    <td style="font-size:12px;color:#888;">${escapeHtml(row.categoryName)}</td>
+                </tr>
+            `;
+        }
+
+        function bindExcelTableCheckboxes(rows) {
+            rows.forEach((row) => {
+                const cb = document.getElementById(row.id);
+                if (cb) bindOptionCheckbox(cb, row.option, true);
+            });
+        }
+
+        function updateExcelOptionsMeta(allRows, filteredRows) {
+            const meta = document.getElementById('ugap-excel-options-meta');
+            if (!meta) return;
+            const all = Array.isArray(allRows) ? allRows : [];
+            const shown = Array.isArray(filteredRows) ? filteredRows : [];
+            const selectedCount = all.filter((r) => isExcelRowSelected(r)).length;
+            const regularCount = all.filter((r) => r.lineKindBadge === 'option').length;
+            const minoCount = all.filter((r) => r.lineKindBadge === 'minoration').length;
+            const majoCount = all.filter((r) => r.lineKindBadge === 'majoration').length;
+            const filterActive = (state.excelTabFilters?.name || '').trim() || state.excelTabFilters?.selection !== 'all';
+            meta.innerHTML = `
+                <strong>${shown.length}</strong> ligne(s) affichée(s) sur <strong>${all.length}</strong>
+                ${filterActive ? ' (filtre actif)' : ''} — ordre fichier Excel. Options de base exclues.
+                <strong>${selectedCount}</strong> sélectionnée(s).
+                ${regularCount ? `${regularCount} option(s)` : ''}${minoCount ? ` · ${minoCount} minoration(s) / MV / PV` : ''}${majoCount ? ` · ${majoCount} majoration(s)` : ''}
+            `;
+        }
+
+        function refreshExcelOptionsTable() {
+            const tbody = document.getElementById('ugap-excel-options-tbody');
+            if (!tbody) return;
+            const allRows = state.excelAllRows || [];
+            const filtered = applyExcelRowFilters(allRows);
+            if (!filtered.length) {
+                tbody.innerHTML = '<tr><td colspan="8" style="padding:16px;text-align:center;color:#666;">Aucune ligne ne correspond aux filtres.</td></tr>';
+            } else {
+                tbody.innerHTML = filtered.map(buildExcelTableRowHtml).join('');
+                bindExcelTableCheckboxes(filtered);
+            }
+            updateExcelOptionsMeta(allRows, filtered);
+        }
+
+        function resetExcelTabFilters() {
+            state.excelTabFilters = { name: '', selection: 'all' };
+            const nameInput = document.getElementById('ugap-excel-filter-name');
+            const selInput = document.getElementById('ugap-excel-filter-selection');
+            if (nameInput) nameInput.value = '';
+            if (selInput) selInput.value = 'all';
+            refreshExcelOptionsTable();
+        }
+
+        function bindOptionCheckbox(checkbox, option, fromExcelTable = false) {
+            checkbox.onchange = () => {
+                if (state.use5Percent && !state.fivePercentOptions.has(option.id)) {
+                    const price = option.priceClient || option.priceUgap || 0;
+                    if (state.budget5Percent > 0 && getFivePercentTotal() + price > state.budget5Percent) {
+                        alert('Budget 5% dépassé !');
+                        checkbox.checked = false;
+                        return;
+                    }
+                    state.fivePercentOptions.add(option.id);
+                    state.selectedOptions.delete(option.id);
+                } else if (checkbox.checked) {
+                    state.selectedOptions.add(option.id);
+                    state.fivePercentOptions.delete(option.id);
+                } else {
+                    state.selectedOptions.delete(option.id);
+                    state.fivePercentOptions.delete(option.id);
+                }
+                autoSelectMatchingNonSupplyMotor(checkbox);
+                if (state.use5Percent) render5PercentOptions();
+                updateSummary();
+                if (fromExcelTable) {
+                    updateExcelOptionsMeta(state.excelAllRows, applyExcelRowFilters(state.excelAllRows));
+                    if (state.excelTabFilters?.selection !== 'all') {
+                        refreshExcelOptionsTable();
+                    }
+                }
+            };
+        }
+
+        function renderExcelCategoryOptions(tab, optionsContainer) {
+            const rows = collectExcelCatalogRows();
+            state.excelAllRows = rows;
+            tab.options = rows.map((r) => r.option);
+
+            if (!rows.length) {
+                optionsContainer.innerHTML = '<p style="color:#666;">Aucune option disponible pour ce modèle (hors options de base déjà incluses).</p>';
+                return;
+            }
+
+            const filters = state.excelTabFilters || { name: '', selection: 'all' };
+            const filtered = applyExcelRowFilters(rows);
+            const bodyHtml = filtered.length
+                ? filtered.map(buildExcelTableRowHtml).join('')
+                : '<tr><td colspan="8" style="padding:16px;text-align:center;color:#666;">Aucune ligne ne correspond aux filtres.</td></tr>';
+
+            optionsContainer.innerHTML = `
+                <div class="excel-options-wrap" id="ugap-excel-options-root">
+                    <div class="excel-options-filters">
+                        <div class="excel-filter-field" style="flex:2;min-width:260px;">
+                            <label for="ugap-excel-filter-name">Filtrer par nom</label>
+                            <input type="search" id="ugap-excel-filter-name" placeholder="Libellé, référence, poste…" value="${escapeHtml(filters.name || '')}" autocomplete="off">
+                        </div>
+                        <div class="excel-filter-field" style="flex:0 0 200px;">
+                            <label for="ugap-excel-filter-selection">Sélection</label>
+                            <select id="ugap-excel-filter-selection">
+                                <option value="all" ${filters.selection === 'all' ? 'selected' : ''}>Toutes</option>
+                                <option value="selected" ${filters.selection === 'selected' ? 'selected' : ''}>Sélectionnées</option>
+                                <option value="unselected" ${filters.selection === 'unselected' ? 'selected' : ''}>Non sélectionnées</option>
+                            </select>
+                        </div>
+                        <button type="button" class="excel-filter-reset" id="ugap-excel-filter-reset">Réinitialiser</button>
+                    </div>
+                    <div class="excel-options-meta" id="ugap-excel-options-meta"></div>
+                    <div class="excel-options-scroll">
+                        <table class="excel-options-table">
+                            <thead>
+                                <tr>
+                                    <th style="width:44px;text-align:center;">✓</th>
+                                    <th>Type</th>
+                                    <th>Libellé</th>
+                                    <th class="num">Prix client HT</th>
+                                    <th class="num">Prix UGAP HT</th>
+                                    <th>Réf. UGAP</th>
+                                    <th>Poste</th>
+                                    <th>Catégorie</th>
+                                </tr>
+                            </thead>
+                            <tbody id="ugap-excel-options-tbody">${bodyHtml}</tbody>
+                        </table>
+                    </div>
+                </div>
+            `;
+
+            updateExcelOptionsMeta(rows, filtered);
+            bindExcelTableCheckboxes(filtered);
+
+            const nameInput = document.getElementById('ugap-excel-filter-name');
+            const selInput = document.getElementById('ugap-excel-filter-selection');
+            const resetBtn = document.getElementById('ugap-excel-filter-reset');
+
+            if (nameInput) {
+                nameInput.addEventListener('input', () => {
+                    state.excelTabFilters.name = nameInput.value;
+                    refreshExcelOptionsTable();
+                });
+            }
+            if (selInput) {
+                selInput.addEventListener('change', () => {
+                    state.excelTabFilters.selection = selInput.value || 'all';
+                    refreshExcelOptionsTable();
+                });
+            }
+            if (resetBtn) {
+                resetBtn.addEventListener('click', resetExcelTabFilters);
+            }
+        }
+
+        function resolveFamilyBusinessViewTabId(fam, configuredViews) {
+            const configured = Array.isArray(configuredViews) ? configuredViews : [];
+            const match = configured.find((v) => familyMatchesBusinessView(fam, v));
+            if (match) return match.id;
+            const viewIdRaw = String(fam?.businessViewId || '').trim();
+            const viewLabelRaw = String(fam?.businessViewLabel || '').trim();
+            const resolvedViewLabel = viewLabelRaw || viewIdRaw;
+            if (!resolvedViewLabel) return '';
+            return viewIdRaw || getBusinessViewIdForLabel(resolvedViewLabel) || `view:${normalizeLabelAsId(resolvedViewLabel) || 'metier'}`;
         }
 
         function extractPosteSortInfo(option) {
@@ -561,101 +1134,84 @@
             });
 
             const validatedFamilies = getValidatedFamiliesForBusinessViews();
+            const configuredViews = getConfiguredBusinessViews();
             const viewMap = new Map();
             const familyByTab = new Map();
 
-            validatedFamilies.forEach((fam) => {
-                const viewIdRaw = String(fam?.businessViewId || '').trim();
-                const viewLabelRaw = String(fam?.businessViewLabel || '').trim();
-                const resolvedViewLabel = viewLabelRaw || viewIdRaw;
-                if (!resolvedViewLabel) return;
+            configuredViews.forEach((view) => {
+                viewMap.set(view.id, {
+                    id: view.id,
+                    name: view.name,
+                    options: [],
+                    subCategories: []
+                });
+                familyByTab.set(view.id, []);
+            });
 
-                const tabId = viewIdRaw || `view:${normalizeLabelAsId(resolvedViewLabel) || 'metier'}`;
+            validatedFamilies.forEach((fam) => {
+                const tabId = configuredViews.length
+                    ? resolveFamilyBusinessViewTabId(fam, configuredViews)
+                    : (() => {
+                        const viewIdRaw = String(fam?.businessViewId || '').trim();
+                        const viewLabelRaw = String(fam?.businessViewLabel || '').trim();
+                        const resolvedViewLabel = viewLabelRaw || viewIdRaw;
+                        if (!resolvedViewLabel) return '';
+                        return viewIdRaw || `view:${normalizeLabelAsId(resolvedViewLabel) || 'metier'}`;
+                    })();
+                if (!tabId) return;
+                if (configuredViews.length && !viewMap.has(tabId)) return;
+
                 if (!viewMap.has(tabId)) {
+                    const viewLabelRaw = String(fam?.businessViewLabel || '').trim();
+                    const viewIdRaw = String(fam?.businessViewId || '').trim();
                     viewMap.set(tabId, {
                         id: tabId,
-                        name: resolvedViewLabel,
+                        name: viewLabelRaw || viewIdRaw || tabId,
                         options: [],
                         subCategories: []
                     });
                 }
                 if (!familyByTab.has(tabId)) familyByTab.set(tabId, []);
 
-                const parsed = parseFamilyHierarchyLabel(fam?.familyLabel || '');
-                const familyLabel = String(parsed.family || '').trim();
-                const subFamilyLabel = String(parsed.subFamily || '').trim();
-                if (!familyLabel) return;
+                const built = buildFamilyNodeFromRecord(fam, optionById);
+                if (!built) return;
 
-                const familyId = `family:${normalizeLabelAsId(familyLabel) || 'famille'}`;
                 const existingFamilies = familyByTab.get(tabId);
-                let familyNode = existingFamilies.find((x) => x.id === familyId);
-                if (!familyNode) {
-                    familyNode = {
-                        id: familyId,
-                        name: familyLabel,
-                        subFamilies: new Map(),
-                        directOptions: [],
-                        _directOptionIds: new Set()
-                    };
-                    existingFamilies.push(familyNode);
+                const idx = existingFamilies.findIndex((x) => x.id === built.id);
+                if (idx >= 0) {
+                    existingFamilies[idx] = mergeFamilyNodes(existingFamilies[idx], built);
+                } else {
+                    existingFamilies.push(built);
                 }
 
-                const optionIds = Array.isArray(fam?.optionIds) ? fam.optionIds : [];
-                const subFamilyId = subFamilyLabel
-                    ? `subfamily:${normalizeLabelAsId(familyLabel)}:${normalizeLabelAsId(subFamilyLabel)}`
-                    : '';
-
-                if (subFamilyId && !familyNode.subFamilies.has(subFamilyId)) {
-                    familyNode.subFamilies.set(subFamilyId, {
-                        id: subFamilyId,
-                        name: subFamilyLabel,
-                        description: `Sous-famille de ${familyLabel}`,
-                        options: [],
-                        optionIds: []
-                    });
-                }
-
-                optionIds.forEach((idRaw) => {
-                    const optionId = String(idRaw || '').trim();
-                    if (!optionId) return;
-                    const option = optionById.get(optionId);
-                    if (!option) return;
-
-                    const viewTab = viewMap.get(tabId);
-                    if (!viewTab.options.some((x) => String(x?.id || '') === optionId)) {
+                const viewTab = viewMap.get(tabId);
+                (built.allOptions || []).forEach((option) => {
+                    if (!viewTab.options.some((x) => String(x?.id || '') === option.id)) {
                         viewTab.options.push(option);
-                    }
-
-                    if (subFamilyId) {
-                        const subFamily = familyNode.subFamilies.get(subFamilyId);
-                        if (subFamily && !subFamily.optionIds.includes(optionId)) {
-                            subFamily.optionIds.push(optionId);
-                            subFamily.options.push(option);
-                        }
-                    } else {
-                        if (!familyNode._directOptionIds.has(optionId)) {
-                            familyNode._directOptionIds.add(optionId);
-                            familyNode.directOptions.push(option);
-                        }
                     }
                 });
             });
 
             state.tabFamiliesById = new Map();
-            const viewTabs = Array.from(viewMap.values())
-                .map((tab) => {
-                    const families = (familyByTab.get(tab.id) || []).map((famNode) => ({
-                        id: famNode.id,
-                        name: famNode.name,
-                        directOptions: famNode.directOptions,
-                        subFamilies: Array.from(famNode.subFamilies.values())
-                    }));
-                    state.tabFamiliesById.set(tab.id, families);
-                    return tab;
-                })
-                .filter((tab) => Array.isArray(tab.options) && tab.options.length > 0);
+            const viewTabsSource = configuredViews.length
+                ? configuredViews.map((v) => viewMap.get(v.id)).filter(Boolean)
+                : Array.from(viewMap.values());
+            let viewTabs = viewTabsSource.map((tab) => {
+                const families = (familyByTab.get(tab.id) || []).map((famNode) => ({
+                    id: famNode.id,
+                    name: famNode.name,
+                    decisionGroups: famNode.decisionGroups || [],
+                    allOptions: famNode.allOptions || []
+                }));
+                state.tabFamiliesById.set(tab.id, families);
+                return tab;
+            });
 
-            if (viewTabs.length > 0) {
+            if (!configuredViews.length) {
+                viewTabs = viewTabs.filter((tab) => Array.isArray(tab.options) && tab.options.length > 0);
+            }
+
+            if (configuredViews.length > 0 || viewTabs.length > 0) {
                 return viewTabs;
             }
 
@@ -687,6 +1243,10 @@
             // Render options for first category
             if (state.optionTabs.length > 0) {
                 renderCategoryOptions(0);
+            } else {
+                document.getElementById('subcategories-container').innerHTML =
+                    '<p style="color:#666;">Aucune vue métier activée. Configurez-les dans le paramétrage UGAP (onglet Vues métier).</p>';
+                document.getElementById('options-container').innerHTML = '';
             }
 
             updateSummary();
@@ -713,19 +1273,31 @@
 
             const tab = state.optionTabs[categoryIndex];
             if (!tab) return;
+
+            if (isExcelBusinessViewTab(tab)) {
+                renderExcelCategoryOptions(tab, optionsContainer);
+                return;
+            }
+
             const families = state.tabFamiliesById.get(tab.id) || [];
+            if (families.length === 0 && getConfiguredBusinessViews().length > 0) {
+                optionsContainer.innerHTML = '<p style="color:#666;">Aucune famille rattachée à cette vue métier dans le paramétrage.</p>';
+                return;
+            }
             if (families.length > 0) {
                 const familyGrid = document.createElement('div');
                 familyGrid.className = 'subcategories-grid';
 
                 families.forEach((family) => {
+                    const groups = Array.isArray(family.decisionGroups) ? family.decisionGroups : [];
+                    const optionCount = (family.allOptions || []).length;
+                    const selectedCount = countSelectedOptions(family.allOptions);
                     const card = document.createElement('div');
                     card.className = 'subcategory-card';
-                    const subCount = Array.isArray(family.subFamilies) ? family.subFamilies.length : 0;
-                    const directCount = Array.isArray(family.directOptions) ? family.directOptions.length : 0;
                     card.innerHTML = `
-                        <h3>${family.name}</h3>
-                        <div class="count">${subCount} sous-famille(s)${directCount ? ` · ${directCount} option(s)` : ''}</div>
+                        <h3>${escapeHtml(family.name)}</h3>
+                        <div class="count">${groups.length} groupe(s) · ${optionCount} option(s)</div>
+                        ${selectedCount ? `<div class="count" style="margin-top:4px;color:#0d6efd;">${selectedCount} sélectionnée(s)</div>` : ''}
                     `;
                     card.onclick = () => openFamilyModal(family);
                     familyGrid.appendChild(card);
@@ -802,7 +1374,31 @@
             }
         }
 
-        function createOptionItem(option) {
+        function applyOptionSelectionFromCheckbox(checkbox, option) {
+            if (checkbox.checked) {
+                if (state.use5Percent && !state.fivePercentOptions.has(option.id)) {
+                    const price = option.priceClient || option.priceUgap || 0;
+                    if (state.budget5Percent > 0 && getFivePercentTotal() + price > state.budget5Percent) {
+                        alert('Budget 5% dépassé !');
+                        checkbox.checked = false;
+                        return;
+                    }
+                    state.fivePercentOptions.add(option.id);
+                    state.selectedOptions.delete(option.id);
+                } else {
+                    state.selectedOptions.add(option.id);
+                    state.fivePercentOptions.delete(option.id);
+                }
+            } else {
+                state.selectedOptions.delete(option.id);
+                state.fivePercentOptions.delete(option.id);
+            }
+            autoSelectMatchingNonSupplyMotor(checkbox);
+            if (state.use5Percent) render5PercentOptions();
+            updateSummary();
+        }
+
+        function createOptionItem(option, selectionCtx = null) {
             const item = document.createElement('div');
             item.className = 'option-item';
             
@@ -812,9 +1408,21 @@
             checkbox.setAttribute('data-option-name', String(option?.name || ''));
             checkbox.checked = state.selectedOptions.has(option.id) || state.fivePercentOptions.has(option.id);
             checkbox.disabled = state.fivePercentOptions.has(option.id) && !state.use5Percent;
-            checkbox.onchange = (e) => {
+
+            if (selectionCtx?.decisionGroupKey) {
+                checkbox.setAttribute('data-decision-group-key', selectionCtx.decisionGroupKey);
+                checkbox.setAttribute('data-decision-mode', selectionCtx.decisionMode || 'single_choice');
+                if (selectionCtx.decisionMode === 'single_choice') {
+                    checkbox.classList.add('group-exclusive');
+                }
+            }
+
+            checkbox.onchange = () => {
                 const familyKey = checkbox.getAttribute('data-family-key') || '';
                 const subFamilyKey = checkbox.getAttribute('data-subfamily-key') || '';
+                const groupKey = checkbox.getAttribute('data-decision-group-key') || '';
+                const decisionMode = checkbox.getAttribute('data-decision-mode') || '';
+
                 if (checkbox.checked && familyKey && subFamilyKey) {
                     document.querySelectorAll(`input.fam-exclusive[data-family-key="${familyKey}"][data-subfamily-key="${subFamilyKey}"]`).forEach((other) => {
                         if (other === checkbox) return;
@@ -823,23 +1431,18 @@
                         state.fivePercentOptions.delete(other.id);
                     });
                 }
-                if (state.use5Percent && !state.fivePercentOptions.has(option.id)) {
-                    const price = option.priceClient || option.priceUgap || 0;
-                    if (state.budget5Percent > 0 && getFivePercentTotal() + price > state.budget5Percent) {
-                        alert('Budget 5% dépassé !');
-                        checkbox.checked = false;
-                        return;
-                    }
-                    state.fivePercentOptions.add(option.id);
-                } else {
-                    state.selectedOptions.add(option.id);
-                    state.fivePercentOptions.delete(option.id);
+                if (checkbox.checked && groupKey && decisionMode === 'single_choice') {
+                    document.querySelectorAll(`input.group-exclusive[data-decision-group-key="${groupKey}"]`).forEach((other) => {
+                        if (other === checkbox) return;
+                        other.checked = false;
+                        state.selectedOptions.delete(other.id);
+                        state.fivePercentOptions.delete(other.id);
+                    });
                 }
-                autoSelectMatchingNonSupplyMotor(checkbox);
-                if (state.use5Percent) {
-                    render5PercentOptions();
+                applyOptionSelectionFromCheckbox(checkbox, option);
+                if (state.familyModalContext?.group && groupKey) {
+                    renderFamilyModalContent();
                 }
-                updateSummary();
             };
 
             const label = document.createElement('label');
@@ -864,7 +1467,9 @@
         }
 
         function openSubCategoryModal(subCategory, options) {
+            state.familyModalContext = null;
             const modal = document.getElementById('subcategory-modal');
+            modal.querySelector('.modal-content')?.classList.remove('modal-wide');
             const title = document.getElementById('subcategory-modal-title');
             const optionsList = document.getElementById('subcategory-options-list');
 
@@ -892,79 +1497,123 @@
         }
 
         function openFamilyModal(family) {
+            state.familyModalContext = { family, group: null };
             const modal = document.getElementById('subcategory-modal');
-            const title = document.getElementById('subcategory-modal-title');
-            const optionsList = document.getElementById('subcategory-options-list');
-            title.textContent = family.name;
-            optionsList.innerHTML = '';
-
-            const familyKey = getFamilyKeyFromLabel(family.name);
-
-            (family.subFamilies || []).forEach((sub) => {
-                const block = document.createElement('div');
-                block.style.marginBottom = '16px';
-                block.innerHTML = `
-                    <h3 style="margin:0 0 8px 0;">${sub.name} <span style="font-size:12px;color:#666;">(choix unique)</span></h3>
-                `;
-                const groups = buildPosteGroups(sub.options || []);
-                groups.forEach((group) => {
-                    const title = document.createElement('div');
-                    title.style.cssText = 'font-size:12px; font-weight:600; color:#666; margin:8px 0 6px;';
-                    title.textContent = group.label;
-                    block.appendChild(title);
-                    const list = document.createElement('div');
-                    list.className = 'options-list';
-                    group.options.forEach((option) => {
-                        const item = createOptionItem(option);
-                        const cb = item.querySelector('input[type="checkbox"]');
-                        if (cb) {
-                            const poste = extractPosteSortInfo(option);
-                            cb.classList.add('fam-exclusive');
-                            cb.setAttribute('data-family-key', familyKey);
-                            cb.setAttribute('data-subfamily-key', normalizeLabelAsId(sub.name));
-                            cb.setAttribute('data-poste-key', poste.key);
-                        }
-                        list.appendChild(item);
-                    });
-                    block.appendChild(list);
-                });
-                optionsList.appendChild(block);
-            });
-
-            if (Array.isArray(family.directOptions) && family.directOptions.length > 0) {
-                const direct = document.createElement('div');
-                direct.innerHTML = '<h3 style="margin:0 0 8px 0;">Autres options de la famille</h3>';
-                const groups = buildPosteGroups(family.directOptions);
-                groups.forEach((group) => {
-                    const title = document.createElement('div');
-                    title.style.cssText = 'font-size:12px; font-weight:600; color:#666; margin:8px 0 6px;';
-                    title.textContent = group.label;
-                    direct.appendChild(title);
-                    const list = document.createElement('div');
-                    list.className = 'options-list';
-                    group.options.forEach((option) => {
-                        const item = createOptionItem(option);
-                        const cb = item.querySelector('input[type="checkbox"]');
-                        if (cb) {
-                            const poste = extractPosteSortInfo(option);
-                            cb.setAttribute('data-family-key', familyKey);
-                            cb.setAttribute('data-poste-key', poste.key);
-                        }
-                        list.appendChild(item);
-                    });
-                    direct.appendChild(list);
-                });
-                optionsList.appendChild(direct);
-            }
-
-            if (!optionsList.children.length) {
-                optionsList.innerHTML = '<p style="color:#666;">Aucune option dans cette famille.</p>';
-            }
+            modal.querySelector('.modal-content')?.classList.add('modal-wide');
+            renderFamilyModalContent();
             modal.classList.add('active');
         }
 
+        function renderFamilyModalContent() {
+            const ctx = state.familyModalContext;
+            const modal = document.getElementById('subcategory-modal');
+            const title = document.getElementById('subcategory-modal-title');
+            const optionsList = document.getElementById('subcategory-options-list');
+            if (!ctx?.family || !title || !optionsList) return;
+
+            optionsList.innerHTML = '';
+
+            if (!ctx.group) {
+                title.textContent = ctx.family.name;
+                const groups = Array.isArray(ctx.family.decisionGroups) ? ctx.family.decisionGroups : [];
+                if (!groups.length) {
+                    optionsList.innerHTML = '<p style="color:#666;">Aucun groupe de décision configuré pour cette famille.</p>';
+                    return;
+                }
+                const intro = document.createElement('p');
+                intro.style.cssText = 'color:#666;margin:0 0 14px 0;';
+                intro.textContent = 'Choisissez un groupe pour sélectionner les options.';
+                optionsList.appendChild(intro);
+
+                const grid = document.createElement('div');
+                grid.className = 'subcategories-grid';
+                groups.forEach((group) => {
+                    const opts = Array.isArray(group.options) ? group.options : [];
+                    const selectedInGroup = countSelectedOptions(opts);
+                    const card = document.createElement('div');
+                    card.className = 'subcategory-card';
+                    const typeLabel = group.type === 'model' ? 'Modèle' : (group.type === 'static' ? 'Statique' : 'Option');
+                    card.innerHTML = `
+                        <h3>${escapeHtml(group.label)}</h3>
+                        <span class="mode-badge">${escapeHtml(getDecisionModeLabel(group.decisionMode))}</span>
+                        <div class="count" style="margin-top:8px;">${opts.length} option(s) · ${escapeHtml(typeLabel)}</div>
+                        ${selectedInGroup ? `<div class="count" style="margin-top:4px;color:#0d6efd;">${selectedInGroup} sélectionnée(s)</div>` : ''}
+                    `;
+                    card.onclick = () => {
+                        state.familyModalContext.group = group;
+                        renderFamilyModalContent();
+                    };
+                    grid.appendChild(card);
+                });
+                optionsList.appendChild(grid);
+                return;
+            }
+
+            const group = ctx.group;
+            title.textContent = `${ctx.family.name} — ${group.label}`;
+
+            const backRow = document.createElement('div');
+            backRow.className = 'modal-back-row';
+            const backBtn = document.createElement('button');
+            backBtn.type = 'button';
+            backBtn.className = 'modal-back-btn';
+            backBtn.textContent = '← Retour aux groupes';
+            backBtn.onclick = () => {
+                state.familyModalContext.group = null;
+                renderFamilyModalContent();
+            };
+            backRow.appendChild(backBtn);
+            optionsList.appendChild(backRow);
+
+            const modeHint = document.createElement('p');
+            modeHint.style.cssText = 'color:#666;margin:0 0 12px 0;font-size:13px;';
+            modeHint.textContent = group.decisionMode === 'multi_choice'
+                ? 'Choix multiple : vous pouvez cocher plusieurs options dans ce groupe.'
+                : 'Choix unique : une seule option peut être sélectionnée dans ce groupe.';
+            optionsList.appendChild(modeHint);
+
+            const groupOptions = Array.isArray(group.options) ? group.options : [];
+            if (!groupOptions.length) {
+                const empty = document.createElement('p');
+                empty.style.color = '#666';
+                empty.textContent = group.type === 'model'
+                    ? 'Ce groupe est de type « modèle » (pas de ligne catalogue à sélectionner ici).'
+                    : 'Aucune option compatible avec ce modèle dans ce groupe.';
+                optionsList.appendChild(empty);
+                return;
+            }
+
+            const sorted = sortOptionsByPosteThenName(groupOptions);
+            const posteGroups = buildPosteGroups(sorted);
+            const decisionGroupKey = `${ctx.family.id}:${group.id}`;
+            const selectionCtx = {
+                decisionGroupKey,
+                decisionMode: group.decisionMode || 'single_choice'
+            };
+
+            posteGroups.forEach((posteGroup) => {
+                const posteTitle = document.createElement('div');
+                posteTitle.style.cssText = 'font-size:12px;font-weight:600;color:#666;margin:12px 0 6px;';
+                posteTitle.textContent = posteGroup.label;
+                optionsList.appendChild(posteTitle);
+
+                const list = document.createElement('div');
+                list.className = 'options-list';
+                posteGroup.options.forEach((option) => {
+                    list.appendChild(createOptionItem(option, selectionCtx));
+                });
+                optionsList.appendChild(list);
+            });
+        }
+
         function closeSubCategoryModal() {
-            document.getElementById('subcategory-modal').classList.remove('active');
+            state.familyModalContext = null;
+            const modal = document.getElementById('subcategory-modal');
+            modal.querySelector('.modal-content')?.classList.remove('modal-wide');
+            modal.classList.remove('active');
+            if (state.step === 3 && state.optionTabs.length > 0) {
+                renderCategoryOptions(currentCategoryIndex);
+            }
         }
 
         // Fermer le modal en cliquant en dehors

@@ -176,6 +176,30 @@ router.get('/models',
 );
 
 /**
+ * POST /api/ugap/models
+ * Crée un modèle manuel dans le catalogue
+ */
+router.post('/models',
+  express.json(),
+  authenticateJWT,
+  useUgapEntrepriseDb,
+  requireUgapRole(['ADMIN_ENTITY']),
+  ugapController.createModel
+);
+
+/**
+ * PUT /api/ugap/models/:modelId
+ * Met à jour un modèle (ex. assignation template bateau)
+ */
+router.put('/models/:modelId',
+  express.json(),
+  authenticateJWT,
+  useUgapEntrepriseDb,
+  requireUgapRole(['ADMIN_ENTITY']),
+  ugapController.updateModel
+);
+
+/**
  * GET /api/ugap/categories
  * Récupère les catégories avec leurs options
  */

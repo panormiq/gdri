@@ -557,14 +557,16 @@ async function purgePublishedData(req, res) {
 async function resetCatalogFromExtract(req, res) {
   try {
     const importId = String(req.body?.importId || '').trim() || null;
+    const familiesBackup = Array.isArray(req.body?.families) ? req.body.families : [];
     const summary = await UgapDataService.resetCatalogAndImportFromExtract(
       req.entrepriseDb,
       req.entrepriseId,
-      importId
+      importId,
+      { familiesBackup }
     );
     res.json({
       success: true,
-      message: 'Catalogue et import remis à l\'état post-extraction',
+      message: 'Toutes les options ont été supprimées (familles et modèles conservés)',
       data: summary
     });
   } catch (error) {
@@ -709,7 +711,7 @@ async function createOption(req, res) {
       });
     }
 
-    await UgapDataService.createOption(
+    const result = await UgapDataService.createOption(
       req.entrepriseDb,
       req.entrepriseId,
       categoryId,
@@ -726,7 +728,11 @@ async function createOption(req, res) {
       }
     );
 
-    res.json({ success: true, message: 'Option créée' });
+    if (!result?.ok) {
+      return res.status(500).json({ success: false, message: 'Échec de la création de l’option' });
+    }
+
+    res.json({ success: true, message: 'Option créée', id: result.id });
   } catch (error) {
     console.error('❌ UGAP createOption error:', error);
     res.status(500).json({ success: false, message: error.message || 'Erreur serveur' });
@@ -1287,6 +1293,38 @@ async function updateModelImage(req, res) {
   } catch (error) {
     console.error('❌ UGAP updateModelImage error:', error);
     res.status(500).json({ success: false, message: error.message || 'Erreur serveur' });
+  }
+}
+
+async function createModel(req, res) {
+  try {
+    const result = await UgapDataService.createModel(
+      req.entrepriseDb,
+      req.entrepriseId,
+      req.body || {}
+    );
+    res.status(201).json({ success: true, data: result });
+  } catch (error) {
+    console.error('❌ UGAP createModel error:', error);
+    const status = /requis|existe déjà/i.test(String(error?.message || '')) ? 400 : 500;
+    res.status(status).json({ success: false, message: error.message || 'Erreur serveur' });
+  }
+}
+
+async function updateModel(req, res) {
+  try {
+    const { modelId } = req.params;
+    const result = await UgapDataService.updateModel(
+      req.entrepriseDb,
+      req.entrepriseId,
+      modelId,
+      req.body || {}
+    );
+    res.json({ success: true, data: result });
+  } catch (error) {
+    console.error('❌ UGAP updateModel error:', error);
+    const status = /non trouvé|requis/i.test(String(error?.message || '')) ? 400 : 500;
+    res.status(status).json({ success: false, message: error.message || 'Erreur serveur' });
   }
 }
 
@@ -3072,6 +3110,8 @@ module.exports = {
   addModelConfiguration,
   updateModelConfiguration,
   deleteModelConfiguration,
+  createModel,
+  updateModel,
   updateModelImage,
   importConfigurationPdf,
   uploadConfigurationPdf,

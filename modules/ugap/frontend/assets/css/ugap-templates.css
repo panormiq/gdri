@@ -250,11 +250,42 @@
     background: #f0fdfa;
 }
 
-.ugap-famille-create-form {
+.ugap-famille-create-form,
+.ugap-template-bateau-create-form {
     border: 1px solid #e5e7eb;
     border-radius: 8px;
     background: #fff;
     overflow: hidden;
+}
+
+.ugap-tpl-bateau-draft-family label:hover {
+    color: #0f172a;
+}
+
+.ugap-model-base-warning {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    margin-top: 6px;
+    padding: 3px 8px;
+    border-radius: 6px;
+    background: #fffbeb;
+    border: 1px solid #fde68a;
+    color: #92400e;
+    font-size: 11px;
+    font-weight: 600;
+    line-height: 1.35;
+}
+
+.ugap-model-base-warning__icon {
+    font-size: 12px;
+    line-height: 1;
+}
+
+.ugap-model-base-assign-btn {
+    margin-top: 6px;
+    font-size: 11px;
+    padding: 4px 10px;
 }
 
 .ugap-vue-lc__create-panel[hidden] {

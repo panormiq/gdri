@@ -82,6 +82,7 @@ class UgapDataService {
           })
           .filter((r) => r.familyLabel && r.keywords)
       : [];
+    const boatTemplates = UgapDataService.normalizeBoatTemplates(source.boatTemplates);
     return {
       families,
       businessViews,
@@ -91,8 +92,67 @@ class UgapDataService {
       familyDecisionGroupTemplates,
       optionFamilyStatuses,
       familleHeuristicRules,
+      boatTemplates,
       updatedAt: source.updatedAt || null
     };
+  }
+
+  static normalizeBoatTemplateSnapshot(snapshot) {
+    const snap = snapshot && typeof snapshot === 'object' ? snapshot : {};
+    const families = Array.isArray(snap.families)
+      ? snap.families
+          .map((f) => {
+            const row = f && typeof f === 'object' ? f : {};
+            const decisionGroups = Array.isArray(row.decisionGroups)
+              ? row.decisionGroups
+                  .map((g) => {
+                    const grp = g && typeof g === 'object' ? g : {};
+                    return {
+                      id: String(grp.id || '').trim(),
+                      label: String(grp.label || '').trim(),
+                      type: String(grp.type || 'option').trim() || 'option',
+                      decisionMode: String(grp.decisionMode || '').trim() || 'single_choice',
+                      pricingMode: String(grp.pricingMode || '').trim() || 'addition',
+                      keywords: String(grp.keywords || '').trim(),
+                      optionIds: Array.isArray(grp.optionIds)
+                        ? grp.optionIds.map((x) => String(x || '').trim()).filter(Boolean)
+                        : []
+                    };
+                  })
+                  .filter((g) => g.id)
+              : [];
+            const familyLabel = String(row.familyLabel || '').trim();
+            if (!familyLabel) return null;
+            return {
+              familyLabel,
+              objectName: String(row.objectName || '').trim(),
+              decisionGroups
+            };
+          })
+          .filter(Boolean)
+      : [];
+    const baseOptionIds = Array.isArray(snap.baseOptionIds)
+      ? snap.baseOptionIds.map((x) => String(x || '').trim()).filter(Boolean)
+      : [];
+    return { families, baseOptionIds };
+  }
+
+  static normalizeBoatTemplate(tpl) {
+    const t = tpl && typeof tpl === 'object' ? tpl : {};
+    const id = String(t.id || '').trim();
+    const label = String(t.label || '').trim();
+    if (!id || !label) return null;
+    return {
+      id,
+      label,
+      snapshot: UgapDataService.normalizeBoatTemplateSnapshot(t.snapshot)
+    };
+  }
+
+  static normalizeBoatTemplates(list) {
+    return (Array.isArray(list) ? list : [])
+      .map((t) => UgapDataService.normalizeBoatTemplate(t))
+      .filter(Boolean);
   }
 
   static normalizeSelectionRules(rules) {
@@ -117,13 +177,37 @@ class UgapDataService {
     };
   }
 
+  /**
+   * Tag catalogue « option de base » (persisté sur l'option).
+   */
+  static computeIsBaseOption(option) {
+    const opt = option && typeof option === 'object' ? option : {};
+    if (opt.isBaseOption === true) return true;
+    if (opt.importGeneratedFromBaseProduct === true) return true;
+    if (String(opt.importBaseProductId || '').trim()) return true;
+    if (opt.baseIncluded === true) return true;
+    if (opt.manualBaseOption === true) {
+      if (String(opt.baseRefUgap || '').trim()) return true;
+      if (String(opt.importBaseProductId || '').trim()) return true;
+    }
+    const ref = String(opt.refUgap || '').trim().toUpperCase();
+    if (ref.startsWith('IBP-')) return true;
+    return false;
+  }
+
+  static applyBaseOptionTag(option) {
+    const opt = option && typeof option === 'object' ? option : {};
+    opt.isBaseOption = this.computeIsBaseOption(opt);
+    return opt;
+  }
+
   static normalizeOption(option) {
     const source = option && typeof option === 'object' ? option : {};
     const compatibleModels = Array.isArray(source.compatibleModels)
       ? source.compatibleModels.map((x) => String(x)).filter(Boolean)
       : [];
     const hasExplicitDivers = source.isDivers !== undefined && source.isDivers !== null;
-    return {
+    return this.applyBaseOptionTag({
       ...source,
       id: String(source.id || ''),
       name: String(source.name || ''),
@@ -133,7 +217,7 @@ class UgapDataService {
       isDivers: hasExplicitDivers ? !!source.isDivers : compatibleModels.length === 0,
       isSparePart: !!source.isSparePart,
       isMinoration: !!source.isMinoration
-    };
+    });
   }
 
   static normalizeBusinessView(view) {
@@ -203,6 +287,15 @@ class UgapDataService {
       familyDecisionGroupTemplates: normalizedInputUiState.familyDecisionGroupTemplates.length
         ? normalizedInputUiState.familyDecisionGroupTemplates
         : existingUiState.familyDecisionGroupTemplates,
+      optionFamilyStatuses: Object.keys(normalizedInputUiState.optionFamilyStatuses || {}).length
+        ? normalizedInputUiState.optionFamilyStatuses
+        : existingUiState.optionFamilyStatuses,
+      familleHeuristicRules: normalizedInputUiState.familleHeuristicRules.length
+        ? normalizedInputUiState.familleHeuristicRules
+        : existingUiState.familleHeuristicRules,
+      boatTemplates: normalizedInputUiState.boatTemplates.length
+        ? normalizedInputUiState.boatTemplates
+        : existingUiState.boatTemplates,
       updatedAt: normalizedInputUiState.updatedAt || existingUiState.updatedAt || null
     };
     
@@ -430,6 +523,27 @@ class UgapDataService {
     return this.normalizeUiState(document?.uiState);
   }
 
+  static applyUiStatePatch(current, updates) {
+    const base = this.normalizeUiState(current);
+    const patch = updates && typeof updates === 'object' ? updates : {};
+    const next = { ...base, updatedAt: new Date() };
+    const assignIfPresent = (key) => {
+      if (Object.prototype.hasOwnProperty.call(patch, key)) {
+        next[key] = patch[key];
+      }
+    };
+    assignIfPresent('families');
+    assignIfPresent('businessViews');
+    assignIfPresent('baseModelTemplateFamilies');
+    assignIfPresent('viewPresets');
+    assignIfPresent('activeViewPresetId');
+    assignIfPresent('familyDecisionGroupTemplates');
+    assignIfPresent('optionFamilyStatuses');
+    assignIfPresent('familleHeuristicRules');
+    assignIfPresent('boatTemplates');
+    return this.normalizeUiState(next);
+  }
+
   static async updateUiState(db, entrepriseId, updates) {
     const collection = db.collection('ugap_data');
     const existing = await collection.findOne(
@@ -437,11 +551,7 @@ class UgapDataService {
       { projection: { uiState: 1 } }
     );
     const current = this.normalizeUiState(existing?.uiState);
-    const next = this.normalizeUiState({
-      ...current,
-      ...(updates && typeof updates === 'object' ? updates : {}),
-      updatedAt: new Date()
-    });
+    const next = this.applyUiStatePatch(current, updates);
     const now = new Date();
     await collection.updateOne(
       { entrepriseId },
@@ -657,13 +767,46 @@ class UgapDataService {
     return { updatedCount, updatedOptionIds };
   }
 
+  /** IDs d'options déjà présents dans le catalogue (options + sous-catégories). */
+  static collectCatalogOptionIds(categories) {
+    const ids = new Set();
+    (Array.isArray(categories) ? categories : []).forEach((cat) => {
+      (Array.isArray(cat?.options) ? cat.options : []).forEach((opt) => {
+        const id = String(opt?.id || '').trim();
+        if (id) ids.add(id);
+      });
+      (Array.isArray(cat?.subCategories) ? cat.subCategories : []).forEach((sc) => {
+        (Array.isArray(sc?.optionIds) ? sc.optionIds : []).forEach((oid) => {
+          const id = String(oid || '').trim();
+          if (id) ids.add(id);
+        });
+      });
+    });
+    return ids;
+  }
+
+  /** Premier identifiant opt_N libre dans tout le catalogue. */
+  static allocateNextOptionId(categories) {
+    const existingIds = this.collectCatalogOptionIds(categories);
+    let maxNum = 0;
+    existingIds.forEach((id) => {
+      const m = id.match(/^opt_(\d+)$/i);
+      if (!m) return;
+      const n = Number(m[1]);
+      if (Number.isFinite(n) && n > maxNum) maxNum = n;
+    });
+    let n = Math.max(1, maxNum + 1);
+    while (existingIds.has(`opt_${n}`)) n += 1;
+    return `opt_${n}`;
+  }
+
   /**
    * Ajoute une nouvelle option dans une catégorie
    * @param {Object} db - Base de données MongoDB
    * @param {string} entrepriseId - ID de l'entreprise
    * @param {string} categoryId - ID de la catégorie cible
    * @param {Object} option - Données de l'option à créer
-   * @returns {Promise<boolean>} Succès
+   * @returns {Promise<{ ok: boolean, id: string }>} Succès et id effectivement créé
    */
   static async createOption(db, entrepriseId, categoryId, option) {
     const collection = db.collection('ugap_data');
@@ -682,17 +825,11 @@ class UgapDataService {
       throw new Error('Catégorie cible introuvable');
     }
 
-    const optionId = String(option?.id || '').trim();
-    if (!optionId) {
-      throw new Error('ID option requis');
-    }
-
-    const existingIds = new Set(
-      categories.flatMap((cat) => (cat.options || []).map((opt) => String(opt?.id || '').trim()).filter(Boolean))
-    );
-    if (existingIds.has(optionId)) {
-      throw new Error(`Une option avec l'id "${optionId}" existe déjà`);
-    }
+    const existingIds = this.collectCatalogOptionIds(categories);
+    const requestedId = String(option?.id || '').trim();
+    const optionId = (!requestedId || existingIds.has(requestedId))
+      ? this.allocateNextOptionId(categories)
+      : requestedId;
 
     const toCreate = {
       ...option,
@@ -705,6 +842,7 @@ class UgapDataService {
       priceClient: 0,
       priceUgap: Number.isFinite(Number(option?.priceUgap)) ? Number(option.priceUgap) : 0,
       baseIncluded: true,
+      isBaseOption: true,
       manualBaseOption: option?.manualBaseOption !== false,
       baseIncludedPrice: Number.isFinite(Number(option?.baseIncludedPrice)) ? Number(option.baseIncludedPrice) : 0,
       compatibleModels: Array.isArray(option?.compatibleModels)
@@ -721,7 +859,7 @@ class UgapDataService {
       }
     );
 
-    return result.modifiedCount > 0;
+    return { ok: result.modifiedCount > 0, id: optionId };
   }
 
   /**
@@ -1007,91 +1145,114 @@ class UgapDataService {
   }
 
   /**
-   * Ré-extrait le fichier source et remet staging + catalogue publié à l'état post-import Excel
-   * (même logique que saveImportStaging sur réimport du même fichier).
+   * Vide toutes les options du catalogue publié et de l'import staging.
+   * Conserve modèles, familles (structure sans liens options) et vues métier.
+   * Permet un nouvel import Excel sans recréer d'anciennes options.
    */
-  static async resetCatalogAndImportFromExtract(db, entrepriseId, importId = null) {
+  static async resetCatalogAndImportFromExtract(db, entrepriseId, importId = null, opts = {}) {
     const collection = db.collection('ugap_import_staging');
-    let doc;
+    let doc = null;
     if (importId) {
       doc = await collection.findOne({ _id: new ObjectId(String(importId)), entrepriseId });
     } else {
       doc = await collection.find({ entrepriseId }).sort({ updatedAt: -1 }).limit(1).next();
     }
-    if (!doc) throw new Error('Aucun import trouvé');
-
-    const { models, categories } = this.reextractModelsAndCategoriesFromSource(doc);
-    const now = new Date();
-    const progress = {
-      validatedModelIds: [],
-      modelsCompleted: false,
-      optionsCompleted: false,
-      familiesCompleted: false,
-      viewsCompleted: false
-    };
-    const baseProg = this.normalizeStagingProgressForModels(models, progress);
-    const normalizedProgress = this.coerceStagingProgressOptionsWithDocument(
-      baseProg,
-      { ...doc, models, categories }
-    );
-    const computed = this.computeStagingStatuses(normalizedProgress, {
-      ...doc,
-      models,
-      categories,
-      progress: normalizedProgress
-    });
-
-    const stagingPatch = {
-      models,
-      categories,
-      importBaseProducts: [],
-      importAssignmentsSummary: null,
-      progress: normalizedProgress,
-      status: computed.status,
-      modelsStatus: 'to_validate',
-      optionsStatus: 'to_validate',
-      baseOptionsStatus: 'to_validate',
-      minorationsStatus: 'to_validate',
-      majorationsStatus: 'to_validate',
-      diversStatus: 'to_validate',
-      updatedAt: now
-    };
-
-    await collection.updateOne(
-      { _id: doc._id, entrepriseId },
-      {
-        $set: stagingPatch,
-        $unset: { publishedAt: '', importAssignmentsAppliedAt: '' }
-      }
-    );
 
     const dataCol = db.collection('ugap_data');
     const published = await dataCol.findOne({ entrepriseId });
-    // Ne jamais reprendre uiState du staging : conserver familles validées + vues métier publiées.
-    const preservedUiState = this.normalizeUiState(published?.uiState);
+    const publishedModels = Array.isArray(published?.models) ? published.models : [];
+    const oldUiState = this.normalizeUiState(published?.uiState);
+    const familiesBackup = Array.isArray(opts.familiesBackup) ? opts.familiesBackup : [];
+    const sourceFamilies = oldUiState.families.length ? oldUiState.families : familiesBackup;
+    const families = this.stripFamiliesOptionLinks(sourceFamilies);
+    const preservedUiState = {
+      ...oldUiState,
+      families,
+      optionFamilyStatuses: {}
+    };
+    const models = publishedModels.length
+      ? publishedModels
+      : (Array.isArray(doc?.models) ? doc.models : []);
+
+    const previousOptionsCount = (Array.isArray(published?.categories) ? published.categories : [])
+      .reduce((n, cat) => n + (Array.isArray(cat?.options) ? cat.options.length : 0), 0);
+
     await this.saveData(
       db,
       {
         models,
-        categories,
+        categories: [],
         importBaseProducts: [],
         businessViews: Array.isArray(published?.businessViews) ? published.businessViews : [],
-        dependencyRules: Array.isArray(published?.dependencyRules) ? published.dependencyRules : [],
+        dependencyRules: [],
         uiState: preservedUiState
       },
       entrepriseId
     );
 
-    const optionsCount = categories.reduce(
-      (n, cat) => n + (Array.isArray(cat?.options) ? cat.options.length : 0),
-      0
-    );
+    if (doc?._id) {
+      const now = new Date();
+      const stagingModels = Array.isArray(doc.models) ? doc.models : models;
+      const prevProgress = doc.progress && typeof doc.progress === 'object' ? doc.progress : {};
+      const progress = {
+        ...prevProgress,
+        optionsCompleted: false,
+        familiesCompleted: false
+      };
+      const baseProg = this.normalizeStagingProgressForModels(stagingModels, progress);
+      const normalizedProgress = this.coerceStagingProgressOptionsWithDocument(
+        baseProg,
+        { ...doc, models: stagingModels, categories: [] }
+      );
+      const computed = this.computeStagingStatuses(normalizedProgress, {
+        ...doc,
+        models: stagingModels,
+        categories: [],
+        progress: normalizedProgress
+      });
+      await collection.updateOne(
+        { _id: doc._id, entrepriseId },
+        {
+          $set: {
+            categories: [],
+            importBaseProducts: [],
+            importAssignmentsSummary: null,
+            progress: normalizedProgress,
+            status: computed.status,
+            optionsStatus: 'to_validate',
+            baseOptionsStatus: 'to_validate',
+            minorationsStatus: 'to_validate',
+            majorationsStatus: 'to_validate',
+            diversStatus: 'to_validate',
+            updatedAt: now
+          },
+          $unset: { publishedAt: '', importAssignmentsAppliedAt: '' }
+        }
+      );
+    }
+
     return {
-      importId: String(doc._id),
+      importId: doc?._id ? String(doc._id) : null,
       modelsCount: models.length,
-      optionsCount,
-      status: stagingPatch.status
+      optionsCount: 0,
+      optionsRemoved: previousOptionsCount,
+      familiesCount: families.length,
+      status: doc?.status || null
     };
+  }
+
+  /** Conserve libellés / groupes de familles ; retire uniquement les liens vers des options. */
+  static stripFamiliesOptionLinks(families = []) {
+    return (Array.isArray(families) ? families : []).map((family) => {
+      const f = family && typeof family === 'object' ? { ...family } : {};
+      const decisionGroups = (Array.isArray(f.decisionGroups) ? f.decisionGroups : []).map((g) => {
+        const group = g && typeof g === 'object' ? { ...g } : {};
+        return { ...group, optionIds: [] };
+      });
+      const next = { ...f, optionIds: [], decisionGroups };
+      delete next.defaultOptionId;
+      return next;
+    });
   }
 
   /**
@@ -1726,6 +1887,141 @@ Exemple de forme (ids fictifs) :
     return document;
   }
 
+  static buildManualModelId(name, existingModels = []) {
+    const slug = String(name || 'modele')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '_')
+      .replace(/^_|_$/g, '') || 'modele';
+    const ids = new Set(
+      (Array.isArray(existingModels) ? existingModels : [])
+        .map((m) => String(m?.id || '').trim())
+        .filter(Boolean)
+    );
+    let id = `model_${slug}`;
+    let n = 0;
+    while (ids.has(id)) {
+      n += 1;
+      id = `model_${slug}_${n}`;
+    }
+    return id;
+  }
+
+  /**
+   * Crée un modèle manuel dans le catalogue publié.
+   */
+  static async createModel(db, entrepriseId, payload = {}) {
+    const name = String(payload?.name || '').trim();
+    if (!name) {
+      throw new Error('Nom du modèle requis');
+    }
+
+    const collection = db.collection('ugap_data');
+    const now = new Date();
+    let document = await collection.findOne({ entrepriseId });
+    const models = Array.isArray(document?.models) ? document.models.slice() : [];
+
+    const nameKey = name.toLowerCase();
+    if (models.some((m) => String(m?.name || '').trim().toLowerCase() === nameKey)) {
+      throw new Error('Un modèle avec ce nom existe déjà');
+    }
+
+    const posteRaw = payload?.posteNumber;
+    const posteParsed = posteRaw === '' || posteRaw == null ? null : parseInt(posteRaw, 10);
+    const posteNumber = Number.isFinite(posteParsed) ? posteParsed : null;
+    const basePriceRaw = payload?.basePrice;
+    const basePrice = Number.isFinite(Number(basePriceRaw)) ? Number(basePriceRaw) : 0;
+
+    const newModel = {
+      id: this.buildManualModelId(name, models),
+      name,
+      basePrice,
+      motorizationBase: String(payload?.motorizationBase || '').trim(),
+      posteNumber,
+      defaultDeliveryMode: String(payload?.defaultDeliveryMode || '').trim(),
+      configurations: [],
+      image: null,
+      boatTemplateId: null
+    };
+
+    models.push(newModel);
+
+    if (document) {
+      await collection.updateOne(
+        { entrepriseId },
+        { $set: { models, updatedAt: now } }
+      );
+    } else {
+      await collection.insertOne({
+        entrepriseId,
+        models,
+        categories: [],
+        businessViews: [],
+        dependencyRules: [],
+        uiState: this.normalizeUiState({}),
+        importBaseProducts: [],
+        createdAt: now,
+        updatedAt: now
+      });
+    }
+
+    return { model: newModel, models };
+  }
+
+  /**
+   * Met à jour les champs d'un modèle catalogue.
+   */
+  static async updateModel(db, entrepriseId, modelId, updates = {}) {
+    const mid = String(modelId || '').trim();
+    if (!mid) {
+      throw new Error('ID modèle requis');
+    }
+
+    const collection = db.collection('ugap_data');
+    const document = await collection.findOne({ entrepriseId });
+    if (!document) {
+      throw new Error('Aucune donnée configurée');
+    }
+
+    const model = (Array.isArray(document.models) ? document.models : []).find((m) => m.id === mid);
+    if (!model) {
+      throw new Error('Modèle non trouvé');
+    }
+
+    if (updates.name !== undefined) {
+      const name = String(updates.name || '').trim();
+      if (!name) throw new Error('Nom du modèle requis');
+      model.name = name;
+    }
+    if (updates.basePrice !== undefined) {
+      const basePrice = Number(updates.basePrice);
+      model.basePrice = Number.isFinite(basePrice) ? basePrice : 0;
+    }
+    if (updates.motorizationBase !== undefined) {
+      model.motorizationBase = String(updates.motorizationBase || '').trim();
+    }
+    if (updates.posteNumber !== undefined) {
+      const posteRaw = updates.posteNumber;
+      const posteParsed = posteRaw === '' || posteRaw == null ? null : parseInt(posteRaw, 10);
+      model.posteNumber = Number.isFinite(posteParsed) ? posteParsed : null;
+    }
+    if (updates.defaultDeliveryMode !== undefined) {
+      model.defaultDeliveryMode = String(updates.defaultDeliveryMode || '').trim();
+    }
+    if (updates.boatTemplateId !== undefined) {
+      const tid = String(updates.boatTemplateId || '').trim();
+      model.boatTemplateId = tid || null;
+    }
+
+    await collection.updateOne(
+      { entrepriseId },
+      { $set: { models: document.models, updatedAt: new Date() } }
+    );
+
+    return { model, models: document.models };
+  }
+
   /**
    * Met à jour le lien doc-template d'une option
    * @param {Object} db - Base de données MongoDB
@@ -1760,6 +2056,123 @@ Exemple de forme (ids fictifs) :
     );
 
     return document;
+  }
+
+  static buildOptionRemapStableKey(option, categoryName = '') {
+    const ref = String(option?.refUgap || '').trim().toUpperCase();
+    if (ref) return `ref:${ref}`;
+    const normalize = (value) => String(value || '')
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-z0-9]+/g, ' ')
+      .trim();
+    const name = normalize(option?.name);
+    const category = normalize(categoryName || option?.category);
+    return `name:${name}|cat:${category}`;
+  }
+
+  static buildOptionIdRemapMap(oldCategories = [], newCategories = []) {
+    const buckets = new Map();
+    (Array.isArray(oldCategories) ? oldCategories : []).forEach((cat) => {
+      const categoryName = String(cat?.name || '').trim();
+      (Array.isArray(cat?.options) ? cat.options : []).forEach((opt) => {
+        const key = this.buildOptionRemapStableKey(opt, categoryName);
+        if (!buckets.has(key)) buckets.set(key, []);
+        buckets.get(key).push(String(opt?.id || '').trim());
+      });
+    });
+    const map = new Map();
+    (Array.isArray(newCategories) ? newCategories : []).forEach((cat) => {
+      const categoryName = String(cat?.name || '').trim();
+      (Array.isArray(cat?.options) ? cat.options : []).forEach((opt) => {
+        const key = this.buildOptionRemapStableKey(opt, categoryName);
+        const queue = buckets.get(key);
+        if (!queue?.length) return;
+        const oldId = queue.shift();
+        const newId = String(opt?.id || '').trim();
+        if (oldId && newId) map.set(oldId, newId);
+      });
+    });
+    return map;
+  }
+
+  static remapOptionId(optionId, idMap) {
+    const raw = String(optionId || '').trim();
+    if (!raw) return '';
+    if (idMap.has(raw)) return idMap.get(raw);
+    const legacy = raw.match(/^(opt_\d+)/);
+    if (legacy && idMap.has(legacy[1])) return idMap.get(legacy[1]);
+    return raw;
+  }
+
+  static remapUiStateFamilies(families = [], idMap = new Map()) {
+    return (Array.isArray(families) ? families : []).map((family) => {
+      const f = family && typeof family === 'object' ? { ...family } : {};
+      const optionIds = Array.from(new Set(
+        (Array.isArray(f.optionIds) ? f.optionIds : [])
+          .map((id) => this.remapOptionId(id, idMap))
+          .filter(Boolean)
+      ));
+      const decisionGroups = (Array.isArray(f.decisionGroups) ? f.decisionGroups : []).map((g) => {
+        const group = g && typeof g === 'object' ? { ...g } : {};
+        return {
+          ...group,
+          optionIds: Array.from(new Set(
+            (Array.isArray(group.optionIds) ? group.optionIds : [])
+              .map((id) => this.remapOptionId(id, idMap))
+              .filter(Boolean)
+          ))
+        };
+      });
+      const def = this.remapOptionId(f.defaultOptionId, idMap);
+      const next = { ...f, optionIds, decisionGroups };
+      if (def && optionIds.includes(def)) next.defaultOptionId = def;
+      else delete next.defaultOptionId;
+      return next;
+    });
+  }
+
+  static remapDependencyRules(rules = [], idMap = new Map()) {
+    return this.normalizeDependencyRules(
+      (Array.isArray(rules) ? rules : [])
+        .map((rule) => {
+          const r = rule && typeof rule === 'object' ? rule : {};
+          return {
+            triggerOptionId: this.remapOptionId(r.triggerOptionId, idMap),
+            autoSelectOptionIds: (Array.isArray(r.autoSelectOptionIds) ? r.autoSelectOptionIds : [])
+              .map((id) => this.remapOptionId(id, idMap))
+              .filter(Boolean),
+            message: r.message
+          };
+        })
+        .filter((r) => r.triggerOptionId && r.autoSelectOptionIds.length > 0)
+    );
+  }
+
+  static stripCategoriesForOptionsReset(categories = []) {
+    return (Array.isArray(categories) ? categories : []).map((cat) => {
+      const normalized = this.normalizeCategory(cat);
+      normalized.familyIds = [];
+      normalized.subCategories = (Array.isArray(normalized.subCategories) ? normalized.subCategories : [])
+        .map((sub) => ({
+          ...this.normalizeSubCategory(sub),
+          optionIds: []
+        }));
+      normalized.options = (Array.isArray(normalized.options) ? normalized.options : [])
+        .map((opt) => {
+          const o = { ...this.normalizeOption(opt) };
+          delete o.manualMinorationAssignment;
+          delete o.manualMajorationAssignment;
+          delete o.manualBaseOption;
+          delete o.baseIncluded;
+          delete o.importGeneratedFromBaseProduct;
+          delete o.importBaseProductId;
+          delete o.importOptionLineKind;
+          return this.applyBaseOptionTag(o);
+        });
+      return normalized;
+    });
   }
 
   static buildOptionBusinessKey(option, categoryName = '') {
@@ -2374,6 +2787,7 @@ Exemple de forme (ids fictifs) :
         priceUgap,
         priceClient,
         baseIncluded: true,
+        isBaseOption: true,
         manualBaseOption: true,
         baseIncludedPrice: priceUgap,
         importGeneratedFromBaseProduct: true,

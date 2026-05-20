@@ -4,6 +4,33 @@
 (function () {
     'use strict';
 
+    function escapeHtml(value) {
+        if (typeof window.escapeHtml === 'function') {
+            return window.escapeHtml(value);
+        }
+        return String(value ?? '')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    }
+
+    function apiCall(endpoint, options) {
+        if (typeof window.apiCall !== 'function') {
+            return Promise.reject(new Error('apiCall non disponible (script admin non chargé).'));
+        }
+        return window.apiCall(endpoint, options);
+    }
+
+    function showAlert(message, type) {
+        if (typeof window.showAlert === 'function') {
+            window.showAlert(message, type);
+            return;
+        }
+        console.error('[import-tab]', message);
+    }
+
     function wf() {
         return window.importWorkflowState || (window.importWorkflowState = {
             step: 'models',
@@ -159,6 +186,9 @@
             }
             const titleEl = document.getElementById('import-editor-title');
             if (titleEl) titleEl.textContent = getStagingLabel(result.data);
+            if (typeof window.ensureImportTabVisible === 'function') {
+                window.ensureImportTabVisible();
+            }
             setImportViewMode('editor');
             document.getElementById('import-editor-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
             if (typeof window.workspaceMode !== 'undefined') window.workspaceMode = 'import';
@@ -233,6 +263,8 @@
         document.getElementById('btn-import-back-list')?.addEventListener('click', closeImportEditor);
 
         document.getElementById('btn-import-new')?.addEventListener('click', () => {
+            if (typeof window.ensureImportTabVisible === 'function') window.ensureImportTabVisible();
+            setImportViewMode('editor');
             if (typeof importExcel === 'function') {
                 importExcel();
                 return;
@@ -257,12 +289,18 @@
     }
 
     function initImportTab() {
+        if (window.__ugapImportTabInitialized) return;
+        window.__ugapImportTabInitialized = true;
         window.importViewMode = window.importViewMode || 'list';
         window.importListCache = window.importListCache || [];
         publishGlobals();
         bindImportListEvents();
         setImportViewMode('list');
-        activateImportTab();
+        if (typeof window.ensureImportTabVisible === 'function') {
+            window.ensureImportTabVisible();
+        } else {
+            activateImportTab();
+        }
         loadImportList();
     }
 
@@ -272,10 +310,4 @@
     window.setImportViewMode = setImportViewMode;
     window.initUgapImportTab = initImportTab;
     window.getImportStagingLabel = getStagingLabel;
-
-    if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', initImportTab);
-    } else {
-        initImportTab();
-    }
 })();

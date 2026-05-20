@@ -9,7 +9,7 @@
     <title>UGAP Admin - Gestion des données</title>
     <link rel="stylesheet" href="/frontend/assets/css/variables.css">
     <link rel="stylesheet" href="/frontend/assets/css/main.css">
-    <link rel="stylesheet" href="/modules/ugap/frontend/assets/css/ugap-templates.css?v=1">
+    <link rel="stylesheet" href="/modules/ugap/frontend/assets/css/ugap-templates.css?v=3">
     <style>
         body { background-color: #f5f7fa; }
         .container-xl { max-width: 1400px; margin: 0 auto; padding: 20px; }
@@ -150,7 +150,7 @@
 
     </div>
 
-    <script src="/modules/ugap/frontend/assets/js/templates/ugap-view-templates.js?v=1"></script>
+    <script src="/modules/ugap/frontend/assets/js/templates/ugap-view-templates.js?v=4"></script>
     <script>
         const API_BASE = '/api/ugap';
         const UGAP_PROMPTS_UI_VERSION = '2026-03-31-llm-selects-v3';
@@ -171,6 +171,7 @@
         };
         let importViewMode = 'list';
         let importListCache = [];
+        let __preResetCategoriesSnapshot = null;
         let workspaceMode = 'backoffice';
         let __loadDataPromise = null;
         let __lastLoadDataAt = 0;
@@ -584,6 +585,10 @@ LIGNE_EXEMPLE_2`,
             }
         }
 
+        window.apiCall = apiCall;
+        window.showAlert = showAlert;
+        window.escapeHtml = escapeHtml;
+
         function normalizeUgapDataContract(raw) {
             const source = raw && typeof raw === 'object' ? raw : {};
             const categories = Array.isArray(source.categories) ? source.categories : [];
@@ -654,6 +659,7 @@ LIGNE_EXEMPLE_2`,
                     familyDecisionGroupTemplates: normalizedFamilyDecisionGroupTemplates,
                     optionFamilyStatuses: normalizedOptionFamilyStatuses,
                     familleHeuristicRules: normalizedFamilleHeuristicRules,
+                    boatTemplates: sanitizeBoatTemplatesForServer(rawUiState.boatTemplates),
                     updatedAt: rawUiState.updatedAt || null
                 },
                 categories: categories.map((category) => {
@@ -677,8 +683,107 @@ LIGNE_EXEMPLE_2`,
             return (Array.isArray(rawFamilies) ? rawFamilies : []).map((f) => ({ ...f }));
         }
 
+        function sanitizeVueMetierDraftFamilyEntry(entry) {
+            const e = entry && typeof entry === 'object' ? entry : {};
+            const sourceIndex = Number(e.sourceIndex);
+            return {
+                familyLabel: String(e.familyLabel || '').trim(),
+                objectName: String(e.objectName || '').trim(),
+                sourceIndex: Number.isInteger(sourceIndex) ? sourceIndex : null,
+                selectedGroupIds: Array.isArray(e.selectedGroupIds)
+                    ? e.selectedGroupIds.map((x) => String(x || '').trim()).filter(Boolean)
+                    : []
+            };
+        }
+
+        function normalizeVueMetierRuleFamilies(rule) {
+            const r = rule && typeof rule === 'object' ? rule : {};
+            if (Array.isArray(r.families) && r.families.length) {
+                return r.families.map(sanitizeVueMetierDraftFamilyEntry).filter((f) => f.familyLabel);
+            }
+            const familyLabel = String(r.familyLabel || '').trim();
+            const familySourceIndex = Number(r.familySourceIndex);
+            if (!familyLabel && !Number.isInteger(familySourceIndex)) return [];
+            return [sanitizeVueMetierDraftFamilyEntry({
+                familyLabel,
+                objectName: '',
+                sourceIndex: Number.isInteger(familySourceIndex) ? familySourceIndex : null,
+                selectedGroupIds: r.selectedGroupIds
+            })];
+        }
+
+        const UGAP_DEFAULT_VUE_METIER_EXCEL_LABEL = 'Excel de base';
+
+        function buildDefaultVueMetierExcelRule() {
+            return {
+                viewLabel: UGAP_DEFAULT_VUE_METIER_EXCEL_LABEL,
+                keywords: 'excel, export, tableau, base',
+                scope: 'all',
+                families: [],
+                enabled: true,
+                isBuiltInDefault: true
+            };
+        }
+
+        function normalizeViewHeuristicRule(rule) {
+            const r = rule && typeof rule === 'object' ? rule : {};
+            const viewLabel = String(r.viewLabel || '').trim();
+            const isBuiltInDefault = r.isBuiltInDefault === true
+                || viewLabel.toLowerCase() === UGAP_DEFAULT_VUE_METIER_EXCEL_LABEL.toLowerCase();
+            return {
+                viewLabel: isBuiltInDefault ? UGAP_DEFAULT_VUE_METIER_EXCEL_LABEL : viewLabel,
+                keywords: String(r.keywords || '').trim(),
+                scope: String(r.scope || 'all').trim() || 'all',
+                families: normalizeVueMetierRuleFamilies(r),
+                enabled: r.enabled !== false,
+                isBuiltInDefault
+            };
+        }
+
+        function ensureDefaultVueMetierExcelInRules(rawRules) {
+            const list = (Array.isArray(rawRules) ? rawRules : []).map(normalizeViewHeuristicRule);
+            const idx = list.findIndex((r) => r.isBuiltInDefault);
+            if (idx < 0) {
+                return { rules: [buildDefaultVueMetierExcelRule(), ...list], changed: true };
+            }
+            const existing = list[idx];
+            const merged = {
+                ...buildDefaultVueMetierExcelRule(),
+                ...existing,
+                viewLabel: UGAP_DEFAULT_VUE_METIER_EXCEL_LABEL,
+                isBuiltInDefault: true,
+                enabled: existing.enabled !== false,
+                families: Array.isArray(existing.families) ? existing.families : []
+            };
+            const next = list.filter((_, i) => i !== idx);
+            next.unshift(merged);
+            const changed = idx !== 0
+                || JSON.stringify(existing) !== JSON.stringify(merged);
+            return { rules: next, changed };
+        }
+
+        function isVueMetierRuleEnabled(rule) {
+            return normalizeViewHeuristicRule(rule).enabled;
+        }
+
+        function getEnabledViewHeuristicRules() {
+            return getViewHeuristicRules().filter(isVueMetierRuleEnabled);
+        }
+
         function sanitizeViewRulesForServer(rawRules) {
-            return (Array.isArray(rawRules) ? rawRules : []).map((r) => ({ ...r }));
+            return ensureDefaultVueMetierExcelInRules(rawRules).rules
+                .map((r) => {
+                    const rule = normalizeViewHeuristicRule(r);
+                    return {
+                        viewLabel: rule.viewLabel,
+                        keywords: rule.keywords,
+                        scope: rule.scope,
+                        families: rule.families,
+                        enabled: rule.enabled,
+                        isBuiltInDefault: rule.isBuiltInDefault ? true : undefined
+                    };
+                })
+                .filter((r) => r.viewLabel);
         }
 
         function sanitizeFamilyDecisionGroupTemplatesForServer(rawTemplates) {
@@ -730,6 +835,34 @@ LIGNE_EXEMPLE_2`,
                 .filter((r) => r.familyLabel && r.keywords);
         }
 
+        function sanitizeBoatTemplatesForServer(list) {
+            return (Array.isArray(list) ? list : [])
+                .map((t) => {
+                    const id = String(t?.id || '').trim();
+                    const label = String(t?.label || '').trim();
+                    const snap = t?.snapshot && typeof t.snapshot === 'object' ? t.snapshot : {};
+                    const families = Array.isArray(snap.families)
+                        ? snap.families
+                            .map((f) => {
+                                const familyLabel = String(f?.familyLabel || '').trim();
+                                if (!familyLabel) return null;
+                                return {
+                                    familyLabel,
+                                    objectName: String(f?.objectName || '').trim(),
+                                    decisionGroups: Array.isArray(f?.decisionGroups) ? f.decisionGroups : []
+                                };
+                            })
+                            .filter(Boolean)
+                        : [];
+                    const baseOptionIds = Array.isArray(snap.baseOptionIds)
+                        ? snap.baseOptionIds.map((x) => String(x || '').trim()).filter(Boolean)
+                        : [];
+                    if (!id || !label) return null;
+                    return { id, label, snapshot: { families, baseOptionIds } };
+                })
+                .filter(Boolean);
+        }
+
         function applyServerUiStateToLocal(serverUiState) {
             const src = serverUiState && typeof serverUiState === 'object' ? serverUiState : {};
             try {
@@ -745,6 +878,9 @@ LIGNE_EXEMPLE_2`,
                 memoryStoreSetItem('ugap.famille.optionStatuses', JSON.stringify(
                     sanitizeOptionFamilyStatusesForServer(src.optionFamilyStatuses)
                 ));
+                memoryStoreSetItem('ugap.templateBateau.saved', JSON.stringify(
+                    sanitizeBoatTemplatesForServer(src.boatTemplates)
+                ));
             } catch (_) {
                 // no-op
             }
@@ -756,6 +892,7 @@ LIGNE_EXEMPLE_2`,
                 memoryStoreSetItem('ugap.vueMetier.heuristicRules', JSON.stringify([]));
                 memoryStoreSetItem('ugap.famille.heuristicRules', JSON.stringify([]));
                 memoryStoreSetItem('ugap.famille.optionStatuses', JSON.stringify({}));
+                memoryStoreSetItem('ugap.templateBateau.saved', JSON.stringify([]));
             } catch (_) {
                 // no-op
             }
@@ -767,7 +904,8 @@ LIGNE_EXEMPLE_2`,
                 businessViews: getViewHeuristicRules(),
                 familyDecisionGroupTemplates: getFamilyDecisionGroupCustomTemplates(),
                 optionFamilyStatuses: getOptionFamilyStatuses(),
-                familleHeuristicRules: getFamilleHeuristicRules()
+                familleHeuristicRules: getFamilleHeuristicRules(),
+                boatTemplates: getSavedBoatTemplates()
             };
         }
 
@@ -783,7 +921,8 @@ LIGNE_EXEMPLE_2`,
                         src.familyDecisionGroupTemplates
                     ),
                     optionFamilyStatuses: sanitizeOptionFamilyStatusesForServer(src.optionFamilyStatuses),
-                    familleHeuristicRules: sanitizeFamilleHeuristicRulesForServer(src.familleHeuristicRules)
+                    familleHeuristicRules: sanitizeFamilleHeuristicRulesForServer(src.familleHeuristicRules),
+                    boatTemplates: sanitizeBoatTemplatesForServer(src.boatTemplates)
                 })
             });
         }
@@ -798,7 +937,8 @@ LIGNE_EXEMPLE_2`,
                         src.familyDecisionGroupTemplates
                     ),
                     optionFamilyStatuses: sanitizeOptionFamilyStatusesForServer(src.optionFamilyStatuses),
-                    familleHeuristicRules: sanitizeFamilleHeuristicRulesForServer(src.familleHeuristicRules)
+                    familleHeuristicRules: sanitizeFamilleHeuristicRulesForServer(src.familleHeuristicRules),
+                    boatTemplates: sanitizeBoatTemplatesForServer(src.boatTemplates)
                 });
                 fetch(`${API_BASE}/ui-state`, {
                     method: 'PUT',
@@ -823,6 +963,7 @@ LIGNE_EXEMPLE_2`,
                         __lastLoadDataSnapshot.uiState = {};
                     }
                     __lastLoadDataSnapshot.uiState.families = getFamilleValidatedFamilies();
+                    __lastLoadDataSnapshot.uiState.boatTemplates = getSavedBoatTemplates();
                 }
             } catch (error) {
                 if (String(error?.message || '').includes('Données non trouvées')) {
@@ -865,10 +1006,24 @@ LIGNE_EXEMPLE_2`,
             await flushUiStatePersistence();
         }
 
+        function readLocalBoatTemplatesBackup() {
+            try {
+                const raw = memoryStoreGetItem('ugap.templateBateau.saved');
+                const parsed = raw ? JSON.parse(raw) : [];
+                return sanitizeBoatTemplatesForServer(parsed);
+            } catch (_) {
+                return [];
+            }
+        }
+
         async function hydrateUiStateFromServer() {
             const serverUiState = currentData?.uiState && typeof currentData.uiState === 'object'
                 ? currentData.uiState
                 : {};
+            const localTemplatesBackup = readLocalBoatTemplatesBackup();
+            const serverTemplates = sanitizeBoatTemplatesForServer(serverUiState.boatTemplates);
+            const mergedBoatTemplates = serverTemplates.length ? serverTemplates : localTemplatesBackup;
+            const uiStateForLocal = { ...serverUiState, boatTemplates: mergedBoatTemplates };
             const serverFamilies = Array.isArray(serverUiState.families) ? serverUiState.families : [];
             const serverViewRules = Array.isArray(serverUiState.businessViews) ? serverUiState.businessViews : [];
             const serverViewPresets = Array.isArray(serverUiState.viewPresets) ? serverUiState.viewPresets : [];
@@ -876,7 +1031,7 @@ LIGNE_EXEMPLE_2`,
                 ? serverUiState.familyDecisionGroupTemplates
                 : [];
             // Source de vérité = serveur (MongoDB via GET /data → uiState).
-            applyServerUiStateToLocal(serverUiState);
+            applyServerUiStateToLocal(uiStateForLocal);
             currentData.uiState = {
                 families: (Array.isArray(serverFamilies) ? serverFamilies : []).map((f) => syncFamilyOptionsToDecisionGroups(f)),
                 businessViews: Array.isArray(serverViewRules) ? serverViewRules : [],
@@ -896,21 +1051,130 @@ LIGNE_EXEMPLE_2`,
                 familyDecisionGroupTemplates: sanitizeFamilyDecisionGroupTemplatesForServer(serverGabarits),
                 optionFamilyStatuses: sanitizeOptionFamilyStatusesForServer(serverUiState.optionFamilyStatuses),
                 familleHeuristicRules: sanitizeFamilleHeuristicRulesForServer(serverUiState.familleHeuristicRules),
+                boatTemplates: mergedBoatTemplates,
                 updatedAt: serverUiState.updatedAt || null
             };
             syncOptionFamilyStatusesWithCatalog();
+            syncImportBoatTemplatesFromSaved();
+            if (!serverTemplates.length && mergedBoatTemplates.length) {
+                scheduleUiStatePersistence();
+            }
+        }
+
+        async function ensureModelBoatTemplateId(modelId, templateId) {
+            const mid = String(modelId || '').trim();
+            const tid = String(templateId || '').trim();
+            if (!mid || !tid) return;
+            const model = (Array.isArray(currentData?.models) ? currentData.models : [])
+                .find((m) => String(m?.id || '').trim() === mid);
+            if (!model) return;
+            if (String(model.boatTemplateId || '').trim() === tid) return;
+            try {
+                await apiCall(`/models/${encodeURIComponent(mid)}`, {
+                    method: 'PUT',
+                    body: JSON.stringify({ boatTemplateId: tid })
+                });
+                model.boatTemplateId = tid;
+                if (__lastLoadDataSnapshot?.models) {
+                    const snap = __lastLoadDataSnapshot.models.find((m) => String(m?.id || '').trim() === mid);
+                    if (snap) snap.boatTemplateId = tid;
+                }
+            } catch (error) {
+                console.warn('ensureModelBoatTemplateId:', error?.message || error);
+            }
+        }
+
+        function buildOptionRemapStableKeyFrontend(option, categoryName = '') {
+            const ref = String(option?.refUgap || '').trim().toUpperCase();
+            if (ref) return `ref:${ref}`;
+            const normalize = (value) => String(value || '')
+                .toLowerCase()
+                .normalize('NFD')
+                .replace(/[\u0300-\u036f]/g, '')
+                .replace(/[^a-z0-9]+/g, ' ')
+                .trim();
+            const name = normalize(option?.name);
+            const category = normalize(categoryName || option?.category);
+            return `name:${name}|cat:${category}`;
+        }
+
+        function buildOptionIdRemapMapFrontend(oldCategories, newCategories) {
+            const buckets = new Map();
+            (Array.isArray(oldCategories) ? oldCategories : []).forEach((cat) => {
+                const categoryName = String(cat?.name || '').trim();
+                (Array.isArray(cat?.options) ? cat.options : []).forEach((opt) => {
+                    const key = buildOptionRemapStableKeyFrontend(opt, categoryName);
+                    if (!buckets.has(key)) buckets.set(key, []);
+                    buckets.get(key).push(String(opt?.id || '').trim());
+                });
+            });
+            const map = new Map();
+            (Array.isArray(newCategories) ? newCategories : []).forEach((cat) => {
+                const categoryName = String(cat?.name || '').trim();
+                (Array.isArray(cat?.options) ? cat.options : []).forEach((opt) => {
+                    const key = buildOptionRemapStableKeyFrontend(opt, categoryName);
+                    const queue = buckets.get(key);
+                    if (!queue?.length) return;
+                    const oldId = queue.shift();
+                    const newId = String(opt?.id || '').trim();
+                    if (oldId && newId) map.set(oldId, newId);
+                });
+            });
+            return map;
+        }
+
+        function remapOptionIdFrontend(optionId, idMap) {
+            const raw = String(optionId || '').trim();
+            if (!raw) return '';
+            if (idMap.has(raw)) return idMap.get(raw);
+            const legacy = raw.match(/^(opt_\d+)/);
+            if (legacy && idMap.has(legacy[1])) return idMap.get(legacy[1]);
+            return raw;
+        }
+
+        function remapFamiliesOptionIdsFrontend(families, idMap) {
+            return (Array.isArray(families) ? families : []).map((family) => {
+                const f = family && typeof family === 'object' ? { ...family } : {};
+                const optionIds = Array.from(new Set(
+                    (Array.isArray(f.optionIds) ? f.optionIds : [])
+                        .map((id) => remapOptionIdFrontend(id, idMap))
+                        .filter(Boolean)
+                ));
+                const decisionGroups = (Array.isArray(f.decisionGroups) ? f.decisionGroups : []).map((g) => {
+                    const group = g && typeof g === 'object' ? { ...g } : {};
+                    return {
+                        ...group,
+                        optionIds: Array.from(new Set(
+                            (Array.isArray(group.optionIds) ? group.optionIds : [])
+                                .map((id) => remapOptionIdFrontend(id, idMap))
+                                .filter(Boolean)
+                        ))
+                    };
+                });
+                const def = remapOptionIdFrontend(f.defaultOptionId, idMap);
+                const next = { ...f, optionIds, decisionGroups };
+                if (def && optionIds.includes(def)) next.defaultOptionId = def;
+                else delete next.defaultOptionId;
+                return syncFamilyOptionsToDecisionGroups(next);
+            });
         }
 
         function cleanupDeletedOptionReferences() {
+            const categories = Array.isArray(currentData?.categories) ? currentData.categories : [];
             const validOptionIds = new Set(
-                (Array.isArray(currentData?.categories) ? currentData.categories : [])
+                categories
                     .flatMap((cat) => Array.isArray(cat?.options) ? cat.options : [])
                     .map((opt) => String(opt?.id || '').trim())
                     .filter(Boolean)
             );
             if (!validOptionIds.size) return;
 
-            const families = getFamilleValidatedFamilies();
+            const familiesBefore = getFamilleValidatedFamilies();
+            const idMap = buildOptionIdRemapMapFrontend(
+                __preResetCategoriesSnapshot || categories,
+                categories
+            );
+            const families = remapFamiliesOptionIdsFrontend(familiesBefore, idMap);
             const cleanedFamilies = (Array.isArray(families) ? families : []).map((f) => {
                 const optionIds = (Array.isArray(f?.optionIds) ? f.optionIds : [])
                     .map((x) => String(x || '').trim())
@@ -975,6 +1239,7 @@ LIGNE_EXEMPLE_2`,
             if (window.__ugapCouplingColumnState && Array.isArray(window.__ugapCouplingColumnState.couplings)) {
                 window.__ugapCouplingColumnState.couplings = cleanedCouplings;
             }
+            __preResetCategoriesSnapshot = null;
         }
 
         // Load data
@@ -1081,10 +1346,10 @@ LIGNE_EXEMPLE_2`,
                     }
                     break;
                 case 'models':
-                    renderModels();
+                    mountModelsVueLC();
                     break;
                 case 'categories':
-                    renderCategoriesManagement();
+                    mountVueMetierVueLC();
                     break;
                 case 'famille':
                     renderExtractionInsights();
@@ -1105,6 +1370,9 @@ LIGNE_EXEMPLE_2`,
                     // Compat legacy: redirige vers "Modèles" (sous-onglet Template).
                     switchModelSubtab('template');
                     renderModels();
+                    break;
+                case 'template-bateau':
+                    mountTemplateBateauVueLC();
                     break;
             }
         }
@@ -1907,113 +2175,919 @@ Format:
             if (optionsEl) optionsEl.textContent = String(optionsCount);
         }
 
-        // Render models - OPTIMISÉ
-        function renderModels() {
-            const tbody = document.querySelector('#models-table tbody');
-            if (!tbody) return;
-            tbody.innerHTML = '';
+        function getModelBoatTemplateLabel(templateId) {
+            const id = String(templateId || '').trim();
+            if (!id) return '';
+            const tpl = getSavedBoatTemplates().find((t) => String(t?.id || '').trim() === id);
+            return String(tpl?.label || id).trim();
+        }
 
-            if (!currentData || !currentData.models || currentData.models.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="9" style="text-align: center; color: #666;">Aucun modèle</td></tr>';
-                renderExtractionInsights();
+        function getBoatTemplateById(templateId) {
+            const id = String(templateId || '').trim();
+            if (!id) return null;
+            return getSavedBoatTemplates().find((t) => String(t?.id || '').trim() === id) || null;
+        }
+
+        /** Emplacements (famille + groupe) définis dans le snapshot template bateau. */
+        function getTemplateDecisionSlots(tpl) {
+            if (!tpl) return [];
+            const snap = tpl?.snapshot && typeof tpl.snapshot === 'object' ? tpl.snapshot : {};
+            const slots = [];
+            const families = Array.isArray(snap.families) ? snap.families : [];
+            families.forEach((tf) => {
+                const familyLabel = String(tf?.familyLabel || '').trim();
+                if (!familyLabel) return;
+                const groups = normalizeFamilyDecisionGroups(tf?.decisionGroups);
+                groups.forEach((g) => {
+                    const groupId = String(g?.id || '').trim();
+                    if (!groupId) return;
+                    slots.push({
+                        familyLabel,
+                        objectName: String(tf?.objectName || '').trim(),
+                        groupId,
+                        groupLabel: String(g?.label || g?.id || '').trim(),
+                        groupType: String(g?.type || 'option').trim()
+                    });
+                });
+            });
+            const baseIds = Array.isArray(snap.baseOptionIds) ? snap.baseOptionIds : [];
+            baseIds.forEach((rawId, index) => {
+                const optionId = String(rawId || '').trim();
+                if (!optionId) return;
+                slots.push({
+                    familyLabel: '',
+                    objectName: '',
+                    groupId: `__base_option_${index}`,
+                    groupLabel: optionId,
+                    groupType: 'base_option',
+                    fixedOptionId: optionId
+                });
+            });
+            return slots;
+        }
+
+        function findCatalogueFamilyForTemplateFamily(templateFamilyLabel) {
+            const wanted = String(templateFamilyLabel || '').trim().toLowerCase();
+            if (!wanted) return null;
+            const list = getFamilleValidatedFamilies();
+            return (Array.isArray(list) ? list : []).find((f) => {
+                const root = getValidatedFamilyRootLabel(f).toLowerCase();
+                const lbl = String(f?.familyLabel || '').trim().toLowerCase();
+                return root === wanted || lbl === wanted;
+            }) || null;
+        }
+
+        function isOptionBaseIncludedForModel(optionId, modelId) {
+            const rec = findOptionRecordById(optionId)?.option;
+            if (!rec?.baseIncluded) return false;
+            const comp = Array.isArray(rec.compatibleModels) ? rec.compatibleModels.map((x) => String(x)) : [];
+            return comp.includes(String(modelId || '').trim());
+        }
+
+        function isCatalogMinorationOption(opt) {
+            if (!opt || typeof opt !== 'object') return false;
+            if (opt.isMinoration === true) return true;
+            const ref = String(opt.refUgap || opt.baseRefUgap || '').trim().toUpperCase();
+            if (ref.startsWith('MINO')) return true;
+            const name = String(opt.name || '').trim();
+            if (/minorat/i.test(name)) return true;
+            return /^(moins-value|plus-value|plus\s+value)\b/i.test(name);
+        }
+
+        function isImportGeneratedBaseOption(opt) {
+            if (!opt || typeof opt !== 'object') return false;
+            if (opt.importGeneratedFromBaseProduct) return true;
+            if (opt.importBaseProductId) return true;
+            return String(opt.refUgap || '').trim().toUpperCase().startsWith('IBP-');
+        }
+
+        /** Tag catalogue « option de base » (aligné sur UgapDataService.computeIsBaseOption). */
+        function isCatalogBaseOption(opt) {
+            if (!opt || typeof opt !== 'object') return false;
+            if (opt.isBaseOption === true) return true;
+            if (isImportGeneratedBaseOption(opt)) return true;
+            if (opt.baseIncluded === true) return true;
+            if (opt.manualBaseOption === true && String(opt.baseRefUgap || '').trim()) return true;
+            return false;
+        }
+
+        function isOptionCompatibleWithModelId(opt, modelId) {
+            const comp = Array.isArray(opt?.compatibleModels) ? opt.compatibleModels.map((x) => String(x)) : [];
+            return comp.includes(String(modelId || '').trim());
+        }
+
+        function getCatalogueGroupOptionIdsForSlot(slot) {
+            const fam = findCatalogueFamilyForTemplateFamily(slot?.familyLabel);
+            if (!fam) return [];
+            const groups = normalizeFamilyDecisionGroups(fam.decisionGroups);
+            const grp = groups.find((g) => String(g?.id || '').trim() === String(slot?.groupId || '').trim());
+            return (Array.isArray(grp?.optionIds) ? grp.optionIds : [])
+                .map((x) => String(x || '').trim())
+                .filter(Boolean);
+        }
+
+        function optionMatchesTemplateSlot(optionId, slot) {
+            const oid = String(optionId || '').trim();
+            if (!oid || !slot) return false;
+            const rec = findOptionRecordById(oid)?.option;
+            if (rec && isCatalogMinorationOption(rec)) return false;
+            if (slot.fixedOptionId) return oid === String(slot.fixedOptionId).trim();
+
+            const fam = findCatalogueFamilyForTemplateFamily(slot.familyLabel);
+            if (!fam) return false;
+            const groups = normalizeFamilyDecisionGroups(fam.decisionGroups);
+            const grp = groups.find((g) => String(g?.id || '').trim() === String(slot.groupId || '').trim());
+            if (!grp) return false;
+
+            const groupOptionIds = (Array.isArray(grp.optionIds) ? grp.optionIds : [])
+                .map((x) => String(x || '').trim())
+                .filter(Boolean);
+            if (groupOptionIds.includes(oid)) return true;
+
+            const ctx = getOptionAssignmentContext(oid, rec?.familyLabel);
+            const famRoot = getValidatedFamilyRootLabel(fam).toLowerCase();
+            const ctxFam = String(ctx.familyName || '').trim().toLowerCase();
+            const slotFam = String(slot.familyLabel || '').trim().toLowerCase();
+            const famOk = ctxFam === famRoot || ctxFam === slotFam;
+            const ctxGrp = String(ctx.groupLabel || '').trim().toLowerCase();
+            const slotGrp = String(slot.groupLabel || '').trim().toLowerCase();
+            return famOk && ctxGrp && slotGrp && ctxGrp === slotGrp;
+        }
+
+        function getDetectedBaseOptionIdsForModel(model) {
+            const mid = String(model?.id || '').trim();
+            if (!mid) return [];
+            const ids = new Set();
+            (Array.isArray(currentData?.categories) ? currentData.categories : []).forEach((cat) => {
+                (cat.options || []).forEach((opt) => {
+                    const oid = String(opt?.id || '').trim();
+                    if (!oid || isCatalogMinorationOption(opt)) return;
+                    if (!isOptionCompatibleWithModelId(opt, mid)) return;
+                    if (isImportGeneratedBaseOption(opt) || opt.baseIncluded) ids.add(oid);
+                });
+            });
+            return Array.from(ids);
+        }
+
+        function getAssignedOptionIdForModelSlot(modelId, slot) {
+            const mid = String(modelId || '').trim();
+            if (!mid || !slot) return '';
+            for (const cat of (Array.isArray(currentData?.categories) ? currentData.categories : [])) {
+                for (const opt of (cat.options || [])) {
+                    const oid = String(opt?.id || '').trim();
+                    if (!oid || isCatalogMinorationOption(opt) || !isOptionBaseIncludedForModel(oid, mid)) continue;
+                    if (optionMatchesTemplateSlot(oid, slot)) return oid;
+                }
+            }
+            return '';
+        }
+
+        function getModelTemplateBaseOptionsStatus(model) {
+            const modelId = String(model?.id || '').trim();
+            const templateId = String(model?.boatTemplateId || '').trim();
+            if (!templateId) {
+                return {
+                    hasTemplate: false,
+                    isComplete: true,
+                    needsWarning: false,
+                    slots: [],
+                    missingSlots: [],
+                    missingCount: 0,
+                    assignedCount: 0,
+                    warningText: ''
+                };
+            }
+            const tpl = getBoatTemplateById(templateId);
+            const slots = getTemplateDecisionSlots(tpl);
+            if (!slots.length) {
+                return {
+                    hasTemplate: true,
+                    isComplete: true,
+                    needsWarning: false,
+                    slots: [],
+                    missingSlots: [],
+                    missingCount: 0,
+                    assignedCount: 0,
+                    warningText: ''
+                };
+            }
+            const missingSlots = [];
+            let assignedCount = 0;
+            slots.forEach((slot) => {
+                const assignedId = getAssignedOptionIdForModelSlot(modelId, slot);
+                if (assignedId) assignedCount += 1;
+                else missingSlots.push(slot);
+            });
+            const missingCount = missingSlots.length;
+            const isComplete = missingCount === 0;
+            const warningText = isComplete
+                ? ''
+                : `${missingCount} groupe(s) du template sans option de base associée à ce modèle.`;
+            return {
+                hasTemplate: true,
+                isComplete,
+                needsWarning: !isComplete,
+                slots,
+                missingSlots,
+                missingCount,
+                assignedCount,
+                warningText
+            };
+        }
+
+        function getCandidateOptionIdsForTemplateSlot(model, slot) {
+            return getBaseOptionChoiceRowsForModelSlot(model, slot).map((row) => String(row.id || '').trim()).filter(Boolean);
+        }
+
+        function suggestAutoBaseAssignmentsForModel(model) {
+            const modelId = String(model?.id || '').trim();
+            const status = getModelTemplateBaseOptionsStatus(model);
+            if (!status.hasTemplate || status.isComplete) return [];
+            const suggestions = [];
+            status.missingSlots.forEach((slot) => {
+                const matches = getCandidateOptionIdsForTemplateSlot(model, slot);
+                if (matches.length !== 1) return;
+                const fam = findCatalogueFamilyForTemplateFamily(slot.familyLabel);
+                suggestions.push({
+                    optionId: matches[0],
+                    familyLabel: slot.familyLabel
+                        ? getValidatedFamilyRootLabel(fam || { familyLabel: slot.familyLabel })
+                        : '',
+                    groupLabel: slot.groupLabel,
+                    slot
+                });
+            });
+            return suggestions;
+        }
+
+        async function linkBaseOptionToModel(optionId, modelId, familyLabel, groupLabel) {
+            const oid = String(optionId || '').trim();
+            const mid = String(modelId || '').trim();
+            const rec = findOptionRecordById(oid)?.option;
+            if (!rec) throw new Error(`Option introuvable (${oid}).`);
+            const compatible = Array.isArray(rec.compatibleModels) ? rec.compatibleModels.map((x) => String(x)) : [];
+            if (!compatible.includes(mid)) compatible.push(mid);
+                await apiCall(`/options/${encodeURIComponent(oid)}`, {
+                    method: 'PUT',
+                    body: JSON.stringify({
+                        ...rec,
+                        compatibleModels: compatible,
+                        baseIncluded: true,
+                        isBaseOption: true,
+                        priceClient: 0
+                    })
+                });
+                const famLabel = String(familyLabel || '').trim();
+            if (famLabel) {
+                await applyOptionFamilyAssignmentsBulk([{
+                    optionId: oid,
+                    familyLabel: famLabel,
+                    groupLabel: String(groupLabel || '').trim() || null
+                }], { skipServer: true, reload: false });
+            }
+        }
+
+        async function assignModelBaseOptionsFromTemplate(modelId) {
+            const mid = String(modelId || '').trim();
+            const model = (Array.isArray(currentData?.models) ? currentData.models : [])
+                .find((m) => String(m?.id || '').trim() === mid);
+            if (!model) {
+                showAlert('Modèle introuvable.', 'warning');
                 return;
             }
+            const templateId = String(model?.boatTemplateId || '').trim();
+            if (!templateId) {
+                showAlert('Assignez d’abord un template bateau à ce modèle.', 'warning');
+                return;
+            }
+            const before = getModelTemplateBaseOptionsStatus(model);
+            if (!before.slots.length) {
+                showAlert('Ce template ne définit aucun groupe de décision.', 'info');
+                return;
+            }
+            if (before.isComplete) {
+                showAlert('Toutes les options de base du template sont déjà associées à ce modèle.', 'info');
+                return;
+            }
+            const suggestions = suggestAutoBaseAssignmentsForModel(model);
+            if (!suggestions.length) {
+                showAlert(
+                    `Aucune association automatique possible (${before.missingCount} groupe(s) en attente). `
+                    + 'Vérifiez que les options de base détectées pour ce modèle correspondent à une seule option par groupe du template.',
+                    'warning'
+                );
+                return;
+            }
+            const savedTemplateId = templateId;
+            try {
+                for (const s of suggestions) {
+                    await linkBaseOptionToModel(s.optionId, mid, s.familyLabel, s.groupLabel);
+                }
+                const templatesBeforeReload = getSavedBoatTemplates();
+                await triggerUiStatePersistenceNow();
+                await loadData(true);
+                if (templatesBeforeReload.length) {
+                    const afterLoadTemplates = getSavedBoatTemplates();
+                    if (!afterLoadTemplates.length) {
+                        setSavedBoatTemplates(templatesBeforeReload);
+                        await triggerUiStatePersistenceNow();
+                    }
+                }
+                await ensureModelBoatTemplateId(mid, savedTemplateId);
+                refreshModelsVueLC();
+                const freshModel = (Array.isArray(currentData?.models) ? currentData.models : [])
+                    .find((m) => String(m?.id || '').trim() === mid) || model;
+                const after = getModelTemplateBaseOptionsStatus(freshModel);
+                const autoN = suggestions.length;
+                if (after.isComplete) {
+                    showAlert(`${autoN} option(s) de base associée(s) automatiquement. Template complet.`, 'success');
+                } else {
+                    showAlert(
+                        `${autoN} option(s) associée(s) automatiquement. `
+                        + `Il reste ${after.missingCount} groupe(s) à traiter manuellement (plusieurs candidats ou aucune correspondance).`,
+                        'warning'
+                    );
+                }
+            } catch (error) {
+                showAlert('Erreur assignation options de base: ' + error.message, 'error');
+                refreshModelsVueLC();
+            }
+        }
 
-            // Utiliser DocumentFragment pour améliorer les performances DOM
-            const fragment = document.createDocumentFragment();
+        function renderModelTemplateCellHtml(model, boatTemplateId) {
+            const modelId = String(model?.id || '').trim();
+            const selectHtml = renderModelBoatTemplateSelectHtml(modelId, boatTemplateId);
+            const status = getModelTemplateBaseOptionsStatus(model);
+            if (!status.needsWarning) {
+                return `<div class="ugap-model-template-cell">${selectHtml}</div>`;
+            }
+            const missingDetail = status.missingSlots.slice(0, 3).map((s) => {
+                const fam = String(s.familyLabel || '').trim();
+                const grp = String(s.groupLabel || s.groupId || '').trim();
+                return fam ? `${fam} → ${grp}` : grp;
+            }).join(' · ');
+            const more = status.missingCount > 3 ? ` (+${status.missingCount - 3})` : '';
+            return `<div class="ugap-model-template-cell">
+                ${selectHtml}
+                <div class="ugap-model-base-warning" title="${escapeHtml(status.warningText)} — configurez via Modifier → Options de base">
+                    <span class="ugap-model-base-warning__icon" aria-hidden="true">⚠</span>
+                    <span>${status.missingCount} groupe(s) à compléter</span>
+                </div>
+                ${missingDetail ? `<div style="font-size:10px;color:#a16207;margin-top:4px;line-height:1.35;">${escapeHtml(missingDetail)}${escapeHtml(more)}</div>` : ''}
+            </div>`;
+        }
 
-            currentData.models.forEach(model => {
-                const tr = document.createElement('tr');
-                tr.style.cursor = 'pointer';
+        function getTemplateSlotsForModel(model) {
+            const templateId = String(model?.boatTemplateId || '').trim();
+            if (!templateId) return [];
+            const tpl = getBoatTemplateById(templateId);
+            return getTemplateDecisionSlots(tpl).map((slot, idx) => ({ ...slot, __idx: idx }));
+        }
+
+        function groupTemplateSlotsByFamily(slots) {
+            const map = new Map();
+            (Array.isArray(slots) ? slots : []).forEach((slot) => {
+                const fam = String(slot.familyLabel || '').trim() || 'Options de base';
+                if (!map.has(fam)) map.set(fam, []);
+                map.get(fam).push(slot);
+            });
+            return map;
+        }
+
+        function optionMatchesSlotFamilyGroup(opt, slot) {
+            const oid = String(opt?.id || '').trim();
+            if (!oid || !slot) return false;
+            if (slot.fixedOptionId) return oid === String(slot.fixedOptionId).trim();
+            if (getCatalogueGroupOptionIdsForSlot(slot).includes(oid)) return true;
+            const fam = findCatalogueFamilyForTemplateFamily(slot.familyLabel);
+            if (!fam) return false;
+            const ctx = getOptionAssignmentContext(oid, opt.familyLabel);
+            const famRoot = getValidatedFamilyRootLabel(fam).toLowerCase();
+            const ctxFam = String(ctx.familyName || '').trim().toLowerCase();
+            const slotFam = String(slot.familyLabel || '').trim().toLowerCase();
+            const famOk = ctxFam === famRoot || ctxFam === slotFam;
+            const ctxGrp = String(ctx.groupLabel || '').trim().toLowerCase();
+            const slotGrp = String(slot.groupLabel || '').trim().toLowerCase();
+            return famOk && ctxGrp && slotGrp && ctxGrp === slotGrp;
+        }
+
+        function optionRoughlyMatchesSlotFamily(opt, slot) {
+            const fam = findCatalogueFamilyForTemplateFamily(slot?.familyLabel);
+            const famRoot = (fam ? getValidatedFamilyRootLabel(fam) : String(slot?.familyLabel || '').trim()).toLowerCase();
+            if (!famRoot) return false;
+            const parsed = parseValidatedFamilyLabel(opt?.familyLabel);
+            const root = String(parsed.familyName || '').trim().toLowerCase();
+            const slotFam = String(slot?.familyLabel || '').trim().toLowerCase();
+            return root === famRoot || root === slotFam;
+        }
+
+        function canOfferAsBaseChoiceForSlot(opt, modelId, slot) {
+            if (!opt || isCatalogMinorationOption(opt)) return false;
+            if (!isOptionCompatibleWithModelId(opt, modelId)) return false;
+            const oid = String(opt.id || '').trim();
+            if (!oid) return false;
+            if (getCatalogueGroupOptionIdsForSlot(slot).includes(oid)) return true;
+            if (slot.fixedOptionId && oid === String(slot.fixedOptionId).trim()) return true;
+            if (isImportGeneratedBaseOption(opt) && optionRoughlyMatchesSlotFamily(opt, slot)) return true;
+            if (!optionMatchesSlotFamilyGroup(opt, slot)) return false;
+            return isImportGeneratedBaseOption(opt) || !!opt.baseIncluded;
+        }
+
+        function getBaseOptionChoiceRowsForModelSlot(model, slot) {
+            const modelId = String(model?.id || '').trim();
+            const ids = new Set();
+            const assigned = getAssignedOptionIdForModelSlot(modelId, slot);
+            if (assigned) {
+                const assignedRec = findOptionRecordById(assigned)?.option;
+                if (assignedRec && !isCatalogMinorationOption(assignedRec)) ids.add(assigned);
+            }
+            (Array.isArray(currentData?.categories) ? currentData.categories : []).forEach((cat) => {
+                (cat.options || []).forEach((opt) => {
+                    if (!canOfferAsBaseChoiceForSlot(opt, modelId, slot)) return;
+                    ids.add(String(opt.id || '').trim());
+                });
+            });
+            return Array.from(ids).map((oid) => {
+                const rec = findOptionRecordById(oid)?.option || {};
+                const summary = getModelOptionsForSummary(modelId).find((r) => String(r.id) === oid);
+                const ref = String(rec.baseRefUgap || rec.refUgap || summary?.refUgap || '').trim();
+                return {
+                    id: oid,
+                    name: String(rec.name || summary?.name || oid).trim(),
+                    refUgap: ref
+                };
+            }).sort((a, b) => a.name.localeCompare(b.name, 'fr', { sensitivity: 'base' }));
+        }
+
+        function renderModelModalBaseOptionsTab(modelId) {
+            const root = document.getElementById('model-modal-base-content');
+            if (!root) return;
+            const mid = String(modelId || '').trim();
+            const model = (Array.isArray(currentData?.models) ? currentData.models : [])
+                .find((m) => String(m?.id || '').trim() === mid);
+            if (!model) {
+                root.innerHTML = '<p style="color:#666;">Modèle introuvable.</p>';
+                return;
+            }
+            const templateId = String(model.boatTemplateId || '').trim();
+            const tplLabel = getModelBoatTemplateLabel(templateId);
+            if (!templateId) {
+                root.innerHTML = `
+                    <p style="color:#64748b; font-size:13px; line-height:1.5;">
+                        Assignez d’abord un <strong>template bateau</strong> depuis la liste des modèles,
+                        puis revenez ici pour choisir les options de base par famille.
+                    </p>`;
+                return;
+            }
+            const slots = getTemplateSlotsForModel(model);
+            if (!slots.length) {
+                root.innerHTML = `
+                    <p style="margin:0 0 8px; color:#334155;">Template : <strong>${escapeHtml(tplLabel)}</strong></p>
+                    <p style="color:#64748b;">Ce template ne contient aucun groupe de décision.</p>`;
+                return;
+            }
+            const encMid = encodeURIComponent(mid);
+            const byFamily = groupTemplateSlotsByFamily(slots);
+            const familiesHtml = Array.from(byFamily.entries()).map(([familyLabel, familySlots]) => {
+                const groupsHtml = familySlots.map((slot) => {
+                    const slotIdx = slot.__idx;
+                    const assignedId = getAssignedOptionIdForModelSlot(mid, slot);
+                    const choices = getBaseOptionChoiceRowsForModelSlot(model, slot);
+                    const groupTitle = String(slot.groupLabel || slot.groupId || 'Groupe').trim();
+                    const optionsHtml = choices.map((row) => {
+                        const selected = assignedId === row.id ? ' selected' : '';
+                        const ref = row.refUgap ? ` — ${row.refUgap}` : '';
+                        return `<option value="${escapeHtml(row.id)}"${selected}>${escapeHtml(row.name)}${escapeHtml(ref)}</option>`;
+                    }).join('');
+                    return `
+                        <div class="ugap-model-base-slot" style="padding:10px 12px; border:1px solid #e2e8f0; border-radius:8px; background:#fafbfc; margin-bottom:8px;">
+                            <div style="font-weight:600; font-size:13px; color:#334155; margin-bottom:8px;">${escapeHtml(groupTitle)}</div>
+                            <label style="display:block; font-size:12px; color:#64748b; margin-bottom:4px;">Option de base</label>
+                            <div style="display:flex; gap:6px; align-items:stretch;">
+                                <select
+                                    class="ugap-model-base-slot-select"
+                                    style="flex:1; padding:8px; border:1px solid #cbd5e1; border-radius:6px; font-size:13px;"
+                                    onchange="onModelModalBaseOptionPick('${encMid}', ${slotIdx}, this.value)"
+                                >
+                                    <option value="">— Choisir une option —</option>
+                                    ${optionsHtml}
+                                </select>
+                                <button type="button" class="btn btn-outline" title="Créer une option de base" onclick="openModelModalBaseOptionCreateModal('${encMid}', ${slotIdx})" style="min-width:40px; padding:6px 12px; font-size:20px; line-height:1;">+</button>
+                            </div>
+                        </div>`;
+                }).join('');
+                return `
+                    <section style="margin-bottom:16px;">
+                        <h4 style="margin:0 0 10px; font-size:14px; color:#1e293b; border-bottom:1px solid #e2e8f0; padding-bottom:6px;">${escapeHtml(familyLabel)}</h4>
+                        ${groupsHtml}
+                    </section>`;
+            }).join('');
+
+            root.innerHTML = `
+                <p style="margin:0 0 12px; padding:10px 12px; background:#eff6ff; border:1px solid #bfdbfe; border-radius:8px; font-size:13px; color:#1e3a8a; line-height:1.45;">
+                    Template <strong>${escapeHtml(tplLabel)}</strong> — choisissez pour chaque groupe l’option de base incluse dans le prix du modèle.
+                </p>
+                <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap:10px; margin-bottom:16px;">
+                    <div>
+                        <label style="display:block; font-size:12px; color:#555; margin-bottom:4px;">Motorisation de base</label>
+                        <input type="text" id="model-base-motorization" value="${escapeHtml(model.motorizationBase || '')}" style="width:100%; padding:8px; border:1px solid #ddd; border-radius:6px;">
+                    </div>
+                    <div>
+                        <label style="display:block; font-size:12px; color:#555; margin-bottom:4px;">Numéro de poste</label>
+                        <input type="number" id="model-poste-number" value="${model.posteNumber ?? ''}" min="1" step="1" style="width:100%; padding:8px; border:1px solid #ddd; border-radius:6px;">
+                    </div>
+                    <div>
+                        <label style="display:block; font-size:12px; color:#555; margin-bottom:4px;">Mode de livraison</label>
+                        <input type="text" id="model-delivery-mode" value="${escapeHtml(model.defaultDeliveryMode || '')}" placeholder="Ex. Départ usine" style="width:100%; padding:8px; border:1px solid #ddd; border-radius:6px;">
+                    </div>
+                </div>
+                ${familiesHtml}
+            `;
+        }
+
+        function openModelModalBaseOptionCreateModal(modelIdEnc, slotIdx) {
+            if (document.getElementById('model-base-option-create-modal')) return;
+            let mid = String(modelIdEnc || '').trim();
+            try { mid = decodeURIComponent(mid); } catch (_) {}
+            const idx = Number(slotIdx);
+            const model = (Array.isArray(currentData?.models) ? currentData.models : [])
+                .find((m) => String(m?.id || '').trim() === mid);
+            const slots = model ? getTemplateSlotsForModel(model) : [];
+            const slot = Number.isInteger(idx) && idx >= 0 && idx < slots.length ? slots[idx] : null;
+            if (!model || !slot) return;
+            const fam = findCatalogueFamilyForTemplateFamily(slot.familyLabel);
+            const familyName = slot.familyLabel
+                ? getValidatedFamilyRootLabel(fam || { familyLabel: slot.familyLabel })
+                : '';
+            const groupLabel = String(slot.groupLabel || '').trim();
+            const groupTitle = String(slot.groupLabel || slot.groupId || 'Groupe').trim();
+            window.__modelModalBaseCreateContext = { modelId: mid, slotIdx: idx, familyName, groupLabel };
+            const modal = document.createElement('div');
+            modal.id = 'model-base-option-create-modal';
+            modal.style.cssText = 'position:fixed; inset:0; background:rgba(0,0,0,.35); z-index:10050; display:flex; align-items:center; justify-content:center; padding:20px;';
+            modal.innerHTML = `
+                <div style="background:#fff; width:min(520px, 96vw); border-radius:10px; box-shadow:0 10px 30px rgba(0,0,0,.2);">
+                    <div style="padding:12px 14px; border-bottom:1px solid #e9ecef; display:flex; justify-content:space-between; align-items:center;">
+                        <strong>Créer une option de base</strong>
+                        <button type="button" onclick="closeModelModalBaseOptionCreateModal()" style="border:none; background:transparent; font-size:20px; cursor:pointer;" title="Fermer">×</button>
+                    </div>
+                    <div style="padding:14px;">
+                        <p style="margin:0 0 12px; font-size:12px; color:#64748b; line-height:1.45;">
+                            Groupe : <strong>${escapeHtml(groupTitle)}</strong>${familyName ? ` — famille ${escapeHtml(familyName)}` : ''}.
+                            Prix catalogue optionnel (inclus dans le prix du modèle, 0 € client).
+                        </p>
+                        <label style="display:block; font-size:12px; color:#666; margin-bottom:4px;">Libellé</label>
+                        <input id="model-modal-create-option-name" placeholder="Ex. Moteur en remplacement de…" style="width:100%; padding:7px; border:1px solid #ddd; border-radius:4px; margin-bottom:10px;">
+                        <label style="display:block; font-size:12px; color:#666; margin-bottom:4px;">Réf. (optionnel)</label>
+                        <input id="model-modal-create-option-ref" placeholder="Référence UGAP" style="width:100%; padding:7px; border:1px solid #ddd; border-radius:4px; margin-bottom:10px;">
+                        <label style="display:block; font-size:12px; color:#666; margin-bottom:4px;">Prix de référence inclus (€, optionnel)</label>
+                        <input id="model-modal-create-option-price" type="number" step="0.01" min="0" placeholder="0" style="width:180px; padding:7px; border:1px solid #ddd; border-radius:4px;">
+                        <div style="margin-top:14px; display:flex; justify-content:flex-end; gap:8px;">
+                            <button type="button" class="btn btn-outline" onclick="closeModelModalBaseOptionCreateModal()">Annuler</button>
+                            <button type="button" class="btn btn-primary" onclick="submitModelModalBaseCustomOption()">Créer et associer</button>
+                        </div>
+                    </div>
+                </div>`;
+            document.body.appendChild(modal);
+            modal.addEventListener('click', (e) => {
+                if (e.target === modal) closeModelModalBaseOptionCreateModal();
+            });
+        }
+
+        function closeModelModalBaseOptionCreateModal() {
+            document.getElementById('model-base-option-create-modal')?.remove();
+        }
+
+        async function onModelModalBaseOptionPick(modelId, slotIdx, optionId) {
+            const mid = String(modelId || '').trim();
+            const idx = Number(slotIdx);
+            const model = (Array.isArray(currentData?.models) ? currentData.models : []).find((m) => String(m?.id || '').trim() === mid);
+            const slots = model ? getTemplateSlotsForModel(model) : [];
+            const slot = Number.isInteger(idx) && idx >= 0 && idx < slots.length ? slots[idx] : null;
+            if (!model || !slot) return;
+            const oid = String(optionId || '').trim();
+            if (!oid) return;
+            try {
+                const fam = findCatalogueFamilyForTemplateFamily(slot.familyLabel);
+                const famLabel = slot.familyLabel
+                    ? getValidatedFamilyRootLabel(fam || { familyLabel: slot.familyLabel })
+                    : '';
+                await linkBaseOptionToModel(oid, mid, famLabel, slot.groupLabel);
+                await loadData(true);
+                renderModelModalBaseOptionsTab(mid);
+                refreshModelsVueLC();
+                showAlert('Option de base associée.', 'success');
+            } catch (error) {
+                showAlert('Erreur: ' + error.message, 'error');
+                renderModelModalBaseOptionsTab(mid);
+            }
+        }
+
+        async function submitModelModalBaseCustomOption() {
+            const ctx = window.__modelModalBaseCreateContext || {};
+            const mid = String(ctx.modelId || '').trim();
+            const idx = Number(ctx.slotIdx);
+            const model = (Array.isArray(currentData?.models) ? currentData.models : []).find((m) => String(m?.id || '').trim() === mid);
+            const slots = model ? getTemplateSlotsForModel(model) : [];
+            const slot = Number.isInteger(idx) && idx >= 0 && idx < slots.length ? slots[idx] : null;
+            if (!model || !slot) return;
+            const name = String(document.getElementById('model-modal-create-option-name')?.value || '').trim();
+            const refUgap = String(document.getElementById('model-modal-create-option-ref')?.value || '').trim();
+            const priceRaw = document.getElementById('model-modal-create-option-price')?.value;
+            const priceN = Number(String(priceRaw ?? '').replace(',', '.'));
+            const baseIncludedPrice = Number.isFinite(priceN) ? priceN : 0;
+            if (!name) {
+                showAlert('Libellé requis pour créer l’option.', 'warning');
+                return;
+            }
+            const familyName = String(ctx.familyName || '').trim();
+            const groupLabel = String(ctx.groupLabel || '').trim();
+            const fullFamilyLabel = groupLabel ? `${familyName} / ${groupLabel}` : familyName;
+            try {
+                const categoryId = String(currentData?.categories?.[0]?.id || '').trim();
+                if (!categoryId) {
+                    showAlert('Aucune catégorie catalogue — importez des données d’abord.', 'warning');
+                    return;
+                }
+                const id = await postManualBaseCatalogOption({
+                    categoryId,
+                    name,
+                    refUgap,
+                    baseRefUgap: refUgap,
+                    compatibleModels: [mid],
+                    familyLabel: fullFamilyLabel || familyName,
+                    subFamily: groupLabel,
+                    manualBaseOption: true,
+                    baseIncluded: true,
+                    isBaseOption: true,
+                    baseIncludedPrice,
+                    priceUgap: baseIncludedPrice,
+                    priceClient: 0
+                });
+                await linkBaseOptionToModel(id, mid, familyName, groupLabel);
+                closeModelModalBaseOptionCreateModal();
+                await loadData(true);
+                renderModelModalBaseOptionsTab(mid);
+                refreshModelsVueLC();
+                showAlert('Option créée et associée au modèle.', 'success');
+            } catch (error) {
+                showAlert('Erreur création option: ' + error.message, 'error');
+            }
+        }
+
+        function renderModelBoatTemplateSelectHtml(modelId, selectedTemplateId) {
+            const mid = String(modelId || '').trim();
+            const encMid = encodeURIComponent(mid);
+            const selected = String(selectedTemplateId || '').trim();
+            const templates = getSavedBoatTemplates();
+            const optionsHtml = templates.map((tpl) => {
+                const tid = String(tpl?.id || '').trim();
+                const label = String(tpl?.label || tid).trim();
+                return `<option value="${escapeHtml(tid)}" ${selected === tid ? 'selected' : ''}>${escapeHtml(label)}</option>`;
+            }).join('');
+            const emptyHint = templates.length
+                ? ''
+                : '<span style="display:block;font-size:11px;color:#b45309;margin-top:4px;">Créez un template dans l’onglet Template bateau.</span>';
+            return `<select
+                class="ugap-model-template-select"
+                onchange="onModelBoatTemplateAssignmentChange(decodeURIComponent('${encMid}'), this.value)"
+                onclick="event.stopPropagation();"
+                onmousedown="event.stopPropagation();"
+                style="width:100%;max-width:300px;padding:6px 8px;border:1px solid #cbd5e1;border-radius:6px;font-size:12px;background:#fff;"
+            >
+                <option value="">— Aucun template —</option>
+                ${optionsHtml}
+            </select>${emptyHint}`;
+        }
+
+        async function onModelBoatTemplateAssignmentChange(modelId, templateId) {
+            const mid = String(modelId || '').trim();
+            if (!mid) return;
+            const tid = String(templateId || '').trim();
+            const model = (Array.isArray(currentData?.models) ? currentData.models : []).find((m) => String(m?.id || '').trim() === mid);
+            if (!model) {
+                showAlert('Modèle introuvable.', 'warning');
+                return;
+            }
+            if (tid && !getSavedBoatTemplates().some((t) => String(t?.id || '').trim() === tid)) {
+                showAlert('Template introuvable.', 'warning');
+                refreshModelsVueLC();
+                return;
+            }
+            try {
+                await apiCall(`/models/${encodeURIComponent(mid)}`, {
+                    method: 'PUT',
+                    body: JSON.stringify({ boatTemplateId: tid || null })
+                });
+                model.boatTemplateId = tid || null;
+                if (__lastLoadDataSnapshot?.models) {
+                    const snap = __lastLoadDataSnapshot.models.find((m) => String(m?.id || '').trim() === mid);
+                    if (snap) snap.boatTemplateId = tid || null;
+                }
+                refreshModelsVueLC();
+                const label = tid ? getModelBoatTemplateLabel(tid) : '';
+                if (tid) {
+                    const suggestions = suggestAutoBaseAssignmentsForModel(model);
+                    if (suggestions.length) {
+                        showAlert(
+                            `Template « ${label} » assigné. ${suggestions.length} option(s) de base à configurer — ouvrez Modifier → Options de base.`,
+                            'info'
+                        );
+                    } else {
+                        showAlert(`Template « ${label} » assigné.`, 'success');
+                    }
+                } else {
+                    showAlert('Template retiré.', 'success');
+                }
+            } catch (error) {
+                showAlert('Erreur assignation template: ' + error.message, 'error');
+                refreshModelsVueLC();
+            }
+        }
+
+        /** Lignes catalogue pour la vue LC Modèles (paramétrage). */
+        function getModelsRowsForLc() {
+            const models = Array.isArray(currentData?.models) ? currentData.models : [];
+            return models.map((model, idx) => {
                 const configsCount = (model.configurations || []).length;
                 const splitByType = splitModelOptionsByType(getModelOptionsForSummary(model.id));
                 const modelOptionsCount = splitByType.regularOptions.length;
-                tr.innerHTML = `
-                    <td><strong>${model.name}</strong></td>
-                    <td>${model.posteNumber ?? '-'}</td>
-                    <td style="max-width: 260px;">${escapeHtml(model.motorizationBase || '-')}</td>
-                    <td>${escapeHtml(model.defaultDeliveryMode || '-')}</td>
-                    <td>${(model.basePrice || 0).toFixed(2)} €</td>
-                    <td>${model.image ? `<img src="${model.image}" style="width: 60px; height: 40px; object-fit: cover; border-radius: 4px;">` : '<span style="color: #999;">Aucune</span>'}</td>
-                    <td><span class="badge">${configsCount} configuration(s)</span></td>
-                    <td><span class="badge">${modelOptionsCount}</span></td>
-                    <td><button class="btn btn-primary" onclick="event.stopPropagation(); openModelModal('${model.id}')">Modifier</button></td>
-                `;
-                tr.addEventListener('click', () => openModelModal(model.id));
-                fragment.appendChild(tr);
+                const modelId = String(model?.id || '').trim();
+                const boatTemplateId = String(model?.boatTemplateId || '').trim();
+                const baseStatus = getModelTemplateBaseOptionsStatus(model);
+                return {
+                    __idx: idx,
+                    _modelId: modelId,
+                    name: String(model?.name || '').trim() || '—',
+                    basePrice: `${(Number(model.basePrice) || 0).toFixed(2)} €`,
+                    templateLabel: getModelBoatTemplateLabel(boatTemplateId) || '—',
+                    templateStatusLabel: baseStatus.needsWarning ? `incomplet ${baseStatus.missingCount}` : (boatTemplateId ? 'ok' : ''),
+                    templateHtml: renderModelTemplateCellHtml(model, boatTemplateId),
+                    configsCountHtml: `<span class="badge">${configsCount} configuration(s)</span>`,
+                    optionsCountHtml: `<span class="badge">${modelOptionsCount}</span>`,
+                    _actionsHtml: `<button type="button" class="btn btn-primary" style="font-size:12px;padding:4px 10px;" onclick="event.stopPropagation();openModelModal('${escapeHtml(modelId)}')">Modifier</button>`
+                };
             });
+        }
 
-            // Ajouter toutes les lignes en une seule opération DOM
-            tbody.appendChild(fragment);
+        function refreshModelsVueLC() {
+            const mount = document.getElementById('ugap-models-lc-mount');
+            if (mount && window.UgapTemplates?.refreshVueLCList) {
+                window.UgapTemplates.refreshVueLCList('models', mount);
+            }
+        }
+
+        function resetModelCreateForm() {
+            const fields = [
+                'new-model-name',
+                'new-model-poste',
+                'new-model-motorization',
+                'new-model-delivery',
+                'new-model-price'
+            ];
+            fields.forEach((id) => {
+                const el = document.getElementById(id);
+                if (!el) return;
+                if (el.type === 'number') el.value = '0';
+                else el.value = '';
+            });
+        }
+
+        function closeModelsLcCreatePanel() {
+            const panel = document.querySelector('[data-ugap-lc-create-panel="models"]');
+            const btn = document.querySelector('[data-ugap-lc-create="models"]');
+            if (panel) panel.setAttribute('hidden', '');
+            if (btn) btn.setAttribute('aria-expanded', 'false');
+        }
+
+        /** Formulaire de création modèle (panneau Vue LC). */
+        function renderModelCreationFormHtml() {
+            const labelStyle = 'display:block; font-size:12px; font-weight:600; color:#555; margin-bottom:4px;';
+            const inputStyle = 'width:100%; padding:8px 10px; border:1px solid #ddd; border-radius:6px; font-size:13px;';
+            return `
+                <div class="ugap-model-create-form" style="padding:14px; border:1px solid #e5e7eb; border-radius:8px; background:#fff;">
+                    <p style="margin:0 0 14px; color:#64748b; font-size:13px; line-height:1.5;">
+                        Saisissez les informations du modèle. Vous pourrez ajouter des configurations et une image depuis la fiche modèle.
+                    </p>
+                    <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap:12px;">
+                        <div style="grid-column:1 / -1; max-width:480px;">
+                            <label for="new-model-name" style="${labelStyle}">Nom du modèle <span style="color:#dc3545;">*</span></label>
+                            <input id="new-model-name" type="text" placeholder="Ex. Zeppelin 450" style="${inputStyle}" autocomplete="off" required>
+                        </div>
+                        <div>
+                            <label for="new-model-poste" style="${labelStyle}">Numéro de poste</label>
+                            <input id="new-model-poste" type="number" min="1" step="1" placeholder="Ex. 1" style="${inputStyle}">
+                        </div>
+                        <div>
+                            <label for="new-model-price" style="${labelStyle}">Prix de base (€)</label>
+                            <input id="new-model-price" type="number" min="0" step="0.01" value="0" style="${inputStyle}">
+                        </div>
+                        <div>
+                            <label for="new-model-motorization" style="${labelStyle}">Motorisation de base</label>
+                            <input id="new-model-motorization" type="text" placeholder="Ex. 2x150 CV" style="${inputStyle}">
+                        </div>
+                        <div>
+                            <label for="new-model-delivery" style="${labelStyle}">Mode de livraison</label>
+                            <input id="new-model-delivery" type="text" placeholder="Ex. Départ usine" style="${inputStyle}">
+                        </div>
+                    </div>
+                    <div style="margin-top:14px;">
+                        <button type="button" class="btn btn-success" onclick="submitCreateModel()">Créer le modèle</button>
+                    </div>
+                </div>
+            `;
+        }
+
+        async function submitCreateModel() {
+            const name = String(document.getElementById('new-model-name')?.value || '').trim();
+            if (!name) {
+                showAlert('Nom du modèle requis.', 'warning');
+                return;
+            }
+            const posteRaw = document.getElementById('new-model-poste')?.value;
+            const basePrice = parseFloat(document.getElementById('new-model-price')?.value || '0');
+            const payload = {
+                name,
+                posteNumber: posteRaw === '' || posteRaw == null ? null : posteRaw,
+                basePrice: Number.isFinite(basePrice) ? basePrice : 0,
+                motorizationBase: String(document.getElementById('new-model-motorization')?.value || '').trim(),
+                defaultDeliveryMode: String(document.getElementById('new-model-delivery')?.value || '').trim()
+            };
+            try {
+                const result = await apiCall('/models', {
+                    method: 'POST',
+                    body: JSON.stringify(payload)
+                });
+                const modelId = String(result?.data?.model?.id || '').trim();
+                resetModelCreateForm();
+                closeModelsLcCreatePanel();
+                await loadData();
+                refreshModelsVueLC();
+                showAlert(`Modèle « ${name} » créé.`, 'success');
+                if (modelId) openModelModal(modelId);
+            } catch (error) {
+                showAlert('Erreur création modèle: ' + error.message, 'error');
+            }
+        }
+
+        /** Vue LC (liste + recherche/tri) — onglet Modèles (paramétrage). */
+        function mountModelsVueLC() {
+            const mount = document.getElementById('ugap-models-lc-mount');
+            if (!mount) return;
+            syncImportBoatTemplatesFromSaved();
+            if (!window.UgapTemplates || typeof window.UgapTemplates.renderVueLC !== 'function') {
+                mount.innerHTML = '<div style="padding:12px; color:#b45309; border:1px solid #fde68a; border-radius:6px;">Module d’affichage <strong>UgapTemplates</strong> indisponible. Vérifiez le chargement de <code>ugap-view-templates.js</code>.</div>';
+                return;
+            }
+            const config = {
+                elementKey: 'models',
+                elementLabel: 'modèle',
+                title: 'Modèles',
+                description: 'Catalogue des modèles. Cliquez sur « Créer un modèle » ou importez un fichier Excel depuis l’onglet Import. Double-clic pour éditer.',
+                createFormHtml: renderModelCreationFormHtml(),
+                onCreatePanelOpen: () => resetModelCreateForm(),
+                columns: [
+                    { key: 'name', label: 'Nom' },
+                    { key: 'basePrice', label: 'Prix de base' },
+                    { key: 'templateHtml', label: 'Template', type: 'html' },
+                    { key: 'configsCountHtml', label: 'Configurations', type: 'html' },
+                    { key: 'optionsCountHtml', label: 'Options', type: 'html' },
+                    { key: '_actionsHtml', label: 'Actions', type: 'html' }
+                ],
+                getRows: getModelsRowsForLc,
+                listToolbar: {
+                    sortKey: 'name',
+                    searchKeys: ['name', 'templateLabel', 'templateStatusLabel'],
+                    searchPlaceholder: 'Nom, template, état…'
+                },
+                countLabel: 'modèle(s)',
+                emptyMessage: 'Aucun modèle. Cliquez sur « Créer un modèle » ou importez un fichier Excel depuis l’onglet Import.',
+                rowDblClickHandler: (idx) => {
+                    const models = Array.isArray(currentData?.models) ? currentData.models : [];
+                    const model = models[idx];
+                    if (model?.id) openModelModal(model.id);
+                }
+            };
+            mount.innerHTML = window.UgapTemplates.renderVueLC(config);
+            window.UgapTemplates.bindVueLC(mount, config);
+            if (typeof scheduleParentEmbedResize === 'function') scheduleParentEmbedResize();
             renderExtractionInsights();
         }
 
-        // Render categories management - OPTIMISÉ
-        function renderCategoriesManagement() {
-            const tbody = document.querySelector('#categories-management-table tbody');
-            renderViewHeuristicRulesUi();
-            if (!tbody) return;
-            tbody.innerHTML = '';
-
-            if (!currentData || !currentData.categories || currentData.categories.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="4" style="text-align: center; color: #666;">Aucune vue métier</td></tr>';
-                return;
+        /** Compat : rafraîchit ou monte la vue LC Modèles (remplace l’ancien tableau #models-table). */
+        function renderModels() {
+            const mount = document.getElementById('ugap-models-lc-mount');
+            if (!mount) return;
+            if (mount.querySelector('[data-ugap-vue-lc="models"]')) {
+                refreshModelsVueLC();
+            } else {
+                mountModelsVueLC();
             }
+        }
 
-            // Utiliser DocumentFragment pour améliorer les performances DOM
-            const fragment = document.createDocumentFragment();
-
-            currentData.categories.forEach((category, index) => {
-                const isFirst = index === 0;
-                const isLast = index === currentData.categories.length - 1;
-                const tr = document.createElement('tr');
-                tr.draggable = true;
-                tr.setAttribute('data-category-id', category.id);
-                const subCategoriesCount = (category.subCategories || []).length;
-                
-                tr.innerHTML = `
-                    <td><strong>${category.name}</strong> <span style="font-size:11px; color:#666; margin-left:6px;">(glisser-déposer)</span></td>
-                    <td><span class="badge">${subCategoriesCount} sous-catégorie(s)</span></td>
-                    <td>
-                        <button class="btn btn-outline" ${isFirst ? 'disabled' : ''} onclick="moveCategory('${category.id}', 'up')">↑</button>
-                        <button class="btn btn-outline" ${isLast ? 'disabled' : ''} onclick="moveCategory('${category.id}', 'down')">↓</button>
-                    </td>
-                    <td>
-                        <button class="btn btn-outline" onclick="editCategory('${category.id}')">Modifier</button>
-                        <button class="btn btn-danger" onclick="deleteCategory('${category.id}')">Supprimer</button>
-                    </td>
-                `;
-                tr.addEventListener('dragstart', (e) => {
-                    tr.style.opacity = '0.45';
-                    e.dataTransfer.effectAllowed = 'move';
-                    e.dataTransfer.setData('text/category-id', String(category.id));
-                });
-                tr.addEventListener('dragend', () => {
-                    tr.style.opacity = '';
-                });
-                tr.addEventListener('dragover', (e) => {
-                    e.preventDefault();
-                    tr.style.outline = '2px dashed #0d6efd';
-                    tr.style.outlineOffset = '-2px';
-                });
-                tr.addEventListener('dragleave', () => {
-                    tr.style.outline = '';
-                    tr.style.outlineOffset = '';
-                });
-                tr.addEventListener('drop', async (e) => {
-                    e.preventDefault();
-                    tr.style.outline = '';
-                    tr.style.outlineOffset = '';
-                    const fromId = String(e.dataTransfer.getData('text/category-id') || '').trim();
-                    const toId = String(category.id || '').trim();
-                    if (!fromId || !toId || fromId === toId) return;
-                    await reorderCategoriesByDrag(fromId, toId);
-                });
-                fragment.appendChild(tr);
-            });
-
-            // Ajouter toutes les lignes en une seule opération DOM
-            tbody.appendChild(fragment);
+        // Render categories management — rafraîchit la vue LC Vues métier
+        function renderCategoriesManagement() {
+            refreshVueMetierVueLC();
         }
 
         async function reorderCategoriesByDrag(fromCategoryId, toCategoryId) {
@@ -2044,9 +3118,15 @@ Format:
             try {
                 const raw = memoryStoreGetItem('ugap.vueMetier.heuristicRules');
                 const parsed = raw ? JSON.parse(raw) : [];
-                return Array.isArray(parsed) ? parsed : [];
+                const base = Array.isArray(parsed) ? parsed : [];
+                const { rules, changed } = ensureDefaultVueMetierExcelInRules(base);
+                if (changed) {
+                    memoryStoreSetItem('ugap.vueMetier.heuristicRules', JSON.stringify(rules));
+                    scheduleUiStatePersistence();
+                }
+                return rules;
             } catch (_) {
-                return [];
+                return [buildDefaultVueMetierExcelRule()];
             }
         }
 
@@ -2061,7 +3141,7 @@ Format:
 
         function getStructuredSelectedViewLabels() {
             const allLabels = Array.from(new Set(
-                getViewHeuristicRules()
+                getEnabledViewHeuristicRules()
                     .map((r) => String(r?.viewLabel || '').trim())
                     .filter(Boolean)
             ));
@@ -2122,6 +3202,10 @@ Format:
         }
 
         function renderViewHeuristicRulesUi() {
+            if (document.getElementById('ugap-vue-metier-lc-mount')) {
+                refreshVueMetierVueLC();
+                return;
+            }
             const list = document.getElementById('view-heur-list');
             if (!list) return;
             const rules = getViewHeuristicRules();
@@ -3696,8 +4780,56 @@ Format:
                 .trim();
         }
 
+        function getVueMetierViewIdForLabel(viewLabel) {
+            const label = String(viewLabel || '').trim();
+            if (!label) return '';
+            const key = slugifyBusinessViewLabel(label) || label.toLowerCase();
+            return `rule:${key}`;
+        }
+
+        function getVueMetierRuleFamiliesSummary(rule) {
+            const labels = normalizeVueMetierRuleFamilies(rule)
+                .map((e) => String(e.familyLabel || '').trim())
+                .filter(Boolean);
+            if (!labels.length) return '—';
+            if (labels.length <= 3) return labels.join(', ');
+            return `${labels.slice(0, 3).join(', ')} (+${labels.length - 3})`;
+        }
+
+        /** Rattache les familles validées du catalogue à la vue métier (une vue → plusieurs familles). */
+        function syncCatalogueFamiliesFromVueMetierRule(rule) {
+            const viewLabel = String(rule?.viewLabel || '').trim();
+            if (!viewLabel) return 0;
+            const viewId = getVueMetierViewIdForLabel(viewLabel);
+            const entries = normalizeVueMetierRuleFamilies(rule);
+            if (!entries.length) return 0;
+            const list = getFamilleValidatedFamilies();
+            if (!Array.isArray(list) || !list.length) return 0;
+            let changed = 0;
+            entries.forEach((entry) => {
+                const famLabel = String(entry.familyLabel || '').trim();
+                if (!famLabel) return;
+                let idx = Number(entry.sourceIndex);
+                if (!Number.isInteger(idx) || idx < 0 || idx >= list.length) {
+                    idx = list.findIndex((f) =>
+                        String(f?.familyLabel || '').trim().toLowerCase() === famLabel.toLowerCase()
+                    );
+                }
+                if (idx < 0 || idx >= list.length) return;
+                const cur = list[idx];
+                if (String(cur.businessViewId || '') === viewId && String(cur.businessViewLabel || '') === viewLabel) {
+                    return;
+                }
+                cur.businessViewId = viewId;
+                cur.businessViewLabel = viewLabel;
+                changed += 1;
+            });
+            if (changed > 0) setFamilleValidatedFamilies(list);
+            return changed;
+        }
+
         function getBusinessViewsForAssignationTab() {
-            const rules = Array.isArray(getViewHeuristicRules()) ? getViewHeuristicRules() : [];
+            const rules = getEnabledViewHeuristicRules();
             const ruleMap = new Map();
             rules.forEach((r) => {
                 const label = String(r?.viewLabel || '').trim();
@@ -3708,7 +4840,8 @@ Format:
                         id: `rule:${key}`,
                         label,
                         source: 'rule',
-                        keywords: []
+                        keywords: [],
+                        familyLabels: []
                     });
                 }
                 const row = ruleMap.get(key);
@@ -3717,10 +4850,15 @@ Format:
                     .map((x) => String(x || '').trim())
                     .filter(Boolean);
                 row.keywords.push(...rawKeywords);
+                normalizeVueMetierRuleFamilies(r).forEach((entry) => {
+                    const fl = String(entry.familyLabel || '').trim();
+                    if (fl) row.familyLabels.push(fl);
+                });
             });
             const ruleViews = Array.from(ruleMap.values()).map((v) => ({
                 ...v,
-                keywords: Array.from(new Set(v.keywords)).join(', ')
+                keywords: Array.from(new Set(v.keywords)).join(', '),
+                familyLabels: Array.from(new Set(v.familyLabels || []))
             }));
             return ruleViews;
         }
@@ -4086,6 +5224,7 @@ Format:
             const filterName = document.getElementById('filter-option-name');
             const filterFamily = document.getElementById('filter-option-family');
             const filterSubFamily = document.getElementById('filter-option-subfamily');
+            const btnFilterBaseOptions = document.getElementById('btn-filter-base-options');
             const btnOnlyUnassigned = document.getElementById('btn-filter-unassigned-options');
             const btnFilterAutoAssigned = document.getElementById('btn-filter-auto-assigned-options');
             const btnOptionsResetPurgeTemp = document.getElementById('btn-options-reset-purge-temp');
@@ -4095,31 +5234,41 @@ Format:
             if (btnOptionsResetPurgeTemp) {
                 btnOptionsResetPurgeTemp.onclick = async () => {
                     if (!confirm(
-                        'Réinitialiser le catalogue et l\'import à l\'état juste après extraction Excel (modèles, options, minorations) ?\n\n'
-                        + '• Les familles validées (onglet Famille) sont conservées côté serveur.\n'
-                        + '• Les liens options → familles peuvent être perdus si les identifiants d\'options changent.\n'
-                        + '• Validations modèles, fusions et assignations options seront perdues.'
+                        'Supprimer toutes les options du catalogue ?\n\n'
+                        + '• Les familles (onglet Famille) restent : libellés et groupes, sans options liées.\n'
+                        + '• Les modèles ne sont pas modifiés.\n'
+                        + '• Après un nouvel import Excel, seules les options du fichier seront créées.\n\n'
+                        + 'Continuer ?'
                     )) return;
                     try {
                         const importId = String(currentImportId || currentImportStaging?._id || '').trim();
-                        const body = importId ? JSON.stringify({ importId }) : undefined;
+                        const familiesBackup = sanitizeFamiliesForServer(getFamilleValidatedFamilies());
+                        const payload = { families: familiesBackup };
+                        if (importId) payload.importId = importId;
                         const result = await apiCall('/data/reset-from-extract', {
                             method: 'POST',
-                            ...(body ? { body } : {})
+                            body: JSON.stringify(payload)
                         });
                         __lastLoadDataAt = 0;
+                        __preResetCategoriesSnapshot = null;
+                        setOptionsAutoAssignments({});
                         await loadData(false);
                         if (result?.data?.importId) {
                             currentImportId = String(result.data.importId);
                         }
                         await refreshImportStagingIndicator();
-                        const famCount = getFamilleValidatedFamilies().length;
+                        renderCategories();
+                        const famCount = Number(result?.data?.familiesCount ?? getFamilleValidatedFamilies().length);
+                        const removed = Number(result?.data?.optionsRemoved ?? 0);
                         const famMsg = famCount > 0
-                            ? ` ${famCount} famille(s) validée(s) toujours présente(s) — vérifiez l'onglet Famille.`
-                            : ' Aucune famille validée enregistrée (liste vide côté serveur).';
-                        showAlert('Catalogue remis à l\'état post-extraction.' + famMsg, famCount > 0 ? 'success' : 'warning');
+                            ? ` ${famCount} famille(s) conservée(s) (sans options liées).`
+                            : '';
+                        showAlert(
+                            `${removed} option(s) supprimée(s). Catalogue vide — lancez un nouvel import Excel.${famMsg}`,
+                            'success'
+                        );
                     } catch (error) {
-                        showAlert('Erreur réinitialisation : ' + error.message, 'error');
+                        showAlert('Erreur suppression options : ' + error.message, 'error');
                     }
                 };
             }
@@ -4128,12 +5277,16 @@ Format:
                 window.__optionsTabFilterState = {
                     onlyUnassigned: false,
                     autoAssignedOnly: false,
+                    baseOptionOnly: false,
                     family: '',
                     subFamily: ''
                 };
             }
             if (typeof window.__optionsTabFilterState.autoAssignedOnly !== 'boolean') {
                 window.__optionsTabFilterState.autoAssignedOnly = false;
+            }
+            if (typeof window.__optionsTabFilterState.baseOptionOnly !== 'boolean') {
+                window.__optionsTabFilterState.baseOptionOnly = false;
             }
 
             tbody.innerHTML = '';
@@ -4159,6 +5312,7 @@ Format:
             const nameQuery = String(filterName?.value || '').trim().toLowerCase();
             const onlyUnassigned = !!window.__optionsTabFilterState.onlyUnassigned;
             const autoAssignedOnly = !!window.__optionsTabFilterState.autoAssignedOnly;
+            const baseOptionOnly = !!window.__optionsTabFilterState.baseOptionOnly;
             const familyChoices = getFamilleChoicesForOptionTab();
             const subFamilyMap = getFamilleSubFamilyMapForOptionTab();
             const familyFilterState = String(window.__optionsTabFilterState.family || '').trim();
@@ -4246,6 +5400,7 @@ Format:
                     const isAssigned = isOptionFamilyAssigned(optionId);
                     if (onlyUnassigned && isAssigned) return;
                     if (autoAssignedOnly && !isAssigned) return;
+                    if (baseOptionOnly && !isCatalogBaseOption(option)) return;
                     if (nameQuery && !String(option?.name || '').toLowerCase().includes(nameQuery)) return;
                     if (selectedFamilyFilter && selectedFamily !== selectedFamilyFilter) return;
                     if (selectedSubFamilyFilter) {
@@ -4296,8 +5451,12 @@ Format:
                     const tr = document.createElement('tr');
                     const isManualBaseOption = !!option?.manualBaseOption
                         || (!!option?.baseIncluded && !!String(option?.baseRefUgap || '').trim());
+                    const isBaseOpt = isCatalogBaseOption(option);
+                    const baseTagHtml = isBaseOpt
+                        ? '<span class="ugap-tag-base-option" style="display:inline-block;margin-left:6px;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:600;background:#dbeafe;color:#1e40af;white-space:nowrap;">Option de base</span>'
+                        : '';
                     tr.innerHTML = `
-                        <td>${escapeHtml(String(option?.name || '—'))}${isColorOption ? ' 🎨' : ''}</td>
+                        <td>${escapeHtml(String(option?.name || '—'))}${baseTagHtml}${isColorOption ? ' 🎨' : ''}</td>
                         <td>
                             <select class="opt-family-select" data-option-id="${escapeHtml(optionId)}" style="${familySelectStyle}">
                                 ${familySelectOptionsHtml}
@@ -4330,6 +5489,16 @@ Format:
                 tbody.appendChild(fragment);
             }
 
+            if (btnFilterBaseOptions) {
+                btnFilterBaseOptions.textContent = baseOptionOnly ? 'Afficher toutes les options' : 'Options de base';
+                btnFilterBaseOptions.classList.toggle('btn-primary', baseOptionOnly);
+                btnFilterBaseOptions.classList.toggle('btn-outline', !baseOptionOnly);
+                btnFilterBaseOptions.onclick = null;
+                btnFilterBaseOptions.addEventListener('click', () => {
+                    window.__optionsTabFilterState.baseOptionOnly = !window.__optionsTabFilterState.baseOptionOnly;
+                    renderCategories();
+                });
+            }
             if (btnOnlyUnassigned) {
                 btnOnlyUnassigned.textContent = onlyUnassigned ? 'Afficher toutes les options' : 'Options non assignées';
                 btnOnlyUnassigned.onclick = null;
@@ -4824,6 +5993,14 @@ Format:
 
             const validatedFamilies = getFamilleValidatedFamilies();
             const familyToViewLabel = new Map();
+            getEnabledViewHeuristicRules().forEach((rule) => {
+                const viewLabel = String(rule?.viewLabel || '').trim();
+                if (!viewLabel) return;
+                normalizeVueMetierRuleFamilies(rule).forEach((entry) => {
+                    const fl = String(entry.familyLabel || '').trim();
+                    if (fl) familyToViewLabel.set(fl.toLowerCase(), viewLabel);
+                });
+            });
             (Array.isArray(validatedFamilies) ? validatedFamilies : []).forEach((f) => {
                 const familyLabel = getValidatedFamilyRootLabel(f);
                 const viewLabel = String(f?.businessViewLabel || '').trim();
@@ -5625,22 +6802,42 @@ Format:
             });
         }
 
-        // Import Excel
+        // Import Excel — l'onglet Import est dans #legacy-backoffice-card : ne jamais masquer cette carte.
+        function ensureImportTabVisible() {
+            const importTab = document.querySelector('.tab[data-tab="import"]');
+            const importPanel = document.getElementById('tab-import');
+            if (!importTab || !importPanel) return false;
+            document.querySelectorAll('.tab').forEach((t) => t.classList.remove('active'));
+            document.querySelectorAll('.tab-panel').forEach((p) => p.classList.remove('active'));
+            importTab.classList.add('active');
+            importPanel.classList.add('active');
+            const backofficeCard = document.getElementById('legacy-backoffice-card');
+            if (backofficeCard) backofficeCard.style.display = 'block';
+            if (typeof scheduleParentEmbedResize === 'function') {
+                scheduleParentEmbedResize();
+                setTimeout(scheduleParentEmbedResize, 80);
+            }
+            return true;
+        }
+        window.ensureImportTabVisible = ensureImportTabVisible;
+
         function setWorkspaceMode(mode) {
             workspaceMode = (mode === 'import') ? 'import' : 'backoffice';
             const statsCard = document.getElementById('legacy-stats-card');
-            const backofficeCard = document.getElementById('legacy-backoffice-card');
-            const importWorkflowPanel = document.getElementById('import-workflow-panel');
             const importModeBtn = document.getElementById('btn-import-mode');
             const backofficeModeBtn = document.getElementById('btn-backoffice-mode');
-            if (statsCard) statsCard.style.display = workspaceMode === 'import' ? 'none' : 'block';
-            if (backofficeCard && !isEmbeddedMode()) backofficeCard.style.display = workspaceMode === 'import' ? 'none' : 'block';
-            const importPanel = document.getElementById('import-workflow-panel');
-            if (importPanel) importPanel.style.display = 'none';
+            const backofficeCard = document.getElementById('legacy-backoffice-card');
+            if (backofficeCard) backofficeCard.style.display = 'block';
+            if (statsCard && !isEmbeddedMode()) {
+                statsCard.style.display = workspaceMode === 'import' ? 'none' : 'block';
+            }
             if (importModeBtn) importModeBtn.style.display = workspaceMode === 'import' ? 'none' : 'inline-flex';
             if (backofficeModeBtn) backofficeModeBtn.style.display = workspaceMode === 'import' ? 'inline-flex' : 'none';
-            // Synchronise l'indicateur de reprise selon le mode (évite un bouton "Import en cours" persistant).
             renderImportStagingIndicator(currentImportStaging);
+
+            if (workspaceMode === 'import') {
+                ensureImportTabVisible();
+            }
 
             // En mode import, on projette les donnees staging dans currentData pour reutiliser
             // les composants historiques (ex: onglet "Modele de base").
@@ -5921,15 +7118,13 @@ Format:
         function getSavedBoatTemplates() {
             try {
                 const raw = memoryStoreGetItem('ugap.templateBateau.saved');
-                const arr = raw ? JSON.parse(raw) : [];
+                let arr = raw ? JSON.parse(raw) : [];
+                if (!Array.isArray(arr) || arr.length === 0) {
+                    const fromUi = currentData?.uiState?.boatTemplates;
+                    if (Array.isArray(fromUi) && fromUi.length) arr = fromUi;
+                }
                 if (!Array.isArray(arr)) return [];
-                return arr
-                    .map((t) => ({
-                        id: String(t?.id || '').trim(),
-                        label: String(t?.label || '').trim(),
-                        snapshot: t?.snapshot && typeof t.snapshot === 'object' ? t.snapshot : {}
-                    }))
-                    .filter((t) => t.id && t.label);
+                return sanitizeBoatTemplatesForServer(arr);
             } catch (_) {
                 return [];
             }
@@ -5937,9 +7132,990 @@ Format:
 
         function setSavedBoatTemplates(list) {
             try {
-                const safe = Array.isArray(list) ? list : [];
+                const safe = sanitizeBoatTemplatesForServer(list);
                 memoryStoreSetItem('ugap.templateBateau.saved', JSON.stringify(safe));
-            } catch (_) {}
+                if (!currentData || typeof currentData !== 'object') currentData = {};
+                if (!currentData.uiState || typeof currentData.uiState !== 'object') currentData.uiState = {};
+                currentData.uiState.boatTemplates = safe;
+                scheduleUiStatePersistence();
+            } catch (_) {
+                // no-op
+            }
+        }
+
+        function syncImportBoatTemplatesFromSaved() {
+            const state = getImportFamilyTriState();
+            state.boatTemplates = getSavedBoatTemplates();
+        }
+
+        function countTemplateBateauFamilies(tpl) {
+            const snap = tpl?.snapshot && typeof tpl.snapshot === 'object' ? tpl.snapshot : {};
+            const families = Array.isArray(snap.families) ? snap.families : (Array.isArray(tpl?.families) ? tpl.families : []);
+            return families.filter((f) => String(f?.familyLabel || '').trim()).length;
+        }
+
+        function countTemplateBateauBaseOptions(tpl) {
+            const snap = tpl?.snapshot && typeof tpl.snapshot === 'object' ? tpl.snapshot : {};
+            const ids = Array.isArray(snap.baseOptionIds) ? snap.baseOptionIds : [];
+            return ids.map((x) => String(x || '').trim()).filter(Boolean).length;
+        }
+
+        function formatTemplateBateauCreatedAt(tpl) {
+            const id = String(tpl?.id || '');
+            const m = id.match(/:(\d{10,})$/);
+            if (!m) return '—';
+            const d = new Date(Number(m[1]));
+            if (!Number.isFinite(d.getTime())) return '—';
+            return d.toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' });
+        }
+
+        function countTemplateBateauDecisionGroups(tpl) {
+            const snap = tpl?.snapshot && typeof tpl.snapshot === 'object' ? tpl.snapshot : {};
+            const families = Array.isArray(snap.families) ? snap.families : [];
+            return families.reduce((acc, f) => acc + normalizeFamilyDecisionGroups(f?.decisionGroups).length, 0);
+        }
+
+        function getTemplateBateauCreateDraft() {
+            if (!window.__templateBateauCreateDraft || typeof window.__templateBateauCreateDraft !== 'object') {
+                window.__templateBateauCreateDraft = { families: [] };
+            }
+            if (!Array.isArray(window.__templateBateauCreateDraft.families)) {
+                window.__templateBateauCreateDraft.families = [];
+            }
+            return window.__templateBateauCreateDraft;
+        }
+
+        function resetTemplateBateauCreateDraft() {
+            window.__templateBateauCreateDraft = { families: [] };
+        }
+
+        function getTemplateBateauFamilyPickOptionsHtml() {
+            const list = getFamiliesForAssignationTab();
+            if (!list.length) {
+                return '<option value="">— Aucune famille validée (onglet Famille) —</option>';
+            }
+            const draft = getTemplateBateauCreateDraft();
+            const used = new Set(draft.families.map((f) => String(f?.familyLabel || '').trim().toLowerCase()).filter(Boolean));
+            const options = list
+                .filter((f) => {
+                    const label = String(f?.familyLabel || '').trim();
+                    return label && !used.has(label.toLowerCase());
+                })
+                .map((f) => {
+                    const idx = f.__idx;
+                    const label = String(f?.familyLabel || '').trim();
+                    const obj = String(f?.objectName || '').trim();
+                    const groups = normalizeFamilyDecisionGroups(f?.decisionGroups);
+                    const suffix = obj ? ` — ${obj}` : '';
+                    const gCount = groups.length ? ` (${groups.length} groupe${groups.length > 1 ? 's' : ''})` : '';
+                    return `<option value="${idx}">${escapeHtml(label + suffix + gCount)}</option>`;
+                });
+            if (!options.length) {
+                return '<option value="">— Toutes les familles sont déjà dans le brouillon —</option>';
+            }
+            return `<option value="">— Choisir une famille —</option>${options.join('')}`;
+        }
+
+        function renderTemplateBateauDraftGroupTypeLabel(type) {
+            const t = String(type || '').trim();
+            if (t === 'model') return 'modèle';
+            if (t === 'static') return 'statique';
+            return 'option';
+        }
+
+        function renderTemplateBateauDraftFamiliesHtml() {
+            const draft = getTemplateBateauCreateDraft();
+            const catalogue = getFamiliesForAssignationTab();
+            if (!draft.families.length) {
+                return '<p style="margin:8px 0 0; color:#94a3b8; font-size:13px;">Aucune famille ajoutée. Sélectionnez une famille validée puis cliquez sur « Ajouter une famille ».</p>';
+            }
+            return draft.families.map((entry, draftIdx) => {
+                const src = catalogue.find((f) => Number(f.__idx) === Number(entry.sourceIndex))
+                    || catalogue[entry.sourceIndex];
+                const groups = normalizeFamilyDecisionGroups(src?.decisionGroups || entry.decisionGroups);
+                const selectedIds = new Set(
+                    (Array.isArray(entry.selectedGroupIds) ? entry.selectedGroupIds : [])
+                        .map((x) => String(x || '').trim())
+                        .filter(Boolean)
+                );
+                const objectName = String(entry.objectName || src?.objectName || '').trim();
+                const groupsHtml = groups.length
+                    ? `<div style="display:flex; flex-direction:column; gap:8px; margin-top:10px; padding-top:10px; border-top:1px solid #e5e7eb;">
+                        ${groups.map((g) => {
+                            const gid = String(g.id || '').trim();
+                            const checked = selectedIds.has(gid);
+                            const optCount = Array.isArray(g.optionIds) ? g.optionIds.length : 0;
+                            return `<label style="display:flex; align-items:flex-start; gap:8px; font-size:13px; cursor:pointer;">
+                                <input
+                                    type="checkbox"
+                                    data-tpl-bateau-draft-idx="${draftIdx}"
+                                    data-tpl-bateau-group-id="${escapeHtml(gid)}"
+                                    ${checked ? 'checked' : ''}
+                                    onchange="onTemplateBateauDraftGroupToggleFromEl(this)"
+                                    style="margin-top:3px;"
+                                >
+                                <span>
+                                    <strong>${escapeHtml(g.label || gid)}</strong>
+                                    <span style="color:#64748b;"> (${escapeHtml(renderTemplateBateauDraftGroupTypeLabel(g.type))}${g.decisionMode === 'multi_choice' ? ', multi' : ''}${optCount ? `, ${optCount} opt.` : ''})</span>
+                                </span>
+                            </label>`;
+                        }).join('')}
+                    </div>`
+                    : '<p style="margin:10px 0 0; color:#b45309; font-size:12px;">Cette famille n’a pas de groupe de décision dans le catalogue.</p>';
+                return `
+                    <div class="ugap-tpl-bateau-draft-family" data-tpl-bateau-draft-idx="${draftIdx}" style="padding:12px; border:1px solid #e2e8f0; border-radius:8px; background:#f8fafc;">
+                        <div style="display:flex; align-items:center; justify-content:space-between; gap:8px; flex-wrap:wrap;">
+                            <div>
+                                <div style="font-weight:600; font-size:14px; color:#0f172a;">${escapeHtml(String(entry.familyLabel || 'Famille'))}</div>
+                                ${objectName ? `<div style="font-size:12px; color:#64748b; margin-top:2px;">Objet : ${escapeHtml(objectName)}</div>` : ''}
+                            </div>
+                            <button type="button" class="btn btn-outline" style="font-size:12px; padding:4px 8px;" onclick="removeTemplateBateauDraftFamily(${draftIdx})">Retirer</button>
+                        </div>
+                        <div style="font-size:12px; font-weight:600; color:#475569; margin-top:8px;">Groupes à inclure</div>
+                        ${groupsHtml}
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function refreshTemplateBateauCreateDraftUi() {
+            const listEl = document.getElementById('template-bateau-draft-families-list');
+            const pickEl = document.getElementById('template-bateau-family-pick');
+            if (listEl) listEl.innerHTML = renderTemplateBateauDraftFamiliesHtml();
+            if (pickEl) pickEl.innerHTML = getTemplateBateauFamilyPickOptionsHtml();
+            if (typeof scheduleParentEmbedResize === 'function') scheduleParentEmbedResize();
+        }
+
+        function addTemplateBateauDraftFamily() {
+            const pick = document.getElementById('template-bateau-family-pick');
+            const raw = String(pick?.value ?? '').trim();
+            if (!raw) {
+                showAlert('Choisissez une famille à ajouter.', 'warning');
+                return;
+            }
+            const sourceIndex = Number(raw);
+            const catalogue = getFamiliesForAssignationTab();
+            const src = catalogue.find((f) => Number(f.__idx) === sourceIndex);
+            if (!src) {
+                showAlert('Famille introuvable.', 'warning');
+                return;
+            }
+            const familyLabel = String(src?.familyLabel || '').trim();
+            if (!familyLabel) {
+                showAlert('Famille invalide.', 'warning');
+                return;
+            }
+            const draft = getTemplateBateauCreateDraft();
+            if (draft.families.some((f) => String(f?.familyLabel || '').trim().toLowerCase() === familyLabel.toLowerCase())) {
+                showAlert('Cette famille est déjà dans le brouillon.', 'info');
+                return;
+            }
+            const groups = normalizeFamilyDecisionGroups(src.decisionGroups);
+            draft.families.push({
+                familyLabel,
+                objectName: String(src?.objectName || '').trim(),
+                sourceIndex,
+                selectedGroupIds: groups.map((g) => String(g.id || '').trim()).filter(Boolean)
+            });
+            if (pick) pick.value = '';
+            refreshTemplateBateauCreateDraftUi();
+        }
+
+        function removeTemplateBateauDraftFamily(draftIdx) {
+            const idx = Number(draftIdx);
+            const draft = getTemplateBateauCreateDraft();
+            if (!Number.isInteger(idx) || idx < 0 || idx >= draft.families.length) return;
+            draft.families.splice(idx, 1);
+            refreshTemplateBateauCreateDraftUi();
+        }
+
+        function onTemplateBateauDraftGroupToggleFromEl(el) {
+            if (!el) return;
+            const idx = Number(el.getAttribute('data-tpl-bateau-draft-idx'));
+            const gid = String(el.getAttribute('data-tpl-bateau-group-id') || '').trim();
+            onTemplateBateauDraftGroupToggle(idx, gid, !!el.checked);
+        }
+
+        function onTemplateBateauDraftGroupToggle(draftIdx, groupId, checked) {
+            const idx = Number(draftIdx);
+            const gid = String(groupId || '').trim();
+            const draft = getTemplateBateauCreateDraft();
+            const entry = draft.families[idx];
+            if (!entry || !gid) return;
+            const set = new Set(
+                (Array.isArray(entry.selectedGroupIds) ? entry.selectedGroupIds : [])
+                    .map((x) => String(x || '').trim())
+                    .filter(Boolean)
+            );
+            if (checked) set.add(gid);
+            else set.delete(gid);
+            entry.selectedGroupIds = Array.from(set);
+        }
+
+        function buildTemplateBateauSnapshotFromDraft(draft) {
+            const catalogue = getFamilleValidatedFamilies();
+            const families = (Array.isArray(draft?.families) ? draft.families : []).map((entry) => {
+                const src = catalogue[Number(entry.sourceIndex)] || catalogue.find((f) =>
+                    String(f?.familyLabel || '').trim().toLowerCase() === String(entry.familyLabel || '').trim().toLowerCase()
+                );
+                const allGroups = normalizeFamilyDecisionGroups(src?.decisionGroups);
+                const selected = new Set(
+                    (Array.isArray(entry.selectedGroupIds) ? entry.selectedGroupIds : [])
+                        .map((x) => String(x || '').trim())
+                        .filter(Boolean)
+                );
+                const decisionGroups = allGroups.filter((g) => selected.has(String(g.id || '').trim()));
+                return {
+                    familyLabel: String(entry.familyLabel || '').trim(),
+                    objectName: String(entry.objectName || src?.objectName || '').trim(),
+                    decisionGroups
+                };
+            }).filter((f) => f.familyLabel && f.decisionGroups.length > 0);
+            return { families, baseOptionIds: [] };
+        }
+
+        function renderTemplateBateauCreationFormHtml() {
+            const labelStyle = 'display:block; font-size:12px; font-weight:600; color:#555; margin-bottom:4px;';
+            const inputStyle = 'width:100%; padding:8px 10px; border:1px solid #ddd; border-radius:6px; font-size:13px;';
+            return `
+                <div class="ugap-template-bateau-create-form" style="padding:14px; border:1px solid #e5e7eb; border-radius:8px; background:#fff;">
+                    <p style="margin:0 0 14px; color:#64748b; font-size:13px; line-height:1.5;">
+                        Donnez un nom au template, ajoutez des familles du catalogue, puis cochez les groupes de décision à inclure pour chaque famille.
+                    </p>
+                    <div style="display:grid; gap:14px;">
+                        <div style="max-width:420px;">
+                            <label for="new-template-bateau-label" style="${labelStyle}">Nom du template</label>
+                            <input id="new-template-bateau-label" type="text" placeholder="Ex. Template Zeppelin standard" style="${inputStyle}" autocomplete="off">
+                        </div>
+                        <div style="padding:12px; border:1px dashed #cbd5e1; border-radius:8px; background:#fafbfc;">
+                            <div style="${labelStyle} margin-bottom:8px;">Ajouter une famille</div>
+                            <div style="display:flex; flex-wrap:wrap; gap:8px; align-items:flex-end;">
+                                <select id="template-bateau-family-pick" style="flex:1; min-width:220px; ${inputStyle}">
+                                    ${getTemplateBateauFamilyPickOptionsHtml()}
+                                </select>
+                                <button type="button" class="btn btn-primary" onclick="addTemplateBateauDraftFamily()">+ Ajouter une famille</button>
+                            </div>
+                            <div id="template-bateau-draft-families-list" style="display:grid; gap:10px; margin-top:12px;">
+                                ${renderTemplateBateauDraftFamiliesHtml()}
+                            </div>
+                        </div>
+                        <div>
+                            <button type="button" class="btn btn-success" onclick="submitCreateTemplateBateau()">Créer le template</button>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        async function submitCreateTemplateBateau() {
+            const label = String(document.getElementById('new-template-bateau-label')?.value || '').trim();
+            if (!label) {
+                showAlert('Nom du template requis.', 'warning');
+                return;
+            }
+            const existing = getSavedBoatTemplates();
+            if (existing.some((t) => String(t?.label || '').trim().toLowerCase() === label.toLowerCase())) {
+                showAlert('Un template avec ce nom existe déjà.', 'info');
+                return;
+            }
+            const draft = getTemplateBateauCreateDraft();
+            if (!draft.families.length) {
+                showAlert('Ajoutez au moins une famille au template.', 'warning');
+                return;
+            }
+            const snapshot = buildTemplateBateauSnapshotFromDraft(draft);
+            if (!snapshot.families.length) {
+                showAlert('Cochez au moins un groupe de décision pour une famille.', 'warning');
+                return;
+            }
+            const id = `custom:${slugifyFamilyDecisionGroupId(label) || 'template-bateau'}:${Date.now()}`;
+            const next = existing.slice();
+            next.push({ id, label, snapshot });
+            setSavedBoatTemplates(next);
+            syncImportBoatTemplatesFromSaved();
+            resetTemplateBateauCreateDraft();
+            const labelEl = document.getElementById('new-template-bateau-label');
+            if (labelEl) labelEl.value = '';
+            const panel = document.querySelector('[data-ugap-lc-create-panel="template-bateau"]');
+            const btn = document.querySelector('[data-ugap-lc-create="template-bateau"]');
+            if (panel) panel.setAttribute('hidden', '');
+            if (btn) btn.setAttribute('aria-expanded', 'false');
+            refreshTemplateBateauVueLC();
+            try {
+                await triggerUiStatePersistenceNow();
+                showAlert(`Template « ${label} » créé et enregistré (${snapshot.families.length} famille(s)).`, 'success');
+            } catch (error) {
+                showAlert(`Template créé localement mais erreur de sauvegarde serveur: ${error.message}`, 'warning');
+            }
+        }
+
+        async function deleteTemplateBateauByIndex(index) {
+            const idx = Number(index);
+            const list = getSavedBoatTemplates();
+            if (!Number.isInteger(idx) || idx < 0 || idx >= list.length) return;
+            const tpl = list[idx];
+            const name = String(tpl?.label || tpl?.id || '').trim();
+            if (!confirm(`Supprimer le template « ${name} » ?`)) return;
+            const next = list.filter((_, i) => i !== idx);
+            setSavedBoatTemplates(next);
+            syncImportBoatTemplatesFromSaved();
+            refreshTemplateBateauVueLC();
+            try {
+                await triggerUiStatePersistenceNow();
+                showAlert('Template supprimé.', 'success');
+            } catch (error) {
+                showAlert(`Template supprimé localement mais erreur serveur: ${error.message}`, 'warning');
+            }
+        }
+
+        function openTemplateBateauDetailByIndex(index) {
+            const idx = Number(index);
+            const list = getSavedBoatTemplates();
+            const tpl = Number.isInteger(idx) && idx >= 0 && idx < list.length ? list[idx] : null;
+            if (!tpl) {
+                showAlert('Template introuvable.', 'warning');
+                return;
+            }
+            const famCount = countTemplateBateauFamilies(tpl);
+            const grpCount = countTemplateBateauDecisionGroups(tpl);
+            const optCount = countTemplateBateauBaseOptions(tpl);
+            showAlert(
+                `« ${String(tpl.label || tpl.id || '').trim()} » — ${famCount} famille(s), ${grpCount} groupe(s), ${optCount} option(s) de base.`,
+                'info'
+            );
+        }
+
+        function refreshTemplateBateauVueLC() {
+            const mount = document.getElementById('ugap-template-bateau-lc-mount');
+            if (mount && window.UgapTemplates?.refreshVueLCList) {
+                window.UgapTemplates.refreshVueLCList('template-bateau', mount);
+            }
+        }
+
+        function getTemplateBateauRowsForLc() {
+            return getSavedBoatTemplates().map((tpl, idx) => ({
+                __idx: idx,
+                label: String(tpl?.label || '').trim() || '—',
+                familiesCount: countTemplateBateauFamilies(tpl),
+                groupsCount: countTemplateBateauDecisionGroups(tpl),
+                baseOptionsCount: countTemplateBateauBaseOptions(tpl),
+                createdAt: formatTemplateBateauCreatedAt(tpl),
+                _actionsHtml: `<div style="display:flex;gap:6px;flex-wrap:wrap;">
+                    <button type="button" class="btn btn-outline" style="font-size:12px;padding:4px 8px;" onclick="event.stopPropagation();openTemplateBateauDetailByIndex(${idx})">Ouvrir</button>
+                    <button type="button" class="btn btn-outline" style="font-size:12px;padding:4px 8px;" onclick="event.stopPropagation();deleteTemplateBateauByIndex(${idx})">Supprimer</button>
+                </div>`
+            }));
+        }
+
+        /** Vue LC (liste + panneau création) — onglet Template bateau. */
+        function mountTemplateBateauVueLC() {
+            const mount = document.getElementById('ugap-template-bateau-lc-mount');
+            if (!mount) return;
+            resetTemplateBateauCreateDraft();
+            syncImportBoatTemplatesFromSaved();
+            if (!window.UgapTemplates || typeof window.UgapTemplates.renderVueLC !== 'function') {
+                mount.innerHTML = '<div style="padding:12px; color:#b45309; border:1px solid #fde68a; border-radius:6px;">Module d’affichage <strong>UgapTemplates</strong> indisponible. Vérifiez le chargement de <code>ugap-view-templates.js</code>.</div>';
+                return;
+            }
+            const config = {
+                elementKey: 'template-bateau',
+                elementLabel: 'template bateau',
+                title: 'Templates bateau',
+                description: 'Modèles de configuration par défaut (familles et options de base). Double-clic ou « Ouvrir » pour consulter.',
+                columns: [
+                    { key: 'label', label: 'Nom' },
+                    { key: 'familiesCount', label: 'Familles' },
+                    { key: 'groupsCount', label: 'Groupes' },
+                    { key: 'baseOptionsCount', label: 'Options de base' },
+                    { key: 'createdAt', label: 'Créé le' },
+                    { key: '_actionsHtml', label: 'Actions', type: 'html' }
+                ],
+                getRows: getTemplateBateauRowsForLc,
+                listToolbar: {
+                    sortKey: 'label',
+                    searchKeys: ['label'],
+                    searchPlaceholder: 'Rechercher un template…'
+                },
+                countLabel: 'template(s)',
+                emptyMessage: 'Aucun template bateau. Cliquez sur « Créer un template bateau » pour commencer.',
+                rowDblClickHandler: (idx) => openTemplateBateauDetailByIndex(idx),
+                createFormHtml: renderTemplateBateauCreationFormHtml(),
+                onCreatePanelOpen: () => {
+                    resetTemplateBateauCreateDraft();
+                    const labelEl = document.getElementById('new-template-bateau-label');
+                    if (labelEl) labelEl.value = '';
+                    refreshTemplateBateauCreateDraftUi();
+                }
+            };
+            mount.innerHTML = window.UgapTemplates.renderVueLC(config);
+            window.UgapTemplates.bindVueLC(mount, config);
+            if (typeof scheduleParentEmbedResize === 'function') scheduleParentEmbedResize();
+        }
+
+        // ——— Vue LC : Vues métier (paramétrage) — même logique familles/groupes que Template bateau ———
+
+        function getVueMetierScopeLabel(scope) {
+            const s = String(scope || 'all').trim();
+            if (s === 'option') return 'Options';
+            if (s === 'minoration') return 'Minorations';
+            return 'Toutes lignes';
+        }
+
+        function countVueMetierRuleFamilies(rule) {
+            return normalizeVueMetierRuleFamilies(rule).length;
+        }
+
+        function countVueMetierRuleGroups(rule) {
+            const catalogue = getFamiliesForAssignationTab();
+            return normalizeVueMetierRuleFamilies(rule).reduce((acc, entry) => {
+                const src = Number.isInteger(Number(entry.sourceIndex))
+                    ? catalogue.find((f) => Number(f.__idx) === Number(entry.sourceIndex))
+                    : catalogue.find((f) => String(f?.familyLabel || '').trim().toLowerCase()
+                        === String(entry.familyLabel || '').trim().toLowerCase());
+                const allGroups = normalizeFamilyDecisionGroups(src?.decisionGroups);
+                const selected = new Set(
+                    (Array.isArray(entry.selectedGroupIds) ? entry.selectedGroupIds : [])
+                        .map((x) => String(x || '').trim())
+                        .filter(Boolean)
+                );
+                return acc + allGroups.filter((g) => selected.has(String(g.id || '').trim())).length;
+            }, 0);
+        }
+
+        function getVueMetierCreateDraft() {
+            if (!window.__vueMetierCreateDraft || typeof window.__vueMetierCreateDraft !== 'object') {
+                window.__vueMetierCreateDraft = { viewLabel: '', keywords: '', scope: 'all', families: [] };
+            }
+            if (!Array.isArray(window.__vueMetierCreateDraft.families)) {
+                window.__vueMetierCreateDraft.families = [];
+            }
+            return window.__vueMetierCreateDraft;
+        }
+
+        function resetVueMetierCreateDraft() {
+            window.__vueMetierCreateDraft = { viewLabel: '', keywords: '', scope: 'all', families: [] };
+            window.__vueMetierEditIndex = null;
+        }
+
+        function loadVueMetierCreateDraftFromRule(rule, ruleIndex) {
+            const r = rule && typeof rule === 'object' ? rule : {};
+            const draft = getVueMetierCreateDraft();
+            const norm = normalizeViewHeuristicRule(r);
+            draft.viewLabel = norm.viewLabel;
+            draft.keywords = norm.keywords;
+            draft.scope = norm.scope;
+            draft.families = norm.families.map((entry) => ({
+                familyLabel: entry.familyLabel,
+                objectName: entry.objectName,
+                sourceIndex: entry.sourceIndex,
+                selectedGroupIds: Array.isArray(entry.selectedGroupIds) ? entry.selectedGroupIds.slice() : []
+            }));
+            window.__vueMetierEditIndex = Number.isInteger(Number(ruleIndex)) ? Number(ruleIndex) : null;
+        }
+
+        function getVueMetierFamilyPickOptionsHtml() {
+            const list = getFamiliesForAssignationTab();
+            if (!list.length) {
+                return '<option value="">— Aucune famille validée (onglet Famille) —</option>';
+            }
+            const draft = getVueMetierCreateDraft();
+            const used = new Set(draft.families.map((f) => String(f?.familyLabel || '').trim().toLowerCase()).filter(Boolean));
+            const options = list
+                .filter((f) => {
+                    const label = String(f?.familyLabel || '').trim();
+                    return label && !used.has(label.toLowerCase());
+                })
+                .map((f) => {
+                    const idx = f.__idx;
+                    const label = String(f?.familyLabel || '').trim();
+                    const obj = String(f?.objectName || '').trim();
+                    const groups = normalizeFamilyDecisionGroups(f?.decisionGroups);
+                    const suffix = obj ? ` — ${obj}` : '';
+                    const gCount = groups.length ? ` (${groups.length} groupe${groups.length > 1 ? 's' : ''})` : '';
+                    return `<option value="${idx}">${escapeHtml(label + suffix + gCount)}</option>`;
+                });
+            if (!options.length) {
+                return '<option value="">— Toutes les familles sont déjà dans le brouillon —</option>';
+            }
+            return `<option value="">— Choisir une famille —</option>${options.join('')}`;
+        }
+
+        function renderVueMetierDraftFamiliesHtml() {
+            const draft = getVueMetierCreateDraft();
+            const catalogue = getFamiliesForAssignationTab();
+            if (!draft.families.length) {
+                return '<p style="margin:8px 0 0; color:#94a3b8; font-size:13px;">Aucune famille ajoutée. Sélectionnez une famille validée puis cliquez sur « Ajouter une famille ».</p>';
+            }
+            return draft.families.map((entry, draftIdx) => {
+                const src = catalogue.find((f) => Number(f.__idx) === Number(entry.sourceIndex))
+                    || catalogue[entry.sourceIndex];
+                const groups = normalizeFamilyDecisionGroups(src?.decisionGroups || entry.decisionGroups);
+                const selectedIds = new Set(
+                    (Array.isArray(entry.selectedGroupIds) ? entry.selectedGroupIds : [])
+                        .map((x) => String(x || '').trim())
+                        .filter(Boolean)
+                );
+                const objectName = String(entry.objectName || src?.objectName || '').trim();
+                const groupsHtml = groups.length
+                    ? `<div style="display:flex; flex-direction:column; gap:8px; margin-top:10px; padding-top:10px; border-top:1px solid #e5e7eb;">
+                        ${groups.map((g) => {
+                            const gid = String(g.id || '').trim();
+                            const checked = selectedIds.has(gid);
+                            const optCount = Array.isArray(g.optionIds) ? g.optionIds.length : 0;
+                            return `<label style="display:flex; align-items:flex-start; gap:8px; font-size:13px; cursor:pointer;">
+                                <input
+                                    type="checkbox"
+                                    data-vue-metier-draft-idx="${draftIdx}"
+                                    data-vue-metier-group-id="${escapeHtml(gid)}"
+                                    ${checked ? 'checked' : ''}
+                                    onchange="onVueMetierDraftGroupToggleFromEl(this)"
+                                    style="margin-top:3px;"
+                                >
+                                <span>
+                                    <strong>${escapeHtml(g.label || gid)}</strong>
+                                    <span style="color:#64748b;"> (${escapeHtml(renderTemplateBateauDraftGroupTypeLabel(g.type))}${g.decisionMode === 'multi_choice' ? ', multi' : ''}${optCount ? `, ${optCount} opt.` : ''})</span>
+                                </span>
+                            </label>`;
+                        }).join('')}
+                    </div>`
+                    : '<p style="margin:10px 0 0; color:#b45309; font-size:12px;">Cette famille n’a pas de groupe de décision dans le catalogue.</p>';
+                return `
+                    <div class="ugap-vue-metier-draft-family" data-vue-metier-draft-idx="${draftIdx}" style="padding:12px; border:1px solid #e2e8f0; border-radius:8px; background:#f8fafc;">
+                        <div style="display:flex; align-items:center; justify-content:space-between; gap:8px; flex-wrap:wrap;">
+                            <div>
+                                <div style="font-weight:600; font-size:14px; color:#0f172a;">${escapeHtml(String(entry.familyLabel || 'Famille'))}</div>
+                                ${objectName ? `<div style="font-size:12px; color:#64748b; margin-top:2px;">Objet : ${escapeHtml(objectName)}</div>` : ''}
+                            </div>
+                            <button type="button" class="btn btn-outline" style="font-size:12px; padding:4px 8px;" onclick="removeVueMetierDraftFamily(${draftIdx})">Retirer</button>
+                        </div>
+                        <div style="font-size:12px; font-weight:600; color:#475569; margin-top:8px;">Groupes à inclure</div>
+                        ${groupsHtml}
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function refreshVueMetierCreateDraftUi() {
+            const listEl = document.getElementById('vue-metier-draft-families-list');
+            const pickEl = document.getElementById('vue-metier-family-pick');
+            const labelEl = document.getElementById('vue-metier-draft-label');
+            const kwEl = document.getElementById('vue-metier-draft-keywords');
+            const scopeEl = document.getElementById('vue-metier-draft-scope');
+            const submitBtn = document.getElementById('vue-metier-draft-submit');
+            const draft = getVueMetierCreateDraft();
+            if (listEl) listEl.innerHTML = renderVueMetierDraftFamiliesHtml();
+            if (pickEl) pickEl.innerHTML = getVueMetierFamilyPickOptionsHtml();
+            if (labelEl && document.activeElement !== labelEl) labelEl.value = draft.viewLabel;
+            if (kwEl && document.activeElement !== kwEl) kwEl.value = draft.keywords;
+            if (scopeEl && document.activeElement !== scopeEl) scopeEl.value = draft.scope || 'all';
+            const editIdx = window.__vueMetierEditIndex;
+            if (submitBtn) {
+                submitBtn.textContent = Number.isInteger(editIdx) && editIdx >= 0
+                    ? 'Enregistrer les modifications'
+                    : 'Créer la vue métier';
+            }
+            if (typeof scheduleParentEmbedResize === 'function') scheduleParentEmbedResize();
+        }
+
+        function addVueMetierDraftFamily() {
+            const pick = document.getElementById('vue-metier-family-pick');
+            const raw = String(pick?.value ?? '').trim();
+            if (!raw) {
+                showAlert('Choisissez une famille à ajouter.', 'warning');
+                return;
+            }
+            const sourceIndex = Number(raw);
+            const catalogue = getFamiliesForAssignationTab();
+            const src = catalogue.find((f) => Number(f.__idx) === sourceIndex);
+            if (!src) {
+                showAlert('Famille introuvable.', 'warning');
+                return;
+            }
+            const familyLabel = String(src?.familyLabel || '').trim();
+            if (!familyLabel) {
+                showAlert('Famille invalide.', 'warning');
+                return;
+            }
+            const draft = getVueMetierCreateDraft();
+            if (draft.families.some((f) => String(f?.familyLabel || '').trim().toLowerCase() === familyLabel.toLowerCase())) {
+                showAlert('Cette famille est déjà dans le brouillon.', 'info');
+                return;
+            }
+            const groups = normalizeFamilyDecisionGroups(src.decisionGroups);
+            draft.families.push({
+                familyLabel,
+                objectName: String(src?.objectName || '').trim(),
+                sourceIndex,
+                selectedGroupIds: groups.map((g) => String(g.id || '').trim()).filter(Boolean)
+            });
+            if (pick) pick.value = '';
+            refreshVueMetierCreateDraftUi();
+        }
+
+        function removeVueMetierDraftFamily(draftIdx) {
+            const idx = Number(draftIdx);
+            const draft = getVueMetierCreateDraft();
+            if (!Number.isInteger(idx) || idx < 0 || idx >= draft.families.length) return;
+            draft.families.splice(idx, 1);
+            refreshVueMetierCreateDraftUi();
+        }
+
+        function onVueMetierDraftFieldInput() {
+            const draft = getVueMetierCreateDraft();
+            draft.viewLabel = String(document.getElementById('vue-metier-draft-label')?.value || '').trim();
+            draft.keywords = String(document.getElementById('vue-metier-draft-keywords')?.value || '').trim();
+            draft.scope = String(document.getElementById('vue-metier-draft-scope')?.value || 'all').trim() || 'all';
+        }
+
+        function onVueMetierDraftGroupToggleFromEl(el) {
+            if (!el) return;
+            const idx = Number(el.getAttribute('data-vue-metier-draft-idx'));
+            const gid = String(el.getAttribute('data-vue-metier-group-id') || '').trim();
+            onVueMetierDraftGroupToggle(idx, gid, !!el.checked);
+        }
+
+        function onVueMetierDraftGroupToggle(draftIdx, groupId, checked) {
+            const idx = Number(draftIdx);
+            const gid = String(groupId || '').trim();
+            const draft = getVueMetierCreateDraft();
+            const entry = draft.families[idx];
+            if (!entry || !gid) return;
+            const set = new Set(
+                (Array.isArray(entry.selectedGroupIds) ? entry.selectedGroupIds : [])
+                    .map((x) => String(x || '').trim())
+                    .filter(Boolean)
+            );
+            if (checked) set.add(gid);
+            else set.delete(gid);
+            entry.selectedGroupIds = Array.from(set);
+        }
+
+        function buildVueMetierRuleFromDraft(draft, existingRule) {
+            const d = draft && typeof draft === 'object' ? draft : getVueMetierCreateDraft();
+            const prev = existingRule && typeof existingRule === 'object' ? existingRule : {};
+            const families = (Array.isArray(d.families) ? d.families : [])
+                .map(sanitizeVueMetierDraftFamilyEntry)
+                .filter((f) => f.familyLabel && (f.selectedGroupIds || []).length > 0);
+            const viewLabel = String(d.viewLabel || '').trim();
+            const isBuiltInDefault = prev.isBuiltInDefault === true
+                || viewLabel.toLowerCase() === UGAP_DEFAULT_VUE_METIER_EXCEL_LABEL.toLowerCase();
+            return {
+                viewLabel: isBuiltInDefault ? UGAP_DEFAULT_VUE_METIER_EXCEL_LABEL : viewLabel,
+                keywords: String(d.keywords || '').trim(),
+                scope: String(d.scope || 'all').trim() || 'all',
+                families,
+                enabled: prev.enabled !== false,
+                isBuiltInDefault: isBuiltInDefault ? true : undefined
+            };
+        }
+
+        function vueMetierDraftHasSelectedGroups(draft) {
+            const d = draft && typeof draft === 'object' ? draft : getVueMetierCreateDraft();
+            return (Array.isArray(d.families) ? d.families : []).some((entry) =>
+                (Array.isArray(entry.selectedGroupIds) ? entry.selectedGroupIds : []).length > 0
+            );
+        }
+
+        function renderVueMetierCreationFormHtml() {
+            const labelStyle = 'display:block; font-size:12px; font-weight:600; color:#555; margin-bottom:4px;';
+            const inputStyle = 'width:100%; padding:8px 10px; border:1px solid #ddd; border-radius:6px; font-size:13px;';
+            const draft = getVueMetierCreateDraft();
+            const editIdx = window.__vueMetierEditIndex;
+            const isEditingBuiltIn = Number.isInteger(editIdx) && editIdx >= 0
+                && !!getViewHeuristicRules()[editIdx]?.isBuiltInDefault;
+            const labelInputStyle = isEditingBuiltIn
+                ? `${inputStyle} background:#f1f5f9; color:#475569;`
+                : inputStyle;
+            const introText = isEditingBuiltIn
+                ? 'Vue fournie par défaut pour l’export / référence Excel. Vous pouvez ajouter des familles et des groupes ; décochez « Activée » dans la liste pour la désactiver.'
+                : 'Définissez la vue métier, ajoutez des familles du catalogue, puis cochez les groupes de décision à inclure pour chaque famille.';
+            return `
+                <div class="ugap-vue-metier-create-form" style="padding:14px; border:1px solid #e5e7eb; border-radius:8px; background:#fff;">
+                    <p style="margin:0 0 14px; color:#64748b; font-size:13px; line-height:1.5;">
+                        ${introText}
+                    </p>
+                    <div style="display:grid; gap:14px;">
+                        <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap:12px;">
+                            <div>
+                                <label for="vue-metier-draft-label" style="${labelStyle}">Nom de la vue métier</label>
+                                <input id="vue-metier-draft-label" type="text" placeholder="Ex. Motorisation" style="${labelInputStyle}" autocomplete="off"
+                                    value="${escapeHtml(draft.viewLabel)}" ${isEditingBuiltIn ? 'readonly' : ''} oninput="onVueMetierDraftFieldInput()">
+                            </div>
+                            <div>
+                                <label for="vue-metier-draft-keywords" style="${labelStyle}">Mots-clés (optionnel)</label>
+                                <input id="vue-metier-draft-keywords" type="text" placeholder="Ex. moteur, propulsion" style="${inputStyle}" autocomplete="off"
+                                    value="${escapeHtml(draft.keywords)}" oninput="onVueMetierDraftFieldInput()">
+                            </div>
+                            <div>
+                                <label for="vue-metier-draft-scope" style="${labelStyle}">Scope</label>
+                                <select id="vue-metier-draft-scope" style="${inputStyle}" onchange="onVueMetierDraftFieldInput()">
+                                    <option value="all" ${draft.scope === 'all' ? 'selected' : ''}>Toutes les lignes</option>
+                                    <option value="option" ${draft.scope === 'option' ? 'selected' : ''}>Options uniquement</option>
+                                    <option value="minoration" ${draft.scope === 'minoration' ? 'selected' : ''}>Minorations uniquement</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div style="padding:12px; border:1px dashed #cbd5e1; border-radius:8px; background:#fafbfc;">
+                            <div style="${labelStyle} margin-bottom:8px;">Ajouter une famille</div>
+                            <div style="display:flex; flex-wrap:wrap; gap:8px; align-items:flex-end;">
+                                <select id="vue-metier-family-pick" style="flex:1; min-width:220px; ${inputStyle}">
+                                    ${getVueMetierFamilyPickOptionsHtml()}
+                                </select>
+                                <button type="button" class="btn btn-primary" onclick="addVueMetierDraftFamily()">+ Ajouter une famille</button>
+                            </div>
+                            <div id="vue-metier-draft-families-list" style="display:grid; gap:10px; margin-top:12px;">
+                                ${renderVueMetierDraftFamiliesHtml()}
+                            </div>
+                        </div>
+                        <div>
+                            <button type="button" class="btn btn-success" id="vue-metier-draft-submit" onclick="submitVueMetierFromDraft()">Créer la vue métier</button>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        async function submitVueMetierFromDraft() {
+            onVueMetierDraftFieldInput();
+            const draft = getVueMetierCreateDraft();
+            const editIdx = window.__vueMetierEditIndex;
+            const prevRule = Number.isInteger(editIdx) && editIdx >= 0
+                ? getViewHeuristicRules()[editIdx]
+                : null;
+            const rule = buildVueMetierRuleFromDraft(draft, prevRule);
+            if (!rule.viewLabel) {
+                showAlert('Nom de vue métier requis.', 'warning');
+                return;
+            }
+            if (!rule.isBuiltInDefault && !rule.families.length) {
+                showAlert('Ajoutez au moins une famille à la vue métier.', 'warning');
+                return;
+            }
+            if (!rule.isBuiltInDefault) {
+                if (!vueMetierDraftHasSelectedGroups(draft)) {
+                    showAlert('Cochez au moins un groupe de décision pour une famille.', 'warning');
+                    return;
+                }
+                const missingGroups = (Array.isArray(draft.families) ? draft.families : []).filter((entry) => {
+                    const n = Array.isArray(entry?.selectedGroupIds) ? entry.selectedGroupIds.length : 0;
+                    return n === 0;
+                });
+                if (missingGroups.length) {
+                    const names = missingGroups.map((e) => String(e?.familyLabel || 'Famille').trim()).join(', ');
+                    showAlert(`Cochez au moins un groupe pour : ${names}.`, 'warning');
+                    return;
+                }
+            }
+            const rules = getViewHeuristicRules();
+            const duplicateIdx = rules.findIndex((r, i) =>
+                String(r?.viewLabel || '').trim().toLowerCase() === rule.viewLabel.toLowerCase()
+                && i !== editIdx
+            );
+            if (duplicateIdx >= 0) {
+                showAlert('Une vue métier avec ce nom existe déjà.', 'info');
+                return;
+            }
+            if (!rule.isBuiltInDefault
+                && rule.viewLabel.toLowerCase() === UGAP_DEFAULT_VUE_METIER_EXCEL_LABEL.toLowerCase()) {
+                showAlert('Le nom « Excel de base » est réservé à la vue par défaut.', 'info');
+                return;
+            }
+            if (Number.isInteger(editIdx) && editIdx >= 0 && editIdx < rules.length) {
+                rules[editIdx] = rule;
+            } else {
+                rules.push(rule);
+            }
+            setViewHeuristicRules(rules);
+            const linked = syncCatalogueFamiliesFromVueMetierRule(rule);
+            const wasEdit = Number.isInteger(editIdx) && editIdx >= 0;
+            resetVueMetierCreateDraft();
+            refreshVueMetierVueLC();
+            const panel = document.querySelector('[data-ugap-lc-create-panel="vue-metier"]');
+            const btn = document.querySelector('[data-ugap-lc-create="vue-metier"]');
+            if (panel) panel.setAttribute('hidden', '');
+            if (btn) btn.setAttribute('aria-expanded', 'false');
+            const famCount = rule.families.length;
+            const msg = wasEdit ? 'Vue métier mise à jour' : 'Vue métier créée';
+            showAlert(
+                `${msg} (${famCount} famille(s)${linked ? `, ${linked} lien(s) catalogue` : ''}).`,
+                'success'
+            );
+            try {
+                await triggerUiStatePersistenceNow();
+            } catch (error) {
+                showAlert(`Enregistré localement mais erreur serveur: ${error.message}`, 'warning');
+            }
+        }
+
+        function onVueMetierStructuredActiveToggle(el) {
+            const label = String(el?.getAttribute('data-vue-metier-active-label') || '').trim();
+            toggleVueMetierStructuredActive(label, !!el?.checked);
+        }
+
+        function onVueMetierEnabledToggle(el) {
+            const idx = Number(el?.getAttribute('data-vue-metier-enabled-idx'));
+            if (!Number.isInteger(idx) || idx < 0) return;
+            toggleVueMetierEnabledByIndex(idx, !!el?.checked);
+        }
+
+        function toggleVueMetierEnabledByIndex(idx, enabled) {
+            const index = Number(idx);
+            const rules = getViewHeuristicRules();
+            if (!Number.isInteger(index) || index < 0 || index >= rules.length) return;
+            const rule = rules[index];
+            const label = String(rule?.viewLabel || '').trim();
+            rule.enabled = !!enabled;
+            setViewHeuristicRules(rules);
+            if (!enabled && label) {
+                const selected = getStructuredSelectedViewLabels().filter((x) => x !== label);
+                setStructuredSelectedViewLabels(selected);
+            }
+            refreshVueMetierVueLC();
+            if (typeof renderStructuredOptionsView === 'function') {
+                const tab = document.querySelector('.tab.active')?.getAttribute('data-tab') || '';
+                if (tab === 'structured') renderStructuredOptionsView();
+            }
+        }
+
+        function toggleVueMetierStructuredActive(viewLabel, checked) {
+            const label = String(viewLabel || '').trim();
+            if (!label) return;
+            const rule = getViewHeuristicRules().find((r) =>
+                String(r?.viewLabel || '').trim() === label
+            );
+            if (rule && !isVueMetierRuleEnabled(rule)) return;
+            const allLabels = getEnabledViewHeuristicRules()
+                .map((r) => String(r?.viewLabel || '').trim())
+                .filter(Boolean);
+            let selected = getStructuredSelectedViewLabels();
+            if (checked) {
+                if (!selected.includes(label)) selected = [...selected, label];
+            } else {
+                selected = selected.filter((x) => x !== label);
+            }
+            const clean = selected.filter((x) => allLabels.includes(x));
+            setStructuredSelectedViewLabels(clean.length ? clean : allLabels);
+            refreshVueMetierVueLC();
+        }
+
+        function deleteVueMetierByIndex(idx) {
+            const index = Number(idx);
+            const rules = getViewHeuristicRules();
+            if (!Number.isInteger(index) || index < 0 || index >= rules.length) return;
+            if (rules[index]?.isBuiltInDefault) {
+                showAlert('« Excel de base » est la vue par défaut. Décochez « Activée » pour la désactiver.', 'info');
+                return;
+            }
+            const label = String(rules[index]?.viewLabel || '').trim();
+            if (!confirm(`Supprimer la vue métier « ${label || 'sans nom'} » ?`)) return;
+            rules.splice(index, 1);
+            setViewHeuristicRules(rules);
+            const selected = getStructuredSelectedViewLabels().filter((x) => x !== label);
+            setStructuredSelectedViewLabels(selected);
+            refreshVueMetierVueLC();
+            showAlert('Vue métier supprimée.', 'success');
+        }
+
+        function openVueMetierEditByIndex(idx) {
+            const index = Number(idx);
+            const rules = getViewHeuristicRules();
+            if (!Number.isInteger(index) || index < 0 || index >= rules.length) return;
+            window.__vueMetierOpeningForEdit = true;
+            loadVueMetierCreateDraftFromRule(rules[index], index);
+            const mount = document.getElementById('ugap-vue-metier-lc-mount');
+            const panel = mount?.querySelector('[data-ugap-lc-create-panel="vue-metier"]');
+            const btn = mount?.querySelector('[data-ugap-lc-create="vue-metier"]');
+            if (panel) panel.removeAttribute('hidden');
+            if (btn) btn.setAttribute('aria-expanded', 'true');
+            refreshVueMetierCreateDraftUi();
+            if (typeof scheduleParentEmbedResize === 'function') scheduleParentEmbedResize();
+            panel?.scrollIntoView?.({ behavior: 'smooth', block: 'nearest' });
+        }
+
+        function getVueMetierRowsForLc() {
+            const rules = getViewHeuristicRules();
+            const activeLabels = new Set(getStructuredSelectedViewLabels());
+            return rules.map((r, idx) => {
+                const norm = normalizeViewHeuristicRule(r);
+                const viewLabel = norm.viewLabel || 'Vue métier';
+                const familiesSummary = getVueMetierRuleFamiliesSummary(norm);
+                const groupsCount = countVueMetierRuleGroups(norm);
+                const isEnabled = norm.enabled;
+                const isActive = isEnabled && activeLabels.has(viewLabel);
+                const defaultBadge = norm.isBuiltInDefault
+                    ? ' <span style="font-size:10px;font-weight:600;color:#0369a1;background:#e0f2fe;padding:2px 6px;border-radius:4px;margin-left:6px;">par défaut</span>'
+                    : '';
+                return {
+                    __idx: idx,
+                    viewLabel: `${viewLabel}${defaultBadge}`,
+                    familiesSummary,
+                    groupsCount,
+                    scopeLabel: getVueMetierScopeLabel(norm.scope),
+                    keywords: String(norm.keywords || '').trim() || '—',
+                    _enabledHtml: `<label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer;" title="Vue métier utilisée dans l’application">
+                        <input type="checkbox" data-vue-metier-enabled-idx="${idx}" ${isEnabled ? 'checked' : ''} onchange="onVueMetierEnabledToggle(this)">
+                        Activée
+                    </label>`,
+                    _activeHtml: `<label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer;" title="Utiliser dans les onglets structurés">
+                        <input type="checkbox" data-vue-metier-active-label="${escapeHtml(viewLabel)}" ${isActive ? 'checked' : ''} ${isEnabled ? '' : 'disabled'} onchange="onVueMetierStructuredActiveToggle(this)">
+                        Structuré
+                    </label>`,
+                    _actionsHtml: `<div style="display:flex;gap:6px;flex-wrap:wrap;">
+                        <button type="button" class="btn btn-outline" style="font-size:12px;padding:4px 8px;" onclick="event.stopPropagation();openVueMetierEditByIndex(${idx})">Modifier</button>
+                        ${norm.isBuiltInDefault ? '' : `<button type="button" class="btn btn-outline" style="font-size:12px;padding:4px 8px;" onclick="event.stopPropagation();deleteVueMetierByIndex(${idx})">Supprimer</button>`}
+                    </div>`
+                };
+            });
+        }
+
+        function refreshVueMetierVueLC() {
+            const mount = document.getElementById('ugap-vue-metier-lc-mount');
+            if (mount && window.UgapTemplates?.refreshVueLCList) {
+                window.UgapTemplates.refreshVueLCList('vue-metier', mount);
+            }
+        }
+
+        function mountVueMetierVueLC() {
+            const mount = document.getElementById('ugap-vue-metier-lc-mount');
+            if (!mount) return;
+            if (!window.UgapTemplates || typeof window.UgapTemplates.renderVueLC !== 'function') {
+                mount.innerHTML = '<div style="padding:12px; color:#b45309; border:1px solid #fde68a; border-radius:6px;">Module d’affichage <strong>UgapTemplates</strong> indisponible. Vérifiez le chargement de <code>ugap-view-templates.js</code>.</div>';
+                return;
+            }
+            const config = {
+                elementKey: 'vue-metier',
+                elementLabel: 'vue métier',
+                title: 'Vues métier',
+                description: 'Comme pour un template bateau : ajoutez des familles validées et cochez les groupes de décision par famille. Double-clic ou « Modifier » pour éditer.',
+                columns: [
+                    { key: 'viewLabel', label: 'Vue métier', type: 'html' },
+                    { key: 'familiesSummary', label: 'Familles' },
+                    { key: 'groupsCount', label: 'Groupes' },
+                    { key: 'scopeLabel', label: 'Scope' },
+                    { key: 'keywords', label: 'Mots-clés' },
+                    { key: '_enabledHtml', label: 'Activée', type: 'html' },
+                    { key: '_activeHtml', label: 'Structuré', type: 'html' },
+                    { key: '_actionsHtml', label: 'Actions', type: 'html' }
+                ],
+                getRows: getVueMetierRowsForLc,
+                listToolbar: {
+                    sortKey: 'viewLabel',
+                    searchKeys: ['viewLabel', 'familiesSummary', 'keywords', 'scopeLabel'],
+                    searchPlaceholder: 'Rechercher une vue métier…'
+                },
+                countLabel: 'vue(s) métier',
+                emptyMessage: 'Aucune vue métier. Cliquez sur « Créer une vue métier » pour commencer.',
+                rowDblClickHandler: (idx) => openVueMetierEditByIndex(idx),
+                createFormHtml: renderVueMetierCreationFormHtml(),
+                onCreatePanelOpen: () => {
+                    if (!window.__vueMetierOpeningForEdit) resetVueMetierCreateDraft();
+                    window.__vueMetierOpeningForEdit = false;
+                    refreshVueMetierCreateDraftUi();
+                }
+            };
+            mount.innerHTML = window.UgapTemplates.renderVueLC(config);
+            window.UgapTemplates.bindVueLC(mount, config);
+            if (typeof scheduleParentEmbedResize === 'function') scheduleParentEmbedResize();
         }
 
         function getImportFamilyTriState() {
@@ -6055,7 +8231,8 @@ Format:
             if (!id) return [];
             const tpl = getImportAssignableTemplates().find((t) => String(t?.id || '').trim() === id);
             if (!tpl) return [];
-            const families = Array.isArray(tpl.families) ? tpl.families : [];
+            const snap = tpl?.snapshot && typeof tpl.snapshot === 'object' ? tpl.snapshot : {};
+            const families = Array.isArray(snap.families) ? snap.families : (Array.isArray(tpl.families) ? tpl.families : []);
             return families.map((f) => ({
                 familyLabel: String(f?.familyLabel || '').trim(),
                 objectName: String(f?.objectName || '').trim(),
@@ -6099,7 +8276,7 @@ Format:
             renderImportWorkflow();
         }
 
-        function saveImportTemplateNamedFromCurrentFamilies() {
+        async function saveImportTemplateNamedFromCurrentFamilies() {
             const state = getImportFamilyTriState();
             const label = String(state.newTemplateName || '').trim();
             if (!label) {
@@ -6144,8 +8321,14 @@ Format:
             state.boatTemplates = next;
             setSavedBoatTemplates(next);
             state.newTemplateName = '';
-            showAlert('Template enregistré.', 'success');
+            refreshTemplateBateauVueLC();
             renderImportWorkflow();
+            try {
+                await triggerUiStatePersistenceNow();
+                showAlert('Template enregistré.', 'success');
+            } catch (error) {
+                showAlert(`Template créé localement mais erreur de sauvegarde serveur: ${error.message}`, 'warning');
+            }
         }
 
         function addImportFamilyToTemplateDraft() {
@@ -6184,7 +8367,7 @@ Format:
             renderImportWorkflow();
         }
 
-        function saveImportTemplateFromDraft() {
+        async function saveImportTemplateFromDraft() {
             const state = getImportFamilyTriState();
             const label = String(state.draftTemplateName || '').trim();
             if (!label) {
@@ -6202,22 +8385,30 @@ Format:
                 return;
             }
             const id = `custom:${slugifyFamilyDecisionGroupId(label) || 'template'}:${Date.now()}`;
-            const next = Array.isArray(state.customTemplates) ? state.customTemplates.slice() : [];
+            const snapshotFamilies = families.map((f) => ({
+                familyLabel: String(f?.familyLabel || '').trim(),
+                objectName: String(f?.objectName || '').trim(),
+                decisionGroups: normalizeFamilyDecisionGroups(f?.decisionGroups)
+            })).filter((f) => f.familyLabel);
+            const next = Array.isArray(state.boatTemplates) ? state.boatTemplates.slice() : [];
             next.push({
                 id,
                 label,
-                families: families.map((f) => ({
-                    familyLabel: String(f?.familyLabel || '').trim(),
-                    objectName: String(f?.objectName || '').trim(),
-                    decisionGroups: normalizeFamilyDecisionGroups(f?.decisionGroups)
-                }))
+                snapshot: { families: snapshotFamilies, baseOptionIds: [] }
             });
-            state.customTemplates = next;
+            state.boatTemplates = next;
+            setSavedBoatTemplates(next);
             state.draftTemplateName = '';
             state.draftSourceTemplateId = '';
             state.draftFamilies = [];
-            showAlert('Template créé.', 'success');
+            refreshTemplateBateauVueLC();
             renderImportWorkflow();
+            try {
+                await triggerUiStatePersistenceNow();
+                showAlert('Template créé.', 'success');
+            } catch (error) {
+                showAlert(`Template créé localement mais erreur de sauvegarde serveur: ${error.message}`, 'warning');
+            }
         }
 
         function onImportFamilyOptionAssignmentChange(optionId, familyLabel) {
@@ -6896,24 +9087,33 @@ Format:
                 await openImportEditor(importId, { resume: true });
                 return;
             }
-            setWorkspaceMode('import');
+            ensureImportTabVisible();
+            workspaceMode = 'import';
+            if (typeof setImportViewMode === 'function') setImportViewMode('editor');
             importWorkflowState.step = 'models';
+            publishImportWorkflowGlobals();
             renderImportWorkflow();
             document.getElementById('import-workflow-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
         }
 
         async function importExcel() {
+            ensureImportTabVisible();
+            workspaceMode = 'import';
+            if (typeof setImportViewMode === 'function') setImportViewMode('editor');
             const statusEl = document.getElementById('import-status');
-            statusEl.textContent = 'Import en cours...';
-            statusEl.style.color = '#007bff';
-            setWorkspaceMode('import');
+            if (statusEl) {
+                statusEl.textContent = 'Import en cours...';
+                statusEl.style.color = '#007bff';
+            }
 
             try {
                 const result = await apiCall('/import', { method: 'POST' });
                 currentImportId = String(result?.data?.importId || currentImportId || '');
                 showAlert(`Import réussi ! ${result.data.modelsCount} modèles, ${result.data.categoriesCount} catégories, ${result.data.optionsCount} options.`, 'success');
-                statusEl.textContent = 'Import réussi';
-                statusEl.style.color = '#28a745';
+                if (statusEl) {
+                    statusEl.textContent = 'Import réussi';
+                    statusEl.style.color = '#28a745';
+                }
                 await refreshImportStagingIndicator();
                 await loadData();
                 if (currentImportId && typeof openImportEditor === 'function') {
@@ -6921,8 +9121,10 @@ Format:
                 }
             } catch (error) {
                 showAlert('Erreur lors de l\'import: ' + error.message, 'error');
-                statusEl.textContent = 'Erreur';
-                statusEl.style.color = '#dc3545';
+                if (statusEl) {
+                    statusEl.textContent = 'Erreur';
+                    statusEl.style.color = '#dc3545';
+                }
             }
         }
 
@@ -9171,16 +11373,15 @@ Format:
         document.getElementById('btn-backoffice-mode')?.addEventListener('click', () => setWorkspaceMode('backoffice'));
         document.getElementById('btn-refresh').addEventListener('click', loadData);
         window.addEventListener('beforeunload', () => {
-            persistUiStateKeepalive({
-                families: getFamilleValidatedFamilies(),
-                businessViews: getViewHeuristicRules()
-            });
+            if (__ugapUiStatePersistPending || __ugapUiStatePersistTimer) {
+                persistUiStateKeepalive(buildUiStatePersistencePayload());
+            }
         });
         document.getElementById('filter-model')?.addEventListener('change', renderCategories);
         document.getElementById('filter-option-name')?.addEventListener('input', renderCategories);
         document.getElementById('filter-option-family')?.addEventListener('change', (e) => {
             if (!window.__optionsTabFilterState || typeof window.__optionsTabFilterState !== 'object') {
-                window.__optionsTabFilterState = { onlyUnassigned: false, autoAssignedOnly: false, family: '', subFamily: '' };
+                window.__optionsTabFilterState = { onlyUnassigned: false, autoAssignedOnly: false, baseOptionOnly: false, family: '', subFamily: '' };
             }
             const selected = String(e?.target?.value || '').trim();
             window.__optionsTabFilterState.family = selected;
@@ -9189,7 +11390,7 @@ Format:
         });
         document.getElementById('filter-option-subfamily')?.addEventListener('change', (e) => {
             if (!window.__optionsTabFilterState || typeof window.__optionsTabFilterState !== 'object') {
-                window.__optionsTabFilterState = { onlyUnassigned: false, autoAssignedOnly: false, family: '', subFamily: '' };
+                window.__optionsTabFilterState = { onlyUnassigned: false, autoAssignedOnly: false, baseOptionOnly: false, family: '', subFamily: '' };
             }
             window.__optionsTabFilterState.subFamily = String(e?.target?.value || '').trim();
             renderCategories();
@@ -9277,7 +11478,7 @@ Format:
                 document.getElementById(panelId).classList.add('active');
                 
                 // Charger les données uniquement pour l'onglet actif
-                if (currentData || tabName === 'import') {
+                if (currentData || tabName === 'import' || tabName === 'template-bateau') {
                     renderActiveTab(tabName);
                 }
                 syncFamilleColumnsDock();
@@ -9355,17 +11556,8 @@ Format:
                         </div>
 
                         <div id="model-modal-tab-base" class="subtab-panel">
-                            <div class="form-group">
-                                <label>Motorisation de base</label>
-                                <input type="text" id="model-base-motorization" value="${escapeHtml(model.motorizationBase || '')}">
-                            </div>
-                            <div class="form-group">
-                                <label>Numéro de poste</label>
-                                <input type="number" id="model-poste-number" value="${model.posteNumber ?? ''}" min="1" step="1">
-                            </div>
-                            <div class="form-group">
-                                <label>Mode de livraison</label>
-                                <input type="text" id="model-delivery-mode" value="${escapeHtml(model.defaultDeliveryMode || '')}" placeholder="Ex: Départ usine">
+                            <div id="model-modal-base-content" style="min-height:120px;">
+                                <p style="color:#888;">Chargement…</p>
                             </div>
                         </div>
 
@@ -9408,6 +11600,8 @@ Format:
             modal.addEventListener('click', (e) => {
                 if (e.target.id === 'model-modal') closeModelModal();
             });
+            window.__modelModalBaseCustomOpen = {};
+            renderModelModalBaseOptionsTab(modelId);
         }
 
         function switchModelModalTab(tabId) {
@@ -9419,6 +11613,10 @@ Format:
             modal.querySelectorAll('#model-modal .subtab-panel').forEach(panel => {
                 panel.classList.toggle('active', panel.id === `model-modal-tab-${tabId}`);
             });
+            if (tabId === 'base') {
+                const modelId = document.getElementById('model-id')?.value;
+                if (modelId) renderModelModalBaseOptionsTab(modelId);
+            }
         }
 
         function closeModelModal() {
@@ -11098,16 +13296,86 @@ Format:
             `;
         }
 
-        function getNextManualBaseOptionId() {
-            const all = getAllOptionsForSummary();
+        function getCatalogOptionIdSet() {
+            const ids = new Set();
+            const add = (raw) => {
+                const id = String(raw || '').trim();
+                if (id) ids.add(id);
+            };
+            (Array.isArray(currentData?.categories) ? currentData.categories : []).forEach((cat) => {
+                (cat.options || []).forEach((opt) => add(opt?.id));
+                (cat.subCategories || []).forEach((sc) => {
+                    (Array.isArray(sc?.optionIds) ? sc.optionIds : []).forEach(add);
+                });
+            });
+            (Array.isArray(currentData?.models) ? currentData.models : []).forEach((model) => {
+                const snap = model?.baseConfigSnapshot && typeof model.baseConfigSnapshot === 'object'
+                    ? model.baseConfigSnapshot
+                    : null;
+                (Array.isArray(snap?.baseOptionIds) ? snap.baseOptionIds : []).forEach(add);
+            });
+            getFamilleValidatedFamilies().forEach((fam) => {
+                (Array.isArray(fam?.optionIds) ? fam.optionIds : []).forEach(add);
+                if (fam?.defaultOptionId) add(fam.defaultOptionId);
+            });
+            return ids;
+        }
+
+        /** Recharge le catalogue en contournant le throttle (après collision d’id option). */
+        async function refreshCatalogForOptionIds() {
+            __lastLoadDataAt = 0;
+            __loadDataCooldownUntil = 0;
+            await loadData(true);
+        }
+
+        /** Premier identifiant opt_N libre (évite les collisions si le cache client est incomplet). */
+        function getNextManualBaseOptionId(extraReservedIds) {
+            const existingIds = getCatalogOptionIdSet();
+            (Array.isArray(extraReservedIds) ? extraReservedIds : []).forEach((raw) => {
+                const id = String(raw || '').trim();
+                if (id) existingIds.add(id);
+            });
             let maxNum = 0;
-            (all || []).forEach((opt) => {
-                const m = String(opt?.id || '').match(/^opt_(\d+)$/i);
+            existingIds.forEach((id) => {
+                const m = id.match(/^opt_(\d+)$/i);
                 if (!m) return;
                 const n = Number(m[1]);
                 if (Number.isFinite(n) && n > maxNum) maxNum = n;
             });
-            return `opt_${maxNum + 1}`;
+            let n = Math.max(1, maxNum + 1);
+            while (existingIds.has(`opt_${n}`)) n += 1;
+            return `opt_${n}`;
+        }
+
+        async function postManualBaseCatalogOption(payload, options = {}) {
+            const reserved = new Set();
+            const maxAttempts = Number(options.maxAttempts) > 0 ? Number(options.maxAttempts) : 12;
+            let lastError = null;
+            for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+                const id = getNextManualBaseOptionId([...reserved]);
+                reserved.add(id);
+                try {
+                    const result = await apiCall('/options', {
+                        method: 'POST',
+                        body: JSON.stringify({ ...payload, id })
+                    });
+                    const createdId = String(result?.id || result?.data?.id || id).trim();
+                    return createdId || id;
+                } catch (error) {
+                    lastError = error;
+                    const msg = String(error?.message || '');
+                    const collisionMatch = msg.match(/opt_\d+/i);
+                    if (collisionMatch) reserved.add(collisionMatch[0]);
+                    if (attempt < maxAttempts - 1 && /existe déjà/i.test(msg)) {
+                        if (options.reloadOnCollision !== false) {
+                            try { await refreshCatalogForOptionIds(); } catch (_) { /* ignore */ }
+                        }
+                        continue;
+                    }
+                    throw error;
+                }
+            }
+            throw lastError || new Error('Impossible d’allouer un identifiant option libre.');
         }
 
         function getBaseModelFamilyChoices() {
@@ -11457,24 +13725,19 @@ Format:
                     const n = Number(String(document.getElementById('base-create-option-price')?.value || '').replace(',', '.'));
                     const baseIncludedPrice = Number.isFinite(n) ? n : 0;
                     if (!name) return showAlert('Libellé option requis.', 'warning');
-                    const id = getNextManualBaseOptionId();
                     const categoryId = String(currentData?.categories?.[0]?.id || '').trim();
                     const fullFamilyLabel = subFamilyName ? `${familyName} / ${subFamilyName}` : familyName;
-                    await apiCall('/options', {
-                        method: 'POST',
-                        body: JSON.stringify({
-                            categoryId,
-                            id,
-                            name,
-                            refUgap,
-                            baseRefUgap: refUgap,
-                            compatibleModels: [modelId],
-                            familyLabel: fullFamilyLabel,
-                            subFamily: subFamilyName,
-                            manualBaseOption: true,
-                            baseIncludedPrice,
-                            priceUgap: baseIncludedPrice
-                        })
+                    const id = await postManualBaseCatalogOption({
+                        categoryId,
+                        name,
+                        refUgap,
+                        baseRefUgap: refUgap,
+                        compatibleModels: [modelId],
+                        familyLabel: fullFamilyLabel,
+                        subFamily: subFamilyName,
+                        manualBaseOption: true,
+                        baseIncludedPrice,
+                        priceUgap: baseIncludedPrice
                     });
                     await loadData(true);
                     state.selectedOptionId = id;
@@ -11523,6 +13786,7 @@ Format:
                         ...rec,
                         compatibleModels: compatible,
                         baseIncluded: true,
+                        isBaseOption: true,
                         priceClient: 0
                     })
                 });
@@ -11832,6 +14096,7 @@ Format:
                     finalProduct,
                     baseRefUgap,
                     baseIncluded,
+                    isBaseOption: baseIncluded || isCatalogBaseOption(rec.option),
                     baseIncludedPrice,
                     // Règle métier: une option fournie de base reste à 0€ côté client.
                     priceClient: baseIncluded ? 0 : rec.option?.priceClient
@@ -15425,10 +17690,20 @@ Format:
             }
 
             try {
-                // TODO: Sauvegarder via API
+                await apiCall(`/models/${encodeURIComponent(modelId)}`, {
+                    method: 'PUT',
+                    body: JSON.stringify({
+                        name,
+                        basePrice,
+                        motorizationBase,
+                        defaultDeliveryMode: deliveryMode,
+                        posteNumber: Number.isFinite(posteNumber) ? posteNumber : null
+                    })
+                });
                 showAlert('Modèle enregistré avec succès', 'success');
                 await loadData();
                 closeModelModal();
+                refreshModelsVueLC();
             } catch (error) {
                 showAlert('Erreur: ' + error.message, 'error');
             }
@@ -16340,6 +18615,9 @@ Format:
         // Les cookies sont gérés par le système GDRI central, pas par ce module
         document.addEventListener('DOMContentLoaded', () => {
             applyEmbeddedLayout();
+            if (window.UgapTemplates?.initTutorialShells) {
+                window.UgapTemplates.initTutorialShells();
+            }
             currentImportId = '';
             importViewMode = 'list';
             publishImportWorkflowGlobals();
@@ -16349,8 +18627,6 @@ Format:
             } else {
                 setWorkspaceMode('backoffice');
             }
-            if (typeof initUgapImportTab === 'function') initUgapImportTab();
-            else if (typeof loadImportList === 'function') loadImportList();
             refreshImportStagingIndicator();
             Promise.resolve(loadData()).finally(() => {
                 if (typeof scheduleParentEmbedResize === 'function') {
@@ -16360,8 +18636,21 @@ Format:
             });
         });
     </script>
-    <script src="/modules/ugap/frontend/assets/js/ugap-import-minorations-workflow.js?v=13"></script>
-    <script src="/modules/ugap/frontend/assets/js/ugap-import-tab.js?v=2"></script>
+    <script src="/modules/ugap/frontend/assets/js/ugap-import-minorations-workflow.js?v=15"></script>
+    <script src="/modules/ugap/frontend/assets/js/ugap-import-tab.js?v=6"></script>
     <script src="/modules/ugap/frontend/assets/js/tabs/famille-tab.js?v=1"></script>
+    <script>
+        (function bootUgapImportTab() {
+            function run() {
+                if (typeof initUgapImportTab === 'function') initUgapImportTab();
+                else if (typeof loadImportList === 'function') loadImportList();
+            }
+            if (document.readyState === 'loading') {
+                document.addEventListener('DOMContentLoaded', run);
+            } else {
+                run();
+            }
+        })();
+    </script>
 </body>
 </html>

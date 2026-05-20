@@ -24,6 +24,8 @@
     const LC_CREATE_BUTTON_LABELS = {
         famille: 'Créer une famille',
         'template-bateau': 'Créer un template bateau',
+        'vue-metier': 'Créer une vue métier',
+        categories: 'Créer une vue métier',
         template: 'Créer un template',
         modele: 'Créer un modèle',
         models: 'Créer un modèle',
@@ -295,6 +297,7 @@
             }
             const createFormHtml = config.createFormHtml || '';
             const createLabel = resolveLcCreateButtonLabel(config);
+            const hideCreateButton = config.hideCreateButton === true;
 
             const headHtml = listToolbar && listState
                 ? renderVueLCHeaderHtml(columns, elementKey, listToolbar, listState)
@@ -326,20 +329,20 @@
                             <h3 class="ugap-vue-lc__title">${escapeHtml(title)}</h3>
                             ${description ? `<p class="ugap-vue-lc__desc">${escapeHtml(description)}</p>` : ''}
                         </div>
-                        <button
+                        ${hideCreateButton ? '' : `<button
                             type="button"
                             class="btn btn-primary"
                             data-ugap-lc-create="${escapeHtml(elementKey)}"
                             aria-expanded="false"
-                        >${escapeHtml(createLabel)}</button>
+                        >${escapeHtml(createLabel)}</button>`}
                     </div>
-                    <div
+                    ${hideCreateButton ? '' : `<div
                         class="ugap-vue-lc__create-panel"
                         data-ugap-lc-create-panel="${escapeHtml(elementKey)}"
                         hidden
                     >
                         ${createFormHtml}
-                    </div>
+                    </div>`}
                     <div class="ugap-vue-lc__list-header">Liste</div>
                     ${toolbarHtml}
                     <div class="ugap-vue-lc__table-wrap">

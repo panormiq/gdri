@@ -9,5 +9,20 @@
       { "key": "decisionGroupsSummary", "label": "Decision groups", "type": "text" },
       { "key": "_actionsHtml", "label": "Actions", "type": "html" }
     ]
+  },
+  "vue-metier": {
+    "elementKey": "vue-metier",
+    "elementLabel": "vue métier",
+    "title": "Vues métier",
+    "columns": [
+      { "key": "viewLabel", "label": "Vue métier", "type": "text" },
+      { "key": "familiesSummary", "label": "Familles", "type": "text" },
+      { "key": "groupsCount", "label": "Groupes", "type": "text" },
+      { "key": "scopeLabel", "label": "Scope", "type": "text" },
+      { "key": "keywords", "label": "Mots-clés", "type": "text" },
+      { "key": "_enabledHtml", "label": "Activée", "type": "html" },
+      { "key": "_activeHtml", "label": "Structuré", "type": "html" },
+      { "key": "_actionsHtml", "label": "Actions", "type": "html" }
+    ]
   }
 }

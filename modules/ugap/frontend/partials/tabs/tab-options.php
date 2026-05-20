@@ -58,6 +58,7 @@
             </select>
         </div>
         <div style="display:flex; align-items:flex-end; gap:8px;">
+            <button type="button" class="btn btn-outline" id="btn-filter-base-options">Options de base</button>
             <button type="button" class="btn btn-outline" id="btn-filter-unassigned-options">Options non assignées</button>
             <button type="button" class="btn btn-outline" id="btn-filter-auto-assigned-options">Options assignées</button>
             <span id="options-unassigned-warning" style="display:none; align-items:center; gap:4px; padding:4px 8px; border:1px solid #facc15; background:#fffbeb; color:#92400e; border-radius:999px; font-size:12px; font-weight:600;">
@@ -65,7 +66,7 @@
                 <span id="options-unassigned-warning-count">0</span>
             </span>
             <div style="display:flex; align-items:flex-end; margin-left:auto;">
-                <button type="button" class="btn btn-danger" id="btn-options-reset-purge-temp" title="Ré-extrait le fichier Excel source et remet le catalogue à l'état juste après import (comme les minorations).">Reset</button>
+                <button type="button" class="btn btn-danger" id="btn-options-reset-purge-temp" title="Supprime toutes les options du catalogue. Conserve familles (structure) et modèles. Idéal avant un nouvel import Excel.">Vider les options</button>
             </div>
         </div>
     </div>

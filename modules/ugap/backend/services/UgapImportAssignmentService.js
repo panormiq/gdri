@@ -228,6 +228,7 @@ class UgapImportAssignmentService {
       opt.isMinoration = true;
       opt.isDivers = false;
       opt.baseIncluded = false;
+      opt.isBaseOption = false;
       opt.manualBaseOption = false;
       summary.totals.minoration += 1;
       comp.forEach((mid) => {
@@ -241,6 +242,7 @@ class UgapImportAssignmentService {
       opt.isMinoration = false;
       opt.isDivers = comp.length === 0;
       opt.baseIncluded = false;
+      opt.isBaseOption = false;
       opt.manualBaseOption = false;
       bumpOption();
       return true;
@@ -251,6 +253,7 @@ class UgapImportAssignmentService {
       opt.isMinoration = false;
       opt.isDivers = comp.length === 0;
       opt.baseIncluded = false;
+      opt.isBaseOption = false;
       opt.manualBaseOption = false;
       bumpOption();
       return true;
@@ -313,6 +316,7 @@ class UgapImportAssignmentService {
           opt.isMinoration = true;
           opt.isDivers = false;
           opt.baseIncluded = false;
+          opt.isBaseOption = false;
           opt.manualBaseOption = false;
           summary.totals.minoration += 1;
           comp.forEach((mid) => {
@@ -330,6 +334,7 @@ class UgapImportAssignmentService {
         if (comp.length === 0) {
           summary.totals.divers += 1;
           opt.baseIncluded = false;
+          opt.isBaseOption = false;
           opt.manualBaseOption = false;
           return;
         }
@@ -348,6 +353,7 @@ class UgapImportAssignmentService {
 
         if (baseForAnyValidated) {
           opt.baseIncluded = true;
+          opt.isBaseOption = true;
           opt.manualBaseOption = true;
           const price = Number(opt.priceUgap);
           if (!Number.isFinite(Number(opt.baseIncludedPrice))) {
@@ -358,6 +364,7 @@ class UgapImportAssignmentService {
         }
 
         opt.baseIncluded = false;
+        opt.isBaseOption = false;
         opt.manualBaseOption = false;
         summary.totals.option += 1;
         comp.forEach((mid) => {
