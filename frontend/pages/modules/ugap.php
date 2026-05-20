@@ -214,50 +214,45 @@ section.section:has(#ugap-import-embed-root) .container {
 (function () {
     var __ugapEmbedFrameLastHeight = 0;
 
+    function elementLayoutHeightInFrame(win, el) {
+        if (!el || !win) return 0;
+        var st = win.getComputedStyle(el);
+        if (st.display === 'none' || st.visibility === 'hidden') return 0;
+        return Math.max(
+            el.scrollHeight || 0,
+            el.offsetHeight || 0,
+            Math.ceil(el.getBoundingClientRect().height || 0)
+        );
+    }
+
     function measureEmbedFrameContentHeight(frame) {
         try {
             var doc = frame.contentDocument || (frame.contentWindow && frame.contentWindow.document);
             if (!doc) return 0;
             var win = frame.contentWindow;
-            var scrollY = win ? (win.scrollY || win.pageYOffset || 0) : 0;
-            var docEl = doc.documentElement;
-            var body = doc.body;
-            var bottoms = [];
-            var addBottom = function (el) {
-                if (!el || typeof el.getBoundingClientRect !== 'function') return;
-                var st = win.getComputedStyle(el);
-                if (st.display === 'none' || st.visibility === 'hidden') return;
-                var r = el.getBoundingClientRect();
-                if (r.height <= 0 && r.width <= 0) return;
-                bottoms.push(r.bottom + scrollY);
-            };
-            var docH = Math.max(
-                docEl ? docEl.scrollHeight : 0,
-                docEl ? docEl.offsetHeight : 0,
-                body ? body.scrollHeight : 0,
-                body ? body.offsetHeight : 0
-            );
-            var activePanel = doc.querySelector('.tab-panel.active');
-            var panelH = activePanel
-                ? Math.max(activePanel.scrollHeight, activePanel.offsetHeight || 0, 0)
-                : 0;
+            var heights = [];
             var card = doc.getElementById('legacy-backoffice-card');
-            var cardH = card ? Math.max(card.scrollHeight, card.offsetHeight || 0, 0) : 0;
-            var root = doc.querySelector('.container-xl') || body;
-            var rootH = root ? Math.max(root.scrollHeight, root.offsetHeight || 0, 0) : 0;
-            [
-                docEl,
-                body,
-                activePanel,
-                doc.getElementById('tab-import'),
-                doc.getElementById('import-editor-section'),
-                doc.getElementById('import-workflow-section'),
-                doc.getElementById('import-workflow-content-families'),
-                doc.querySelector('.ugap-import-mino-wrap'),
-                doc.querySelector('.ugap-import-opt-tri-table-wrap'),
-                doc.querySelector('.ugap-import-opt-tri-table tbody tr:last-child')
-            ].forEach(addBottom);
-            return Math.max(docH, panelH, cardH, rootH, bottoms.length ? Math.max.apply(null, bottoms) : 0, 200) + 32;
+            var activePanel = doc.querySelector('#legacy-backoffice-card .tab-panel.active');
+            var tabs = doc.querySelector('#legacy-backoffice-card .tabs');
+            var container = doc.querySelector('.container-xl');
+            var optionsTable = doc.getElementById('categories-table');
+            if (card) heights.push(elementLayoutHeightInFrame(win, card));
+            if (tabs) heights.push(elementLayoutHeightInFrame(win, tabs));
+            if (activePanel) heights.push(elementLayoutHeightInFrame(win, activePanel));
+            if (optionsTable) heights.push(elementLayoutHeightInFrame(win, optionsTable));
+            if (container) heights.push(elementLayoutHeightInFrame(win, container));
+            if (doc.body) {
+                heights.push(doc.body.scrollHeight || 0, doc.body.offsetHeight || 0);
+            }
+            if (doc.documentElement) {
+                heights.push(
+                    doc.documentElement.scrollHeight || 0,
+                    doc.documentElement.offsetHeight || 0
+                );
+            }
+            var valid = heights.filter(function (n) { return n > 0; });
+            if (valid.length) return Math.max.apply(null, valid.concat([200])) + 32;
+            return 0;
         } catch (e) {
             return 0;
         }
@@ -268,15 +263,16 @@ section.section:has(#ugap-import-embed-root) .container {
         if (!frame) return;
         var reported = parseInt(height, 10) || 0;
         var measured = measureEmbedFrameContentHeight(frame);
-        var h = Math.max(reported, measured, 200) + 48;
+        var base = measured > 0 ? measured : reported;
+        var h = Math.max(base, 200) + 48;
         h = Math.min(h, 20000);
-        if (Math.abs(h - __ugapEmbedFrameLastHeight) < 6) {
+        if (h <= __ugapEmbedFrameLastHeight && Math.abs(h - __ugapEmbedFrameLastHeight) < 6) {
             return;
         }
         __ugapEmbedFrameLastHeight = h;
         frame.style.height = h + 'px';
         frame.style.maxHeight = 'none';
-        frame.style.minHeight = h + 'px';
+        frame.style.minHeight = '480px';
     }
 
     function resetUgapMinoRecapDockStyles() {

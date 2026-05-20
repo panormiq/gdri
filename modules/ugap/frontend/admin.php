@@ -9,6 +9,7 @@
     <title>UGAP Admin - Gestion des données</title>
     <link rel="stylesheet" href="/frontend/assets/css/variables.css">
     <link rel="stylesheet" href="/frontend/assets/css/main.css">
+    <link rel="stylesheet" href="/modules/ugap/frontend/assets/css/ugap-templates.css?v=1">
     <style>
         body { background-color: #f5f7fa; }
         .container-xl { max-width: 1400px; margin: 0 auto; padding: 20px; }
@@ -36,6 +37,8 @@
         .tab.active { border-bottom-color: var(--primary-color, #007bff); color: var(--primary-color, #007bff); font-weight: 600; }
         .tab-panel { display: none; }
         .tab-panel.active { display: block; }
+        body.ugap-embedded-mode #legacy-backoffice-card { min-height: 0; }
+        body.ugap-embedded-mode .tab-panel.active { min-height: 0; }
         .subtabs { display: flex; gap: 8px; margin: 0 0 14px 0; border-bottom: 1px solid #eee; padding-bottom: 8px; flex-wrap: wrap; }
         .subtab-btn { padding: 8px 14px; border: 1px solid #ddd; background: #fff; border-radius: 6px; cursor: pointer; font-weight: 600; }
         .subtab-btn.active { border-color: var(--primary-color, #007bff); color: #fff; background: var(--primary-color, #007bff); }
@@ -132,13 +135,13 @@
             <?php require __DIR__ . '/partials/tabs/tab-navigation.php'; ?>
 
             <?php require __DIR__ . '/partials/tabs/tab-import.php'; ?>
+            <?php require __DIR__ . '/partials/tabs/tab-famille.php'; ?>
+            <?php require __DIR__ . '/partials/tabs/tab-options.php'; ?>
             <?php if (is_file(__DIR__ . '/partials/tabs/tab-template-bateau.php')) {
                 require __DIR__ . '/partials/tabs/tab-template-bateau.php';
             } ?>
-            <?php require __DIR__ . '/partials/tabs/tab-famille.php'; ?>
             <?php require __DIR__ . '/partials/tabs/tab-models.php'; ?>
             <?php require __DIR__ . '/partials/tabs/tab-categories.php'; ?>
-            <?php require __DIR__ . '/partials/tabs/tab-options.php'; ?>
             <?php require __DIR__ . '/partials/tabs/tab-structured.php'; ?>
             <?php require __DIR__ . '/partials/tabs/tab-couplings.php'; ?>
             <?php require __DIR__ . '/partials/tabs/tab-prompts.php'; ?>
@@ -147,6 +150,7 @@
 
     </div>
 
+    <script src="/modules/ugap/frontend/assets/js/templates/ugap-view-templates.js?v=1"></script>
     <script>
         const API_BASE = '/api/ugap';
         const UGAP_PROMPTS_UI_VERSION = '2026-03-31-llm-selects-v3';
@@ -162,7 +166,8 @@
             optionTypeFilter: '',
             familyDetectionMinCount: 3,
             minoAutoSeeded: false,
-            majorationAutoSeeded: false
+            majorationAutoSeeded: false,
+            validateAssignAllPostesToUnassigned: true
         };
         let importViewMode = 'list';
         let importListCache = [];
@@ -220,12 +225,15 @@
             document.body.style.height = 'auto';
             document.body.style.minHeight = '0';
             document.body.style.maxWidth = '100%';
+            document.body.classList.add('ugap-embedded-mode');
 
             scheduleParentEmbedResize();
             if (!window.__ugapEmbedResizeObserver && typeof ResizeObserver !== 'undefined') {
                 window.__ugapEmbedResizeObserver = new ResizeObserver(() => scheduleParentEmbedResize());
                 const observeTargets = [
                     document.getElementById('tab-import'),
+                    document.getElementById('tab-options'),
+                    document.getElementById('categories-table'),
                     document.querySelector('.container-xl'),
                     document.getElementById('legacy-backoffice-card'),
                     document.getElementById('import-workflow-section'),
@@ -237,38 +245,39 @@
             }
         }
 
-        function measureEmbeddedContentHeight() {
-            const scrollY = window.scrollY || window.pageYOffset || 0;
-            const bottoms = [];
-            const addBottom = (el) => {
-                if (!el || typeof el.getBoundingClientRect !== 'function') return;
-                const st = window.getComputedStyle(el);
-                if (st.display === 'none' || st.visibility === 'hidden') return;
-                const r = el.getBoundingClientRect();
-                if (r.height <= 0 && r.width <= 0) return;
-                bottoms.push(r.bottom + scrollY);
-            };
-            [document.documentElement, document.body].forEach(addBottom);
-            [
-                document.getElementById('tab-import'),
-                document.getElementById('import-editor-section'),
-                document.getElementById('import-workflow-section'),
-                document.getElementById('import-workflow-content-families'),
-                document.querySelector('.ugap-import-mino-wrap'),
-                document.querySelector('.ugap-import-opt-tri-table-wrap'),
-                document.querySelector('.ugap-import-opt-tri-table tbody tr:last-child'),
-                document.getElementById('legacy-backoffice-card'),
-                document.querySelector('.container-xl')
-            ].forEach(addBottom);
-            const docH = Math.max(
-                document.documentElement?.scrollHeight || 0,
-                document.documentElement?.offsetHeight || 0,
-                document.body?.scrollHeight || 0,
-                document.body?.offsetHeight || 0,
-                ...bottoms,
-                0
+        function elementLayoutHeight(el) {
+            if (!el) return 0;
+            const st = window.getComputedStyle(el);
+            if (st.display === 'none' || st.visibility === 'hidden') return 0;
+            return Math.max(
+                el.scrollHeight || 0,
+                el.offsetHeight || 0,
+                Math.ceil(el.getBoundingClientRect().height || 0)
             );
-            return Math.max(docH, 200) + 32;
+        }
+
+        function measureEmbeddedContentHeight() {
+            const heights = [];
+            const card = document.getElementById('legacy-backoffice-card');
+            const activePanel = document.querySelector('#legacy-backoffice-card .tab-panel.active');
+            const tabs = document.querySelector('#legacy-backoffice-card .tabs');
+            const container = document.querySelector('.container-xl');
+            const optionsTable = document.getElementById('categories-table');
+            if (card) heights.push(elementLayoutHeight(card));
+            if (tabs) heights.push(elementLayoutHeight(tabs));
+            if (activePanel) heights.push(elementLayoutHeight(activePanel));
+            if (optionsTable) heights.push(elementLayoutHeight(optionsTable));
+            if (container) heights.push(elementLayoutHeight(container));
+            if (document.body) heights.push(document.body.scrollHeight || 0, document.body.offsetHeight || 0);
+            if (document.documentElement) {
+                heights.push(
+                    document.documentElement.scrollHeight || 0,
+                    document.documentElement.offsetHeight || 0
+                );
+            }
+            const h = heights.filter((n) => n > 0);
+            if (h.length) return Math.max(...h, 200) + 32;
+            return 232;
         }
 
         let __ugapEmbedResizeTimer = null;
@@ -610,6 +619,27 @@ LIGNE_EXEMPLE_2`,
             const activeViewPresetId = viewPresets.some((p) => p.id === activeViewPresetIdRaw)
                 ? activeViewPresetIdRaw
                 : (viewPresets[0]?.id || 'basic');
+            const normalizedFamilyDecisionGroupTemplates = Array.isArray(rawUiState.familyDecisionGroupTemplates)
+                ? rawUiState.familyDecisionGroupTemplates
+                    .map((tpl) => {
+                        const t = tpl && typeof tpl === 'object' ? tpl : {};
+                        return {
+                            id: String(t.id || '').trim(),
+                            title: String(t.title || '').trim(),
+                            description: String(t.description || '').trim(),
+                            suggestedFamilyLabel: String(t.suggestedFamilyLabel || '').trim(),
+                            suggestedObjectName: String(t.suggestedObjectName || '').trim(),
+                            decisionGroups: Array.isArray(t.decisionGroups) ? t.decisionGroups : []
+                        };
+                    })
+                    .filter((t) => t.id)
+                : [];
+            const normalizedOptionFamilyStatuses = rawUiState.optionFamilyStatuses && typeof rawUiState.optionFamilyStatuses === 'object'
+                ? rawUiState.optionFamilyStatuses
+                : {};
+            const normalizedFamilleHeuristicRules = Array.isArray(rawUiState.familleHeuristicRules)
+                ? rawUiState.familleHeuristicRules
+                : [];
             return {
                 ...source,
                 models: Array.isArray(source.models) ? source.models : [],
@@ -621,6 +651,9 @@ LIGNE_EXEMPLE_2`,
                     baseModelTemplateFamilies,
                     viewPresets,
                     activeViewPresetId,
+                    familyDecisionGroupTemplates: normalizedFamilyDecisionGroupTemplates,
+                    optionFamilyStatuses: normalizedOptionFamilyStatuses,
+                    familleHeuristicRules: normalizedFamilleHeuristicRules,
                     updatedAt: rawUiState.updatedAt || null
                 },
                 categories: categories.map((category) => {
@@ -648,6 +681,55 @@ LIGNE_EXEMPLE_2`,
             return (Array.isArray(rawRules) ? rawRules : []).map((r) => ({ ...r }));
         }
 
+        function sanitizeFamilyDecisionGroupTemplatesForServer(rawTemplates) {
+            return (Array.isArray(rawTemplates) ? rawTemplates : [])
+                .map((tpl) => {
+                    const t = tpl && typeof tpl === 'object' ? tpl : {};
+                    return {
+                        id: String(t.id || '').trim(),
+                        title: String(t.title || '').trim(),
+                        description: String(t.description || '').trim(),
+                        suggestedFamilyLabel: String(t.suggestedFamilyLabel || '').trim(),
+                        suggestedObjectName: String(t.suggestedObjectName || '').trim(),
+                        decisionGroups: normalizeFamilyDecisionGroups(t.decisionGroups)
+                    };
+                })
+                .filter((t) => t.id && t.title);
+        }
+
+        const UGAP_OPTION_FAMILY_STATUS = {
+            UNASSIGNED: 'non_assigne',
+            ASSIGNED: 'assigne'
+        };
+
+        function sanitizeOptionFamilyStatusesForServer(rawStatuses) {
+            const src = rawStatuses && typeof rawStatuses === 'object' ? rawStatuses : {};
+            const out = {};
+            Object.entries(src).forEach(([k, v]) => {
+                const id = String(k || '').trim();
+                const status = String(v || '').trim();
+                if (!id) return;
+                if (status === UGAP_OPTION_FAMILY_STATUS.ASSIGNED || status === UGAP_OPTION_FAMILY_STATUS.UNASSIGNED) {
+                    out[id] = status;
+                }
+            });
+            return out;
+        }
+
+        function sanitizeFamilleHeuristicRulesForServer(rawRules) {
+            return (Array.isArray(rawRules) ? rawRules : [])
+                .map((r) => {
+                    const rule = r && typeof r === 'object' ? r : {};
+                    return {
+                        familyLabel: String(rule.familyLabel || '').trim(),
+                        groupLabel: String(rule.groupLabel || '').trim(),
+                        keywords: String(rule.keywords || '').trim(),
+                        scope: String(rule.scope || 'all').trim() || 'all'
+                    };
+                })
+                .filter((r) => r.familyLabel && r.keywords);
+        }
+
         function applyServerUiStateToLocal(serverUiState) {
             const src = serverUiState && typeof serverUiState === 'object' ? serverUiState : {};
             try {
@@ -656,6 +738,12 @@ LIGNE_EXEMPLE_2`,
                 ));
                 memoryStoreSetItem('ugap.vueMetier.heuristicRules', JSON.stringify(
                     sanitizeViewRulesForServer(src.businessViews)
+                ));
+                memoryStoreSetItem('ugap.famille.heuristicRules', JSON.stringify(
+                    sanitizeFamilleHeuristicRulesForServer(src.familleHeuristicRules)
+                ));
+                memoryStoreSetItem('ugap.famille.optionStatuses', JSON.stringify(
+                    sanitizeOptionFamilyStatusesForServer(src.optionFamilyStatuses)
                 ));
             } catch (_) {
                 // no-op
@@ -666,27 +754,51 @@ LIGNE_EXEMPLE_2`,
             try {
                 memoryStoreSetItem('ugap.famille.validatedFamilies', JSON.stringify([]));
                 memoryStoreSetItem('ugap.vueMetier.heuristicRules', JSON.stringify([]));
+                memoryStoreSetItem('ugap.famille.heuristicRules', JSON.stringify([]));
+                memoryStoreSetItem('ugap.famille.optionStatuses', JSON.stringify({}));
             } catch (_) {
                 // no-op
             }
         }
 
+        function buildUiStatePersistencePayload() {
+            return {
+                families: getFamilleValidatedFamilies(),
+                businessViews: getViewHeuristicRules(),
+                familyDecisionGroupTemplates: getFamilyDecisionGroupCustomTemplates(),
+                optionFamilyStatuses: getOptionFamilyStatuses(),
+                familleHeuristicRules: getFamilleHeuristicRules()
+            };
+        }
+
         async function persistUiStateToServer(payload) {
             if (__ugapUiStatePersistDisabled) return;
+            const src = payload && typeof payload === 'object' ? payload : buildUiStatePersistencePayload();
             await apiCall('/ui-state', {
                 method: 'PUT',
                 body: JSON.stringify({
-                    families: sanitizeFamiliesForServer(payload?.families),
-                    businessViews: sanitizeViewRulesForServer(payload?.businessViews)
+                    families: sanitizeFamiliesForServer(src.families),
+                    businessViews: sanitizeViewRulesForServer(src.businessViews),
+                    familyDecisionGroupTemplates: sanitizeFamilyDecisionGroupTemplatesForServer(
+                        src.familyDecisionGroupTemplates
+                    ),
+                    optionFamilyStatuses: sanitizeOptionFamilyStatusesForServer(src.optionFamilyStatuses),
+                    familleHeuristicRules: sanitizeFamilleHeuristicRulesForServer(src.familleHeuristicRules)
                 })
             });
         }
 
         function persistUiStateKeepalive(payload) {
             try {
+                const src = payload && typeof payload === 'object' ? payload : buildUiStatePersistencePayload();
                 const body = JSON.stringify({
-                    families: sanitizeFamiliesForServer(payload?.families),
-                    businessViews: sanitizeViewRulesForServer(payload?.businessViews)
+                    families: sanitizeFamiliesForServer(src.families),
+                    businessViews: sanitizeViewRulesForServer(src.businessViews),
+                    familyDecisionGroupTemplates: sanitizeFamilyDecisionGroupTemplatesForServer(
+                        src.familyDecisionGroupTemplates
+                    ),
+                    optionFamilyStatuses: sanitizeOptionFamilyStatusesForServer(src.optionFamilyStatuses),
+                    familleHeuristicRules: sanitizeFamilleHeuristicRulesForServer(src.familleHeuristicRules)
                 });
                 fetch(`${API_BASE}/ui-state`, {
                     method: 'PUT',
@@ -705,10 +817,7 @@ LIGNE_EXEMPLE_2`,
             __ugapUiStatePersistInFlight = true;
             __ugapUiStatePersistPending = false;
             try {
-                await persistUiStateToServer({
-                    families: getFamilleValidatedFamilies(),
-                    businessViews: getViewHeuristicRules()
-                });
+                await persistUiStateToServer(buildUiStatePersistencePayload());
                 if (__lastLoadDataSnapshot && typeof __lastLoadDataSnapshot === 'object') {
                     if (!__lastLoadDataSnapshot.uiState || typeof __lastLoadDataSnapshot.uiState !== 'object') {
                         __lastLoadDataSnapshot.uiState = {};
@@ -747,13 +856,13 @@ LIGNE_EXEMPLE_2`,
             }, 350);
         }
 
-        function triggerUiStatePersistenceNow() {
+        async function triggerUiStatePersistenceNow() {
             __ugapUiStatePersistPending = true;
             if (__ugapUiStatePersistTimer) {
                 clearTimeout(__ugapUiStatePersistTimer);
                 __ugapUiStatePersistTimer = null;
             }
-            flushUiStatePersistence();
+            await flushUiStatePersistence();
         }
 
         async function hydrateUiStateFromServer() {
@@ -763,10 +872,13 @@ LIGNE_EXEMPLE_2`,
             const serverFamilies = Array.isArray(serverUiState.families) ? serverUiState.families : [];
             const serverViewRules = Array.isArray(serverUiState.businessViews) ? serverUiState.businessViews : [];
             const serverViewPresets = Array.isArray(serverUiState.viewPresets) ? serverUiState.viewPresets : [];
-            // Source de verite = backend. Meme vide, on remplace l'etat local.
+            const serverGabarits = Array.isArray(serverUiState.familyDecisionGroupTemplates)
+                ? serverUiState.familyDecisionGroupTemplates
+                : [];
+            // Source de vérité = serveur (MongoDB via GET /data → uiState).
             applyServerUiStateToLocal(serverUiState);
             currentData.uiState = {
-                families: Array.isArray(serverFamilies) ? serverFamilies : [],
+                families: (Array.isArray(serverFamilies) ? serverFamilies : []).map((f) => syncFamilyOptionsToDecisionGroups(f)),
                 businessViews: Array.isArray(serverViewRules) ? serverViewRules : [],
                 baseModelTemplateFamilies: Array.isArray(serverUiState.baseModelTemplateFamilies)
                     ? serverUiState.baseModelTemplateFamilies.map((x) => String(x || '').trim()).filter(Boolean)
@@ -781,8 +893,12 @@ LIGNE_EXEMPLE_2`,
                             .filter(Boolean)
                     }],
                 activeViewPresetId: String(serverUiState.activeViewPresetId || 'basic').trim() || 'basic',
+                familyDecisionGroupTemplates: sanitizeFamilyDecisionGroupTemplatesForServer(serverGabarits),
+                optionFamilyStatuses: sanitizeOptionFamilyStatusesForServer(serverUiState.optionFamilyStatuses),
+                familleHeuristicRules: sanitizeFamilleHeuristicRulesForServer(serverUiState.familleHeuristicRules),
                 updatedAt: serverUiState.updatedAt || null
             };
+            syncOptionFamilyStatusesWithCatalog();
         }
 
         function cleanupDeletedOptionReferences() {
@@ -799,7 +915,7 @@ LIGNE_EXEMPLE_2`,
                 const optionIds = (Array.isArray(f?.optionIds) ? f.optionIds : [])
                     .map((x) => String(x || '').trim())
                     .filter((x) => x && validOptionIds.has(x));
-                const out = { ...f, optionIds };
+                const out = syncFamilyOptionsToDecisionGroups({ ...f, optionIds });
                 const def = String(f?.defaultOptionId || '').trim();
                 if (!def || !validOptionIds.has(def) || !optionIds.includes(def)) {
                     delete out.defaultOptionId;
@@ -807,6 +923,7 @@ LIGNE_EXEMPLE_2`,
                 return out;
             });
             setFamilleValidatedFamilies(cleanedFamilies);
+            pruneOptionFamilyStatuses(validOptionIds);
 
             const normalizeLegacyOptId = (value) => {
                 const v = String(value || '').trim();
@@ -973,7 +1090,7 @@ LIGNE_EXEMPLE_2`,
                     renderExtractionInsights();
                     break;
                 case 'options':
-                    renderCategories();
+                    void runOptionsTabHeuristicOnTabEnter();
                     break;
                 case 'structured':
                     renderStructuredOptionsView();
@@ -2245,9 +2362,85 @@ Format:
                     const pricingMode = (type === 'static')
                         ? 'addition'
                         : (String(g?.pricingMode || '').trim().toLowerCase() === 'minoration' ? 'minoration' : 'addition');
-                    return id && label ? { id, label, type, decisionMode, pricingMode } : null;
+                    const keywords = String(g?.keywords || '').trim();
+                    const optionIds = (Array.isArray(g?.optionIds) ? g.optionIds : [])
+                        .map((x) => String(x || '').trim())
+                        .filter(Boolean);
+                    return id && label ? { id, label, type, decisionMode, pricingMode, keywords, optionIds } : null;
                 })
                 .filter(Boolean);
+        }
+
+        /** Premier groupe de la famille (groupe par défaut). */
+        function getDefaultFamilyDecisionGroupId(rawGroups) {
+            const groups = normalizeFamilyDecisionGroups(rawGroups);
+            if (!groups.length) return null;
+            return String(groups[0]?.id || '').trim() || null;
+        }
+
+        function getDefaultFamilyDecisionGroupLabel(rawGroupsOrFamily) {
+            const groups = Array.isArray(rawGroupsOrFamily)
+                ? normalizeFamilyDecisionGroups(rawGroupsOrFamily)
+                : normalizeFamilyDecisionGroups(rawGroupsOrFamily?.decisionGroups);
+            if (!groups.length) return '';
+            return String(groups[0]?.label || groups[0]?.id || '').trim();
+        }
+
+        function resolveDefaultGroupLabelForFamily(familyLabel) {
+            const familyName = parseValidatedFamilyLabel(String(familyLabel || '').trim()).familyName
+                || String(familyLabel || '').trim();
+            const fam = findValidatedFamilyByRootLabel(familyName);
+            return fam ? getDefaultFamilyDecisionGroupLabel(fam) : '';
+        }
+
+        /** Répartit les options de la famille : non assignées → premier groupe. */
+        function syncFamilyOptionsToDecisionGroups(family) {
+            const f = family && typeof family === 'object' ? { ...family } : {};
+            const familyOptionIds = (Array.isArray(f.optionIds) ? f.optionIds : [])
+                .map((x) => String(x || '').trim())
+                .filter(Boolean);
+            const familyOptionSet = new Set(familyOptionIds);
+            let groups = normalizeFamilyDecisionGroups(f.decisionGroups);
+            if (!groups.length) {
+                f.optionIds = familyOptionIds;
+                return f;
+            }
+            const defaultGroupId = getDefaultFamilyDecisionGroupId(groups);
+            const assignedInGroups = new Set();
+            groups = groups.map((g) => {
+                const ids = (Array.isArray(g.optionIds) ? g.optionIds : [])
+                    .map((x) => String(x || '').trim())
+                    .filter((x) => x && familyOptionSet.has(x));
+                ids.forEach((id) => assignedInGroups.add(id));
+                return { ...g, optionIds: ids };
+            });
+            if (defaultGroupId) {
+                const orphans = familyOptionIds.filter((id) => !assignedInGroups.has(id));
+                if (orphans.length) {
+                    groups = groups.map((g) => {
+                        if (String(g.id) !== defaultGroupId) return g;
+                        return { ...g, optionIds: Array.from(new Set([...(g.optionIds || []), ...orphans])) };
+                    });
+                }
+            }
+            const seen = new Set();
+            const orderedOptionIds = [];
+            familyOptionIds.forEach((id) => {
+                if (seen.has(id)) return;
+                seen.add(id);
+                orderedOptionIds.push(id);
+            });
+            groups.forEach((g) => {
+                (g.optionIds || []).forEach((id) => {
+                    if (!seen.has(id)) {
+                        seen.add(id);
+                        orderedOptionIds.push(id);
+                    }
+                });
+            });
+            f.decisionGroups = groups;
+            f.optionIds = orderedOptionIds;
+            return f;
         }
 
         function slugifyFamilyDecisionGroupId(input) {
@@ -2335,10 +2528,7 @@ Format:
                         </select>
                     </td>
                     <td style="padding:8px; border-bottom:1px solid #eee;">
-                        <select id="family-group-pricing-${rowIdx}" ${g.type === 'static' ? 'disabled' : ''} style="width:100%; padding:6px; border:1px solid #ddd; border-radius:4px; ${g.type === 'static' ? 'background:#f8f9fa;' : ''}">
-                            <option value="addition" ${g.pricingMode === 'addition' ? 'selected' : ''}>addition</option>
-                            <option value="minoration" ${g.pricingMode === 'minoration' ? 'selected' : ''}>minoration</option>
-                        </select>
+                        <input id="family-group-keywords-${rowIdx}" value="${escapeHtml(String(g.keywords || '').trim())}" placeholder="Ex: coloris, finition" style="width:100%; padding:6px; border:1px solid #ddd; border-radius:4px;">
                     </td>
                     <td style="padding:8px; border-bottom:1px solid #eee; text-align:center;">
                         <button type="button" class="btn btn-outline" onclick="removeFamilyDecisionGroupRow(${idx}, ${rowIdx})">Suppr.</button>
@@ -2347,7 +2537,7 @@ Format:
             `;
             }).join('');
             modal.innerHTML = `
-                <div class="modal-content" style="max-width:1000px;">
+                <div class="modal-content" style="max-width:1100px;">
                     <div class="modal-header">
                         <h2 style="font-size:18px;">Edition famille: ${escapeHtml(familyLabel)}</h2>
                         <button type="button" class="btn btn-outline" onclick="closeFamilyEditionModal()">Fermer</button>
@@ -2355,6 +2545,8 @@ Format:
                     <div>
                         <label style="display:block; margin-bottom:6px; font-weight:600;">Nom objet (cle recherche)</label>
                         <input id="family-object-name-input" value="${escapeHtml(objectName)}" placeholder="Ex: moteur" style="width:100%; padding:8px; border:1px solid #ddd; border-radius:4px; margin-bottom:12px;">
+                        <label style="display:block; margin-bottom:6px; font-weight:600;">Mots-clés heuristiques (virgules)</label>
+                        <input id="family-keywords-input" value="${escapeHtml(String(family?.keywords || '').trim())}" placeholder="Ex: coloris flotteur, rouge etna" style="width:100%; padding:8px; border:1px solid #ddd; border-radius:4px; margin-bottom:12px;">
                         <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px;">
                             <strong>Decision groups</strong>
                             <button type="button" class="btn btn-outline" onclick="addFamilyDecisionGroupRow(${idx})">Ajouter group</button>
@@ -2366,7 +2558,7 @@ Format:
                                     <th style="padding:8px; border-bottom:1px solid #eee; text-align:left;">label</th>
                                     <th style="padding:8px; border-bottom:1px solid #eee; text-align:left;">type</th>
                                     <th style="padding:8px; border-bottom:1px solid #eee; text-align:left;">decisionMode</th>
-                                    <th style="padding:8px; border-bottom:1px solid #eee; text-align:left;">pricingMode</th>
+                                    <th style="padding:8px; border-bottom:1px solid #eee; text-align:left;">Mot-clé</th>
                                     <th style="padding:8px; border-bottom:1px solid #eee; text-align:center;">Action</th>
                                 </tr>
                             </thead>
@@ -2402,8 +2594,7 @@ Format:
                 id: generateUniqueFamilyDecisionGroupId(existingIds, `group_${groups.length + 1}`),
                 label: `Group ${groups.length + 1}`,
                 type: 'option',
-                decisionMode: 'multi_choice',
-                pricingMode: 'addition'
+                decisionMode: 'multi_choice'
             });
             family.decisionGroups = groups;
             list[idx] = family;
@@ -2440,27 +2631,284 @@ Format:
                 const typeRaw = String(document.getElementById(`family-group-type-${rowIdx}`)?.value || 'option').trim().toLowerCase();
                 const type = typeRaw === 'model' ? 'model' : (typeRaw === 'static' ? 'static' : 'option');
                 const decisionMode = String(document.getElementById(`family-group-decision-${rowIdx}`)?.value || 'single_choice').trim() === 'multi_choice' ? 'multi_choice' : 'single_choice';
-                const pricingModeRaw = String(document.getElementById(`family-group-pricing-${rowIdx}`)?.value || 'addition').trim();
-                const pricingMode = pricingModeRaw === 'minoration' ? 'minoration' : 'addition';
+                const keywords = String(document.getElementById(`family-group-keywords-${rowIdx}`)?.value || '').trim();
                 const nextLabel = label || (type === 'model' ? 'Modèle' : (type === 'static' ? 'Statique' : 'Option'));
                 const id = (!rawId || usedIds.has(rawId))
                     ? generateUniqueFamilyDecisionGroupId(usedIds, nextLabel)
                     : (usedIds.add(rawId), rawId);
                 return {
-                    id,
-                    label: nextLabel,
-                    type,
-                    decisionMode,
-                    pricingMode: (type === 'static') ? 'addition' : pricingMode
+                    id, label: nextLabel, type, decisionMode, keywords,
+                    optionIds: (Array.isArray(currentGroup?.optionIds) ? currentGroup.optionIds : [])
+                        .map((x) => String(x || '').trim())
+                        .filter(Boolean)
                 };
             }).filter(Boolean);
             family.objectName = objectName;
+            family.keywords = String(document.getElementById('family-keywords-input')?.value || '').trim();
             family.decisionGroups = nextGroups;
             list[idx] = family;
             setFamilleValidatedFamilies(list);
             closeFamilyEditionModal();
             renderExtractionInsights();
             showAlert('Famille mise a jour.', 'success');
+        }
+
+        function findValidatedFamilyIndexByRootLabel(familyName) {
+            const wanted = String(familyName || '').trim();
+            if (!wanted) return -1;
+            const list = getFamilleValidatedFamilies();
+            return (Array.isArray(list) ? list : []).findIndex((f) => getValidatedFamilyRootLabel(f) === wanted);
+        }
+
+        function buildOptionsTabFamilyEditorRowsHtml(decisionGroups, savedIndex) {
+            return normalizeFamilyDecisionGroups(decisionGroups).map((g, rowIdx) => `
+                <tr>
+                    <td style="padding:8px; border-bottom:1px solid #eee;">
+                        <input id="opt-fam-ed-group-id-${rowIdx}" value="${escapeHtml(g.id)}" readonly tabindex="-1" style="width:100%; padding:6px; border:1px solid #ddd; border-radius:4px; background:#f8f9fa; font-size:12px;">
+                    </td>
+                    <td style="padding:8px; border-bottom:1px solid #eee;">
+                        <input id="opt-fam-ed-group-label-${rowIdx}" value="${escapeHtml(g.label)}" style="width:100%; padding:6px; border:1px solid #ddd; border-radius:4px; font-size:12px;">
+                    </td>
+                    <td style="padding:8px; border-bottom:1px solid #eee;">
+                        <select id="opt-fam-ed-group-type-${rowIdx}" style="width:100%; padding:6px; border:1px solid #ddd; border-radius:4px; font-size:12px;">
+                            <option value="model" ${g.type === 'model' ? 'selected' : ''}>model</option>
+                            <option value="static" ${g.type === 'static' ? 'selected' : ''}>static</option>
+                            <option value="option" ${g.type === 'option' ? 'selected' : ''}>option</option>
+                        </select>
+                    </td>
+                    <td style="padding:8px; border-bottom:1px solid #eee;">
+                        <select id="opt-fam-ed-group-decision-${rowIdx}" style="width:100%; padding:6px; border:1px solid #ddd; border-radius:4px; font-size:12px;">
+                            <option value="single_choice" ${g.decisionMode === 'single_choice' ? 'selected' : ''}>single_choice</option>
+                            <option value="multi_choice" ${g.decisionMode === 'multi_choice' ? 'selected' : ''}>multi_choice</option>
+                        </select>
+                    </td>
+                    <td style="padding:8px; border-bottom:1px solid #eee;">
+                        <input id="opt-fam-ed-group-keywords-${rowIdx}" value="${escapeHtml(String(g.keywords || '').trim())}" placeholder="Ex: coloris, finition" style="width:100%; padding:6px; border:1px solid #ddd; border-radius:4px; font-size:12px;">
+                    </td>
+                    <td style="padding:8px; border-bottom:1px solid #eee; text-align:center;">
+                        <button type="button" class="btn btn-outline" data-opt-fam-ed-remove="${savedIndex}::${rowIdx}" style="font-size:12px; padding:4px 8px;">Suppr.</button>
+                    </td>
+                </tr>
+            `).join('');
+        }
+
+        function renderOptionsTabFamilyEditor(familyName) {
+            const panel = document.getElementById('options-family-editor-panel');
+            if (!panel) return;
+            const name = String(familyName || '').trim();
+            if (!name) {
+                panel.style.display = 'none';
+                panel.innerHTML = '';
+                return;
+            }
+            const idx = findValidatedFamilyIndexByRootLabel(name);
+            if (idx < 0) {
+                panel.style.display = 'none';
+                panel.innerHTML = '';
+                return;
+            }
+            const family = getFamilleValidatedFamilies()[idx] || {};
+            const familyLabel = getValidatedFamilyRootLabel(family) || name;
+            const objectName = String(family?.objectName || '').trim();
+            const decisionGroups = normalizeFamilyDecisionGroups(family?.decisionGroups);
+            const rowsHtml = buildOptionsTabFamilyEditorRowsHtml(decisionGroups, idx);
+            panel.style.display = 'block';
+            panel.innerHTML = `
+                <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:10px;">
+                    <div>
+                        <strong style="color:#1e3a8a;">Éditeur famille : ${escapeHtml(familyLabel)}</strong>
+                        <div style="font-size:12px; color:#475569; margin-top:2px;">Gérez les groupes et leurs mots-clés heuristiques.</div>
+                    </div>
+                    <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                        <button type="button" class="btn btn-outline" id="btn-options-reassign-groups">Reassigner groupes</button>
+                        <button type="button" class="btn btn-outline" data-opt-fam-ed-add="${idx}">Ajouter un groupe</button>
+                        <button type="button" class="btn btn-success" data-opt-fam-ed-save="${idx}">Enregistrer</button>
+                    </div>
+                </div>
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:10px;">
+                    <div>
+                        <label style="display:block; font-size:12px; color:#555; margin-bottom:4px;">Nom objet (clé recherche)</label>
+                        <input id="opt-fam-ed-object-name" value="${escapeHtml(objectName)}" placeholder="Ex: moteur" style="width:100%; padding:8px; border:1px solid #ddd; border-radius:4px;">
+                    </div>
+                    <div>
+                        <label style="display:block; font-size:12px; color:#555; margin-bottom:4px;">Mots-clés heuristiques famille (virgules)</label>
+                        <input id="opt-fam-ed-keywords" value="${escapeHtml(String(family?.keywords || '').trim())}" placeholder="Ex: coloris flotteur" style="width:100%; padding:8px; border:1px solid #ddd; border-radius:4px;">
+                    </div>
+                </div>
+                <table style="width:100%; border-collapse:collapse; font-size:13px; background:#fff; border:1px solid #e2e8f0; border-radius:8px; overflow:hidden;">
+                    <thead>
+                        <tr style="background:#f8f9fa;">
+                            <th style="padding:8px; border-bottom:1px solid #eee; text-align:left;">id</th>
+                            <th style="padding:8px; border-bottom:1px solid #eee; text-align:left;">label</th>
+                            <th style="padding:8px; border-bottom:1px solid #eee; text-align:left;">type</th>
+                            <th style="padding:8px; border-bottom:1px solid #eee; text-align:left;">decisionMode</th>
+                            <th style="padding:8px; border-bottom:1px solid #eee; text-align:left;">Mots-clés groupe</th>
+                            <th style="padding:8px; border-bottom:1px solid #eee; text-align:center;">Action</th>
+                        </tr>
+                    </thead>
+                    <tbody id="opt-fam-ed-groups-body">
+                        ${rowsHtml || '<tr><td colspan="6" style="padding:10px; color:#666;">Aucun groupe — cliquez « Ajouter un groupe ».</td></tr>'}
+                    </tbody>
+                </table>
+            `;
+            panel.querySelector(`[data-opt-fam-ed-save="${idx}"]`)?.addEventListener('click', () => saveOptionsTabFamilyEditor(idx));
+            panel.querySelector(`[data-opt-fam-ed-add="${idx}"]`)?.addEventListener('click', () => addOptionsTabFamilyDecisionGroupRow(idx));
+            panel.querySelector('#btn-options-reassign-groups')?.addEventListener('click', () => reassignGroupsForFamily(familyLabel));
+            panel.querySelectorAll('[data-opt-fam-ed-remove]').forEach((btn) => {
+                btn.addEventListener('click', () => {
+                    const raw = String(btn.getAttribute('data-opt-fam-ed-remove') || '');
+                    const [famIdx, rowIdx] = raw.split('::').map((x) => Number(x));
+                    removeOptionsTabFamilyDecisionGroupRow(famIdx, rowIdx);
+                });
+            });
+        }
+
+        function addOptionsTabFamilyDecisionGroupRow(savedIndex) {
+            const idx = Number(savedIndex);
+            const list = getFamilleValidatedFamilies();
+            if (!Number.isInteger(idx) || idx < 0 || idx >= list.length) return;
+            const family = { ...(list[idx] || {}) };
+            const groups = normalizeFamilyDecisionGroups(family.decisionGroups);
+            const existingIds = new Set(groups.map((g) => String(g?.id || '').trim()).filter(Boolean));
+            groups.push({
+                id: generateUniqueFamilyDecisionGroupId(existingIds, `group_${groups.length + 1}`),
+                label: `Group ${groups.length + 1}`,
+                type: 'option',
+                decisionMode: 'multi_choice',
+                keywords: ''
+            });
+            family.decisionGroups = groups;
+            list[idx] = family;
+            setFamilleValidatedFamilies(list);
+            renderOptionsTabFamilyEditor(getValidatedFamilyRootLabel(family));
+        }
+
+        function removeOptionsTabFamilyDecisionGroupRow(savedIndex, rowIndex) {
+            const idx = Number(savedIndex);
+            const rIdx = Number(rowIndex);
+            const list = getFamilleValidatedFamilies();
+            if (!Number.isInteger(idx) || idx < 0 || idx >= list.length) return;
+            const family = { ...(list[idx] || {}) };
+            const groups = normalizeFamilyDecisionGroups(family.decisionGroups);
+            if (!Number.isInteger(rIdx) || rIdx < 0 || rIdx >= groups.length) return;
+            groups.splice(rIdx, 1);
+            family.decisionGroups = groups;
+            list[idx] = family;
+            setFamilleValidatedFamilies(list);
+            renderOptionsTabFamilyEditor(getValidatedFamilyRootLabel(family));
+        }
+
+        function saveOptionsTabFamilyEditor(savedIndex) {
+            const idx = Number(savedIndex);
+            const list = getFamilleValidatedFamilies();
+            if (!Number.isInteger(idx) || idx < 0 || idx >= list.length) return;
+            const family = { ...(list[idx] || {}) };
+            const objectName = String(document.getElementById('opt-fam-ed-object-name')?.value || '').trim();
+            const groups = normalizeFamilyDecisionGroups(family.decisionGroups);
+            const usedIds = new Set();
+            const nextGroups = groups.map((currentGroup, rowIdx) => {
+                const rawId = String(document.getElementById(`opt-fam-ed-group-id-${rowIdx}`)?.value || '').trim();
+                const label = String(document.getElementById(`opt-fam-ed-group-label-${rowIdx}`)?.value || '').trim();
+                const typeRaw = String(document.getElementById(`opt-fam-ed-group-type-${rowIdx}`)?.value || 'option').trim().toLowerCase();
+                const type = typeRaw === 'model' ? 'model' : (typeRaw === 'static' ? 'static' : 'option');
+                const decisionMode = String(document.getElementById(`opt-fam-ed-group-decision-${rowIdx}`)?.value || 'single_choice').trim() === 'multi_choice' ? 'multi_choice' : 'single_choice';
+                const keywords = String(document.getElementById(`opt-fam-ed-group-keywords-${rowIdx}`)?.value || '').trim();
+                const nextLabel = label || (type === 'model' ? 'Modèle' : (type === 'static' ? 'Statique' : 'Option'));
+                const id = (!rawId || usedIds.has(rawId))
+                    ? generateUniqueFamilyDecisionGroupId(usedIds, nextLabel)
+                    : (usedIds.add(rawId), rawId);
+                return {
+                    id, label: nextLabel, type, decisionMode, keywords,
+                    optionIds: (Array.isArray(currentGroup?.optionIds) ? currentGroup.optionIds : [])
+                        .map((x) => String(x || '').trim())
+                        .filter(Boolean)
+                };
+            }).filter(Boolean);
+            family.objectName = objectName;
+            family.keywords = String(document.getElementById('opt-fam-ed-keywords')?.value || '').trim();
+            family.decisionGroups = nextGroups;
+            list[idx] = family;
+            setFamilleValidatedFamilies(list);
+            renderOptionsTabFamilyEditor(getValidatedFamilyRootLabel(family));
+            renderCategories();
+            showAlert('Famille et groupes enregistrés.', 'success');
+        }
+
+        async function reassignGroupsForFamily(familyName) {
+            const name = String(familyName || '').trim();
+            if (!name) {
+                showAlert('Sélectionnez une famille dans le filtre.', 'warning');
+                return;
+            }
+            const fam = findValidatedFamilyByRootLabel(name);
+            if (!fam) {
+                showAlert('Famille introuvable.', 'warning');
+                return;
+            }
+            const groups = normalizeFamilyDecisionGroups(fam.decisionGroups);
+            const defaultGroup = getDefaultFamilyDecisionGroupLabel(groups);
+            const groupRules = groups
+                .map((g) => ({
+                    familyLabel: name,
+                    groupLabel: String(g?.label || g?.id || '').trim(),
+                    keywords: String(g?.keywords || '').trim(),
+                    scope: 'all'
+                }))
+                .filter((r) => r.groupLabel && r.keywords);
+            const optionIds = (Array.isArray(fam.optionIds) ? fam.optionIds : [])
+                .map((x) => String(x || '').trim())
+                .filter(Boolean);
+            if (!optionIds.length) {
+                showAlert('Aucune option assignée à cette famille.', 'info');
+                return;
+            }
+            const rows = buildOptionsTabHeuristicRows().filter((r) => optionIds.includes(String(r.id || '').trim()));
+            const assigned = new Set();
+            const assignments = {};
+            groupRules.forEach((rule) => {
+                rows
+                    .filter((row) => !assigned.has(row.id))
+                    .filter((row) => heuristicRuleMatchesRow(rule, row))
+                    .forEach((row) => {
+                        assigned.add(row.id);
+                        assignments[row.id] = rule.groupLabel;
+                    });
+            });
+            rows.filter((row) => !assigned.has(row.id)).forEach((row) => {
+                assignments[row.id] = defaultGroup;
+            });
+            const entries = Object.entries(assignments).map(([optionId, groupLabel]) => ({
+                optionId,
+                familyLabel: name,
+                groupLabel: groupLabel || null
+            }));
+            try {
+                const done = await applyOptionFamilyAssignmentsBulk(entries, { skipServer: true, reload: false });
+                renderCategories();
+                showAlert(`${done} option(s) réassignée(s) aux groupes de « ${name} ».`, 'success');
+            } catch (error) {
+                showAlert('Erreur réassignation groupes: ' + error.message, 'error');
+            }
+        }
+
+        async function applyHeuristicOptionAssignments(optionAssignments, opts = {}) {
+            const silent = !!opts.silent;
+            const entries = [];
+            for (const [optionId, entry] of Object.entries(optionAssignments || {})) {
+                const oid = String(optionId || '').trim();
+                const familyLabel = String(entry?.familyLabel || '').trim();
+                const groupLabel = String(entry?.groupLabel || '').trim()
+                    || resolveDefaultGroupLabelForFamily(familyLabel);
+                if (!oid || !familyLabel || isOptionFamilyAssigned(oid)) continue;
+                entries.push({ optionId: oid, familyLabel, groupLabel });
+            }
+            if (!entries.length) return 0;
+            try {
+                return await applyOptionFamilyAssignmentsBulk(entries, { silent, reload: true });
+            } catch (err) {
+                if (!silent) showAlert(`Erreur assignation: ${err.message}`, 'error');
+                throw err;
+            }
         }
 
         function createValidatedFamilyFromBackofficeForm() {
@@ -2479,17 +2927,20 @@ Format:
             list.push({
                 familyLabel,
                 objectName,
+                keywords: '',
                 optionIds: [],
                 decisionGroups: getPendingFamilyCreationGroups()
             });
             setFamilleValidatedFamilies(list);
+            triggerUiStatePersistenceNow();
             const labelEl = document.getElementById('new-family-label-input');
             const objectEl = document.getElementById('new-family-object-input');
             if (labelEl) labelEl.value = '';
             if (objectEl) objectEl.value = '';
             resetFamilyCreationTemplate(true);
             renderExtractionInsights();
-            showAlert('Famille creee.', 'success');
+            refreshFamilleVueLC();
+            showAlert('Famille créée et enregistrée sur le serveur.', 'success');
         }
 
         function deleteValidatedFamilyByIndex(savedIndex) {
@@ -2501,6 +2952,7 @@ Format:
             list.splice(idx, 1);
             setFamilleValidatedFamilies(list);
             renderExtractionInsights();
+            refreshFamilleVueLC();
             showAlert('Famille supprimee.', 'success');
         }
 
@@ -2516,8 +2968,10 @@ Format:
             showAlert('Toutes les familles ont ete supprimees.', 'success');
         }
 
+        const FAMILY_GABARIT_BUILTIN_IDS = new Set(['minimal', 'standard', 'minoration', 'variantes', 'equipement']);
+
         /** Gabarits intégrés (les libellés des lignes `model` sont recalculés : Modèle + nom de famille saisi). */
-        function getFamilyDecisionGroupTemplates() {
+        function getBuiltinFamilyDecisionGroupTemplates() {
             return [
                 {
                     id: 'minimal',
@@ -2576,6 +3030,290 @@ Format:
                     ]
                 }
             ];
+        }
+
+        function getFamilyDecisionGroupCustomTemplates() {
+            const raw = currentData?.uiState?.familyDecisionGroupTemplates;
+            return sanitizeFamilyDecisionGroupTemplatesForServer(raw);
+        }
+
+        function setFamilyDecisionGroupCustomTemplates(templates) {
+            const next = sanitizeFamilyDecisionGroupTemplatesForServer(templates);
+            if (!currentData || typeof currentData !== 'object') currentData = {};
+            if (!currentData.uiState || typeof currentData.uiState !== 'object') currentData.uiState = {};
+            currentData.uiState.familyDecisionGroupTemplates = next;
+            scheduleUiStatePersistence();
+        }
+
+        /** Gabarits affichés : intégrés + personnalisés (même id → le personnalisé remplace l’intégré). */
+        function getFamilyDecisionGroupTemplates() {
+            const byId = new Map();
+            getBuiltinFamilyDecisionGroupTemplates().forEach((t) => byId.set(String(t.id), { ...t }));
+            getFamilyDecisionGroupCustomTemplates().forEach((t) => byId.set(String(t.id), { ...t }));
+            return Array.from(byId.values());
+        }
+
+        function closeFamilyGabaritsModal() {
+            document.getElementById('family-gabarits-modal')?.remove();
+            window.__editingGabaritDraft = null;
+        }
+
+        function refreshFamilyGabaritsManagerView() {
+            const modal = document.getElementById('family-gabarits-modal');
+            if (!modal) return;
+            const body = modal.querySelector('[data-gabarits-modal-body]');
+            if (!body) return;
+            const draft = window.__editingGabaritDraft;
+            body.innerHTML = draft
+                ? renderFamilyGabaritEditorHtml(draft)
+                : renderFamilyGabaritsListHtml();
+        }
+
+        function renderFamilyGabaritsListHtml() {
+            const rows = getFamilyDecisionGroupTemplates().map((t) => {
+                const id = escapeHtml(String(t.id || ''));
+                const isBuiltin = FAMILY_GABARIT_BUILTIN_IDS.has(String(t.id || '').trim());
+                const custom = getFamilyDecisionGroupCustomTemplates().some((x) => String(x.id) === String(t.id));
+                const badge = isBuiltin && !custom
+                    ? '<span style="font-size:10px;color:#64748b;">intégré</span>'
+                    : '<span style="font-size:10px;color:#7c3aed;">personnalisé</span>';
+                return `<tr>
+                    <td style="padding:8px;border-bottom:1px solid #eee;"><strong>${escapeHtml(t.title || id)}</strong> ${badge}</td>
+                    <td style="padding:8px;border-bottom:1px solid #eee;font-size:12px;color:#64748b;">${escapeHtml(String(t.description || ''))}</td>
+                    <td style="padding:8px;border-bottom:1px solid #eee;text-align:center;">
+                        <button type="button" class="btn btn-outline" style="font-size:12px;padding:4px 8px;" onclick="openFamilyGabaritEditor('${id}')">Éditer</button>
+                        ${(!isBuiltin || custom) ? `<button type="button" class="btn btn-outline" style="font-size:12px;padding:4px 8px;" onclick="deleteFamilyGabaritTemplate('${id}')">Supprimer</button>` : ''}
+                    </td>
+                </tr>`;
+            }).join('');
+            return `
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;gap:8px;flex-wrap:wrap;">
+                    <p style="margin:0;font-size:13px;color:#64748b;">Les gabarits personnalisés sont enregistrés sur le serveur. Modifier un gabarit intégré crée une surcharge personnalisée.</p>
+                    <button type="button" class="btn btn-primary" onclick="openFamilyGabaritEditor('')">+ Nouveau gabarit</button>
+                </div>
+                <table style="width:100%;border-collapse:collapse;font-size:13px;">
+                    <thead><tr style="background:#f8f9fa;">
+                        <th style="padding:8px;border-bottom:1px solid #eee;text-align:left;">Nom</th>
+                        <th style="padding:8px;border-bottom:1px solid #eee;text-align:left;">Description</th>
+                        <th style="padding:8px;border-bottom:1px solid #eee;text-align:center;">Actions</th>
+                    </tr></thead>
+                    <tbody>${rows || '<tr><td colspan="3" style="padding:10px;color:#666;">Aucun gabarit.</td></tr>'}</tbody>
+                </table>
+            `;
+        }
+
+        function openFamilyGabaritEditor(templateId) {
+            const tid = String(templateId || '').trim();
+            let draft;
+            if (tid) {
+                const tpl = getFamilyDecisionGroupTemplates().find((t) => String(t.id) === tid);
+                if (!tpl) return;
+                draft = {
+                    id: tpl.id,
+                    title: tpl.title,
+                    description: tpl.description || '',
+                    suggestedFamilyLabel: tpl.suggestedFamilyLabel || '',
+                    suggestedObjectName: tpl.suggestedObjectName || '',
+                    decisionGroups: normalizeFamilyDecisionGroups(tpl.decisionGroups)
+                };
+            } else {
+                draft = {
+                    id: '',
+                    title: '',
+                    description: '',
+                    suggestedFamilyLabel: '',
+                    suggestedObjectName: '',
+                    decisionGroups: normalizeFamilyDecisionGroups(getDefaultFamilyCreationDecisionGroups())
+                };
+            }
+            window.__editingGabaritDraft = draft;
+            refreshFamilyGabaritsManagerView();
+        }
+
+        function updateGabaritDraftMeta(field, value) {
+            const draft = window.__editingGabaritDraft;
+            if (!draft) return;
+            const fld = String(field || '').trim();
+            if (!fld) return;
+            draft[fld] = String(value ?? '').trim();
+            if (fld === 'title' && !String(draft.id || '').trim()) {
+                draft.id = `custom:${slugifyFamilyDecisionGroupId(draft.title) || 'gabarit'}:${Date.now()}`;
+            }
+        }
+
+        function updateGabaritDraftGroupField(rowIndex, field, value) {
+            const draft = window.__editingGabaritDraft;
+            if (!draft || !Array.isArray(draft.decisionGroups)) return;
+            const idx = Number(rowIndex);
+            if (!Number.isInteger(idx) || idx < 0 || idx >= draft.decisionGroups.length) return;
+            const row = { ...draft.decisionGroups[idx] };
+            const fld = String(field || '').trim();
+            if (fld === 'type') {
+                const t = String(value || '').trim().toLowerCase();
+                row.type = t === 'model' ? 'model' : (t === 'static' ? 'static' : 'option');
+            } else if (fld === 'decisionMode') {
+                row.decisionMode = String(value || '').trim() === 'multi_choice' ? 'multi_choice' : 'single_choice';
+            } else {
+                row[fld] = String(value ?? '').trim();
+            }
+            draft.decisionGroups[idx] = row;
+            refreshFamilyGabaritsManagerView();
+        }
+
+        function addGabaritDraftGroupRow() {
+            const draft = window.__editingGabaritDraft;
+            if (!draft) return;
+            const groups = Array.isArray(draft.decisionGroups) ? draft.decisionGroups : [];
+            const used = new Set(groups.map((g) => String(g.id || '').trim()).filter(Boolean));
+            groups.push({
+                id: generateUniqueFamilyDecisionGroupId(used, 'groupe'),
+                label: 'Nouveau groupe',
+                type: 'option',
+                decisionMode: 'multi_choice'
+            });
+            draft.decisionGroups = groups;
+            refreshFamilyGabaritsManagerView();
+        }
+
+        function removeGabaritDraftGroupRow(rowIndex) {
+            const draft = window.__editingGabaritDraft;
+            if (!draft || !Array.isArray(draft.decisionGroups)) return;
+            const idx = Number(rowIndex);
+            draft.decisionGroups = draft.decisionGroups.filter((_, i) => i !== idx);
+            refreshFamilyGabaritsManagerView();
+        }
+
+        function renderFamilyGabaritEditorHtml(draft) {
+            const d = draft || {};
+            const groups = Array.isArray(d.decisionGroups) ? d.decisionGroups : [];
+            const rowsHtml = groups.map((g, rowIdx) => {
+                const gid = escapeHtml(String(g.id || ''));
+                return `<tr>
+                    <td style="padding:6px;border-bottom:1px solid #eee;"><input value="${gid}" readonly style="width:100%;padding:4px;border:1px solid #ddd;border-radius:4px;background:#f8f9fa;font-size:12px;"></td>
+                    <td style="padding:6px;border-bottom:1px solid #eee;"><input value="${escapeHtml(g.label)}" onchange="updateGabaritDraftGroupField(${rowIdx},'label',this.value)" style="width:100%;padding:4px;border:1px solid #ddd;border-radius:4px;font-size:12px;"></td>
+                    <td style="padding:6px;border-bottom:1px solid #eee;">
+                        <select onchange="updateGabaritDraftGroupField(${rowIdx},'type',this.value)" style="width:100%;padding:4px;font-size:12px;">
+                            <option value="model" ${g.type === 'model' ? 'selected' : ''}>model</option>
+                            <option value="static" ${g.type === 'static' ? 'selected' : ''}>static</option>
+                            <option value="option" ${g.type === 'option' ? 'selected' : ''}>option</option>
+                        </select>
+                    </td>
+                    <td style="padding:6px;border-bottom:1px solid #eee;">
+                        <select onchange="updateGabaritDraftGroupField(${rowIdx},'decisionMode',this.value)" style="width:100%;padding:4px;font-size:12px;">
+                            <option value="single_choice" ${g.decisionMode === 'single_choice' ? 'selected' : ''}>single_choice</option>
+                            <option value="multi_choice" ${g.decisionMode === 'multi_choice' ? 'selected' : ''}>multi_choice</option>
+                        </select>
+                    </td>
+                    <td style="padding:6px;border-bottom:1px solid #eee;">
+                        <input value="${escapeHtml(String(g.keywords || '').trim())}" placeholder="Ex: coloris, finition" onchange="updateGabaritDraftGroupField(${rowIdx},'keywords',this.value)" style="width:100%;padding:4px;border:1px solid #ddd;border-radius:4px;font-size:12px;">
+                    </td>
+                    <td style="padding:6px;border-bottom:1px solid #eee;text-align:center;">
+                        <button type="button" class="btn btn-outline" style="font-size:11px;padding:3px 6px;" onclick="removeGabaritDraftGroupRow(${rowIdx})">Suppr.</button>
+                    </td>
+                </tr>`;
+            }).join('');
+            return `
+                <div style="margin-bottom:10px;">
+                    <button type="button" class="btn btn-outline" style="font-size:12px;" onclick="window.__editingGabaritDraft=null;refreshFamilyGabaritsManagerView();">← Liste des gabarits</button>
+                </div>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px;">
+                    <div>
+                        <label style="display:block;font-size:12px;font-weight:600;margin-bottom:4px;">Titre</label>
+                        <input value="${escapeHtml(d.title || '')}" onchange="updateGabaritDraftMeta('title',this.value)" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:4px;">
+                    </div>
+                    <div>
+                        <label style="display:block;font-size:12px;font-weight:600;margin-bottom:4px;">Id (technique)</label>
+                        <input value="${escapeHtml(d.id || '')}" readonly style="width:100%;padding:8px;border:1px solid #ddd;border-radius:4px;background:#f8f9fa;">
+                    </div>
+                </div>
+                <label style="display:block;font-size:12px;font-weight:600;margin-bottom:4px;">Description</label>
+                <textarea rows="2" onchange="updateGabaritDraftMeta('description',this.value)" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:4px;margin-bottom:10px;">${escapeHtml(d.description || '')}</textarea>
+                <table style="width:100%;border-collapse:collapse;font-size:12px;margin-bottom:8px;">
+                    <thead><tr style="background:#f8f9fa;">
+                        <th style="padding:6px;border-bottom:1px solid #eee;">id</th>
+                        <th style="padding:6px;border-bottom:1px solid #eee;">label</th>
+                        <th style="padding:6px;border-bottom:1px solid #eee;">type</th>
+                        <th style="padding:6px;border-bottom:1px solid #eee;">decisionMode</th>
+                        <th style="padding:6px;border-bottom:1px solid #eee;">Mot-clé</th>
+                        <th style="padding:6px;border-bottom:1px solid #eee;"></th>
+                    </tr></thead>
+                    <tbody>${rowsHtml || '<tr><td colspan="6" style="padding:8px;color:#666;">Aucun groupe.</td></tr>'}</tbody>
+                </table>
+                <button type="button" class="btn btn-outline" style="font-size:12px;margin-bottom:12px;" onclick="addGabaritDraftGroupRow()">+ Ajouter un groupe</button>
+                <div style="display:flex;justify-content:flex-end;gap:8px;">
+                    <button type="button" class="btn btn-outline" onclick="window.__editingGabaritDraft=null;refreshFamilyGabaritsManagerView();">Annuler</button>
+                    <button type="button" class="btn btn-success" onclick="saveFamilyGabaritFromEditor()">Enregistrer le gabarit</button>
+                </div>
+            `;
+        }
+
+        function saveFamilyGabaritFromEditor() {
+            const draft = window.__editingGabaritDraft;
+            if (!draft) return;
+            const title = String(draft.title || '').trim();
+            if (!title) {
+                showAlert('Titre du gabarit requis.', 'warning');
+                return;
+            }
+            let id = String(draft.id || '').trim();
+            if (!id) {
+                id = `custom:${slugifyFamilyDecisionGroupId(title) || 'gabarit'}:${Date.now()}`;
+            }
+            const entry = {
+                id,
+                title,
+                description: String(draft.description || '').trim(),
+                suggestedFamilyLabel: String(draft.suggestedFamilyLabel || '').trim(),
+                suggestedObjectName: String(draft.suggestedObjectName || '').trim(),
+                decisionGroups: normalizeFamilyDecisionGroups(draft.decisionGroups)
+            };
+            const custom = getFamilyDecisionGroupCustomTemplates().filter((t) => String(t.id) !== id);
+            custom.push(entry);
+            setFamilyDecisionGroupCustomTemplates(custom);
+            triggerUiStatePersistenceNow();
+            window.__editingGabaritDraft = null;
+            refreshFamilyGabaritsManagerView();
+            const mainTab = document.querySelector('.tab.active')?.getAttribute('data-tab');
+            if (mainTab === 'famille') {
+                mountFamilleVueLC();
+            }
+            showAlert('Gabarit enregistré.', 'success');
+        }
+
+        function deleteFamilyGabaritTemplate(templateId) {
+            const id = String(templateId || '').trim();
+            if (!id) return;
+            if (!confirm('Supprimer ce gabarit personnalisé ?')) return;
+            const custom = getFamilyDecisionGroupCustomTemplates().filter((t) => String(t.id) !== id);
+            setFamilyDecisionGroupCustomTemplates(custom);
+            triggerUiStatePersistenceNow();
+            refreshFamilyGabaritsManagerView();
+            const mainTab = document.querySelector('.tab.active')?.getAttribute('data-tab');
+            if (mainTab === 'famille') mountFamilleVueLC();
+            showAlert('Gabarit supprimé.', 'success');
+        }
+
+        function openFamilyGabaritsManagerModal() {
+            closeFamilyGabaritsModal();
+            window.__editingGabaritDraft = null;
+            const modalId = 'family-gabarits-modal';
+            const modal = document.createElement('div');
+            modal.id = modalId;
+            modal.className = 'modal active';
+            modal.innerHTML = `
+                <div class="modal-content" style="max-width:920px;">
+                    <div class="modal-header">
+                        <h2 style="font-size:18px;margin:0;">Gabarits (decision groups)</h2>
+                        <button type="button" class="btn btn-outline" onclick="closeFamilyGabaritsModal()">Fermer</button>
+                    </div>
+                    <div data-gabarits-modal-body style="padding:4px 0 8px;"></div>
+                </div>
+            `;
+            document.body.appendChild(modal);
+            modal.addEventListener('click', (e) => {
+                if (e.target.id === modalId) closeFamilyGabaritsModal();
+            });
+            refreshFamilyGabaritsManagerView();
         }
 
         function getFamilyCreationDisplayName() {
@@ -2659,7 +3397,9 @@ Format:
                 label: g.label,
                 type: g.type,
                 decisionMode: g.decisionMode,
-                pricingMode: g.pricingMode
+                pricingMode: g.pricingMode,
+                keywords: g.keywords,
+                optionIds: g.optionIds
             }));
             return normalizeFamilyDecisionGroups(resolveModelLabelsForFamilyCreationGroups(merged));
         }
@@ -2668,7 +3408,7 @@ Format:
             const gid = String(groupId || '').trim();
             const fld = String(field || '').trim();
             if (!gid || !fld) return;
-            const allowed = new Set(['id', 'label', 'type', 'decisionMode', 'pricingMode']);
+            const allowed = new Set(['id', 'label', 'type', 'decisionMode', 'keywords']);
             if (!allowed.has(fld)) return;
 
             const currentPersonalized = getPendingFamilyPersonalizedGroups();
@@ -2685,11 +3425,8 @@ Format:
             if (fld === 'type') {
                 const t = String(value || '').trim().toLowerCase();
                 row.type = t === 'model' ? 'model' : (t === 'static' ? 'static' : 'option');
-                if (row.type === 'static') row.pricingMode = 'addition';
             } else if (fld === 'decisionMode') {
                 row.decisionMode = String(value || '').trim() === 'multi_choice' ? 'multi_choice' : 'single_choice';
-            } else if (fld === 'pricingMode') {
-                row.pricingMode = String(value || '').trim() === 'minoration' ? 'minoration' : 'addition';
             } else if (fld === 'id') {
                 const nextId = String(value || '').trim();
                 if (!nextId) return;
@@ -2698,10 +3435,8 @@ Format:
                 row[fld] = String(value || '').trim();
             }
 
-            if (String(row.type || '') === 'model' || String(row.type || '') === 'static') {
-                row.pricingMode = 'addition';
-            }
-            if (!String(row.id || '').trim() || !String(row.label || '').trim()) return;
+            if (!String(row.id || '').trim()) return;
+            if (String(row.type || '') !== 'model' && !String(row.label || '').trim()) return;
 
             if (idxPersonalized >= 0) {
                 currentPersonalized[idxPersonalized] = row;
@@ -2741,8 +3476,7 @@ Format:
                 id: uid,
                 label: 'Nouveau groupe',
                 type: 'option',
-                decisionMode: 'multi_choice',
-                pricingMode: 'addition'
+                decisionMode: 'multi_choice'
             });
             setPendingFamilyPersonalizedGroups(personalized);
             refreshFamilyTemplatePreview();
@@ -2757,11 +3491,10 @@ Format:
                 label: g.label,
                 type: g.type,
                 decisionMode: g.decisionMode,
-                pricingMode: g.pricingMode
+                pricingMode: g.pricingMode,
+                keywords: g.keywords,
+                optionIds: g.optionIds
             }))));
-            const tplId = String(window.__pendingFamilyTemplateId || '').trim();
-            const tpl = tplId ? getFamilyDecisionGroupTemplates().find((t) => t.id === tplId) : null;
-            const title = tpl ? tpl.title : 'Par défaut';
             const rowsHtml = groups.length
                 ? groups.map((g, rowIdx) => {
                     const meta = groupsWithMeta[rowIdx] || {};
@@ -2795,10 +3528,7 @@ Format:
                         </select>
                     </td>
                     <td style="padding:8px; border-bottom:1px solid #eee;">
-                        <select aria-label="pricingMode" onchange="updatePendingFamilyCreationGroupField('${gid}', 'pricingMode', this.value)" style="width:100%; padding:6px; border:1px solid #ddd; border-radius:4px; background:#fff;" ${g.type === 'static' ? 'disabled' : ''}>
-                            <option value="addition" ${g.pricingMode === 'addition' ? 'selected' : ''}>addition</option>
-                            <option value="minoration" ${g.pricingMode === 'minoration' ? 'selected' : ''}>minoration</option>
-                        </select>
+                        <input value="${escapeHtml(String(g.keywords || '').trim())}" aria-label="mot-clé" placeholder="Ex: coloris, finition" onchange="updatePendingFamilyCreationGroupField('${gid}', 'keywords', this.value)" style="width:100%; padding:6px; border:1px solid #ddd; border-radius:4px; background:#fff;">
                     </td>
                     <td style="padding:8px; border-bottom:1px solid #eee; text-align:center;">
                         <button type="button" class="btn btn-outline" style="font-size:11px; padding:4px 8px;" onclick="removePendingFamilyCreationGroup('${gid}')">Supprimer</button>
@@ -2808,12 +3538,6 @@ Format:
                 }).join('')
                 : '<tr><td colspan="6" style="padding:10px; color:#666;">Aucun group pour le moment.</td></tr>';
             el.innerHTML = `
-                <div style="display:flex; align-items:flex-start; justify-content:space-between; margin-bottom:8px; gap:10px; padding:10px 12px 0;">
-                    <div>
-                        <strong style="font-size:13px; color:#334155;">Aperçu des decision groups</strong>
-                        <div style="font-size:12px; color:#64748b; margin-top:2px;">Même présentation qu’après <strong>Editer</strong> (ici lecture seule). Gabarit actif : <strong>${escapeHtml(title)}</strong>.</div>
-                    </div>
-                </div>
                 <div style="padding:0 12px 4px;">
                 <table style="width:100%; border-collapse:collapse; font-size:13px;">
                     <thead>
@@ -2822,18 +3546,49 @@ Format:
                             <th style="padding:8px; border-bottom:1px solid #eee; text-align:left;">label</th>
                             <th style="padding:8px; border-bottom:1px solid #eee; text-align:left;">type</th>
                             <th style="padding:8px; border-bottom:1px solid #eee; text-align:left;">decisionMode</th>
-                            <th style="padding:8px; border-bottom:1px solid #eee; text-align:left;">pricingMode</th>
+                            <th style="padding:8px; border-bottom:1px solid #eee; text-align:left;">Mot-clé</th>
                             <th style="padding:8px; border-bottom:1px solid #eee; text-align:center;">Action</th>
                         </tr>
                     </thead>
                     <tbody>${rowsHtml}</tbody>
                 </table>
                 </div>
-                <div style="display:flex; flex-wrap:wrap; align-items:center; gap:10px; margin-top:0; padding:10px 12px; border-top:1px solid #e2e8f0; background:#fff; border-radius:0 0 6px 6px;">
-                    <button type="button" class="btn btn-primary" style="font-size:12px;" onclick="addPendingFamilyCreationGroupRow()" title="Ajoute une ligne option à la fin du tableau">+ Ajouter un groupe</button>
-                    <span style="font-size:12px; color:#64748b; line-height:1.45;">Ajoute une ligne <strong>option</strong> sous les groupes ci-dessus. Id, libellés et modes se peaufinent après <strong>Creer famille</strong> puis <strong>Editer</strong>.</span>
+                <div style="display:flex; flex-direction:column; align-items:stretch; gap:10px; margin-top:0; padding:10px 12px; border-top:1px solid #e2e8f0; background:#fff; border-radius:0 0 6px 6px;">
+                    <div style="display:flex; flex-wrap:wrap; align-items:center; gap:10px;">
+                        <button type="button" class="btn btn-primary" style="font-size:12px;" onclick="addPendingFamilyCreationGroupRow()" title="Ajoute une ligne option à la fin du tableau">+ Ajouter un groupe</button>
+                    </div>
+                    <div style="display:flex; justify-content:flex-end;">
+                        <button type="button" class="btn btn-success" onclick="createValidatedFamilyFromBackofficeForm()">Créer famille</button>
+                    </div>
                 </div>
             `;
+        }
+
+        function renderFamilyGabaritButtonHtml(tpl) {
+            const tid = String(tpl?.id || '').trim();
+            const title = escapeHtml(String(tpl?.title || tid));
+            const activeId = String(window.__pendingFamilyTemplateId || '').trim();
+            const isActive = activeId === tid;
+            const btnClass = isActive ? 'btn btn-primary' : 'btn btn-outline';
+            return `<button type="button" class="${btnClass}" data-ugap-gabarit-btn="${escapeHtml(tid)}" aria-pressed="${isActive ? 'true' : 'false'}" style="font-size:12px; padding:6px 12px; white-space:nowrap;${isActive ? ' box-shadow:0 0 0 2px #0d6efd33;' : ''}" onclick="applyFamilyCreationTemplate('${escapeHtml(tid)}')" title="${escapeHtml(String(tpl?.description || ''))}">${title}</button>`;
+        }
+
+        function refreshFamilyGabaritButtonsVisual() {
+            const activeId = String(window.__pendingFamilyTemplateId || '').trim();
+            const tpl = activeId ? getFamilyDecisionGroupTemplates().find((t) => String(t.id) === activeId) : null;
+            const labelEl = document.getElementById('family-active-gabarit-label');
+            if (labelEl) {
+                labelEl.textContent = tpl ? `— ${String(tpl.title || tpl.id)}` : '';
+                labelEl.style.display = tpl ? 'inline' : 'none';
+            }
+            document.querySelectorAll('[data-ugap-gabarit-btn]').forEach((btn) => {
+                const id = String(btn.getAttribute('data-ugap-gabarit-btn') || '').trim();
+                const isActive = !!activeId && id === activeId;
+                btn.classList.toggle('btn-primary', isActive);
+                btn.classList.toggle('btn-outline', !isActive);
+                btn.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+                btn.style.boxShadow = isActive ? '0 0 0 2px rgba(13, 110, 253, 0.35)' : '';
+            });
         }
 
         function applyFamilyCreationTemplate(templateId) {
@@ -2846,6 +3601,7 @@ Format:
             const obj = document.getElementById('new-family-object-input');
             if (tpl.suggestedFamilyLabel && lab) lab.value = String(tpl.suggestedFamilyLabel);
             if (tpl.suggestedObjectName && obj) obj.value = String(tpl.suggestedObjectName);
+            refreshFamilyGabaritButtonsVisual();
             refreshFamilyTemplatePreview();
         }
 
@@ -2856,85 +3612,50 @@ Format:
                 window.__pendingFamilyAddedGroups = null;
                 window.__pendingFamilyRemovedGroupIds = null;
             }
+            refreshFamilyGabaritButtonsVisual();
             refreshFamilyTemplatePreview();
         }
 
-        function renderFamilyDecisionGroupsBackofficePanel() {
-            const families = getFamilleValidatedFamilies();
-            const familiesCount = Array.isArray(families) ? families.length : 0;
-            const templateButtonsHtml = getFamilyDecisionGroupTemplates().map((t) => {
-                const tid = String(t.id || '').trim();
-                return `<button type="button" class="btn btn-outline" style="font-size:12px; padding:6px 12px; white-space:nowrap;" onclick="applyFamilyCreationTemplate('${escapeHtml(tid)}')" title="${escapeHtml(String(t.description || ''))}">${escapeHtml(String(t.title || tid))}</button>`;
-            }).join('');
-            const rows = (Array.isArray(families) ? families : []).map((f, idx) => {
-                const groups = normalizeFamilyDecisionGroups(f?.decisionGroups);
-                const groupsTxt = groups.length
-                    ? groups.map((g) => `${g.type}:${g.id}`).join(', ')
-                    : 'Aucun';
-                return `
-                    <tr ondblclick="openFamilyEditionModal(${idx})" title="Double-clic pour editer">
-                        <td style="padding:8px; border-bottom:1px solid #eee;"><strong>${escapeHtml(String(f?.familyLabel || 'Famille'))}</strong></td>
-                        <td style="padding:8px; border-bottom:1px solid #eee;">${escapeHtml(String(f?.objectName || '').trim() || '—')}</td>
-                        <td style="padding:8px; border-bottom:1px solid #eee;">${escapeHtml(groupsTxt)}</td>
-                        <td style="padding:8px; border-bottom:1px solid #eee;">
-                            <div style="display:flex; gap:6px; flex-wrap:wrap;">
-                                <button type="button" class="btn btn-outline" onclick="openFamilyEditionModal(${idx})">Editer</button>
-                                <button type="button" class="btn btn-outline" onclick="deleteValidatedFamilyByIndex(${idx})">Supprimer</button>
-                            </div>
-                        </td>
-                    </tr>
-                `;
-            }).join('');
+        /** Formulaire de création famille (panneau Vue LC — masqué jusqu’au clic « Créer une famille »). */
+        function renderFamilyCreationFormHtml() {
+            const templateButtonsHtml = getFamilyDecisionGroupTemplates()
+                .map((t) => renderFamilyGabaritButtonHtml(t))
+                .join('');
+            const labelStyle = 'font-size:12px; font-weight:600; color:#555; white-space:nowrap; margin:0;';
+            const inputStyle = 'flex:1; min-width:120px; max-width:280px; padding:8px; border:1px solid #ddd; border-radius:4px;';
             return `
-                <div id="family-decision-groups-backoffice-panel" style="margin-top:14px; border:1px solid #e5e7eb; border-radius:8px; background:#fff;">
-                    <div style="padding:10px 12px; border-bottom:1px solid #e5e7eb; font-weight:600;">Familles valides (object + decision groups)</div>
+                <div id="family-decision-groups-backoffice-panel" class="ugap-famille-create-form">
                     <div style="padding:10px 12px; border-bottom:1px solid #eef2f7; background:#f9fafb;">
-                        <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:flex-end;">
-                            <div style="min-width:240px; flex:1;">
-                                <label style="display:block; font-size:12px; color:#555; margin-bottom:4px;">Nom famille</label>
-                                <input id="new-family-label-input" type="text" placeholder="Ex: Moteur" oninput="onNewFamilyLabelInputChange()" style="width:100%; padding:8px; border:1px solid #ddd; border-radius:4px;">
-                            </div>
-                            <div style="min-width:240px; flex:1;">
-                                <label style="display:block; font-size:12px; color:#555; margin-bottom:4px;">Nom objet (cle recherche)</label>
-                                <input id="new-family-object-input" type="text" placeholder="Ex: moteur" style="width:100%; padding:8px; border:1px solid #ddd; border-radius:4px;">
-                            </div>
-                            <button type="button" class="btn btn-success" onclick="createValidatedFamilyFromBackofficeForm()">Creer famille</button>
-                            <button type="button" class="btn btn-outline" onclick="deleteAllValidatedFamilies()" ${familiesCount === 0 ? 'disabled' : ''}>Supprimer toutes les familles</button>
+                        <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+                            <label for="new-family-label-input" style="${labelStyle}">Nom famille</label>
+                            <input id="new-family-label-input" type="text" placeholder="Ex: Moteur" oninput="onNewFamilyLabelInputChange()" style="${inputStyle}">
+                            <label for="new-family-object-input" style="${labelStyle}">Nom objet</label>
+                            <input id="new-family-object-input" type="text" placeholder="Ex: moteur" style="${inputStyle}">
                         </div>
                     </div>
                     <div style="padding:10px 12px; border-bottom:1px solid #eef2f7; background:#fff;">
-                        <div style="font-weight:600; font-size:13px; color:#334155; margin-bottom:4px;">1. Gabarits</div>
-                        <div style="font-size:12px; color:#64748b; margin-bottom:10px; line-height:1.45;">
-                            Choisissez un <strong>jeu de decision groups</strong> prédéfini, ou <strong>Réinitialiser</strong> pour repartir sur modèle + option. Les lignes <strong>model</strong> affichent <strong>Modèle</strong> + le <strong>nom famille</strong> du formulaire (ou &laquo; (nom famille) &raquo; si vide).
+                        <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:8px;">
+                            <span style="font-weight:600; font-size:13px; color:#334155;">Gabarits</span>
+                            <span id="family-active-gabarit-label" style="font-size:12px; color:#0d6efd; font-weight:600; display:none;"></span>
                         </div>
                         <div style="display:flex; flex-wrap:wrap; gap:8px; align-items:center;">
                             ${templateButtonsHtml}
                             <button type="button" class="btn btn-outline" style="font-size:12px;" onclick="resetFamilyCreationTemplate()" title="Revenir au groupement minimal (modèle + option)">Réinitialiser</button>
+                            <button type="button" class="btn btn-outline" style="font-size:12px;" onclick="openFamilyGabaritsManagerModal()" title="Créer ou modifier les gabarits enregistrés sur le serveur">Éditer les gabarits</button>
                         </div>
                     </div>
-                    <div style="padding:10px 12px; border-bottom:1px solid #eef2f7; background:#fafbfc;">
-                        <div style="font-weight:600; font-size:13px; color:#334155; margin-bottom:4px;">2. Aperçu et groupes supplémentaires</div>
-                        <div style="font-size:12px; color:#64748b; margin-bottom:10px; line-height:1.45;">
-                            Vérifiez le tableau ci-dessous. Le bouton <strong>+ Ajouter un groupe</strong> se trouve <strong>sous la dernière ligne</strong> : il prolonge la liste pour cette création uniquement. Les groupes ajoutés restent en place même si vous changez de gabarit (réglages fins dans <strong>Editer</strong> après enregistrement).
-                        </div>
+                    <div style="padding:10px 12px; background:#fafbfc;">
                         <div id="family-template-preview" style="padding:0; overflow:hidden; border:1px solid #e2e8f0; border-radius:8px; background:#f8fafc; min-height:48px;"></div>
                     </div>
-                    ${(Array.isArray(families) && families.length > 0)
-                        ? `<table style="width:100%; border-collapse:collapse; font-size:13px;">
-                            <thead>
-                                <tr style="background:#f8fafc;">
-                                    <th style="padding:8px; border-bottom:1px solid #eee; text-align:left;">Famille</th>
-                                    <th style="padding:8px; border-bottom:1px solid #eee; text-align:left;">Nom objet</th>
-                                    <th style="padding:8px; border-bottom:1px solid #eee; text-align:left;">Decision groups</th>
-                                    <th style="padding:8px; border-bottom:1px solid #eee; text-align:left;">Action</th>
-                                </tr>
-                            </thead>
-                            <tbody>${rows}</tbody>
-                        </table>`
-                        : '<div style="padding:10px 12px; color:#6b7280;">Aucune famille validee pour le moment.</div>'
-                    }
                 </div>
             `;
+        }
+
+        function refreshFamilleVueLC() {
+            const mount = document.getElementById('ugap-famille-lc-mount');
+            if (mount && window.UgapTemplates?.refreshVueLCList) {
+                window.UgapTemplates.refreshVueLCList('famille', mount);
+            }
         }
 
         function getFamilleRelations() {
@@ -3355,6 +4076,11 @@ Format:
 
         // Render categories (options view)
         function renderCategories() {
+            syncOptionFamilyStatusesWithCatalog();
+            bindOptionsHeuristicPanelEvents();
+            renderOptionsHeuristicRulesList();
+            bindOptionsHeuristicRulesActions();
+
             const tbody = document.querySelector('#categories-table tbody');
             const filterModel = document.getElementById('filter-model');
             const filterName = document.getElementById('filter-option-name');
@@ -3368,7 +4094,12 @@ Format:
             if (!tbody || !filterModel) return;
             if (btnOptionsResetPurgeTemp) {
                 btnOptionsResetPurgeTemp.onclick = async () => {
-                    if (!confirm('Réinitialiser le catalogue et l\'import à l\'état juste après extraction Excel (modèles, options, minorations) ? Les validations et fusions seront perdues.')) return;
+                    if (!confirm(
+                        'Réinitialiser le catalogue et l\'import à l\'état juste après extraction Excel (modèles, options, minorations) ?\n\n'
+                        + '• Les familles validées (onglet Famille) sont conservées côté serveur.\n'
+                        + '• Les liens options → familles peuvent être perdus si les identifiants d\'options changent.\n'
+                        + '• Validations modèles, fusions et assignations options seront perdues.'
+                    )) return;
                     try {
                         const importId = String(currentImportId || currentImportStaging?._id || '').trim();
                         const body = importId ? JSON.stringify({ importId }) : undefined;
@@ -3382,7 +4113,11 @@ Format:
                             currentImportId = String(result.data.importId);
                         }
                         await refreshImportStagingIndicator();
-                        showAlert('Catalogue remis à l\'état post-extraction. Reprenez l\'importation depuis l\'onglet Import.', 'success');
+                        const famCount = getFamilleValidatedFamilies().length;
+                        const famMsg = famCount > 0
+                            ? ` ${famCount} famille(s) validée(s) toujours présente(s) — vérifiez l'onglet Famille.`
+                            : ' Aucune famille validée enregistrée (liste vide côté serveur).';
+                        showAlert('Catalogue remis à l\'état post-extraction.' + famMsg, famCount > 0 ? 'success' : 'warning');
                     } catch (error) {
                         showAlert('Erreur réinitialisation : ' + error.message, 'error');
                     }
@@ -3406,6 +4141,7 @@ Format:
             const models = Array.isArray(currentData?.models) ? currentData.models : [];
             if (categories.length === 0) {
                 tbody.innerHTML = '<tr><td colspan="7" style="text-align:center; color:#666;">Aucune option</td></tr>';
+                renderOptionsTabFamilyEditor(String(window.__optionsTabFilterState?.family || '').trim());
                 return;
             }
 
@@ -3423,7 +4159,6 @@ Format:
             const nameQuery = String(filterName?.value || '').trim().toLowerCase();
             const onlyUnassigned = !!window.__optionsTabFilterState.onlyUnassigned;
             const autoAssignedOnly = !!window.__optionsTabFilterState.autoAssignedOnly;
-            const autoAssignments = getOptionsAutoAssignments();
             const familyChoices = getFamilleChoicesForOptionTab();
             const subFamilyMap = getFamilleSubFamilyMapForOptionTab();
             const familyFilterState = String(window.__optionsTabFilterState.family || '').trim();
@@ -3482,7 +4217,7 @@ Format:
             const hasSubFamilyFilterState = subFamilyFilterChoices.some((entry) => entry.value === subFamilyFilterState);
             const selectedSubFamilyFilter = hasSubFamilyFilterState ? subFamilyFilterState : '';
             if (filterSubFamily) {
-                filterSubFamily.innerHTML = '<option value="">Toutes les sous-familles</option>';
+                filterSubFamily.innerHTML = '<option value="">Tous les groupes</option>';
                 subFamilyFilterChoices.forEach((entry) => {
                     const opt = document.createElement('option');
                     opt.value = entry.value;
@@ -3505,55 +4240,58 @@ Format:
                     if (isPrLabel(option?.name)) return;
 
                     const optionId = String(option?.id || '');
-                    const selectedFamilyFull = String(getSelectedFamilyLabelForOption(optionId, option?.familyLabel) || '').trim();
-                    const selectedParts = selectedFamilyFull.split(' / ').map((x) => String(x || '').trim()).filter(Boolean);
-                    const selectedFamily = selectedParts.length ? selectedParts[0] : '';
-                    const selectedSubFamily = selectedParts.length > 1 ? selectedParts.slice(1).join(' / ') : '';
-                    const autoEntry = autoAssignments[optionId];
-                    const isAutoPending = !!(autoEntry && autoEntry.status === 'pending');
-                    if (onlyUnassigned && selectedFamily) return;
-                    if (autoAssignedOnly && !isAutoPending) return;
+                    const assignmentCtx = getOptionAssignmentContext(optionId, option?.familyLabel);
+                    const selectedFamily = String(assignmentCtx.familyName || '').trim();
+                    const selectedSubFamily = String(assignmentCtx.groupLabel || '').trim();
+                    const isAssigned = isOptionFamilyAssigned(optionId);
+                    if (onlyUnassigned && isAssigned) return;
+                    if (autoAssignedOnly && !isAssigned) return;
                     if (nameQuery && !String(option?.name || '').toLowerCase().includes(nameQuery)) return;
                     if (selectedFamilyFilter && selectedFamily !== selectedFamilyFilter) return;
                     if (selectedSubFamilyFilter) {
                         if (selectedFamilyFilter) {
                             if (selectedSubFamily !== selectedSubFamilyFilter) return;
-                        } else if (selectedFamilyFull !== selectedSubFamilyFilter) {
-                            return;
+                        } else {
+                            const [filterFamily, filterGroup] = String(selectedSubFamilyFilter).split(' / ').map((x) => String(x || '').trim());
+                            if (selectedFamily !== filterFamily || selectedSubFamily !== filterGroup) return;
                         }
                     }
                     const subFamilies = selectedFamily ? (subFamilyMap.get(selectedFamily) || []) : [];
                     const allPathChoices = [];
-                    subFamilyMap.forEach((subs, parent) => {
-                        (subs || []).forEach((sf) => {
+                    subFamilyMap.forEach((groups, parent) => {
+                        (groups || []).forEach((groupLabel) => {
                             allPathChoices.push({
-                                value: `${parent}|||${sf}`,
-                                label: `/${parent}/${sf}`.replace(/\/+/g, '/')
+                                value: `${parent} / ${groupLabel}`,
+                                label: `${parent} / ${groupLabel}`
                             });
                         });
                     });
                     allPathChoices.sort((a, b) => a.label.localeCompare(b.label, 'fr', { sensitivity: 'base' }));
                     const isColorOption = option?.type === 'couleur' || String(option?.name || '').toLowerCase().includes('couleur');
+                    const showFamilyAsUnassigned = !isAssigned && !selectedFamily;
+                    const familySelectStyle = showFamilyAsUnassigned
+                        ? 'min-width:220px; width:100%; padding:6px; border:1px solid #f59e0b; border-radius:4px; color:#9a3412; font-weight:600; background:#fffbeb;'
+                        : 'min-width:220px; width:100%; padding:6px; border:1px solid #ddd; border-radius:4px;';
                     const familySelectOptionsHtml = [
-                        '<option value="">-- Non attribuée --</option>',
+                        `<option value="" ${!selectedFamily ? 'selected' : ''}>Non attribuée</option>`,
                         ...familyChoices.map((name) => `<option value="${escapeHtml(name)}" ${selectedFamily === name ? 'selected' : ''}>${escapeHtml(name)}</option>`)
                     ].join('');
                     const subFamilySelectOptionsHtml = selectedFamily
                         ? (
                             subFamilies.length
                                 ? [
-                                    '<option value="">-- Choisir une sous-famille --</option>',
+                                    '<option value="">-- Choisir un groupe --</option>',
                                     ...subFamilies.map((sf) => `<option value="${escapeHtml(sf)}" ${selectedSubFamily === sf ? 'selected' : ''}>${escapeHtml(sf)}</option>`)
                                 ].join('')
-                                : `<option value="">Identique à "${escapeHtml(selectedFamily)}"</option>`
+                                : '<option value="">Aucun groupe défini</option>'
                         )
                         : (
                             allPathChoices.length
                                 ? [
-                                    '<option value="">-- Choisir via chemin --</option>',
+                                    '<option value="">-- Choisir famille / groupe --</option>',
                                     ...allPathChoices.map((p) => `<option value="${escapeHtml(p.label)}">${escapeHtml(p.label)}</option>`)
                                 ].join('')
-                                : '<option value="">-- Aucune sous-famille disponible --</option>'
+                                : '<option value="">-- Aucun groupe disponible --</option>'
                         );
                     const tr = document.createElement('tr');
                     const isManualBaseOption = !!option?.manualBaseOption
@@ -3561,7 +4299,7 @@ Format:
                     tr.innerHTML = `
                         <td>${escapeHtml(String(option?.name || '—'))}${isColorOption ? ' 🎨' : ''}</td>
                         <td>
-                            <select class="opt-family-select" data-option-id="${escapeHtml(optionId)}" style="min-width:220px; width:100%; padding:6px; border:1px solid #ddd; border-radius:4px;">
+                            <select class="opt-family-select" data-option-id="${escapeHtml(optionId)}" style="${familySelectStyle}">
                                 ${familySelectOptionsHtml}
                             </select>
                         </td>
@@ -3574,9 +4312,6 @@ Format:
                         <td>${(Number(option?.priceUgap || 0)).toFixed(2)} €</td>
                         <td><span class="badge">${compatible.length} modèle(s)</span></td>
                         <td style="color:#999; display:flex; gap:6px; align-items:center;">
-                            ${isAutoPending
-                                ? `<button type="button" class="btn btn-outline opt-validate-auto-btn" data-option-id="${escapeHtml(optionId)}" style="padding:2px 8px;">Valider</button>`
-                                : ''}
                             ${isManualBaseOption
                                 ? `<button type="button" class="opt-delete-manual-btn" data-option-id="${escapeHtml(optionId)}" title="Supprimer définitivement cette option manuelle" style="border:none; background:#dc3545; color:#fff; border-radius:4px; width:24px; height:24px; cursor:pointer; font-weight:700;">×</button>`
                                 : '—'}
@@ -3587,19 +4322,7 @@ Format:
                 });
             });
 
-            let unassignedCount = 0;
-            categories.forEach((category) => {
-                (category.options || []).forEach((option) => {
-                    const compatible = Array.isArray(option?.compatibleModels) ? option.compatibleModels.map((x) => String(x)) : [];
-                    if (selectedModelId && !compatible.includes(selectedModelId)) return;
-                    if (isPrLabel(option?.name)) return;
-                    const optionId = String(option?.id || '');
-                    const selectedFamilyFull = String(getSelectedFamilyLabelForOption(optionId, option?.familyLabel) || '').trim();
-                    const selectedParts = selectedFamilyFull.split(' / ').map((x) => String(x || '').trim()).filter(Boolean);
-                    const selectedFamily = selectedParts.length ? selectedParts[0] : '';
-                    if (!selectedFamily) unassignedCount += 1;
-                });
-            });
+            const unassignedCount = countUnassignedOptionsForFamille({ modelId: selectedModelId });
 
             if (rowCount === 0) {
                 tbody.innerHTML = '<tr><td colspan="7" style="text-align:center; color:#666;">Aucune option</td></tr>';
@@ -3616,10 +4339,13 @@ Format:
                 });
             }
             if (btnFilterAutoAssigned) {
-                btnFilterAutoAssigned.textContent = autoAssignedOnly ? 'Afficher toutes les options' : 'Assignées automatiquement';
+                btnFilterAutoAssigned.textContent = autoAssignedOnly ? 'Afficher toutes les options' : 'Options assignées';
                 btnFilterAutoAssigned.onclick = null;
                 btnFilterAutoAssigned.addEventListener('click', () => {
                     window.__optionsTabFilterState.autoAssignedOnly = !window.__optionsTabFilterState.autoAssignedOnly;
+                    if (window.__optionsTabFilterState.autoAssignedOnly) {
+                        window.__optionsTabFilterState.onlyUnassigned = false;
+                    }
                     renderCategories();
                 });
             }
@@ -3633,6 +4359,11 @@ Format:
                 }
             }
             updateOptionsTabWarningBadge();
+            if (typeof scheduleParentEmbedResize === 'function') {
+                scheduleParentEmbedResize();
+                setTimeout(scheduleParentEmbedResize, 80);
+                setTimeout(scheduleParentEmbedResize, 400);
+            }
 
             document.querySelectorAll('.opt-family-select').forEach((sel) => {
                 sel.onchange = null;
@@ -3644,21 +4375,20 @@ Format:
                 });
             });
 
-            const applySubFamilySelection = async (optionId, parentFamily, subFamilyRaw) => {
+            const applySubFamilySelection = async (optionId, parentFamily, groupLabelRaw) => {
                 if (!optionId) return;
-                let fullFamilyLabel = '';
+                const groupLabel = String(groupLabelRaw || '').trim();
                 if (parentFamily) {
-                    fullFamilyLabel = subFamilyRaw ? `${parentFamily} / ${subFamilyRaw}` : parentFamily;
-                } else {
-                    if (!subFamilyRaw) return;
-                    const pathMatch = subFamilyRaw.match(/^\/?([^/]+)\/(.+)$/);
-                    if (!pathMatch) return;
-                    const pathParent = String(pathMatch[1] || '').trim();
-                    const pathSub = String(pathMatch[2] || '').trim();
-                    if (!pathParent) return;
-                    fullFamilyLabel = pathSub ? `${pathParent} / ${pathSub}` : pathParent;
+                    await updateOptionDecisionGroupFromOptionsTab(optionId, parentFamily, groupLabel);
+                    return;
                 }
-                await updateOptionFamilyFromOptionsTab(optionId, fullFamilyLabel);
+                if (!groupLabel) return;
+                const pathMatch = groupLabel.match(/^([^/]+)\s*\/\s*(.+)$/);
+                if (!pathMatch) return;
+                const pathParent = String(pathMatch[1] || '').trim();
+                const pathGroup = String(pathMatch[2] || '').trim();
+                if (!pathParent) return;
+                await updateOptionDecisionGroupFromOptionsTab(optionId, pathParent, pathGroup);
             };
 
             document.querySelectorAll('.opt-subfamily-select').forEach((sel) => {
@@ -3696,33 +4426,30 @@ Format:
                     }
                 });
             });
-            document.querySelectorAll('.opt-validate-auto-btn').forEach((btn) => {
-                btn.onclick = null;
-                btn.addEventListener('click', () => {
-                    const optionId = String(btn.getAttribute('data-option-id') || '').trim();
-                    if (!optionId) return;
-                    const map = getOptionsAutoAssignments();
-                    if (map[optionId]) {
-                        map[optionId].status = 'validated';
-                        setOptionsAutoAssignments(map);
-                    }
-                    renderCategories();
-                });
-            });
+            renderOptionsTabFamilyEditor(selectedFamilyFilter);
         }
 
         async function updateOptionFamilyFromOptionsTab(optionId, familyLabel) {
             const record = findOptionRecordById(optionId);
             if (!record?.option) return;
+            const wanted = String(optionId || '').trim();
+            const parsed = parseValidatedFamilyLabel(String(familyLabel || '').trim());
+            const familyName = parsed.familyName || String(familyLabel || '').trim();
             try {
                 await apiCall(`/options/${encodeURIComponent(optionId)}`, {
                     method: 'PUT',
                     body: JSON.stringify({
                         ...record.option,
-                        familyLabel: String(familyLabel || '').trim()
+                        familyLabel: familyName
                     })
                 });
-                assignOptionToValidatedFamily(optionId, String(familyLabel || '').trim());
+                assignOptionToValidatedFamily(optionId, familyName);
+                const autoMap = getOptionsAutoAssignments();
+                if (autoMap[wanted]) {
+                    delete autoMap[wanted];
+                    setOptionsAutoAssignments(autoMap);
+                }
+                await triggerUiStatePersistenceNow();
                 await loadData(true);
                 renderCategories();
             } catch (error) {
@@ -3730,17 +4457,113 @@ Format:
             }
         }
 
-        async function updateOptionFamilyFromOptionsTabSilent(optionId, familyLabel) {
+        async function updateOptionDecisionGroupFromOptionsTab(optionId, familyName, groupLabel) {
+            const record = findOptionRecordById(optionId);
+            if (!record?.option) return;
+            const wanted = String(optionId || '').trim();
+            const rootFamily = String(familyName || '').trim();
+            const group = String(groupLabel || '').trim();
+            if (!rootFamily) return;
+            try {
+                await apiCall(`/options/${encodeURIComponent(optionId)}`, {
+                    method: 'PUT',
+                    body: JSON.stringify({
+                        ...record.option,
+                        familyLabel: rootFamily
+                    })
+                });
+                assignOptionToValidatedFamily(optionId, rootFamily, group || null);
+                const autoMap = getOptionsAutoAssignments();
+                if (autoMap[wanted]) {
+                    delete autoMap[wanted];
+                    setOptionsAutoAssignments(autoMap);
+                }
+                await triggerUiStatePersistenceNow();
+                await loadData(true);
+                renderCategories();
+            } catch (error) {
+                showAlert('Erreur assignation groupe: ' + error.message, 'error');
+            }
+        }
+
+        function patchLocalOptionFamilyLabels(assignments) {
+            if (!currentData?.categories) return;
+            const map = new Map();
+            (Array.isArray(assignments) ? assignments : []).forEach((item) => {
+                const optionId = String(item?.optionId || '').trim();
+                const parsed = parseValidatedFamilyLabel(String(item?.familyLabel || '').trim());
+                const familyName = parsed.familyName || String(item?.familyLabel || '').trim();
+                if (optionId && familyName) map.set(optionId, familyName);
+            });
+            if (!map.size) return;
+            currentData.categories = (currentData.categories || []).map((cat) => ({
+                ...cat,
+                options: (cat.options || []).map((opt) => {
+                    const oid = String(opt?.id || '').trim();
+                    if (!map.has(oid)) return opt;
+                    return { ...opt, familyLabel: map.get(oid) };
+                })
+            }));
+        }
+
+        async function applyOptionFamilyAssignmentsBulk(entries, opts = {}) {
+            const silent = !!opts.silent;
+            const skipServer = !!opts.skipServer;
+            const reload = opts.reload !== false;
+            const normalized = (Array.isArray(entries) ? entries : [])
+                .map((entry) => {
+                    const optionId = String(entry?.optionId || '').trim();
+                    const familyLabel = String(entry?.familyLabel || '').trim();
+                    const parsed = parseValidatedFamilyLabel(familyLabel);
+                    const familyName = parsed.familyName || familyLabel;
+                    const groupLabel = String(entry?.groupLabel || parsed.subFamilyName || '').trim()
+                        || resolveDefaultGroupLabelForFamily(familyName);
+                    return { optionId, familyLabel: familyName, groupLabel };
+                })
+                .filter((entry) => entry.optionId && entry.familyLabel);
+            if (!normalized.length) return 0;
+
+            if (!skipServer) {
+                const payload = normalized.map(({ optionId, familyLabel }) => ({
+                    optionId,
+                    familyLabel
+                }));
+                await apiCall('/options/assign-families-bulk', {
+                    method: 'POST',
+                    body: JSON.stringify({ assignments: payload })
+                });
+                patchLocalOptionFamilyLabels(payload);
+            }
+
+            const applied = assignOptionsToValidatedFamiliesBulk(normalized);
+            const autoMap = getOptionsAutoAssignments();
+            let autoChanged = false;
+            normalized.forEach(({ optionId }) => {
+                if (autoMap[optionId]) {
+                    delete autoMap[optionId];
+                    autoChanged = true;
+                }
+            });
+            if (autoChanged) setOptionsAutoAssignments(autoMap);
+            await triggerUiStatePersistenceNow();
+            if (reload && !skipServer) {
+                await loadData(true);
+            }
+            return applied;
+        }
+
+        async function updateOptionFamilyFromOptionsTabSilent(optionId, familyLabel, groupLabelHint = null) {
             const record = findOptionRecordById(optionId);
             if (!record?.option) return false;
-            await apiCall(`/options/${encodeURIComponent(optionId)}`, {
-                method: 'PUT',
-                body: JSON.stringify({
-                    ...record.option,
-                    familyLabel: String(familyLabel || '').trim()
-                })
-            });
-            assignOptionToValidatedFamily(optionId, String(familyLabel || '').trim());
+            const parsed = parseValidatedFamilyLabel(String(familyLabel || '').trim());
+            const familyName = parsed.familyName || String(familyLabel || '').trim();
+            const groupLabel = String(groupLabelHint || parsed.subFamilyName || '').trim()
+                || resolveDefaultGroupLabelForFamily(familyName);
+            await applyOptionFamilyAssignmentsBulk([{
+                optionId,
+                familyLabel: familyName,
+                groupLabel: groupLabel || null
+            }], { reload: true });
             return true;
         }
 
@@ -3883,11 +4706,9 @@ Format:
                 });
             });
             options.forEach((r) => {
-                const full = String(getSelectedFamilyLabelForOption(r.option?.id, r.option?.familyLabel) || '').trim();
-                if (!full) return;
-                const parts = full.split(' / ').map((x) => String(x || '').trim()).filter(Boolean);
-                const family = parts.length ? parts[0] : '';
-                const sub = parts.length > 1 ? parts.slice(1).join(' / ') : '';
+                const ctx = getOptionAssignmentContext(r.option?.id, r.option?.familyLabel);
+                const family = String(ctx.familyName || '').trim();
+                const sub = String(ctx.groupLabel || '').trim();
                 if (!family) return;
                 if (!byFamily.has(family)) byFamily.set(family, []);
                 byFamily.get(family).push(r.option);
@@ -3951,20 +4772,7 @@ Format:
         }
 
         function getOptionsWarningsSummary() {
-            const categories = Array.isArray(currentData?.categories) ? currentData.categories : [];
-            let unassignedOptions = 0;
-            const isPrLabel = (label) => /^PR\s/i.test(String(label || '').trim());
-            categories.forEach((category) => {
-                (category.options || []).forEach((option) => {
-                    if (isPrLabel(option?.name)) return;
-                    const optionId = String(option?.id || '').trim();
-                    const selectedFamilyFull = String(getSelectedFamilyLabelForOption(optionId, option?.familyLabel) || '').trim();
-                    const selectedParts = selectedFamilyFull.split(' / ').map((x) => String(x || '').trim()).filter(Boolean);
-                    const selectedFamily = selectedParts.length ? selectedParts[0] : '';
-                    if (!selectedFamily) unassignedOptions += 1;
-                });
-            });
-            return { unassignedOptions };
+            return { unassignedOptions: countUnassignedOptionsForFamille() };
         }
 
         function getFamilleWarningsSummary() {
@@ -3980,7 +4788,8 @@ Format:
         }
 
         function updateOptionsTabWarningBadge() {
-            setTabWarningBadge('options', 0, '');
+            const n = countUnassignedOptionsForFamille();
+            setTabWarningBadge('options', n, n > 0 ? `${n} option(s) famille non assignée` : '');
         }
 
         function updateFamilleTabWarningBadge() {
@@ -4016,7 +4825,7 @@ Format:
             const validatedFamilies = getFamilleValidatedFamilies();
             const familyToViewLabel = new Map();
             (Array.isArray(validatedFamilies) ? validatedFamilies : []).forEach((f) => {
-                const familyLabel = String(f?.familyLabel || '').trim();
+                const familyLabel = getValidatedFamilyRootLabel(f);
                 const viewLabel = String(f?.businessViewLabel || '').trim();
                 if (familyLabel && viewLabel) familyToViewLabel.set(familyLabel.toLowerCase(), viewLabel);
             });
@@ -4026,10 +4835,10 @@ Format:
 
             rows.forEach((row) => {
                 const opt = row.option || {};
-                const family = String(getSelectedFamilyLabelForOption(opt?.id, opt?.familyLabel) || 'Sans famille');
-                const parsed = parseValidatedFamilyLabel(family);
-                const subFamily = String(opt?.subCategory || opt?.subFamily || parsed?.subFamilyName || '').trim();
-                const subKey = `${String(parsed?.familyName || family || '').trim().toLowerCase()}::${subFamily.toLowerCase()}`;
+                const ctx = getOptionAssignmentContext(opt?.id, opt?.familyLabel);
+                const family = String(ctx.familyName || 'Sans famille').trim() || 'Sans famille';
+                const subFamily = String(ctx.groupLabel || opt?.subCategory || opt?.subFamily || '').trim();
+                const subKey = `${String(ctx.familyName || family || '').trim().toLowerCase()}::${subFamily.toLowerCase()}`;
                 const mappedViews = Array.isArray(subFamilyViewMap[subKey]) ? subFamilyViewMap[subKey] : [];
                 let targets = mappedViews.filter((v) => selectedViewsSet.has(String(v || '').trim()));
                 if (!targets.length) {
@@ -4050,11 +4859,11 @@ Format:
                     const familyRows = Array.from(famMap.entries()).map(([family, opts]) => {
                         const famKey = `${view}__${family}`;
                         const famOpen = !!uiState.openFamilies[famKey];
-                        const parsed = parseValidatedFamilyLabel(family);
-                        const familyBase = String(parsed?.familyName || family || '').trim();
+                        const familyBase = String(family || '').trim();
                         const subGroups = new Map();
                         opts.forEach((o) => {
-                            const sub = String(o?.subCategory || o?.subFamily || parsed?.subFamilyName || '').trim();
+                            const ctx = getOptionAssignmentContext(o?.id, o?.familyLabel);
+                            const sub = String(ctx.groupLabel || o?.subCategory || o?.subFamily || '').trim();
                             const key = sub || '';
                             if (!subGroups.has(key)) subGroups.set(key, []);
                             subGroups.get(key).push(o);
@@ -4069,7 +4878,7 @@ Format:
                                     <div style="display:flex; justify-content:space-between; gap:8px; margin-bottom:6px;">
                                         <strong>${escapeHtml(sub)}</strong><span class="badge">${subOpts.length}</span>
                                     </div>
-                                    <div style="margin-bottom:6px; font-size:12px; color:#475569;">Vues métier assignées à cette sous-famille:</div>
+                                    <div style="margin-bottom:6px; font-size:12px; color:#475569;">Vues métier assignées à ce groupe:</div>
                                     <div style="display:flex; flex-wrap:wrap; gap:10px; margin-bottom:6px;">
                                         ${selectedViewLabels.map((v) => `
                                             <label style="font-size:12px; color:#334155; display:flex; gap:6px; align-items:center;">
@@ -4091,7 +4900,7 @@ Format:
                                 </button>
                                 <div style="display:${famOpen ? 'block' : 'none'}; border-top:1px solid #eef2f7; padding:8px 12px; font-size:12px; color:#333;">
                                     ${free.length ? `<div style="margin-bottom:8px;"><strong>Options libres</strong><div>${free.map((o) => `• ${escapeHtml(String(o?.name || 'Option'))}`).join('<br>')}</div></div>` : ''}
-                                    ${subBlocks || '<div style="color:#666;">Aucune sous-famille.</div>'}
+                                    ${subBlocks || '<div style="color:#666;">Aucun groupe.</div>'}
                                 </div>
                             </div>
                         `;
@@ -4160,11 +4969,9 @@ Format:
                 });
             });
             options.forEach((r) => {
-                const full = String(getSelectedFamilyLabelForOption(r.option?.id, r.option?.familyLabel) || '').trim();
-                if (!full) return;
-                const parts = full.split(' / ').map((x) => String(x || '').trim()).filter(Boolean);
-                const family = parts.length ? parts[0] : '';
-                const sub = parts.length > 1 ? parts.slice(1).join(' / ') : '';
+                const ctx = getOptionAssignmentContext(r.option?.id, r.option?.familyLabel);
+                const family = String(ctx.familyName || '').trim();
+                const sub = String(ctx.groupLabel || '').trim();
                 if (!family) return;
                 if (!byFamily.has(family)) byFamily.set(family, []);
                 byFamily.get(family).push(r.option);
@@ -4191,14 +4998,14 @@ Format:
                 .sort((a, b) => a.localeCompare(b, 'fr', { sensitivity: 'base' }))
                 .map((sf) => ({
                     key: `S::${sf}`,
-                    label: `[Sous-famille] ${sf}`,
+                    label: `[Groupe] ${sf}`,
                     options: toOptionChoices(bySubFamily.get(sf) || [])
                 }));
             const selectableColumns = [...familyColumns, ...subFamilyColumns];
             const familyOptionsHtml = selectableColumns.length === 0
-                ? '<option value="">Aucune famille/sous-famille</option>'
+                ? '<option value="">Aucune famille/groupe</option>'
                 : [
-                    '<option value="">Choisir une famille ou sous-famille</option>',
+                    '<option value="">Choisir une famille ou un groupe</option>',
                     ...selectableColumns.map((f) => `<option value="${escapeHtml(f.key)}">${escapeHtml(f.label)}</option>`)
                 ].join('');
 
@@ -4242,10 +5049,10 @@ Format:
                         <button class="btn btn-outline" id="btn-create-coupling">Nouveau couplage</button>
                     </div>
                     <div id="coupling-list" style="display:flex; flex-wrap:wrap; gap:6px; margin-bottom:10px;"></div>
-                    <p style="margin:0 0 10px 0; color:#475569; font-size:12px;">Sélectionne une famille ou sous-famille pour ajouter une colonne avec ses valeurs d'options.</p>
+                    <p style="margin:0 0 10px 0; color:#475569; font-size:12px;">Sélectionne une famille ou un groupe pour ajouter une colonne avec ses valeurs d'options.</p>
                     <div style="display:grid; grid-template-columns:1fr auto; gap:8px; align-items:end; max-width:560px;">
                         <div>
-                            <label style="display:block; font-size:12px; color:#666;">Famille / Sous-famille</label>
+                            <label style="display:block; font-size:12px; color:#666;">Famille / Groupe</label>
                             <select id="coupling-family-column-select" style="width:100%; padding:7px; border:1px solid #ddd; border-radius:4px;">
                                 ${familyOptionsHtml}
                             </select>
@@ -4262,7 +5069,7 @@ Format:
                         </thead>
                         <tbody>
                             <tr>
-                                <td style="padding:10px; color:#666;">Ajoute au moins une famille ou sous-famille pour afficher ses valeurs.</td>
+                                <td style="padding:10px; color:#666;">Ajoute au moins une famille ou un groupe pour afficher ses valeurs.</td>
                             </tr>
                         </tbody>
                     </table>
@@ -4528,7 +5335,7 @@ Format:
                 if (columns.length === 0) {
                     table.innerHTML = `
                         <thead><tr><th style="padding:8px; text-align:left; background:#f8fafc; border-bottom:1px solid #eee; color:#666;">Aucune colonne sélectionnée</th></tr></thead>
-                        <tbody><tr><td style="padding:10px; color:#666;">Ajoute au moins une famille ou sous-famille pour afficher ses valeurs.</td></tr></tbody>
+                        <tbody><tr><td style="padding:10px; color:#666;">Ajoute au moins une famille ou un groupe pour afficher ses valeurs.</td></tr></tbody>
                     `;
                 } else {
                     const maxRows = Math.max(...columns.map((c) => c.options.length), 1);
@@ -4760,7 +5567,7 @@ Format:
                 const select = root.querySelector('#coupling-family-column-select');
                 const family = String(select?.value || '').trim();
                 if (!family) {
-                    showAlert('Choisis une famille ou sous-famille.', 'warning');
+                    showAlert('Choisis une famille ou un groupe.', 'warning');
                     return;
                 }
                 if (!coupling.selectedFamilies.includes(family)) coupling.selectedFamilies.push(family);
@@ -5749,6 +6556,12 @@ Format:
                         <div style="color:#475569; font-size:13px; margin-bottom:12px;">
                             Modèles validés: <strong>${validatedCount}/${totalModels}</strong> — PR détectées: <strong>${prOptions.length}</strong>
                         </div>
+                        <label style="display:flex; align-items:flex-start; gap:8px; margin-bottom:12px; font-size:13px; color:#374151; cursor:pointer;">
+                            <input type="checkbox" id="import-validate-assign-all-postes" ${importWorkflowState.validateAssignAllPostesToUnassigned !== false ? 'checked' : ''}
+                                onchange="importWorkflowState.validateAssignAllPostesToUnassigned = this.checked"
+                                style="margin-top:2px;">
+                            <span>Assigner tous les postes aux options qui n'ont aucun poste affecté</span>
+                        </label>
                         <div style="display:flex; gap:10px; flex-wrap:wrap;">
                             <button type="button" class="btn btn-outline" onclick="validateImportOptionsStep()">Valider options import</button>
                             <button type="button" class="btn btn-success" onclick="publishCurrentImportStep()">Publier dans le catalogue</button>
@@ -5986,7 +6799,18 @@ Format:
                 showAlert('Aucun import en cours.', 'warning');
                 return;
             }
+            const assignAllPostes = document.getElementById('import-validate-assign-all-postes')?.checked
+                ?? (importWorkflowState.validateAssignAllPostesToUnassigned !== false);
+            importWorkflowState.validateAssignAllPostesToUnassigned = assignAllPostes;
             try {
+                let assignedCount = 0;
+                if (assignAllPostes && typeof assignAllPostesToUnassignedImportOptions === 'function') {
+                    assignedCount = assignAllPostesToUnassignedImportOptions();
+                    if (assignedCount > 0 && typeof saveAllImportWorkflowStepsForPublish === 'function') {
+                        showAlert(`Enregistrement de ${assignedCount} option(s) avec tous les postes…`, 'info');
+                        await saveAllImportWorkflowStepsForPublish();
+                    }
+                }
                 const result = await apiCall(`/imports/staging/${encodeURIComponent(String(currentImportStaging._id))}/validate-options`, {
                     method: 'POST'
                 });
@@ -5995,7 +6819,10 @@ Format:
                     currentImportId = String(result.data?._id || currentImportId || '');
                 }
                 renderImportStagingIndicator(currentImportStaging);
-                showAlert('Options de l’import validées.', 'success');
+                const assignNote = assignedCount > 0
+                    ? ` (${assignedCount} option(s) sans poste → tous les postes)`
+                    : '';
+                showAlert(`Options de l’import validées.${assignNote}`, 'success');
                 renderImportWorkflow();
             } catch (error) {
                 showAlert('Erreur validation options: ' + error.message, 'error');
@@ -8454,6 +9281,11 @@ Format:
                     renderActiveTab(tabName);
                 }
                 syncFamilleColumnsDock();
+                if (typeof scheduleParentEmbedResize === 'function') {
+                    scheduleParentEmbedResize();
+                    setTimeout(scheduleParentEmbedResize, 80);
+                    setTimeout(scheduleParentEmbedResize, 350);
+                }
 
                 trackAdminEvent('tab_view', { tab: tabName });
             });
@@ -10154,7 +10986,7 @@ Format:
                                 <th style="padding:6px 8px; border-bottom:1px solid #eee; text-align:left;">Produit final</th>
                                 ${showAiConfidence ? '<th style="padding:6px 8px; border-bottom:1px solid #eee; text-align:left;">Confiance IA</th>' : ''}
                                 <th style="padding:6px 8px; border-bottom:1px solid #eee; text-align:left;">Famille</th>
-                                <th style="padding:6px 8px; border-bottom:1px solid #eee; text-align:left;">Sous-famille</th>
+                                <th style="padding:6px 8px; border-bottom:1px solid #eee; text-align:left;">Groupe</th>
                                 <th style="padding:6px 8px; border-bottom:1px solid #eee; text-align:left;">Base incluse</th>
                                 <th style="padding:6px 8px; border-bottom:1px solid #eee; text-align:left;">Prix ref. inclus</th>
                                 <th style="padding:6px 8px; border-bottom:1px solid #eee; text-align:left;">Action</th>
@@ -11096,46 +11928,343 @@ Format:
         }
 
         function getSelectedFamilyLabelForOption(optionId, fallbackLabel) {
-            const wanted = String(optionId || '').trim();
-            const list = getFamilleValidatedFamilies();
-            const row = (Array.isArray(list) ? list : []).find((f) => {
-                const ids = Array.isArray(f?.optionIds) ? f.optionIds.map((x) => String(x)) : [];
-                return ids.includes(wanted);
-            });
-            if (row && String(row.familyLabel || '').trim()) return String(row.familyLabel || '').trim();
-            return String(fallbackLabel || '').trim();
+            const ctx = getOptionAssignmentContext(optionId, fallbackLabel);
+            if (!ctx.familyName) return '';
+            if (ctx.groupLabel) return `${ctx.familyName} / ${ctx.groupLabel}`;
+            return ctx.familyName;
         }
 
-        function assignOptionToValidatedFamily(optionId, familyLabel) {
-            const wanted = String(optionId || '').trim();
-            const targetLabel = String(familyLabel || '').trim();
-            const list = getFamilleValidatedFamilies();
-            const cleaned = (Array.isArray(list) ? list : []).map((f) => {
-                const ids = Array.isArray(f?.optionIds) ? f.optionIds.map((x) => String(x)).filter((x) => x && x !== wanted) : [];
-                return { ...f, optionIds: ids };
+        function buildOptionsTabHeuristicRows() {
+            const rows = [];
+            const categories = Array.isArray(currentData?.categories) ? currentData.categories : [];
+            categories.forEach((cat) => {
+                const categoryName = String(cat?.name || '').trim();
+                (cat.options || []).forEach((opt) => {
+                    const id = String(opt?.id || '').trim();
+                    const name = String(opt?.name || '').trim();
+                    if (!id || /^PR\s/i.test(name)) return;
+                    rows.push({
+                        id,
+                        name,
+                        categoryName,
+                        lineKind: opt?.isMinoration ? 'mino' : 'option'
+                    });
+                });
             });
-            if (!targetLabel) {
-                setFamilleValidatedFamilies(cleaned);
+            return rows;
+        }
+
+        function renderOptionsHeuristicRulesList() {
+            const host = document.getElementById('options-heur-rules-list');
+            if (!host) return;
+            const rules = getFamilleHeuristicRules();
+            if (!rules.length) {
+                host.innerHTML = '<span style="color:#666;">Aucune règle. Les mots-clés des familles et des groupes (onglet Famille → Éditer) sont aussi pris en compte.</span>';
                 return;
             }
-            const idx = cleaned.findIndex((f) => String(f?.familyLabel || '').trim() === targetLabel);
-            if (idx < 0) {
-                setFamilleValidatedFamilies(cleaned);
+            host.innerHTML = rules.map((r, idx) => {
+                const groupPart = String(r.groupLabel || '').trim()
+                    ? ` → <span style="color:#1565c0;">${escapeHtml(r.groupLabel)}</span>`
+                    : ' <span style="color:#888;">(1er groupe)</span>';
+                return `
+                <div style="display:flex; justify-content:space-between; gap:8px; align-items:center; border-top:1px solid #eee; padding:6px 0;">
+                    <div>
+                        <strong>${escapeHtml(r.familyLabel || 'Famille')}</strong>${groupPart}
+                        <span style="color:#666;"> (${escapeHtml(r.scope || 'all')})</span>
+                        <div style="color:#666; font-size:12px;">${escapeHtml(r.keywords || '')}</div>
+                    </div>
+                    <div style="display:flex; gap:6px;">
+                        <button type="button" class="btn btn-outline" data-edit-opt-heur="${idx}" style="font-size:12px;padding:4px 8px;">Modifier</button>
+                        <button type="button" class="btn btn-outline" data-del-opt-heur="${idx}" style="font-size:12px;padding:4px 8px;">Supprimer</button>
+                    </div>
+                </div>
+            `;
+            }).join('');
+        }
+
+        function bindOptionsHeuristicPanelEvents() {
+            if (window.__optionsHeurPanelBound) return;
+            window.__optionsHeurPanelBound = true;
+
+            const addBtn = document.getElementById('btn-add-opt-heur');
+            const cancelBtn = document.getElementById('btn-cancel-opt-heur-edit');
+            const validateAllBtn = document.getElementById('btn-options-rerun-heuristic');
+
+            addBtn?.addEventListener('click', () => {
+                const familyLabel = String(document.getElementById('opt-heur-label')?.value || '').trim();
+                const groupLabel = String(document.getElementById('opt-heur-group')?.value || '').trim();
+                const keywords = String(document.getElementById('opt-heur-keywords')?.value || '').trim();
+                const scope = String(document.getElementById('opt-heur-scope')?.value || 'all').trim() || 'all';
+                const rawEditIdx = addBtn.getAttribute('data-edit-index');
+                const editIdx = rawEditIdx !== null && rawEditIdx !== '' ? Number(rawEditIdx) : NaN;
+                if (!familyLabel || !keywords) {
+                    showAlert('Famille + mots-clés requis.', 'warning');
+                    return;
+                }
+                const rules = getFamilleHeuristicRules();
+                if (Number.isInteger(editIdx) && editIdx >= 0 && editIdx < rules.length) {
+                    rules[editIdx] = { familyLabel, groupLabel, keywords, scope };
+                } else {
+                    rules.push({ familyLabel, groupLabel, keywords, scope });
+                }
+                setFamilleHeuristicRules(rules);
+                document.getElementById('opt-heur-label').value = '';
+                document.getElementById('opt-heur-group').value = '';
+                document.getElementById('opt-heur-keywords').value = '';
+                document.getElementById('opt-heur-scope').value = 'all';
+                addBtn.removeAttribute('data-edit-index');
+                if (cancelBtn) cancelBtn.style.display = 'none';
+                renderOptionsHeuristicRulesList();
+            });
+
+            cancelBtn?.addEventListener('click', () => {
+                document.getElementById('opt-heur-label').value = '';
+                document.getElementById('opt-heur-group').value = '';
+                document.getElementById('opt-heur-keywords').value = '';
+                document.getElementById('opt-heur-scope').value = 'all';
+                addBtn?.removeAttribute('data-edit-index');
+                cancelBtn.style.display = 'none';
+            });
+
+            validateAllBtn?.addEventListener('click', () => runOptionsTabHeuristicAssignment({ silent: false }));
+        }
+
+        async function runOptionsTabHeuristicAssignment(opts = {}) {
+            const silent = !!opts.silent;
+            const skipRender = !!opts.skipRender;
+            syncOptionFamilyStatusesWithCatalog();
+            const statusEl = document.getElementById('options-heur-status');
+            const rows = buildOptionsTabHeuristicRows().filter((r) => !isOptionFamilyAssigned(r.id));
+            const heurRules = buildFamilleHeuristicRulesForMatching();
+            const { optionAssignments } = buildHeuristicFamilies(heurRules, rows);
+            let applied = 0;
+            try {
+                applied = await applyHeuristicOptionAssignments(optionAssignments, { silent });
+                setOptionsAutoAssignments({});
+            } catch (_) {
+                if (!skipRender) renderCategories();
+                return 0;
+            }
+            if (statusEl) {
+                statusEl.textContent = applied > 0
+                    ? `${applied} option(s) assignée(s) automatiquement (famille + groupe)`
+                    : 'Heuristique appliquée — aucune nouvelle correspondance';
+            }
+            if (!silent) {
+                showAlert(
+                    applied > 0
+                        ? `${applied} option(s) assignée(s) automatiquement (famille + groupe).`
+                        : 'Aucune option non assignée ne correspond aux règles.',
+                    applied > 0 ? 'success' : 'info'
+                );
+            }
+            if (!skipRender) renderCategories();
+            return applied;
+        }
+
+        async function runOptionsTabHeuristicOnTabEnter() {
+            await runOptionsTabHeuristicAssignment({ silent: true, skipRender: true });
+            renderCategories();
+        }
+
+        async function validateAllPendingOptionsAssignments() {
+            const map = getOptionsAutoAssignments();
+            const pending = Object.entries(map).filter(([, v]) => v && v.status === 'pending');
+            if (!pending.length) {
+                showAlert('Aucune suggestion en attente.', 'info');
                 return;
             }
-            const ids = Array.isArray(cleaned[idx].optionIds) ? cleaned[idx].optionIds.slice() : [];
-            if (!ids.includes(wanted)) ids.push(wanted);
-            cleaned[idx].optionIds = ids;
+            const entries = pending
+                .map(([optionId, entry]) => {
+                    const label = String(entry?.familyLabel || '').trim();
+                    const groupLabel = String(entry?.groupLabel || '').trim()
+                        || resolveDefaultGroupLabelForFamily(label);
+                    if (!label) return null;
+                    return { optionId, familyLabel: label, groupLabel };
+                })
+                .filter(Boolean);
+            if (!entries.length) {
+                showAlert('Aucune suggestion valide en attente.', 'info');
+                return;
+            }
+            try {
+                const done = await applyOptionFamilyAssignmentsBulk(entries, { reload: true });
+                setOptionsAutoAssignments({});
+                renderCategories();
+                showAlert(`${done} option(s) validée(s) et marquée(s) assignées.`, 'success');
+            } catch (err) {
+                showAlert(`Erreur assignation: ${err.message}`, 'error');
+            }
+        }
+
+        function bindOptionsHeuristicRulesActions() {
+            document.querySelectorAll('[data-del-opt-heur]').forEach((btnDel) => {
+                btnDel.onclick = null;
+                btnDel.addEventListener('click', () => {
+                    const idx = Number(btnDel.getAttribute('data-del-opt-heur'));
+                    const rules = getFamilleHeuristicRules();
+                    if (Number.isInteger(idx) && idx >= 0 && idx < rules.length) {
+                        rules.splice(idx, 1);
+                        setFamilleHeuristicRules(rules);
+                        renderOptionsHeuristicRulesList();
+                        bindOptionsHeuristicRulesActions();
+                    }
+                });
+            });
+            document.querySelectorAll('[data-edit-opt-heur]').forEach((btnEdit) => {
+                btnEdit.onclick = null;
+                btnEdit.addEventListener('click', () => {
+                    const idx = Number(btnEdit.getAttribute('data-edit-opt-heur'));
+                    const rules = getFamilleHeuristicRules();
+                    const rule = rules[idx];
+                    if (!rule) return;
+                    const labelEl = document.getElementById('opt-heur-label');
+                    const groupEl = document.getElementById('opt-heur-group');
+                    const kwEl = document.getElementById('opt-heur-keywords');
+                    const scopeEl = document.getElementById('opt-heur-scope');
+                    const addBtn = document.getElementById('btn-add-opt-heur');
+                    const cancelBtn = document.getElementById('btn-cancel-opt-heur-edit');
+                    if (labelEl) labelEl.value = rule.familyLabel || '';
+                    if (groupEl) groupEl.value = rule.groupLabel || '';
+                    if (kwEl) kwEl.value = rule.keywords || '';
+                    if (scopeEl) scopeEl.value = rule.scope || 'all';
+                    if (addBtn) addBtn.setAttribute('data-edit-index', String(idx));
+                    if (cancelBtn) cancelBtn.style.display = '';
+                });
+            });
+        }
+
+        async function validatePendingOptionAssignment(optionId) {
+            const wanted = String(optionId || '').trim();
+            if (!wanted) return;
+            const map = getOptionsAutoAssignments();
+            const entry = map[wanted];
+            if (!entry || entry.status !== 'pending') return;
+            const label = String(entry.familyLabel || '').trim();
+            const groupLabel = String(entry.groupLabel || '').trim()
+                || resolveDefaultGroupLabelForFamily(label);
+            if (!label) return;
+            await updateOptionDecisionGroupFromOptionsTab(wanted, label, groupLabel);
+            delete map[wanted];
+            setOptionsAutoAssignments(map);
+        }
+
+        function placeOptionInFamilyDecisionGroups(groups, optionId, preferredGroupLabel) {
+            const wanted = String(optionId || '').trim();
+            let nextGroups = normalizeFamilyDecisionGroups(groups).map((g) => ({
+                ...g,
+                optionIds: (g.optionIds || []).filter((x) => String(x) !== wanted)
+            }));
+            if (!wanted || !nextGroups.length) return nextGroups;
+
+            const preferred = String(preferredGroupLabel || '').trim();
+            let targetIdx = preferred
+                ? nextGroups.findIndex((g) => {
+                    const label = String(g?.label || '').trim();
+                    const id = String(g?.id || '').trim();
+                    return label === preferred || id === preferred;
+                })
+                : -1;
+            if (targetIdx < 0) targetIdx = 0;
+            nextGroups[targetIdx].optionIds = Array.from(new Set([...(nextGroups[targetIdx].optionIds || []), wanted]));
+            return nextGroups;
+        }
+
+        function assignOptionsToValidatedFamiliesBulk(entries) {
+            const normalized = (Array.isArray(entries) ? entries : [])
+                .map((entry) => {
+                    const optionId = String(entry?.optionId || '').trim();
+                    const parsed = parseValidatedFamilyLabel(String(entry?.familyLabel || entry?.familyName || '').trim());
+                    const familyName = parsed.familyName || String(entry?.familyLabel || entry?.familyName || '').trim();
+                    const groupLabel = String(entry?.groupLabel || parsed.subFamilyName || '').trim()
+                        || (familyName ? resolveDefaultGroupLabelForFamily(familyName) : '');
+                    return { optionId, familyName, groupLabel };
+                })
+                .filter((entry) => entry.optionId && entry.familyName);
+            if (!normalized.length) return 0;
+
+            const wantedIds = new Set(normalized.map((entry) => entry.optionId));
+            let cleaned = (Array.isArray(getFamilleValidatedFamilies()) ? getFamilleValidatedFamilies() : []).map((f) => {
+                const groups = normalizeFamilyDecisionGroups(f.decisionGroups).map((g) => ({
+                    ...g,
+                    optionIds: (g.optionIds || []).filter((x) => !wantedIds.has(String(x)))
+                }));
+                const ids = (Array.isArray(f?.optionIds) ? f.optionIds : [])
+                    .map((x) => String(x))
+                    .filter((x) => x && !wantedIds.has(x));
+                return syncFamilyOptionsToDecisionGroups({ ...f, optionIds: ids, decisionGroups: groups });
+            });
+
+            normalized.forEach(({ optionId, familyName, groupLabel }) => {
+                const idx = cleaned.findIndex((f) => getValidatedFamilyRootLabel(f) === familyName);
+                if (idx < 0) return;
+                const ids = Array.isArray(cleaned[idx].optionIds) ? cleaned[idx].optionIds.slice() : [];
+                if (!ids.includes(optionId)) ids.push(optionId);
+                const groups = placeOptionInFamilyDecisionGroups(cleaned[idx].decisionGroups, optionId, groupLabel);
+                cleaned[idx] = syncFamilyOptionsToDecisionGroups({ ...cleaned[idx], optionIds: ids, decisionGroups: groups });
+            });
+
             setFamilleValidatedFamilies(cleaned);
+            markOptionsFamilyAssigned(normalized.map((entry) => entry.optionId));
+            return normalized.length;
+        }
+
+        function assignOptionToValidatedFamily(optionId, familyLabel, groupLabelHint = null) {
+            const wanted = String(optionId || '').trim();
+            const parsed = parseValidatedFamilyLabel(String(familyLabel || '').trim());
+            const targetFamilyName = parsed.familyName || String(familyLabel || '').trim();
+            const targetGroupLabel = String(groupLabelHint || parsed.subFamilyName || '').trim();
+            if (!wanted) return;
+            if (!targetFamilyName) {
+                const list = getFamilleValidatedFamilies();
+                const cleaned = (Array.isArray(list) ? list : []).map((f) => {
+                    const groups = normalizeFamilyDecisionGroups(f.decisionGroups).map((g) => ({
+                        ...g,
+                        optionIds: (g.optionIds || []).filter((x) => String(x) !== wanted)
+                    }));
+                    const ids = (Array.isArray(f?.optionIds) ? f.optionIds : [])
+                        .map((x) => String(x))
+                        .filter((x) => x && x !== wanted);
+                    return syncFamilyOptionsToDecisionGroups({ ...f, optionIds: ids, decisionGroups: groups });
+                });
+                setFamilleValidatedFamilies(cleaned);
+                markOptionsFamilyUnassigned([wanted]);
+                return;
+            }
+            const exists = getFamilleValidatedFamilies().some((f) => getValidatedFamilyRootLabel(f) === targetFamilyName);
+            if (!exists) {
+                const list = getFamilleValidatedFamilies();
+                const cleaned = (Array.isArray(list) ? list : []).map((f) => {
+                    const groups = normalizeFamilyDecisionGroups(f.decisionGroups).map((g) => ({
+                        ...g,
+                        optionIds: (g.optionIds || []).filter((x) => String(x) !== wanted)
+                    }));
+                    const ids = (Array.isArray(f?.optionIds) ? f.optionIds : [])
+                        .map((x) => String(x))
+                        .filter((x) => x && x !== wanted);
+                    return syncFamilyOptionsToDecisionGroups({ ...f, optionIds: ids, decisionGroups: groups });
+                });
+                setFamilleValidatedFamilies(cleaned);
+                markOptionsFamilyUnassigned([wanted]);
+                return;
+            }
+            assignOptionsToValidatedFamiliesBulk([{
+                optionId: wanted,
+                familyLabel: targetFamilyName,
+                groupLabel: targetGroupLabel || null
+            }]);
         }
 
         function clearValidatedFamilyAssignments() {
             const list = getFamilleValidatedFamilies();
-            const cleaned = (Array.isArray(list) ? list : []).map((f) => ({
-                ...f,
-                optionIds: []
-            }));
+            const releasedIds = [];
+            const cleaned = (Array.isArray(list) ? list : []).map((f) => {
+                (Array.isArray(f?.optionIds) ? f.optionIds : []).forEach((id) => releasedIds.push(String(id || '').trim()));
+                const emptyGroups = normalizeFamilyDecisionGroups(f.decisionGroups).map((g) => ({ ...g, optionIds: [] }));
+                return syncFamilyOptionsToDecisionGroups({ ...f, optionIds: [], decisionGroups: emptyGroups });
+            });
             setFamilleValidatedFamilies(cleaned);
+            markOptionsFamilyUnassigned(releasedIds.filter(Boolean));
         }
 
         function buildFamilyOptionsHtml(viewLabel, selectedFamilyLabel) {
@@ -11340,37 +12469,363 @@ Format:
             return new Map(rows.map((r) => [r.id, r]));
         }
 
+        function getValidatedFamilyRootLabel(family) {
+            const parsed = parseValidatedFamilyLabel(String(family?.familyLabel || '').trim());
+            return String(parsed.familyName || family?.familyLabel || '').trim();
+        }
+
+        /** Familles validées (libellé racine, sans chemin sous-famille). */
         function getFamilleChoicesForOptionTab() {
             const families = getFamilleValidatedFamilies();
             return Array.from(new Set(
                 (Array.isArray(families) ? families : [])
-                    .map((f) => {
-                        const full = String(f?.familyLabel || '').trim();
-                        if (!full) return '';
-                        const parts = full.split(' / ').map((x) => String(x || '').trim()).filter(Boolean);
-                        return parts.length ? parts[0] : full;
-                    })
+                    .map((f) => getValidatedFamilyRootLabel(f))
                     .filter(Boolean)
             )).sort((a, b) => a.localeCompare(b, 'fr', { sensitivity: 'base' }));
         }
 
+        /** Groupes de décision par famille (remplace l'ancien modèle « Parent / Sous-famille »). */
         function getFamilleSubFamilyMapForOptionTab() {
             const families = getFamilleValidatedFamilies();
-            const byParent = new Map();
-            (Array.isArray(families) ? families : []).forEach((f) => {
-                const full = String(f?.familyLabel || '').trim();
-                if (!full) return;
-                const parts = full.split(' / ').map((x) => String(x || '').trim()).filter(Boolean);
-                if (parts.length < 2) return;
-                const parent = parts[0];
-                const subPath = parts.slice(1).join(' / ');
-                if (!parent || !subPath) return;
-                if (!byParent.has(parent)) byParent.set(parent, new Set());
-                byParent.get(parent).add(subPath);
-            });
             const out = new Map();
-            byParent.forEach((setVals, parent) => {
-                out.set(parent, Array.from(setVals).sort((a, b) => a.localeCompare(b, 'fr', { sensitivity: 'base' })));
+            (Array.isArray(families) ? families : []).forEach((f) => {
+                const familyName = getValidatedFamilyRootLabel(f);
+                if (!familyName) return;
+                const groups = normalizeFamilyDecisionGroups(f?.decisionGroups)
+                    .map((g) => String(g?.label || g?.id || '').trim())
+                    .filter(Boolean);
+                if (!groups.length) return;
+                out.set(familyName, Array.from(new Set(groups)).sort((a, b) => a.localeCompare(b, 'fr', { sensitivity: 'base' })));
+            });
+            return out;
+        }
+
+        function findValidatedFamilyByRootLabel(familyName) {
+            const wanted = String(familyName || '').trim();
+            if (!wanted) return null;
+            const list = getFamilleValidatedFamilies();
+            return (Array.isArray(list) ? list : []).find((f) => getValidatedFamilyRootLabel(f) === wanted) || null;
+        }
+
+        /** Contexte d'assignation option → famille + groupe (decisionGroup). */
+        function getOptionAssignmentContext(optionId, fallbackFamilyLabel = '') {
+            const wanted = String(optionId || '').trim();
+            const autoEntry = getOptionsAutoAssignments()[wanted];
+            if (autoEntry && autoEntry.status === 'pending' && String(autoEntry.familyLabel || '').trim()) {
+                const parsed = parseValidatedFamilyLabel(String(autoEntry.familyLabel || '').trim());
+                const familyName = parsed.familyName || String(autoEntry.familyLabel || '').trim();
+                const groupLabel = String(autoEntry.groupLabel || parsed.subFamilyName || '').trim()
+                    || resolveDefaultGroupLabelForFamily(familyName);
+                return {
+                    familyName,
+                    groupLabel
+                };
+            }
+            const list = getFamilleValidatedFamilies();
+            for (const f of (Array.isArray(list) ? list : [])) {
+                const ids = (Array.isArray(f?.optionIds) ? f.optionIds : []).map((x) => String(x));
+                if (!ids.includes(wanted)) continue;
+                const familyName = getValidatedFamilyRootLabel(f);
+                const groups = normalizeFamilyDecisionGroups(f?.decisionGroups);
+                for (const g of groups) {
+                    const gIds = (Array.isArray(g?.optionIds) ? g.optionIds : []).map((x) => String(x));
+                    if (gIds.includes(wanted)) {
+                        return {
+                            familyName,
+                            groupLabel: String(g?.label || g?.id || '').trim()
+                        };
+                    }
+                }
+                return {
+                    familyName,
+                    groupLabel: getDefaultFamilyDecisionGroupLabel(groups)
+                };
+            }
+            const parsedFallback = parseValidatedFamilyLabel(String(fallbackFamilyLabel || '').trim());
+            return {
+                familyName: parsedFallback.familyName || String(fallbackFamilyLabel || '').trim(),
+                groupLabel: parsedFallback.subFamilyName || ''
+            };
+        }
+
+        function getOptionFamilyStatuses() {
+            const fromUi = currentData?.uiState?.optionFamilyStatuses;
+            if (fromUi && typeof fromUi === 'object') return { ...fromUi };
+            try {
+                const raw = memoryStoreGetItem('ugap.famille.optionStatuses');
+                const parsed = raw ? JSON.parse(raw) : {};
+                return parsed && typeof parsed === 'object' ? parsed : {};
+            } catch (_) {
+                return {};
+            }
+        }
+
+        function setOptionFamilyStatuses(statuses) {
+            const next = sanitizeOptionFamilyStatusesForServer(statuses);
+            if (!currentData || typeof currentData !== 'object') currentData = {};
+            if (!currentData.uiState || typeof currentData.uiState !== 'object') currentData.uiState = {};
+            currentData.uiState.optionFamilyStatuses = next;
+            try {
+                memoryStoreSetItem('ugap.famille.optionStatuses', JSON.stringify(next));
+                scheduleUiStatePersistence();
+            } catch (_) {
+                // no-op
+            }
+        }
+
+        function getOptionFamilyStatus(optionId) {
+            const id = String(optionId || '').trim();
+            if (!id) return UGAP_OPTION_FAMILY_STATUS.UNASSIGNED;
+            const statuses = getOptionFamilyStatuses();
+            const raw = String(statuses[id] || '').trim();
+            if (raw === UGAP_OPTION_FAMILY_STATUS.ASSIGNED) return UGAP_OPTION_FAMILY_STATUS.ASSIGNED;
+            return UGAP_OPTION_FAMILY_STATUS.UNASSIGNED;
+        }
+
+        function isOptionFamilyAssigned(optionId) {
+            return getOptionFamilyStatus(optionId) === UGAP_OPTION_FAMILY_STATUS.ASSIGNED;
+        }
+
+        function markOptionsFamilyAssigned(optionIds) {
+            const statuses = getOptionFamilyStatuses();
+            (Array.isArray(optionIds) ? optionIds : []).forEach((id) => {
+                const oid = String(id || '').trim();
+                if (!oid) return;
+                statuses[oid] = UGAP_OPTION_FAMILY_STATUS.ASSIGNED;
+            });
+            setOptionFamilyStatuses(statuses);
+        }
+
+        function markOptionsFamilyUnassigned(optionIds) {
+            const statuses = getOptionFamilyStatuses();
+            (Array.isArray(optionIds) ? optionIds : []).forEach((id) => {
+                const oid = String(id || '').trim();
+                if (!oid) return;
+                statuses[oid] = UGAP_OPTION_FAMILY_STATUS.UNASSIGNED;
+            });
+            setOptionFamilyStatuses(statuses);
+        }
+
+        function pruneOptionFamilyStatuses(validOptionIds) {
+            const valid = validOptionIds instanceof Set ? validOptionIds : new Set(validOptionIds || []);
+            const statuses = getOptionFamilyStatuses();
+            let changed = false;
+            Object.keys(statuses).forEach((id) => {
+                if (!valid.has(id)) {
+                    delete statuses[id];
+                    changed = true;
+                }
+            });
+            if (changed) setOptionFamilyStatuses(statuses);
+        }
+
+        function getAllCatalogOptionIdsForFamille() {
+            return (Array.isArray(currentData?.categories) ? currentData.categories : [])
+                .flatMap((cat) => Array.isArray(cat?.options) ? cat.options : [])
+                .map((opt) => String(opt?.id || '').trim())
+                .filter(Boolean);
+        }
+
+        function syncOptionFamilyStatusesWithCatalog() {
+            const catalogIds = getAllCatalogOptionIdsForFamille();
+            if (!catalogIds.length) return;
+            const statuses = getOptionFamilyStatuses();
+            let changed = false;
+            catalogIds.forEach((id) => {
+                if (!Object.prototype.hasOwnProperty.call(statuses, id)) {
+                    statuses[id] = UGAP_OPTION_FAMILY_STATUS.UNASSIGNED;
+                    changed = true;
+                }
+            });
+            const validated = getFamilleValidatedFamilies();
+            (Array.isArray(validated) ? validated : []).forEach((f) => {
+                (Array.isArray(f?.optionIds) ? f.optionIds : []).forEach((id) => {
+                    const oid = String(id || '').trim();
+                    if (!oid) return;
+                    if (statuses[oid] !== UGAP_OPTION_FAMILY_STATUS.ASSIGNED) {
+                        statuses[oid] = UGAP_OPTION_FAMILY_STATUS.ASSIGNED;
+                        changed = true;
+                    }
+                });
+            });
+            Object.keys(statuses).forEach((id) => {
+                if (!catalogIds.includes(id)) {
+                    delete statuses[id];
+                    changed = true;
+                }
+            });
+            if (changed) setOptionFamilyStatuses(statuses);
+        }
+
+        function countUnassignedOptionsForFamille(opts = {}) {
+            const selectedModelId = String(opts.modelId || '').trim();
+            const categories = Array.isArray(currentData?.categories) ? currentData.categories : [];
+            let count = 0;
+            categories.forEach((category) => {
+                (category.options || []).forEach((option) => {
+                    const name = String(option?.name || '').trim();
+                    if (/^PR\s/i.test(name) || option?.isSparePart) return;
+                    if (selectedModelId) {
+                        const compatible = Array.isArray(option?.compatibleModels)
+                            ? option.compatibleModels.map((x) => String(x))
+                            : [];
+                        if (!compatible.includes(selectedModelId)) return;
+                    }
+                    const optionId = String(option?.id || '').trim();
+                    if (!optionId || isOptionFamilyAssigned(optionId)) return;
+                    count += 1;
+                });
+            });
+            return count;
+        }
+
+        function getFamilleHeuristicRules() {
+            const fromUi = currentData?.uiState?.familleHeuristicRules;
+            if (Array.isArray(fromUi)) return fromUi.slice();
+            try {
+                const raw = memoryStoreGetItem('ugap.famille.heuristicRules');
+                const parsed = raw ? JSON.parse(raw) : [];
+                return Array.isArray(parsed) ? parsed : [];
+            } catch (_) {
+                return [];
+            }
+        }
+
+        function setFamilleHeuristicRules(rules) {
+            const next = sanitizeFamilleHeuristicRulesForServer(rules);
+            if (!currentData || typeof currentData !== 'object') currentData = {};
+            if (!currentData.uiState || typeof currentData.uiState !== 'object') currentData.uiState = {};
+            currentData.uiState.familleHeuristicRules = next;
+            try {
+                memoryStoreSetItem('ugap.famille.heuristicRules', JSON.stringify(next));
+                scheduleUiStatePersistence();
+            } catch (_) {
+                // no-op
+            }
+        }
+
+        function normalizeHeuristicText(value) {
+            return String(value || '')
+                .normalize('NFD')
+                .replace(/[\u0300-\u036f]/g, '')
+                .toLowerCase()
+                .replace(/[^a-z0-9]+/g, ' ')
+                .trim();
+        }
+
+        function splitHeuristicKeywords(keywordsText) {
+            return String(keywordsText || '')
+                .split(/[\n,;|]+/g)
+                .map((k) => normalizeHeuristicText(k))
+                .filter(Boolean);
+        }
+
+        function heuristicRuleMatchesRow(rule, row) {
+            const scope = String(rule?.scope || 'all');
+            if (scope === 'option' && row.lineKind !== 'option') return false;
+            if (scope === 'minoration' && row.lineKind !== 'mino') return false;
+            const keywords = splitHeuristicKeywords(rule?.keywords || '');
+            if (keywords.length === 0) return false;
+            const haystack = normalizeHeuristicText(`${row.name || ''} ${row.categoryName || ''}`);
+            return keywords.some((kw) => haystack.includes(kw));
+        }
+
+        function buildHeuristicFamilies(rules, combinedRows) {
+            const rulesList = Array.isArray(rules) ? rules : [];
+            const rows = Array.isArray(combinedRows) ? combinedRows : [];
+            const assigned = new Set();
+            const optionFamily = {};
+
+            rulesList.forEach((rule) => {
+                const label = String(rule?.familyLabel || '').trim();
+                if (!label) return;
+                const familyRoot = parseValidatedFamilyLabel(label).familyName || label;
+                rows
+                    .filter((row) => !assigned.has(row.id) && !isOptionFamilyAssigned(row.id))
+                    .filter((row) => heuristicRuleMatchesRow(rule, row))
+                    .forEach((row) => {
+                        assigned.add(row.id);
+                        optionFamily[row.id] = familyRoot;
+                    });
+            });
+
+            const optionAssignments = {};
+            const familiesByRoot = new Map();
+
+            Object.entries(optionFamily).forEach(([optionId, familyRoot]) => {
+                const row = rows.find((r) => r.id === optionId);
+                let groupLabel = '';
+                const groupRules = rulesList.filter((rule) => {
+                    const ruleFamily = parseValidatedFamilyLabel(String(rule?.familyLabel || '').trim()).familyName
+                        || String(rule?.familyLabel || '').trim();
+                    return ruleFamily === familyRoot && String(rule?.groupLabel || '').trim();
+                });
+                for (const rule of groupRules) {
+                    if (row && heuristicRuleMatchesRow(rule, row)) {
+                        groupLabel = String(rule.groupLabel || '').trim();
+                        break;
+                    }
+                }
+                if (!groupLabel) {
+                    groupLabel = resolveDefaultGroupLabelForFamily(familyRoot);
+                }
+                optionAssignments[optionId] = { familyLabel: familyRoot, groupLabel };
+                if (!familiesByRoot.has(familyRoot)) {
+                    familiesByRoot.set(familyRoot, []);
+                }
+                familiesByRoot.get(familyRoot).push(optionId);
+            });
+
+            const families = [];
+            familiesByRoot.forEach((optionIds, familyRoot) => {
+                families.push({
+                    familyLabel: familyRoot,
+                    groupLabel: resolveDefaultGroupLabelForFamily(familyRoot),
+                    optionIds,
+                    defaultOptionId: optionIds[0] || null
+                });
+            });
+
+            return { families, assignedIds: assigned, optionAssignments };
+        }
+
+        function buildFamilleHeuristicRulesForMatching() {
+            const out = [];
+            const seen = new Set();
+            const pushRule = (rule) => {
+                const label = String(rule?.familyLabel || '').trim();
+                const groupLabel = String(rule?.groupLabel || '').trim();
+                const keywords = String(rule?.keywords || '').trim();
+                if (!label || !keywords) return;
+                const key = `${label.toLowerCase()}::${groupLabel.toLowerCase()}::${keywords.toLowerCase()}::${rule.scope || 'all'}`;
+                if (seen.has(key)) return;
+                seen.add(key);
+                out.push({
+                    familyLabel: label,
+                    groupLabel,
+                    keywords,
+                    scope: String(rule?.scope || 'all').trim() || 'all'
+                });
+            };
+            getFamilleHeuristicRules().forEach(pushRule);
+            (Array.isArray(getFamilleValidatedFamilies()) ? getFamilleValidatedFamilies() : []).forEach((f) => {
+                const label = getValidatedFamilyRootLabel(f);
+                if (!label) return;
+                normalizeFamilyDecisionGroups(f?.decisionGroups).forEach((g) => {
+                    const groupKeywords = String(g?.keywords || '').trim();
+                    if (!groupKeywords) return;
+                    pushRule({
+                        familyLabel: label,
+                        groupLabel: String(g?.label || g?.id || '').trim(),
+                        keywords: groupKeywords,
+                        scope: 'all'
+                    });
+                });
+                const custom = String(f?.keywords || '').trim();
+                const objectName = String(f?.objectName || '').trim();
+                const mergedKeywords = [custom, objectName].filter(Boolean).join(', ');
+                if (!mergedKeywords) return;
+                pushRule({ familyLabel: label, keywords: mergedKeywords, scope: 'all' });
             });
             return out;
         }
@@ -11383,7 +12838,8 @@ Format:
 
         function setFamilleValidatedFamilies(families) {
             try {
-                const next = Array.isArray(families) ? families : [];
+                const raw = Array.isArray(families) ? families : [];
+                const next = raw.map((f) => syncFamilyOptionsToDecisionGroups(f));
                 if (!currentData || typeof currentData !== 'object') currentData = {};
                 if (!currentData.uiState || typeof currentData.uiState !== 'object') currentData.uiState = {};
                 currentData.uiState.families = next;
@@ -12542,10 +13998,7 @@ Format:
             const combined = buildFamilleCombinedRows(splitOptions);
             upsertFamilleOptionLabelCache(combined.map((r) => ({ id: r.id, name: r.name })));
             const byId = new Map(combined.map((r) => [r.id, r]));
-            const nOpt = (splitOptions.regularOptions || []).length;
-            const nMino = (splitOptions.minorationOptions || []).length;
             const iaData = window.__ugapFamilleIa || null;
-            const nFamIa = iaData && Array.isArray(iaData.families) ? iaData.families.length : 0;
             const iaBlock = iaData
                 ? renderFamilleIaGroupCards(iaData, byId)
                 : '<p style="color:#666; margin:0;">Aucun regroupement encore : lancez <strong>Détecter familles (IA)</strong> (config IA entreprise).</p>';
@@ -12562,7 +14015,6 @@ Format:
                 <div class="famille-tab-root" style="padding-bottom:32px;">
                 <div style="margin-top:14px;">${iaBlock}</div>
                 ${reviewCardsHtml}
-                ${renderFamilyDecisionGroupsBackofficePanel()}
                 </div>
             `;
         }
@@ -12608,7 +14060,6 @@ Format:
             validated.forEach((f) => {
                 (f?.optionIds || []).forEach((id) => validatedFrozenIds.add(String(id)));
             });
-            // On retire du gel les familles qu'on veut repasser.
             repassIds.forEach((id) => validatedFrozenIds.delete(id));
 
             const heurFamiliesFiltered = mergeFamiliesUnique([], []);
@@ -12692,6 +14143,75 @@ Format:
 
         /** Ancienne barre fixe colonnes A/B — supprimée ; fonction conservée pour les appels existants. */
         function syncFamilleColumnsDock() {}
+
+        /** Vue LC (liste + panneau création masqué) pour les familles validées — monté au-dessus du workspace Famille. */
+        function mountFamilleVueLC() {
+            const mount = document.getElementById('ugap-famille-lc-mount');
+            if (!mount) return;
+            if (!window.UgapTemplates || typeof window.UgapTemplates.renderVueLC !== 'function') {
+                mount.innerHTML = '<div style="padding:12px; color:#b45309; border:1px solid #fde68a; border-radius:6px;">Module d’affichage <strong>UgapTemplates</strong> indisponible. Vérifiez le chargement de <code>ugap-view-templates.js</code>.</div>';
+                return;
+            }
+            const getRows = () => {
+                const list = getFamiliesForAssignationTab();
+                return list.map((f) => {
+                    const groups = normalizeFamilyDecisionGroups(f?.decisionGroups);
+                    const groupsTxt = groups.length
+                        ? groups.map((g) => {
+                            const kw = String(g.keywords || '').trim();
+                            const count = Array.isArray(g.optionIds) ? g.optionIds.length : 0;
+                            const base = count ? `${g.type}:${g.id} (${count} opt)` : `${g.type}:${g.id}`;
+                            return kw ? `${base} — ${kw}` : base;
+                        }).join(', ')
+                        : 'Aucun';
+                    const idx = f.__idx;
+                    return {
+                        __idx: idx,
+                        familyLabel: String(f?.familyLabel || 'Famille').trim() || 'Famille',
+                        objectName: String(f?.objectName || '').trim() || '—',
+                        optionCount: Array.isArray(f.optionIds) ? f.optionIds.length : 0,
+                        groupsSummary: groupsTxt,
+                        _actionsHtml: `<div style="display:flex;gap:6px;flex-wrap:wrap;">
+                            <button type="button" class="btn btn-outline" style="font-size:12px;padding:4px 8px;" onclick="event.stopPropagation();openFamilyEditionModal(${idx})">Éditer</button>
+                            <button type="button" class="btn btn-outline" style="font-size:12px;padding:4px 8px;" onclick="event.stopPropagation();deleteValidatedFamilyByIndex(${idx})">Supprimer</button>
+                        </div>`
+                    };
+                });
+            };
+            const config = {
+                elementKey: 'famille',
+                elementLabel: 'famille',
+                title: 'Familles validées',
+                description: 'Liste des familles du catalogue. Cliquez sur « Créer une famille » pour afficher le formulaire.',
+                columns: [
+                    { key: 'familyLabel', label: 'Famille' },
+                    { key: 'objectName', label: 'Nom objet' },
+                    { key: 'optionCount', label: 'Options' },
+                    { key: 'groupsSummary', label: 'Groupes décision' },
+                    { key: '_actionsHtml', label: 'Actions', type: 'html' }
+                ],
+                getRows,
+                listToolbar: {
+                    sortKey: 'familyLabel',
+                    searchKeys: ['familyLabel', 'objectName', 'groupsSummary'],
+                    searchPlaceholder: 'Famille, objet, groupes…'
+                },
+                countLabel: 'famille(s)',
+                emptyMessage: 'Aucune famille validée pour le moment.',
+                rowDblClickHandler: (idx) => {
+                    if (typeof openFamilyEditionModal === 'function') openFamilyEditionModal(idx);
+                },
+                createFormHtml: renderFamilyCreationFormHtml(),
+                onCreatePanelOpen: () => {
+                    refreshFamilyTemplatePreview();
+                    refreshFamilyGabaritButtonsVisual();
+                }
+            };
+            mount.innerHTML = window.UgapTemplates.renderVueLC(config);
+            window.UgapTemplates.bindVueLC(mount, config);
+            refreshFamilyTemplatePreview();
+            refreshFamilyGabaritButtonsVisual();
+        }
 
         // Fallback global: garantit drag + double-clic des cartes famille après tout re-render.
         function ensureFamilleCardGlobalInteractions() {
@@ -12837,10 +14357,12 @@ Format:
                 updateBaseOptionsAiProgressUi();
             }
 
-            if (familleRoot && mainActiveTab === 'famille') {
-                familleRoot.innerHTML = renderFamilleTabInner(splitOptions);
-                applyFamilleMergePickToDom();
-                refreshFamilyTemplatePreview();
+            if (mainActiveTab === 'famille') {
+                if (familleRoot) {
+                    familleRoot.innerHTML = renderFamilleTabInner(splitOptions);
+                    applyFamilleMergePickToDom();
+                }
+                mountFamilleVueLC();
             }
 
             // Liaison robuste du bouton (évite de dépendre de onclick inline).
@@ -12997,7 +14519,7 @@ Format:
                     const merged = buildSavedFamiliesFromReview(editFamilies);
                     setFamilleValidatedFamilies(merged);
                     window.__ugapFamilleIa = { families: merged };
-                    showAlert(`Passe enregistrée : ${merged.length} famille(s) — IA et réglages manuels sont pris en compte.`, 'success');
+                    showAlert(`Passe enregistrée : ${merged.length} famille(s).`, 'success');
                     renderExtractionInsights();
                 });
             }
@@ -14830,7 +16352,12 @@ Format:
             if (typeof initUgapImportTab === 'function') initUgapImportTab();
             else if (typeof loadImportList === 'function') loadImportList();
             refreshImportStagingIndicator();
-            loadData();
+            Promise.resolve(loadData()).finally(() => {
+                if (typeof scheduleParentEmbedResize === 'function') {
+                    scheduleParentEmbedResize();
+                    setTimeout(scheduleParentEmbedResize, 200);
+                }
+            });
         });
     </script>
     <script src="/modules/ugap/frontend/assets/js/ugap-import-minorations-workflow.js?v=13"></script>

@@ -405,6 +405,9 @@
                     if (isHidden) {
                         createPanel.removeAttribute('hidden');
                         createBtn.setAttribute('aria-expanded', 'true');
+                        if (typeof config.onCreatePanelOpen === 'function') {
+                            config.onCreatePanelOpen();
+                        }
                     } else {
                         createPanel.setAttribute('hidden', '');
                         createBtn.setAttribute('aria-expanded', 'false');

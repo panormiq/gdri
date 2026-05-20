@@ -11,13 +11,91 @@
 const rateLimit = require('express-rate-limit');
 const { ipKeyGenerator } = require('express-rate-limit');
 
+function parseTrustedIpList() {
+  const raw = [
+    process.env.RATE_LIMIT_TRUSTED_IPS || '',
+    process.env.AUTO_BAN_TRUSTED_IPS || ''
+  ].join(',');
+  return [...new Set(
+    raw.split(',').map((entry) => entry.trim()).filter(Boolean)
+  )];
+}
+
+const TRUSTED_IPS = parseTrustedIpList();
+if (TRUSTED_IPS.length > 0) {
+  console.log(`🛡️  Rate limit: ${TRUSTED_IPS.length} IP/CIDR de confiance exemptés (RATE_LIMIT_TRUSTED_IPS / AUTO_BAN_TRUSTED_IPS)`);
+}
+
+function ipToInt(ip) {
+  const parts = ip.split('.').map(Number);
+  if (parts.length !== 4 || parts.some((part) => Number.isNaN(part) || part < 0 || part > 255)) {
+    return null;
+  }
+  return ((parts[0] << 24) >>> 0) + ((parts[1] << 16) >>> 0) + ((parts[2] << 8) >>> 0) + (parts[3] >>> 0);
+}
+
+function isIPInCIDR(ip, cidr) {
+  if (!cidr.includes('/')) {
+    return ip === cidr;
+  }
+  const [baseIP, prefixStr] = cidr.split('/');
+  const prefix = parseInt(prefixStr, 10);
+  if (Number.isNaN(prefix) || prefix < 0 || prefix > 32) {
+    return false;
+  }
+  const ipInt = ipToInt(ip);
+  const baseInt = ipToInt(baseIP);
+  if (ipInt === null || baseInt === null) {
+    return false;
+  }
+  const mask = prefix === 0 ? 0 : ((0xffffffff << (32 - prefix)) >>> 0);
+  return (ipInt & mask) === (baseInt & mask);
+}
+
+function normalizeClientIp(ip) {
+  if (!ip || ip === 'unknown') {
+    return ip;
+  }
+  let normalized = String(ip).trim();
+  if (normalized.startsWith('::ffff:')) {
+    normalized = normalized.slice(7);
+  }
+  if (normalized === '::1') {
+    normalized = '127.0.0.1';
+  }
+  return normalized;
+}
+
+function getClientIp(req) {
+  const raw = req.headers['x-forwarded-for']?.split(',')[0]?.trim()
+    || req.headers['x-real-ip']
+    || req.connection?.remoteAddress
+    || req.socket?.remoteAddress
+    || req.ip
+    || 'unknown';
+  return normalizeClientIp(raw);
+}
+
+function isTrustedIP(ip) {
+  const normalized = normalizeClientIp(ip);
+  if (!normalized || normalized === 'unknown') {
+    return false;
+  }
+  return TRUSTED_IPS.some((entry) => isIPInCIDR(normalized, entry));
+}
+
+const RATE_LIMIT_MAX = Math.max(
+  1,
+  parseInt(process.env.RATE_LIMIT_MAX, 10) || 100
+);
+
 /**
  * Configuration du rate limiter global
- * Limite : 100 requêtes par minute par IP
+ * Limite : RATE_LIMIT_MAX requêtes par minute par IP (défaut 100)
  */
 const globalLimiter = rateLimit({
   windowMs: 60 * 1000, // 1 minute
-  max: 100, // 100 requêtes par minute
+  max: RATE_LIMIT_MAX,
   message: {
     error: 'Too many requests',
     message: 'Trop de requêtes depuis cette adresse IP. Veuillez réessayer dans une minute.',
@@ -27,23 +105,10 @@ const globalLimiter = rateLimit({
   legacyHeaders: false, // Désactive les headers X-RateLimit-*
   // Store par défaut (mémoire) - pour production, utiliser Redis avec store: new RedisStore()
   // Fonction pour obtenir l'IP réelle (prend en compte le reverse proxy)
-  keyGenerator: (req) => {
-    // Priorité : X-Forwarded-For (reverse proxy) > X-Real-IP > IP directe
-    const ip = req.headers['x-forwarded-for']?.split(',')[0]?.trim()
-      || req.headers['x-real-ip']
-      || req.connection.remoteAddress
-      || req.socket.remoteAddress
-      || req.ip
-      || 'unknown';
-    // Utiliser ipKeyGenerator pour gérer correctement IPv6
-    return ipKeyGenerator(ip);
-  },
+  keyGenerator: (req) => ipKeyGenerator(getClientIp(req)),
   // Handler personnalisé pour les requêtes bloquées
   handler: (req, res) => {
-    const ip = req.headers['x-forwarded-for']?.split(',')[0]?.trim() 
-      || req.headers['x-real-ip'] 
-      || req.connection.remoteAddress 
-      || 'unknown';
+    const ip = getClientIp(req);
     
     console.warn(`⚠️  Rate limit dépassé pour IP: ${ip} - ${req.method} ${req.path}`);
     
@@ -56,6 +121,9 @@ const globalLimiter = rateLimit({
   },
   // Skip certaines routes (health check, webhooks, OAuth callbacks, etc.)
   skip: (req) => {
+    if (isTrustedIP(getClientIp(req))) {
+      return true;
+    }
     // Ne pas limiter les health checks
     if (req.path === '/api/health') {
       return true;
@@ -86,21 +154,10 @@ const strictLimiter = rateLimit({
   },
   standardHeaders: true,
   legacyHeaders: false,
-  keyGenerator: (req) => {
-    const ip = req.headers['x-forwarded-for']?.split(',')[0]?.trim()
-      || req.headers['x-real-ip']
-      || req.connection.remoteAddress
-      || req.socket.remoteAddress
-      || req.ip
-      || 'unknown';
-    // Utiliser ipKeyGenerator pour gérer correctement IPv6
-    return ipKeyGenerator(ip);
-  },
+  keyGenerator: (req) => ipKeyGenerator(getClientIp(req)),
+  skip: (req) => isTrustedIP(getClientIp(req)),
   handler: (req, res) => {
-    const ip = req.headers['x-forwarded-for']?.split(',')[0]?.trim() 
-      || req.headers['x-real-ip'] 
-      || req.connection.remoteAddress 
-      || 'unknown';
+    const ip = getClientIp(req);
     
     console.error(`🚨 Rate limit STRICT dépassé pour IP: ${ip} - ${req.method} ${req.path}`);
     
@@ -127,15 +184,8 @@ const uploadLimiter = rateLimit({
   },
   standardHeaders: true,
   legacyHeaders: false,
-  keyGenerator: (req) => {
-    const ip = req.headers['x-forwarded-for']?.split(',')[0]?.trim()
-      || req.headers['x-real-ip']
-      || req.connection.remoteAddress
-      || req.socket.remoteAddress
-      || req.ip
-      || 'unknown';
-    return ipKeyGenerator(ip);
-  }
+  keyGenerator: (req) => ipKeyGenerator(getClientIp(req)),
+  skip: (req) => isTrustedIP(getClientIp(req))
 });
 
 /**
@@ -152,15 +202,8 @@ const publicApiLimiter = rateLimit({
   },
   standardHeaders: true,
   legacyHeaders: false,
-  keyGenerator: (req) => {
-    const ip = req.headers['x-forwarded-for']?.split(',')[0]?.trim()
-      || req.headers['x-real-ip']
-      || req.connection.remoteAddress
-      || req.socket.remoteAddress
-      || req.ip
-      || 'unknown';
-    return ipKeyGenerator(ip);
-  }
+  keyGenerator: (req) => ipKeyGenerator(getClientIp(req)),
+  skip: (req) => isTrustedIP(getClientIp(req))
 });
 
 /**
@@ -168,11 +211,7 @@ const publicApiLimiter = rateLimit({
  * Log les connexions qui se connectent mais ne font pas de requête complète
  */
 const detectSuspiciousConnections = (req, res, next) => {
-  const ip = req.headers['x-forwarded-for']?.split(',')[0]?.trim() 
-    || req.headers['x-real-ip'] 
-    || req.connection.remoteAddress 
-    || req.socket.remoteAddress
-    || 'unknown';
+  const ip = getClientIp(req);
   
   // Détecter les User-Agent suspects ou absents
   const userAgent = req.headers['user-agent'] || 'No User-Agent';

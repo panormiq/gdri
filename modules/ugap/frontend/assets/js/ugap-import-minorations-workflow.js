@@ -15,7 +15,12 @@
 
     function wfState() {
         if (!window.importWorkflowState) {
-            window.importWorkflowState = { step: 'models', minoAutoSeeded: false, majorationAutoSeeded: false };
+            window.importWorkflowState = {
+                step: 'models',
+                minoAutoSeeded: false,
+                majorationAutoSeeded: false,
+                validateAssignAllPostesToUnassigned: true
+            };
         }
         return window.importWorkflowState;
     }
@@ -2439,6 +2444,22 @@
         renderImportWorkflow();
     }
 
+    /** Options sans aucun poste coché → tous les modèles validés (étape Valider). */
+    function assignAllPostesToUnassignedImportOptions() {
+        const models = getImportStagingModelsForAssignment();
+        if (!models.length) return 0;
+        const allModelIds = models.map((m) => String(m?.id || '').trim()).filter(Boolean);
+        let touched = 0;
+        getImportStagingOptionsFlat().forEach((opt) => {
+            if (!isImportTriEligibleOption(opt)) return;
+            const cm = Array.isArray(opt?.compatibleModels) ? opt.compatibleModels : [];
+            if (cm.length > 0) return;
+            opt.compatibleModels = allModelIds.slice();
+            touched += 1;
+        });
+        return touched;
+    }
+
     function syncImportBaseProductsFromAdjRows() {
         const models = getImportStagingModelsForAssignment();
         const rows = getImportRowsForBaseProductRegistry();
@@ -3725,6 +3746,7 @@
     window.runSeedImportMinorationPostes = runSeedImportMinorationPostes;
     window.runSeedImportMajorationPostes = runSeedImportMajorationPostes;
     window.runSeedImportOptionsTriPostes = runSeedImportOptionsTriPostes;
+    window.assignAllPostesToUnassignedImportOptions = assignAllPostesToUnassignedImportOptions;
     window.saveImportBaseOptionsStep = saveImportBaseOptionsStep;
     window.saveImportMinorationsStep = saveImportMinorationsStep;
     window.saveImportMajorationsStep = saveImportMajorationsStep;

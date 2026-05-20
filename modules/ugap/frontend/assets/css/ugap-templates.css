@@ -250,6 +250,13 @@
     background: #f0fdfa;
 }
 
+.ugap-famille-create-form {
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    background: #fff;
+    overflow: hidden;
+}
+
 .ugap-vue-lc__create-panel[hidden] {
     display: none !important;
 }

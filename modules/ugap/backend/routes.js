@@ -317,7 +317,7 @@ router.post('/import-audit/reintegrate',
 
 /**
  * POST /api/ugap/familles/suggest-ia
- * Regroupe options + minorations en familles (IA uniquement, pas d'heuristique).
+ * Regroupe options + minorations en familles (IA — heuristique côté client avant appel).
  */
 router.post('/familles/suggest-ia',
   express.json({ limit: '2mb' }),

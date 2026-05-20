@@ -57,6 +57,31 @@ class UgapDataService {
           })
           .filter((t) => t.id)
       : [];
+    const optionFamilyStatuses = source.optionFamilyStatuses && typeof source.optionFamilyStatuses === 'object'
+      ? Object.fromEntries(
+        Object.entries(source.optionFamilyStatuses)
+          .map(([k, v]) => {
+            const id = String(k || '').trim();
+            const status = String(v || '').trim();
+            if (!id) return null;
+            if (status === 'assigne' || status === 'non_assigne') return [id, status];
+            return null;
+          })
+          .filter(Boolean)
+      )
+      : {};
+    const familleHeuristicRules = Array.isArray(source.familleHeuristicRules)
+      ? source.familleHeuristicRules
+          .map((r) => {
+            const rule = r && typeof r === 'object' ? r : {};
+            return {
+              familyLabel: String(rule.familyLabel || '').trim(),
+              keywords: String(rule.keywords || '').trim(),
+              scope: String(rule.scope || 'all').trim() || 'all'
+            };
+          })
+          .filter((r) => r.familyLabel && r.keywords)
+      : [];
     return {
       families,
       businessViews,
@@ -64,6 +89,8 @@ class UgapDataService {
       viewPresets,
       activeViewPresetId,
       familyDecisionGroupTemplates,
+      optionFamilyStatuses,
+      familleHeuristicRules,
       updatedAt: source.updatedAt || null
     };
   }
@@ -173,6 +200,9 @@ class UgapDataService {
         ? normalizedInputUiState.viewPresets
         : existingUiState.viewPresets,
       activeViewPresetId: normalizedInputUiState.activeViewPresetId || existingUiState.activeViewPresetId || 'basic',
+      familyDecisionGroupTemplates: normalizedInputUiState.familyDecisionGroupTemplates.length
+        ? normalizedInputUiState.familyDecisionGroupTemplates
+        : existingUiState.familyDecisionGroupTemplates,
       updatedAt: normalizedInputUiState.updatedAt || existingUiState.updatedAt || null
     };
     
@@ -1037,15 +1067,17 @@ class UgapDataService {
 
     const dataCol = db.collection('ugap_data');
     const published = await dataCol.findOne({ entrepriseId });
+    // Ne jamais reprendre uiState du staging : conserver familles validées + vues métier publiées.
+    const preservedUiState = this.normalizeUiState(published?.uiState);
     await this.saveData(
       db,
       {
         models,
         categories,
         importBaseProducts: [],
-        businessViews: published?.businessViews || doc.businessViews || [],
-        dependencyRules: published?.dependencyRules || doc.dependencyRules || [],
-        uiState: published?.uiState || doc.uiState || {}
+        businessViews: Array.isArray(published?.businessViews) ? published.businessViews : [],
+        dependencyRules: Array.isArray(published?.dependencyRules) ? published.dependencyRules : [],
+        uiState: preservedUiState
       },
       entrepriseId
     );

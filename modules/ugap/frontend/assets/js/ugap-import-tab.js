@@ -13,7 +13,8 @@
             posteFilter: '',
             optionTypeFilter: '',
             minoAutoSeeded: false,
-            majorationAutoSeeded: false
+            majorationAutoSeeded: false,
+            validateAssignAllPostesToUnassigned: true
         });
     }
 
@@ -248,6 +249,11 @@
         document.querySelectorAll('.tab-panel').forEach((p) => p.classList.remove('active'));
         tab.classList.add('active');
         panel.classList.add('active');
+        if (typeof scheduleParentEmbedResize === 'function') {
+            scheduleParentEmbedResize();
+            setTimeout(scheduleParentEmbedResize, 80);
+            setTimeout(scheduleParentEmbedResize, 350);
+        }
     }
 
     function initImportTab() {
