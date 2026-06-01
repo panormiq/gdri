@@ -1,8 +1,8 @@
 <div id="tab-options" class="tab-panel">
     <div id="options-heur-panel" style="margin-bottom: 14px; border: 1px solid #e9ecef; border-radius: 8px; padding: 12px; background: #fafbfc;">
         <p style="margin: 0 0 10px 0; font-size: 13px; color: #444; line-height: 1.5;">
-            Chaque option arrive en <strong>famille non assignée</strong>. À l’ouverture de cet onglet, l’heuristique assigne automatiquement la <strong>famille</strong> et le <strong>groupe</strong> (règles ci-dessous + mots-clés des familles/groupes validés).
-            Sans correspondance de groupe, le <strong>premier groupe</strong> de la famille est utilisé.
+            Chaque option arrive en <strong>famille non assignée</strong>. Utilisez le bouton ci-dessous pour lancer l’heuristique (famille + groupe selon les règles et mots-clés des familles/groupes validés).
+            Les modifications manuelles ne sont pas écrasées. Sans correspondance de groupe, le groupe <strong>Option catalogue</strong> de la famille est utilisé.
         </p>
         <div style="display: flex; flex-wrap: wrap; gap: 8px; align-items: end; margin-bottom: 8px;">
             <div style="min-width: 160px; flex: 1;">
@@ -61,20 +61,22 @@
             <button type="button" class="btn btn-outline" id="btn-filter-base-options">Options de base</button>
             <button type="button" class="btn btn-outline" id="btn-filter-unassigned-options">Options non assignées</button>
             <button type="button" class="btn btn-outline" id="btn-filter-auto-assigned-options">Options assignées</button>
+            <button type="button" class="btn btn-outline" id="btn-options-reset-filters" title="Réinitialise modèle, nom, famille, groupe et filtres actifs">Réinitialiser les filtres</button>
             <span id="options-unassigned-warning" style="display:none; align-items:center; gap:4px; padding:4px 8px; border:1px solid #facc15; background:#fffbeb; color:#92400e; border-radius:999px; font-size:12px; font-weight:600;">
                 ⚠
                 <span id="options-unassigned-warning-count">0</span>
             </span>
-            <div style="display:flex; align-items:flex-end; margin-left:auto;">
-                <button type="button" class="btn btn-danger" id="btn-options-reset-purge-temp" title="Supprime toutes les options du catalogue. Conserve familles (structure) et modèles. Idéal avant un nouvel import Excel.">Vider les options</button>
-            </div>
         </div>
     </div>
+    <div id="options-tab-catalog-status" style="margin-bottom:10px;font-size:13px;color:#444;line-height:1.5;"></div>
     <div id="options-family-editor-panel" style="display:none; margin-bottom:14px; border:1px solid #cfe8ff; border-radius:10px; padding:12px; background:#f8fbff;"></div>
+    <div id="ugap-options-table-scroll" class="ugap-options-table-scroll">
     <table id="categories-table">
         <thead>
             <tr>
                 <th>Option</th>
+                <th>Détails</th>
+                <th>Inclus</th>
                 <th>Famille</th>
                 <th>Groupe</th>
                 <th>Prix Client</th>
@@ -85,4 +87,5 @@
         </thead>
         <tbody></tbody>
     </table>
+    </div>
 </div>

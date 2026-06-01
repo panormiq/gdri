@@ -1,7 +1,7 @@
 <?php
 /**
  * Point d'entree UGAP backoffice
- * - 2 onglets : Configurateur / Parametrage
+ * - Onglets : Configurateur / Parametrage / Prompts IA (import v2 = sous-onglets Paramétrage)
  * - Sans administration globale pour le moment
  */
 
@@ -20,6 +20,13 @@ if ($canManageUgap) {
     $ugapTopTabs[] = 'prompts-ia';
 }
 $activeTab = $_GET['tab'] ?? 'configurateur';
+/* Import v2 = section Importation sous Paramétrage */
+if ($activeTab === 'import') {
+    $activeTab = 'parametrage';
+    if (!isset($_GET['param_section'])) {
+        $_GET['param_section'] = 'importation';
+    }
+}
 if (!in_array($activeTab, $ugapTopTabs, true)) {
     $activeTab = 'configurateur';
 }
@@ -51,6 +58,7 @@ require_once '../../includes/header.php';
             <?php endif; ?>
         </div>
 
+        <div id="ugap-gdri-host" class="ugap-gdri-page" data-active-tab="<?= htmlspecialchars($activeTab, ENT_QUOTES, 'UTF-8') ?>">
         <?php
         $viewByTab = [
             'configurateur' => __DIR__ . '/ugap-tab-configurateur.php',
@@ -61,6 +69,7 @@ require_once '../../includes/header.php';
         $selectedView = $viewByTab[$activeTab] ?? $viewByTab['configurateur'];
         require $selectedView;
         ?>
+        </div>
     </div>
 </section>
 
@@ -102,12 +111,16 @@ require_once '../../includes/header.php';
     padding: 0;
 }
 
-.ugap-embed-frame {
-    width: 100%;
-    border: 0;
-    display: block;
-    min-height: 480px;
-    resize: none;
+/* Configurateur : une seule carte (page GDRI), pas de double cadre */
+.ugap-panel--configurateur-embed {
+    background: transparent;
+    box-shadow: none;
+    border-radius: 0;
+    padding: 0;
+}
+
+.ugap-panel--parametrage {
+    padding: 0;
     overflow: visible;
 }
 
@@ -119,7 +132,8 @@ require_once '../../includes/header.php';
     margin-top: 0;
 }
 
-/* Iframe + colonne rappel (sticky au scroll de la page, dans le flux). */
+/* Paramétrage + colonne rappel import (sticky au scroll de la page). */
+.ugap-module-layout,
 .ugap-import-embed-layout {
     display: flex;
     flex-wrap: nowrap;
@@ -132,6 +146,7 @@ require_once '../../includes/header.php';
     box-sizing: border-box;
 }
 
+.ugap-module-layout > .ugap-panel,
 .ugap-import-embed-layout > .ugap-panel {
     position: relative;
     flex: 1 1 auto;
@@ -196,6 +211,7 @@ section.section:has(#ugap-import-embed-root) .container {
 }
 
 @media (max-width: 1100px) {
+    .ugap-module-layout,
     .ugap-import-embed-layout {
         flex-wrap: wrap;
     }
@@ -210,155 +226,10 @@ section.section:has(#ugap-import-embed-root) .container {
 
 </style>
 
-<script>
-(function () {
-    var __ugapEmbedFrameLastHeight = 0;
-
-    function elementLayoutHeightInFrame(win, el) {
-        if (!el || !win) return 0;
-        var st = win.getComputedStyle(el);
-        if (st.display === 'none' || st.visibility === 'hidden') return 0;
-        return Math.max(
-            el.scrollHeight || 0,
-            el.offsetHeight || 0,
-            Math.ceil(el.getBoundingClientRect().height || 0)
-        );
-    }
-
-    function measureEmbedFrameContentHeight(frame) {
-        try {
-            var doc = frame.contentDocument || (frame.contentWindow && frame.contentWindow.document);
-            if (!doc) return 0;
-            var win = frame.contentWindow;
-            var heights = [];
-            var card = doc.getElementById('legacy-backoffice-card');
-            var activePanel = doc.querySelector('#legacy-backoffice-card .tab-panel.active');
-            var tabs = doc.querySelector('#legacy-backoffice-card .tabs');
-            var container = doc.querySelector('.container-xl');
-            var optionsTable = doc.getElementById('categories-table');
-            if (card) heights.push(elementLayoutHeightInFrame(win, card));
-            if (tabs) heights.push(elementLayoutHeightInFrame(win, tabs));
-            if (activePanel) heights.push(elementLayoutHeightInFrame(win, activePanel));
-            if (optionsTable) heights.push(elementLayoutHeightInFrame(win, optionsTable));
-            if (container) heights.push(elementLayoutHeightInFrame(win, container));
-            if (doc.body) {
-                heights.push(doc.body.scrollHeight || 0, doc.body.offsetHeight || 0);
-            }
-            if (doc.documentElement) {
-                heights.push(
-                    doc.documentElement.scrollHeight || 0,
-                    doc.documentElement.offsetHeight || 0
-                );
-            }
-            var valid = heights.filter(function (n) { return n > 0; });
-            if (valid.length) return Math.max.apply(null, valid.concat([200])) + 32;
-            return 0;
-        } catch (e) {
-            return 0;
-        }
-    }
-
-    function applyEmbedFrameHeight(height) {
-        var frame = document.getElementById('ugap-embed-frame');
-        if (!frame) return;
-        var reported = parseInt(height, 10) || 0;
-        var measured = measureEmbedFrameContentHeight(frame);
-        var base = measured > 0 ? measured : reported;
-        var h = Math.max(base, 200) + 48;
-        h = Math.min(h, 20000);
-        if (h <= __ugapEmbedFrameLastHeight && Math.abs(h - __ugapEmbedFrameLastHeight) < 6) {
-            return;
-        }
-        __ugapEmbedFrameLastHeight = h;
-        frame.style.height = h + 'px';
-        frame.style.maxHeight = 'none';
-        frame.style.minHeight = '480px';
-    }
-
-    function resetUgapMinoRecapDockStyles() {
-        var host = document.getElementById('ugap-import-mino-recap-dock-host');
-        if (!host) return;
-        host.style.visibility = '';
-        host.style.top = '';
-        host.style.left = '';
-        host.style.right = '';
-    }
-
-    function getRecapStickyTopPx() {
-        var raw = getComputedStyle(document.documentElement).getPropertyValue('--header-height').trim();
-        var header = parseInt(raw, 10);
-        if (!Number.isFinite(header)) header = 120;
-        return header + 20;
-    }
-
-    function escapeUgapDockText(s) {
-        return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
-    }
-
-    function isUgapEmbedFrameMessage(event) {
-        var frame = document.getElementById('ugap-embed-frame');
-        if (!frame || !frame.contentWindow) return false;
-        return event.source === frame.contentWindow;
-    }
-
-    window.addEventListener('message', function (event) {
-        if (event.origin !== window.location.origin) return;
-        var data = event.data;
-        if (!data || !data.type) return;
-        if (data.type === 'ugap-embed-resize') {
-            if (!isUgapEmbedFrameMessage(event)) return;
-            applyEmbedFrameHeight(data.height);
-            return;
-        }
-        if (data.type === 'ugap-embed-scroll') {
-            if (!isUgapEmbedFrameMessage(event)) return;
-            return;
-        }
-        if (data.type === 'ugap-import-mino-recap') {
-            if (!isUgapEmbedFrameMessage(event)) return;
-            var recapHost = document.getElementById('ugap-import-mino-recap-dock-host');
-            if (!recapHost) return;
-            if (!data.visible) {
-                recapHost.hidden = true;
-                recapHost.innerHTML = '';
-                resetUgapMinoRecapDockStyles();
-                return;
-            }
-            recapHost.hidden = false;
-            recapHost.innerHTML = data.html || '';
-            resetUgapMinoRecapDockStyles();
-            return;
-        }
-        if (data.type === 'ugap-embed-scroll-to') {
-            var frame = document.getElementById('ugap-embed-frame');
-            if (!frame) return;
-            var fr = frame.getBoundingClientRect();
-            var offsetY = parseInt(data.offsetY, 10) || 0;
-            var top = fr.top + window.pageYOffset + offsetY - 80;
-            window.scrollTo({ top: Math.max(0, top), behavior: 'smooth' });
-        }
-    });
-
-    var frame = document.getElementById('ugap-embed-frame');
-    function refreshEmbedFrameHeight() {
-        var frame = document.getElementById('ugap-embed-frame');
-        if (!frame) return;
-        var h = measureEmbedFrameContentHeight(frame);
-        if (h > 0) applyEmbedFrameHeight(h);
-    }
-
-    if (frame) {
-        frame.addEventListener('load', function () {
-            refreshEmbedFrameHeight();
-            setTimeout(refreshEmbedFrameHeight, 300);
-            setTimeout(refreshEmbedFrameHeight, 1200);
-        });
-    }
-
-    window.addEventListener('resize', function () {
-        refreshEmbedFrameHeight();
-    }, { passive: true });
-})();
-</script>
+<?php
+require_once __DIR__ . '/../../../modules/ugap/frontend/includes/gdri-embed.php';
+ugap_print_enqueued_styles();
+ugap_print_enqueued_scripts();
+?>
 
 <?php require_once '../../includes/footer.php'; ?>

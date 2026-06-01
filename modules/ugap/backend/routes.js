@@ -227,6 +227,25 @@ router.post('/devis',
 // ========================================
 
 /**
+ * GET /api/ugap/import/detect-excel
+ * Aperçu détection modèles / types de lignes (AVANT POST /import)
+ */
+router.get('/import/detect-excel',
+  authenticateJWT,
+  useUgapEntrepriseDb,
+  requireUgapRole(['ADMIN_ENTITY']),
+  ugapController.detectExcelPreview
+);
+
+/** Alias court */
+router.get('/detect-excel',
+  authenticateJWT,
+  useUgapEntrepriseDb,
+  requireUgapRole(['ADMIN_ENTITY']),
+  ugapController.detectExcelPreview
+);
+
+/**
  * POST /api/ugap/import
  * Importe un fichier Excel
  */
@@ -557,6 +576,18 @@ router.delete('/options/:optionId',
 );
 
 /**
+ * POST /api/ugap/options/delete-bulk
+ * Supprime plusieurs options catalogue
+ */
+router.post('/options/delete-bulk',
+  express.json(),
+  authenticateJWT,
+  useUgapEntrepriseDb,
+  requireUgapRole(['ADMIN_ENTITY']),
+  ugapController.deleteOptionsBulk
+);
+
+/**
  * POST /api/ugap/options/assign-families-bulk
  * Assigne des familles a un lot d'options
  */
@@ -566,6 +597,18 @@ router.post('/options/assign-families-bulk',
   useUgapEntrepriseDb,
   requireUgapRole(['ADMIN_ENTITY']),
   ugapController.assignOptionsFamiliesBulk
+);
+
+/**
+ * POST /api/ugap/base-products/:catalogOptionId/adj-links
+ * Lie la ligne mino/majo source (déduction Excel) à une option de base publiée (opt_ibp_*).
+ */
+router.post('/base-products/:catalogOptionId/adj-links',
+  express.json(),
+  authenticateJWT,
+  useUgapEntrepriseDb,
+  requireUgapRole(['ADMIN_ENTITY']),
+  ugapController.updateBaseProductAdjLinks
 );
 
 /**

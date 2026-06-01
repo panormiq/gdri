@@ -4,6 +4,7 @@
  * - Minorations : réf. UGAP contient « MINO » (pas de croix modèles)
  * - PR : libellé « PR … » (pas de croix modèles, isSparePart)
  * - Options de base : baseIncluded + manualBaseOption (heuristique libellé + poste)
+ * Règles détaillées mino/majo (workflow étapes 2–3) : docs/onglet-import/REGLES-MINO-MAJO.md
  */
 class UgapImportAssignmentService {
   static isPrLabel(label) {
@@ -176,10 +177,9 @@ class UgapImportAssignmentService {
    * @param {Array} categories
    * @param {boolean} onlyIfNotManual - pour les mino : ne pas réinitialiser le flag manuel
    */
-  static clearMinorationCrossAssignments(categories, onlyIfNotManual = true) {
+  static clearMinorationCrossAssignmentsForOptions(options, onlyIfNotManual = true) {
     let changed = false;
-    (Array.isArray(categories) ? categories : []).forEach((cat) => {
-      (Array.isArray(cat?.options) ? cat.options : []).forEach((opt) => {
+    (Array.isArray(options) ? options : []).forEach((opt) => {
         const isMino = this.isMinorationLine(opt?.name, opt?.refUgap);
         const isPr = this.isPrLabel(opt?.name);
         if (!isMino && !isPr) return;
@@ -194,9 +194,19 @@ class UgapImportAssignmentService {
           opt.compatibleModels = [];
           if (had) changed = true;
         }
-      });
     });
     return changed;
+  }
+
+  /** @deprecated Préférer clearMinorationCrossAssignmentsForOptions */
+  static clearMinorationCrossAssignments(categories, onlyIfNotManual = true) {
+    const flat = (Array.isArray(categories) ? categories : []).flatMap((cat) =>
+      (Array.isArray(cat?.options) ? cat.options : [])
+    );
+    if (!flat.length && categories?.[0]?.name && !categories[0].options) {
+      return this.clearMinorationCrossAssignmentsForOptions(categories, onlyIfNotManual);
+    }
+    return this.clearMinorationCrossAssignmentsForOptions(flat, onlyIfNotManual);
   }
 
   static classifyOption(opt) {
@@ -259,9 +269,14 @@ class UgapImportAssignmentService {
       return true;
     }
 
-    if (opt?.isSparePart || this.isPrLabel(opt?.name)) {
+    if (lineKind === 'pr') {
       opt.isSparePart = true;
       opt.isMinoration = false;
+      opt.isDivers = false;
+      opt.baseIncluded = false;
+      opt.isBaseOption = false;
+      opt.manualBaseOption = false;
+      opt.compatibleModels = [];
       summary.totals.spare_part += 1;
       return true;
     }
@@ -277,9 +292,6 @@ class UgapImportAssignmentService {
         .map((x) => String(x || '').trim())
         .filter(Boolean)
     );
-    const modelById = new Map(
-      models.map((m) => [String(m?.id || '').trim(), m]).filter(([id]) => id)
-    );
 
     const summary = {
       byModel: {},
@@ -290,10 +302,12 @@ class UgapImportAssignmentService {
       summary.byModel[mid] = { option: 0, minoration: 0, base: 0, spare_part: 0 };
     });
 
-    const categories = Array.isArray(doc.categories) ? doc.categories : [];
-    categories.forEach((cat) => {
-      const opts = Array.isArray(cat?.options) ? cat.options : [];
-      opts.forEach((opt) => {
+    const options = Array.isArray(doc.importOptions)
+      ? doc.importOptions
+      : (Array.isArray(doc.categories) ? doc.categories : []).flatMap((cat) =>
+          (Array.isArray(cat?.options) ? cat.options : [])
+        );
+    options.forEach((opt) => {
         if (opt?.importGeneratedFromBaseProduct) {
           return;
         }
@@ -306,74 +320,24 @@ class UgapImportAssignmentService {
           return;
         }
 
-        const kind = this.classifyOption(opt);
-
         opt.isSparePart = false;
         opt.isMinoration = false;
         opt.isDivers = comp.length === 0;
-
-        if (kind === 'minoration') {
-          opt.isMinoration = true;
-          opt.isDivers = false;
-          opt.baseIncluded = false;
-          opt.isBaseOption = false;
-          opt.manualBaseOption = false;
-          summary.totals.minoration += 1;
-          comp.forEach((mid) => {
-            if (summary.byModel[mid]) summary.byModel[mid].minoration += 1;
-          });
-          return;
-        }
-
-        if (kind === 'spare_part') {
-          opt.isSparePart = true;
-          summary.totals.spare_part += 1;
-          return;
-        }
-
-        if (comp.length === 0) {
-          summary.totals.divers += 1;
-          opt.baseIncluded = false;
-          opt.isBaseOption = false;
-          opt.manualBaseOption = false;
-          return;
-        }
-
-        let baseForAnyValidated = false;
-        if (kind === 'base_candidate') {
-          comp.forEach((mid) => {
-            if (!validatedIds.has(mid)) return;
-            const model = modelById.get(mid);
-            if (!model) return;
-            if (!this.passesPosteScopeForBaseOption(opt, model)) return;
-            baseForAnyValidated = true;
-            if (summary.byModel[mid]) summary.byModel[mid].base += 1;
-          });
-        }
-
-        if (baseForAnyValidated) {
-          opt.baseIncluded = true;
-          opt.isBaseOption = true;
-          opt.manualBaseOption = true;
-          const price = Number(opt.priceUgap);
-          if (!Number.isFinite(Number(opt.baseIncludedPrice))) {
-            opt.baseIncludedPrice = Number.isFinite(price) ? price : 0;
-          }
-          summary.totals.base += 1;
-          return;
-        }
-
         opt.baseIncluded = false;
         opt.isBaseOption = false;
         opt.manualBaseOption = false;
-        summary.totals.option += 1;
-        comp.forEach((mid) => {
-          if (summary.byModel[mid]) summary.byModel[mid].option += 1;
-        });
+        if (comp.length === 0) {
+          summary.totals.divers += 1;
+        } else {
+          summary.totals.option += 1;
+          comp.forEach((mid) => {
+            if (summary.byModel[mid]) summary.byModel[mid].option += 1;
+          });
+        }
       });
-    });
 
-    doc.categories = categories;
+    doc.importOptions = options;
+    doc.categories = [];
     doc.importAssignmentsSummary = summary;
     doc.importAssignmentsAppliedAt = new Date();
     return { doc, summary };

@@ -1,19 +1,49 @@
+/**
+ * FICHIER : modules/ugap/frontend/assets/js/tabs/famille-tab.js
+ * RÔLE : Rendu workspace Famille (cartes, drag-drop, onglet inner HTML).
+ * NE PAS : état persistant (famille-state.js), gabarits (famille-gabarits.js), traitement IA (admin legacy).
+ */
 (function initUgapFamilleTabModule() {
+    'use strict';
 
     if (!window.UgapFamilleTab) window.UgapFamilleTab = {};
 
-
-
     window.UgapFamilleTab.renderFamilleTabInner = function renderFamilleTabInner(splitOptions) {
-
         if (typeof window.__legacyRenderFamilleTabInner === 'function') {
-
             return window.__legacyRenderFamilleTabInner(splitOptions);
-
         }
+        if (typeof window.pruneFamilleMergePick === 'function') window.pruneFamilleMergePick();
+        if (!window.__ugapFamilleRepassIndices) window.__ugapFamilleRepassIndices = new Set();
 
-        return '';
+        const combined = typeof window.buildFamilleCombinedRows === 'function'
+            ? window.buildFamilleCombinedRows(splitOptions)
+            : [];
+        if (typeof window.upsertFamilleOptionLabelCache === 'function') {
+            window.upsertFamilleOptionLabelCache(combined.map((r) => ({ id: r.id, name: r.name })));
+        }
+        const byId = new Map(combined.map((r) => [r.id, r]));
+        const iaData = window.__ugapFamilleIa || null;
+        const renderIa = window.renderFamilleIaGroupCards;
+        const iaBlock = iaData && typeof renderIa === 'function'
+            ? renderIa(iaData, byId)
+            : '<p style="color:#666; margin:0;">Aucun regroupement encore : lancez <strong>Détecter familles (IA)</strong> (config IA entreprise).</p>';
 
+        const review = window.__ugapFamilleReview || null;
+        const editFamilies = Array.isArray(review?.editFamilies) ? review.editFamilies : [];
+        const cardsFn = window.UgapFamilleTab.renderFamilyCardsList;
+        const reviewCardsHtml = editFamilies.length && typeof cardsFn === 'function'
+            ? `<div style="margin-top:20px; border-top:1px solid #e5e7eb; padding-top:14px;">
+                    <div style="font-weight:600; margin-bottom:8px;">Relecture / édition des familles</div>
+                    ${cardsFn(editFamilies, byId, 'review', editFamilies)}
+                   </div>`
+            : '';
+
+        return `
+                <div class="famille-tab-root" style="padding-bottom:32px;">
+                <div style="margin-top:14px;">${iaBlock}</div>
+                ${reviewCardsHtml}
+                </div>
+            `;
     };
 
 

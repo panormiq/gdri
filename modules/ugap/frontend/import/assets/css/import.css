@@ -1,0 +1,48 @@
+/**
+ * FICHIER : import/assets/css/import.css
+ * RÔLE : Styles module Import (workflow staging) en inclusion GDRI.
+ */
+
+#ugap-import-app,
+.ugap-import-embed-inner {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+#ugap-import-app .card {
+    background: #fff;
+    border: 1px solid #e3e6ea;
+    border-radius: 10px;
+    box-shadow: 0 1px 3px rgba(15, 23, 42, 0.06);
+    overflow: visible;
+}
+
+#ugap-import-app .ugap-import-workflow-block {
+    padding: 0 0 14px;
+}
+
+#ugap-import-app .ugap-import-workflow-block .ugap-import-tab {
+    padding: 0 14px 14px;
+}
+
+#ugap-import-app #tab-import.tab-panel {
+    display: block !important;
+}
+
+#ugap-import-app #import-workflow-section,
+#ugap-import-app #import-editor-section,
+#ugap-import-app .ugap-import-mino-wrap {
+    overflow: visible;
+}
+
+#ugap-import-app .ugap-import-workflow-sticky {
+    position: sticky;
+    top: calc(var(--header-height, 120px) + 8px);
+    z-index: 20;
+}
+
+.ugap-panel--import {
+    padding: 0;
+    overflow: visible;
+}

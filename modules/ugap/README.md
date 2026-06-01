@@ -1,5 +1,7 @@
 # Module UGAP - Configurateur de Bateaux
 
+> **Développement / IA** : lire d’abord [`CONVENTIONS.md`](CONVENTIONS.md) et [`STRUCTURE.md`](STRUCTURE.md).
+
 ## Version 2.0.0
 
 Module de configuration de bateaux avec extraction Excel et génération de devis.
@@ -56,7 +58,7 @@ modules/ugap/
 │       ├── useUgapEntrepriseDb.js   # Multitenant
 │       └── requireUgapRole.js       # Contrôle d'accès
 └── frontend/
-    ├── admin.html                   # Interface admin
+    ├── admin.php                    # Interface admin (back-office)
     └── index.html                   # Configurateur
 ```
 
@@ -91,7 +93,7 @@ Définition (conforme à ta règle) : **un tableau = un ensemble de lignes cons�
 
 ### 1. Import Excel (Admin)
 
-1. Accéder à `/modules/ugap/frontend/admin.html`
+1. Accéder à `/modules/ugap/frontend/admin.php`
 2. Cliquer sur "Importer depuis Excel"
 3. Le fichier `source/TARIF ALU UGAP 2024(6).xlsx` sera automatiquement importé
 

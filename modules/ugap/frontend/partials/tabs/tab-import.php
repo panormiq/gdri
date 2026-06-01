@@ -1,4 +1,8 @@
-<div id="tab-import" class="tab-panel<?= ($__ugapEmbedView ?? 'parametrage') !== 'prompts' ? ' active' : '' ?>">
+<?php
+$__ugapImportPanelActive = !empty($__ugapImportOnlyEmbed)
+    || (($__ugapEmbedView ?? 'parametrage') !== 'prompts');
+?>
+<div id="tab-import" class="tab-panel<?= $__ugapImportPanelActive ? ' active' : '' ?>">
 
     <div class="ugap-import-tab">
 
@@ -86,11 +90,11 @@
 
                         <button type="button" id="btn-import-step-models" class="btn btn-outline" data-import-step="models">1. Modèles</button>
 
-                        <button type="button" id="btn-import-step-import-base-options" class="btn btn-outline" data-import-step="import-base-options">2. Options de base</button>
+                        <button type="button" id="btn-import-step-minorations" class="btn btn-outline" data-import-step="minorations">2. Minorations</button>
 
-                        <button type="button" id="btn-import-step-minorations" class="btn btn-outline" data-import-step="minorations">3. Minorations</button>
+                        <button type="button" id="btn-import-step-majorations" class="btn btn-outline" data-import-step="majorations">3. Majorations</button>
 
-                        <button type="button" id="btn-import-step-majorations" class="btn btn-outline" data-import-step="majorations">4. Majorations</button>
+                        <button type="button" id="btn-import-step-import-base-options" class="btn btn-outline" data-import-step="import-base-options">4. Options de base</button>
 
                         <button type="button" id="btn-import-step-families-tri" class="btn btn-outline" data-import-step="families-tri">5. Options</button>
 

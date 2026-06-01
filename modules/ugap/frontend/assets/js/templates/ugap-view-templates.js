@@ -10,6 +10,7 @@
     const TAB_LABELS = {
         import: 'Import',
         famille: 'Famille',
+        categorie: 'Catégorie',
         'template-bateau': 'Template bateau',
         models: 'Modèles',
         categories: 'Vues métier',
@@ -23,6 +24,7 @@
     /** Politique commune Vue LC : bouton « Créer un/une … » (article inclus). */
     const LC_CREATE_BUTTON_LABELS = {
         famille: 'Créer une famille',
+        categorie: 'Créer une catégorie',
         'template-bateau': 'Créer un template bateau',
         'vue-metier': 'Créer une vue métier',
         categories: 'Créer une vue métier',
@@ -117,13 +119,20 @@
             return `<tr><td colspan="${Math.max(columns.length, 1)}"><div class="ugap-vue-lc__empty">${escapeHtml(msg)}</div></td></tr>`;
         }
 
+        const rowReorder = config.rowReorder && typeof config.rowReorder === 'object' ? config.rowReorder : null;
+        const idKey = rowReorder ? String(rowReorder.idKey || '__id').trim() : '';
+
         return list.map((row, displayIndex) => {
             const cells = columns.map((col) => `<td>${renderCell(row, col)}</td>`).join('');
             const rowIdx = getLcRowIndex(row, displayIndex);
+            const dragId = idKey ? String(row?.[idKey] ?? '').trim() : '';
             const dblAttr = config.rowDblClickHandler
                 ? ` data-ugap-lc-row-index="${rowIdx}" data-ugap-lc-element="${escapeHtml(elementKey)}" style="cursor:pointer;" title="Double-clic pour éditer"`
                 : '';
-            return `<tr${dblAttr}>${cells}</tr>`;
+            const dragAttr = rowReorder && dragId
+                ? ` data-ugap-dnd-item="${escapeHtml(dragId)}" data-ugap-lc-drag-id="${escapeHtml(dragId)}"`
+                : '';
+            return `<tr${dblAttr}${dragAttr}>${cells}</tr>`;
         }).join('');
     }
 
@@ -180,7 +189,25 @@
         sortBtn.classList.toggle('is-desc', sortDir === 'desc');
     }
 
+    function bindLcRowReorder(shell, elementKey, config) {
+        const rowReorder = config?.rowReorder;
+        if (!rowReorder || typeof rowReorder.onDrop !== 'function') return;
+        const Dnd = global.UgapSortableDnd;
+        if (!Dnd?.bindSortableDnd) return;
+        const tbody = shell.querySelector('.ugap-vue-lc__table tbody');
+        if (!tbody) return;
+        Dnd.bindSortableDnd(tbody, {
+            dataType: String(rowReorder.dataType || 'text/ugap-lc-reorder-id'),
+            itemSelector: 'tr[data-ugap-dnd-item]',
+            handleSelector: rowReorder.handleSelector || '.ugap-dnd-handle',
+            allowNest: !!rowReorder.allowNest,
+            getItemId: (el) => el.getAttribute('data-ugap-dnd-item'),
+            onDrop: (fromId, toId, mode) => rowReorder.onDrop(fromId, toId, mode)
+        });
+    }
+
     function bindLcRows(shell, elementKey, config) {
+        bindLcRowReorder(shell, elementKey, config);
         if (typeof config?.rowDblClickHandler !== 'function') return;
         shell.querySelectorAll(`[data-ugap-lc-element="${elementKey}"][data-ugap-lc-row-index]`).forEach((tr) => {
             if (tr.dataset.ugapLcRowBound === '1') return;
@@ -298,6 +325,7 @@
             const createFormHtml = config.createFormHtml || '';
             const createLabel = resolveLcCreateButtonLabel(config);
             const hideCreateButton = config.hideCreateButton === true;
+            const createActionsBelowHtml = config.createActionsBelowHtml || '';
 
             const headHtml = listToolbar && listState
                 ? renderVueLCHeaderHtml(columns, elementKey, listToolbar, listState)
@@ -329,12 +357,15 @@
                             <h3 class="ugap-vue-lc__title">${escapeHtml(title)}</h3>
                             ${description ? `<p class="ugap-vue-lc__desc">${escapeHtml(description)}</p>` : ''}
                         </div>
-                        ${hideCreateButton ? '' : `<button
-                            type="button"
-                            class="btn btn-primary"
-                            data-ugap-lc-create="${escapeHtml(elementKey)}"
-                            aria-expanded="false"
-                        >${escapeHtml(createLabel)}</button>`}
+                        ${hideCreateButton ? '' : `<div class="ugap-vue-lc__header-actions">
+                            <button
+                                type="button"
+                                class="btn btn-primary"
+                                data-ugap-lc-create="${escapeHtml(elementKey)}"
+                                aria-expanded="false"
+                            >${escapeHtml(createLabel)}</button>
+                            ${createActionsBelowHtml ? `<div class="ugap-vue-lc__header-subactions">${createActionsBelowHtml}</div>` : ''}
+                        </div>`}
                     </div>
                     ${hideCreateButton ? '' : `<div
                         class="ugap-vue-lc__create-panel"

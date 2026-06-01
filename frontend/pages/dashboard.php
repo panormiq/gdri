@@ -75,7 +75,7 @@ function renderModuleLinks($service, $userRole) {
     if (strpos($name, 'ugap') !== false) {
         $adminLink = '';
         if ($userRole === 'ADMIN_GDRI' || $userRole === 'ADMIN_ENTITY') {
-            $adminLink = '<a class="btn btn-outline" href="/modules/ugap/frontend/admin.html">🔎 Admin Extraction</a>';
+            $adminLink = '<a class="btn btn-outline" href="/modules/ugap/frontend/parametrage/index.php">🔎 Paramétrage UGAP</a>';
         }
         return '<div style="display:flex; gap: var(--spacing-sm); flex-wrap: wrap; margin-top: var(--spacing-md);">
             <a class="btn btn-primary" href="/modules/ugap/frontend/index.html">🚀 Configurer</a>

@@ -1,0 +1,488 @@
+/**
+ * FICHIER : modules/ugap/frontend/parametrage/assets/css/parametrage.css
+ * RÔLE : Styles coque paramétrage v2 uniquement.
+ */
+body {
+    margin: 0;
+    background: #f5f7fa;
+    font-family: inherit;
+}
+
+body.ugap-embedded-mode {
+    background: #fff;
+}
+
+.ugap-param-container {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 16px 20px 32px;
+    box-sizing: border-box;
+}
+
+.card {
+    background: #fff;
+    border-radius: 8px;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+    padding: 16px 20px;
+    margin-bottom: 16px;
+}
+
+.ugap-param-banner {
+    background: #e7f1ff;
+    color: #084298;
+    border: 1px solid #b6d4fe;
+    border-radius: 8px;
+    padding: 10px 14px;
+    margin-bottom: 14px;
+    font-size: 14px;
+}
+
+body.ugap-embedded-mode .ugap-param-banner,
+.ugap-gdri-embed .ugap-param-banner {
+    display: none;
+}
+
+.ugap-param-stats {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 16px;
+}
+
+.ugap-param-stat h3 {
+    margin: 0 0 4px;
+    font-size: 24px;
+    color: var(--primary-color, #007bff);
+}
+
+.ugap-param-stat p {
+    margin: 0;
+    color: #666;
+    font-size: 13px;
+}
+
+.btn {
+    padding: 8px 14px;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    font-weight: 600;
+}
+
+.btn-primary {
+    background: var(--primary-color, #007bff);
+    color: #fff;
+}
+
+.alert {
+    padding: 12px 16px;
+    border-radius: 6px;
+    margin-bottom: 14px;
+}
+
+.alert-success { background: #d4edda; color: #155724; }
+.alert-error { background: #f8d7da; color: #721c24; }
+.alert-info { background: #d1ecf1; color: #0c5460; }
+
+/* Niveau 1 — zones paramétrage (Importation, …) */
+.ugap-param-sections {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 12px;
+    padding: 6px;
+    border: 1px solid #dbe5f3;
+    border-radius: 10px;
+    background: #f8fbff;
+}
+
+.ugap-param-section-tab {
+    padding: 10px 18px;
+    border: 1px solid #cfd8e3;
+    border-radius: 8px;
+    background: #ffffff;
+    cursor: pointer;
+    font-weight: 700;
+    font-size: 14px;
+    color: #1f2937;
+    transition: all 0.15s ease;
+}
+
+.ugap-param-section-tab:hover {
+    border-color: #7aa2e3;
+    background: #eef5ff;
+}
+
+.ugap-param-section-tab:focus-visible {
+    outline: 2px solid #2563eb;
+    outline-offset: 1px;
+}
+
+.ugap-param-section-tab.is-active {
+    color: #fff;
+    background: var(--primary-color, #007bff);
+    border-color: var(--primary-color, #007bff);
+    box-shadow: 0 4px 10px rgba(0, 123, 255, 0.25);
+}
+
+.ugap-param-section-body {
+    padding: 0;
+    overflow: hidden;
+}
+
+.ugap-param-section-panel {
+    padding: 16px 20px 20px;
+}
+
+.ugap-param-section-panel[hidden] {
+    display: none !important;
+}
+
+.ugap-import-section-lead {
+    margin-top: 0;
+}
+
+.ugap-options-action-status {
+    margin: 10px 0 0;
+    padding: 8px 10px;
+    border-radius: 6px;
+    font-size: 13px;
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    color: #334155;
+}
+
+.ugap-options-action-status[data-status-type="success"] {
+    background: #ecfdf5;
+    border-color: #a7f3d0;
+    color: #065f46;
+}
+
+.ugap-options-action-status[data-status-type="warning"],
+.ugap-options-action-status[data-status-type="error"] {
+    background: #fff7ed;
+    border-color: #fed7aa;
+    color: #9a3412;
+}
+
+.ugap-options-action-status[data-status-type="info"] {
+    background: #eff6ff;
+    border-color: #bfdbfe;
+    color: #1e40af;
+}
+
+.ugap-option-tag {
+    display: inline-flex;
+    align-items: center;
+    border-radius: 999px;
+    padding: 2px 8px;
+    font-size: 11px;
+    font-weight: 700;
+    line-height: 1.4;
+    border: 1px solid transparent;
+    white-space: nowrap;
+}
+
+.ugap-option-tag--mino {
+    background: #eef2ff;
+    color: #4338ca;
+    border-color: #c7d2fe;
+}
+
+.ugap-option-tag--majo {
+    background: #fff7ed;
+    color: #9a3412;
+    border-color: #fed7aa;
+}
+
+.ugap-option-tag--base {
+    background: #ecfdf5;
+    color: #065f46;
+    border-color: #a7f3d0;
+}
+
+.ugap-option-tag--catalogue {
+    background: #f1f5f9;
+    color: #334155;
+    border-color: #cbd5e1;
+}
+
+.ugap-model-base-editor {
+    margin-top: 16px;
+    padding: 16px;
+}
+
+.ugap-model-base-editor__head {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.ugap-model-base-editor__body {
+    margin-top: 14px;
+    display: grid;
+    gap: 16px;
+}
+
+.ugap-model-base-family h4 {
+    margin: 0 0 10px;
+    font-size: 14px;
+    color: #1e293b;
+    border-bottom: 1px solid #e2e8f0;
+    padding-bottom: 6px;
+}
+
+.ugap-model-base-slot {
+    padding: 10px 12px;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    background: #fafbfc;
+    margin-bottom: 8px;
+}
+
+.ugap-model-base-slot__title {
+    font-weight: 600;
+    font-size: 13px;
+    margin-bottom: 8px;
+    color: #334155;
+}
+
+.ugap-model-base-slot__row {
+    display: flex;
+    gap: 8px;
+    align-items: stretch;
+}
+
+.ugap-model-base-pick {
+    flex: 1;
+    padding: 8px;
+    border: 1px solid #cbd5e1;
+    border-radius: 6px;
+    font-size: 13px;
+}
+
+.ugap-model-base-add {
+    min-width: 42px;
+    font-size: 20px;
+    line-height: 1;
+    padding: 4px 12px;
+}
+
+.ugap-model-base-modal {
+    position: fixed;
+    inset: 0;
+    z-index: 10050;
+    background: rgba(0, 0, 0, 0.45);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+}
+
+.ugap-model-base-modal[hidden] {
+    display: none !important;
+}
+
+.ugap-model-base-modal__panel {
+    width: min(520px, 96vw);
+    max-height: 90vh;
+    overflow: auto;
+}
+
+.ugap-model-base-modal__head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 14px;
+    border-bottom: 1px solid #e5e7eb;
+}
+
+/* Niveau 2 — étapes import Excel */
+.ugap-import-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 0;
+    border: 1px solid #dbe5f3;
+    border-radius: 10px;
+    background: #f8fbff;
+    padding: 8px;
+}
+
+.ugap-import-tab {
+    padding: 8px 14px;
+    border: 1px solid #cfd8e3;
+    border-radius: 8px;
+    background: #fff;
+    cursor: pointer;
+    font-weight: 700;
+    font-size: 13px;
+    color: #1f2937;
+    transition: all 0.15s ease;
+}
+
+.ugap-import-tab:hover {
+    border-color: #7aa2e3;
+    background: #eef5ff;
+}
+
+.ugap-import-tab:focus-visible {
+    outline: 2px solid #2563eb;
+    outline-offset: 1px;
+}
+
+.ugap-import-tab.is-active {
+    color: #fff;
+    background: var(--primary-color, #007bff);
+    border-color: var(--primary-color, #007bff);
+    box-shadow: 0 4px 10px rgba(0, 123, 255, 0.25);
+}
+
+.ugap-param-panels {
+    margin-top: 0;
+    border: none;
+    box-shadow: none;
+    padding: 16px 0 0;
+    border-radius: 0;
+}
+
+.ugap-param-panel h2 {
+    margin-top: 0;
+    font-size: 1.15rem;
+}
+
+.ugap-param-placeholder {
+    color: #666;
+    font-size: 14px;
+    padding: 20px;
+    background: #f8fafc;
+    border: 1px dashed #cbd5e1;
+}
+
+.ugap-param-placeholder p {
+    margin: 0;
+}
+
+.ugap-param-plan-link {
+    margin: 0 0 12px;
+    font-size: 13px;
+}
+
+.ugap-param-plan-link a {
+    color: var(--primary-color, #007bff);
+}
+
+.ugap-param-lead {
+    color: #555;
+    font-size: 14px;
+    margin: 0 0 14px;
+    line-height: 1.45;
+}
+
+.ugap-detect-actions {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-bottom: 16px;
+}
+
+.ugap-detect-status {
+    font-size: 13px;
+    color: #666;
+}
+
+.ugap-detect-summary {
+    background: #f8fafc;
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    padding: 12px 16px;
+    margin-bottom: 16px;
+}
+
+.ugap-detect-counts {
+    margin: 8px 0 0;
+    padding-left: 20px;
+}
+
+.ugap-detect-table-wrap {
+    overflow-x: auto;
+    max-height: min(70vh, 800px);
+    overflow-y: auto;
+    border: 1px solid #e9ecef;
+    border-radius: 8px;
+}
+
+.ugap-detect-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+}
+
+.ugap-detect-table th,
+.ugap-detect-table td {
+    border-bottom: 1px solid #eee;
+    padding: 8px 10px;
+    text-align: left;
+    vertical-align: top;
+}
+
+.ugap-detect-table th {
+    background: #f8f9fa;
+    position: sticky;
+    top: 0;
+    z-index: 1;
+}
+
+.ugap-detect-table td.num,
+.ugap-detect-table th.num {
+    text-align: right;
+    white-space: nowrap;
+}
+
+.ugap-detect-table tbody tr:hover {
+    background: #f9fafb;
+}
+
+body.ugap-embedded-mode .ugap-param-container {
+    padding: 12px 16px 40px;
+}
+
+body.ugap-embedded-mode .ugap-param-panels.active-panel {
+    min-height: 0;
+    overflow: visible;
+}
+
+.ugap-options-adj-cell {
+    min-width: 200px;
+    max-width: 320px;
+}
+
+.ugap-options-source-cell {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    font-size: 12px;
+    line-height: 1.35;
+}
+
+.ugap-options-source-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
+    color: #334155;
+    font-size: 12px;
+}
+
+.ugap-options-source-link input {
+    margin: 0;
+    flex-shrink: 0;
+}
+
+.ugap-options-source-excel {
+    color: #475569;
+    word-break: break-word;
+}

@@ -6,6 +6,7 @@
 const XLSX = require('xlsx');
 const path = require('path');
 const UgapImportAssignmentService = require('./UgapImportAssignmentService');
+const resolveImportLineKind = require('./excel-detect/resolveImportLineKind');
 
 class UgapExcelService {
   static isCrossMarker(value) {
@@ -57,7 +58,8 @@ class UgapExcelService {
     };
   }
 
-  static extractBaseModelData(raw, modelCol, labelCol, priceCol, startRow) {
+  static extractBaseModelData(raw, modelCol, labelCol, priceClientCol, priceUgapCol, startRow) {
+    const clientCol = priceClientCol > -1 ? priceClientCol : priceUgapCol;
     for (let r = startRow; r < raw.length; r++) {
       const row = raw[r] || [];
       const marker = row[modelCol];
@@ -67,13 +69,16 @@ class UgapExcelService {
       const labelStr = typeof label === 'string' ? label.trim() : '';
       if (!labelStr) continue;
 
-      const priceNum = this.parsePrice(row[priceCol]);
+      const priceClient = clientCol > -1 ? this.parsePrice(row[clientCol]) : 0;
+      const priceUgap = priceUgapCol > -1 ? this.parsePrice(row[priceUgapCol]) : priceClient;
       const parsed = this.parseBaseModelLabel(labelStr);
 
       return {
         rowIndex: r,
         label: labelStr,
-        basePrice: priceNum > 0 ? priceNum : 0,
+        basePrice: priceClient > 0 ? priceClient : 0,
+        priceClient: priceClient > 0 ? priceClient : 0,
+        priceUgap: priceUgap > 0 ? priceUgap : 0,
         modelName: parsed.modelName,
         motorizationBase: parsed.motorizationBase,
         posteNumber: parsed.posteNumber,
@@ -85,6 +90,8 @@ class UgapExcelService {
       rowIndex: -1,
       label: '',
       basePrice: 0,
+      priceClient: 0,
+      priceUgap: 0,
       modelName: '',
       motorizationBase: '',
       posteNumber: null,
@@ -504,12 +511,12 @@ class UgapExcelService {
     const baseRowIndices = new Set();
     structure.modelCols.forEach((colIdx) => {
       const nameFallback = this.extractModelName(raw, colIdx, structure.headerRowIndex);
-      const priceCol = structure.priceClientCol > -1 ? structure.priceClientCol : structure.priceUgapCol;
       const baseData = this.extractBaseModelData(
         raw,
         colIdx,
         structure.labelCol,
-        priceCol,
+        structure.priceClientCol,
+        structure.priceUgapCol,
         startRow
       );
       if (baseData.rowIndex >= 0) {
@@ -521,6 +528,8 @@ class UgapExcelService {
         colIndex: colIdx,
         name: baseData.modelName || nameFallback,
         basePrice: baseData.basePrice,
+        priceClient: baseData.priceClient,
+        priceUgap: baseData.priceUgap,
         baseLabel: baseData.label || '',
         motorizationBase: baseData.motorizationBase || '',
         posteNumber: baseData.posteNumber,
@@ -528,9 +537,8 @@ class UgapExcelService {
       });
     });
 
-    // 2. Extraire les options
-    const optionsMap = new Map(); // id -> option
-    const categoriesMap = new Map(); // categoryName -> { id, name, options: [] }
+    // 2. Extraire les options (liste plate — pas de catégories catalogue dans l'import)
+    const importOptions = [];
 
     for (let r = startRow; r < raw.length; r++) {
       if (baseRowIndices.has(r)) continue;
@@ -557,12 +565,11 @@ class UgapExcelService {
         ? String(refUgapRaw).trim()
         : '';
 
-      // Déterminer la catégorie (sera amélioré avec l'IA)
-      const category = this.determineCategory(labelStr);
-
-      const isMinorationRow = UgapImportAssignmentService.isMinorationLine(labelStr, refUgap);
+      const resolvedKind = resolveImportLineKind({ label: labelStr, refUgap });
+      const importOptionLineKind = resolvedKind === 'catalogue' ? 'option' : resolvedKind;
+      const isMinorationRow = resolvedKind === 'minoration';
       const optionFamilyKey = this.computeOptionFamilyKey(labelStr);
-      const isPrRow = /^PR\s/i.test(labelStr);
+      const isPrRow = resolvedKind === 'pr';
 
       const refFournisseurRaw = structure.refFournisseurCol > -1 ? row[structure.refFournisseurCol] : null;
       const refFournisseur = (typeof refFournisseurRaw === 'string' || typeof refFournisseurRaw === 'number')
@@ -585,50 +592,36 @@ class UgapExcelService {
 
       const baseReplacement = this.parseBaseReplacementProducts(labelStr);
 
-            const option = {
-                id: `opt_${r}`,
-                name: labelStr,
-                priceClient: priceClient,
-                priceUgap: priceUgap,
-                refUgap: refUgap,
-                refFournisseur: refFournisseur,
-                category: category,
-                compatibleModels: finalCompatibleModels,
-                isMinoration: isMinorationRow,
-                subCategory: null, // Sera rempli par l'IA ou manuellement
-                optionFamilyKey,
-                changeType: baseReplacement.changeType,
-                initialProduct: baseReplacement.initialProduct,
-                finalProduct: baseReplacement.finalProduct
-            };
-
-      optionsMap.set(option.id, option);
-
-      // Ajouter à la catégorie
-      if (!categoriesMap.has(category)) {
-        categoriesMap.set(category, {
-          id: `cat_${category.toLowerCase().replace(/[^a-z0-9]/g, '_')}`,
-          name: category,
-          options: []
-        });
-      }
-      categoriesMap.get(category).options.push(option);
+      const isPrRowLine = isPrRow;
+      importOptions.push({
+        id: `opt_${r}`,
+        name: labelStr,
+        priceClient: priceClient,
+        priceUgap: priceUgap,
+        refUgap: refUgap,
+        refFournisseur: refFournisseur,
+        compatibleModels: finalCompatibleModels,
+        importOptionLineKind,
+        isMinoration: isMinorationRow,
+        isSparePart: isPrRowLine,
+        rowOrder: r,
+        optionFamilyKey,
+        changeType: baseReplacement.changeType,
+        initialProduct: baseReplacement.initialProduct,
+        finalProduct: baseReplacement.finalProduct
+      });
     }
 
-        const categories = Array.from(categoriesMap.values()).map(cat => ({
-            ...cat,
-            subCategories: [] // Initialement vide, sera rempli par l'IA ou manuellement
-        }));
+    importOptions.sort((a, b) => (Number(a?.rowOrder) || 0) - (Number(b?.rowOrder) || 0));
+    const optionFamilyGroups = this.buildOptionFamilyGroups(importOptions);
 
-        const allOptionsFlat = categories.flatMap((c) => c.options || []);
-        const optionFamilyGroups = this.buildOptionFamilyGroups(allOptionsFlat);
-
-        return {
-            models,
-            categories,
-            structure,
-            optionFamilyGroups
-        };
+    return {
+      models,
+      importOptions,
+      categories: [],
+      structure,
+      optionFamilyGroups
+    };
   }
 
   /**
@@ -675,13 +668,18 @@ class UgapExcelService {
     }
 
     const startRow = structure.headerRowIndex + 1;
-    const priceCol = structure.priceClientCol > -1 ? structure.priceClientCol : structure.priceUgapCol;
-
     const models = [];
     const baseRowIndices = new Set();
     structure.modelCols.forEach((colIdx) => {
       const nameFallback = this.extractModelName(raw, colIdx, structure.headerRowIndex);
-      const baseData = this.extractBaseModelData(raw, colIdx, structure.labelCol, priceCol, startRow);
+      const baseData = this.extractBaseModelData(
+        raw,
+        colIdx,
+        structure.labelCol,
+        structure.priceClientCol,
+        structure.priceUgapCol,
+        startRow
+      );
       if (baseData.rowIndex >= 0) baseRowIndices.add(baseData.rowIndex);
       models.push({
         id: `model_${colIdx}`,
