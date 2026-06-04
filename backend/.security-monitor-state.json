@@ -1,1010 +1,1010 @@
 {
-  "lastAccessLogPosition": 54040115,
-  "lastErrorLogPosition": 14307786,
-  "attackCount": 2,
-  "lastAlertTime": "2026-04-21T05:51:58.053Z",
+  "lastAccessLogPosition": 77399253,
+  "lastErrorLogPosition": 16457482,
+  "attackCount": 0,
+  "lastAlertTime": "2026-06-04T02:48:19.806Z",
   "lastSynFloodAlertTime": "2026-01-14T09:25:39.725Z",
   "lastSuspectAlertTime": "2026-01-09T22:41:43.689Z",
   "attacks": [
     {
-      "timestamp": "2026-04-10T03:22:36.604Z",
-      "ip": "45.148.10.244",
-      "method": "GET",
-      "uri": "/backend/.env",
-      "userAgent": "Mozilla/5.0 (Windows NT 6.1; Win64; x64; rv:47.0) Gecko/20100101 Firefox/47.0",
-      "attackType": "sensitive_file_access",
-      "severity": "medium",
-      "logLine": "45.148.10.244 - - [10/Apr/2026:05:22:26 +0200] \"GET /backend/.env HTTP/1.1\" 403 311 \"-\" \"Mozilla/5.0 (Windows NT 6.1; Win64; x64; rv:47.0) Gecko/20100101 Firefox/47.0\""
-    },
-    {
-      "timestamp": "2026-04-10T03:22:36.604Z",
-      "ip": "45.148.10.244",
-      "method": "GET",
-      "uri": "/www/.env",
-      "userAgent": "Mozilla/5.0 (Windows NT 6.1; Win64; x64; rv:47.0) Gecko/20100101 Firefox/47.0",
-      "attackType": "sensitive_file_access",
-      "severity": "medium",
-      "logLine": "45.148.10.244 - - [10/Apr/2026:05:22:26 +0200] \"GET /www/.env HTTP/1.1\" 403 311 \"-\" \"Mozilla/5.0 (Windows NT 6.1; Win64; x64; rv:47.0) Gecko/20100101 Firefox/47.0\""
-    },
-    {
-      "timestamp": "2026-04-10T03:22:36.604Z",
-      "ip": "45.148.10.244",
-      "method": "GET",
-      "uri": "/docker/app/.env",
-      "userAgent": "Mozilla/5.0 (Windows NT 6.1; Win64; x64; rv:47.0) Gecko/20100101 Firefox/47.0",
-      "attackType": "sensitive_file_access",
-      "severity": "medium",
-      "logLine": "45.148.10.244 - - [10/Apr/2026:05:22:27 +0200] \"GET /docker/app/.env HTTP/1.1\" 403 311 \"-\" \"Mozilla/5.0 (Windows NT 6.1; Win64; x64; rv:47.0) Gecko/20100101 Firefox/47.0\""
-    },
-    {
-      "timestamp": "2026-04-10T03:22:36.604Z",
-      "ip": "45.148.10.244",
-      "method": "GET",
-      "uri": "/docker/.env",
-      "userAgent": "Mozilla/5.0 (Windows NT 6.1; Win64; x64; rv:47.0) Gecko/20100101 Firefox/47.0",
-      "attackType": "sensitive_file_access",
-      "severity": "medium",
-      "logLine": "45.148.10.244 - - [10/Apr/2026:05:22:27 +0200] \"GET /docker/.env HTTP/1.1\" 403 311 \"-\" \"Mozilla/5.0 (Windows NT 6.1; Win64; x64; rv:47.0) Gecko/20100101 Firefox/47.0\""
-    },
-    {
-      "timestamp": "2026-04-10T03:22:36.604Z",
-      "ip": "45.148.10.244",
-      "method": "GET",
-      "uri": "/laravel/core/.env",
-      "userAgent": "Mozilla/5.0 (Windows NT 6.1; Win64; x64; rv:47.0) Gecko/20100101 Firefox/47.0",
-      "attackType": "sensitive_file_access",
-      "severity": "medium",
-      "logLine": "45.148.10.244 - - [10/Apr/2026:05:22:27 +0200] \"GET /laravel/core/.env HTTP/1.1\" 403 311 \"-\" \"Mozilla/5.0 (Windows NT 6.1; Win64; x64; rv:47.0) Gecko/20100101 Firefox/47.0\""
-    },
-    {
-      "timestamp": "2026-04-10T03:22:36.604Z",
-      "ip": "45.148.10.244",
-      "method": "GET",
-      "uri": "/nginx/.env",
-      "userAgent": "Mozilla/5.0 (Windows NT 6.1; Win64; x64; rv:47.0) Gecko/20100101 Firefox/47.0",
-      "attackType": "sensitive_file_access",
-      "severity": "medium",
-      "logLine": "45.148.10.244 - - [10/Apr/2026:05:22:28 +0200] \"GET /nginx/.env HTTP/1.1\" 403 311 \"-\" \"Mozilla/5.0 (Windows NT 6.1; Win64; x64; rv:47.0) Gecko/20100101 Firefox/47.0\""
-    },
-    {
-      "timestamp": "2026-04-10T03:22:36.604Z",
-      "ip": "45.148.10.244",
-      "method": "GET",
-      "uri": "/site/.env",
-      "userAgent": "Mozilla/5.0 (Windows NT 6.1; Win64; x64; rv:47.0) Gecko/20100101 Firefox/47.0",
-      "attackType": "sensitive_file_access",
-      "severity": "medium",
-      "logLine": "45.148.10.244 - - [10/Apr/2026:05:22:28 +0200] \"GET /site/.env HTTP/1.1\" 403 311 \"-\" \"Mozilla/5.0 (Windows NT 6.1; Win64; x64; rv:47.0) Gecko/20100101 Firefox/47.0\""
-    },
-    {
-      "timestamp": "2026-04-10T03:22:36.604Z",
-      "ip": "45.148.10.244",
-      "method": "GET",
-      "uri": "/public/.env",
-      "userAgent": "Mozilla/5.0 (Windows NT 6.1; Win64; x64; rv:47.0) Gecko/20100101 Firefox/47.0",
-      "attackType": "sensitive_file_access",
-      "severity": "medium",
-      "logLine": "45.148.10.244 - - [10/Apr/2026:05:22:28 +0200] \"GET /public/.env HTTP/1.1\" 403 311 \"-\" \"Mozilla/5.0 (Windows NT 6.1; Win64; x64; rv:47.0) Gecko/20100101 Firefox/47.0\""
-    },
-    {
-      "timestamp": "2026-04-10T03:22:36.604Z",
-      "ip": "45.148.10.244",
-      "method": "GET",
-      "uri": "/laravel/.env",
-      "userAgent": "Mozilla/5.0 (Windows NT 6.1; Win64; x64; rv:47.0) Gecko/20100101 Firefox/47.0",
-      "attackType": "sensitive_file_access",
-      "severity": "medium",
-      "logLine": "45.148.10.244 - - [10/Apr/2026:05:22:28 +0200] \"GET /laravel/.env HTTP/1.1\" 403 311 \"-\" \"Mozilla/5.0 (Windows NT 6.1; Win64; x64; rv:47.0) Gecko/20100101 Firefox/47.0\""
-    },
-    {
-      "timestamp": "2026-04-10T03:22:36.604Z",
-      "ip": "45.148.10.244",
-      "method": "GET",
-      "uri": "/main/.env",
-      "userAgent": "Mozilla/5.0 (Windows NT 6.1; Win64; x64; rv:47.0) Gecko/20100101 Firefox/47.0",
-      "attackType": "sensitive_file_access",
-      "severity": "medium",
-      "logLine": "45.148.10.244 - - [10/Apr/2026:05:22:29 +0200] \"GET /main/.env HTTP/1.1\" 403 311 \"-\" \"Mozilla/5.0 (Windows NT 6.1; Win64; x64; rv:47.0) Gecko/20100101 Firefox/47.0\""
-    },
-    {
-      "timestamp": "2026-04-10T03:22:36.604Z",
-      "ip": "45.148.10.244",
-      "method": "GET",
-      "uri": "/prod/.env",
-      "userAgent": "Mozilla/5.0 (Windows NT 6.1; Win64; x64; rv:47.0) Gecko/20100101 Firefox/47.0",
-      "attackType": "sensitive_file_access",
-      "severity": "medium",
-      "logLine": "45.148.10.244 - - [10/Apr/2026:05:22:29 +0200] \"GET /prod/.env HTTP/1.1\" 403 311 \"-\" \"Mozilla/5.0 (Windows NT 6.1; Win64; x64; rv:47.0) Gecko/20100101 Firefox/47.0\""
-    },
-    {
-      "timestamp": "2026-04-10T03:22:36.604Z",
-      "ip": "45.148.10.244",
-      "method": "GET",
-      "uri": "/mail/.env",
-      "userAgent": "Mozilla/5.0 (Windows NT 6.1; Win64; x64; rv:47.0) Gecko/20100101 Firefox/47.0",
-      "attackType": "sensitive_file_access",
-      "severity": "medium",
-      "logLine": "45.148.10.244 - - [10/Apr/2026:05:22:29 +0200] \"GET /mail/.env HTTP/1.1\" 403 311 \"-\" \"Mozilla/5.0 (Windows NT 6.1; Win64; x64; rv:47.0) Gecko/20100101 Firefox/47.0\""
-    },
-    {
-      "timestamp": "2026-04-10T03:22:36.604Z",
-      "ip": "45.148.10.244",
-      "method": "GET",
-      "uri": "/src/.env",
-      "userAgent": "Mozilla/5.0 (Windows NT 6.1; Win64; x64; rv:47.0) Gecko/20100101 Firefox/47.0",
-      "attackType": "sensitive_file_access",
-      "severity": "medium",
-      "logLine": "45.148.10.244 - - [10/Apr/2026:05:22:29 +0200] \"GET /src/.env HTTP/1.1\" 403 311 \"-\" \"Mozilla/5.0 (Windows NT 6.1; Win64; x64; rv:47.0) Gecko/20100101 Firefox/47.0\""
-    },
-    {
-      "timestamp": "2026-04-10T03:22:36.604Z",
-      "ip": "45.148.10.244",
-      "method": "GET",
-      "uri": "/src/config/.env",
-      "userAgent": "Mozilla/5.0 (Windows NT 6.1; Win64; x64; rv:47.0) Gecko/20100101 Firefox/47.0",
-      "attackType": "sensitive_file_access",
-      "severity": "medium",
-      "logLine": "45.148.10.244 - - [10/Apr/2026:05:22:30 +0200] \"GET /src/config/.env HTTP/1.1\" 403 311 \"-\" \"Mozilla/5.0 (Windows NT 6.1; Win64; x64; rv:47.0) Gecko/20100101 Firefox/47.0\""
-    },
-    {
-      "timestamp": "2026-04-10T03:22:36.604Z",
-      "ip": "45.148.10.244",
-      "method": "GET",
-      "uri": "/config/.env",
-      "userAgent": "Mozilla/5.0 (Windows NT 6.1; Win64; x64; rv:47.0) Gecko/20100101 Firefox/47.0",
-      "attackType": "sensitive_file_access",
-      "severity": "medium",
-      "logLine": "45.148.10.244 - - [10/Apr/2026:05:22:30 +0200] \"GET /config/.env HTTP/1.1\" 403 311 \"-\" \"Mozilla/5.0 (Windows NT 6.1; Win64; x64; rv:47.0) Gecko/20100101 Firefox/47.0\""
-    },
-    {
-      "timestamp": "2026-04-10T03:22:36.604Z",
-      "ip": "45.148.10.244",
-      "method": "GET",
-      "uri": "/temp/.env",
-      "userAgent": "Mozilla/5.0 (Windows NT 6.1; Win64; x64; rv:47.0) Gecko/20100101 Firefox/47.0",
-      "attackType": "sensitive_file_access",
-      "severity": "medium",
-      "logLine": "45.148.10.244 - - [10/Apr/2026:05:22:30 +0200] \"GET /temp/.env HTTP/1.1\" 403 311 \"-\" \"Mozilla/5.0 (Windows NT 6.1; Win64; x64; rv:47.0) Gecko/20100101 Firefox/47.0\""
-    },
-    {
-      "timestamp": "2026-04-10T03:22:36.604Z",
-      "ip": "45.148.10.244",
-      "method": "GET",
-      "uri": "/tmp/.env",
-      "userAgent": "Mozilla/5.0 (Windows NT 6.1; Win64; x64; rv:47.0) Gecko/20100101 Firefox/47.0",
-      "attackType": "sensitive_file_access",
-      "severity": "medium",
-      "logLine": "45.148.10.244 - - [10/Apr/2026:05:22:30 +0200] \"GET /tmp/.env HTTP/1.1\" 403 311 \"-\" \"Mozilla/5.0 (Windows NT 6.1; Win64; x64; rv:47.0) Gecko/20100101 Firefox/47.0\""
-    },
-    {
-      "timestamp": "2026-04-10T03:22:36.604Z",
-      "ip": "45.148.10.244",
-      "method": "GET",
-      "uri": "/admin/.env",
-      "userAgent": "Mozilla/5.0 (Windows NT 6.1; Win64; x64; rv:47.0) Gecko/20100101 Firefox/47.0",
-      "attackType": "sensitive_file_access",
-      "severity": "medium",
-      "logLine": "45.148.10.244 - - [10/Apr/2026:05:22:31 +0200] \"GET /admin/.env HTTP/1.1\" 403 311 \"-\" \"Mozilla/5.0 (Windows NT 6.1; Win64; x64; rv:47.0) Gecko/20100101 Firefox/47.0\""
-    },
-    {
-      "timestamp": "2026-04-10T03:22:36.604Z",
-      "ip": "45.148.10.244",
-      "method": "GET",
-      "uri": "/backup/.env",
-      "userAgent": "Mozilla/5.0 (Windows NT 6.1; Win64; x64; rv:47.0) Gecko/20100101 Firefox/47.0",
-      "attackType": "sensitive_file_access",
-      "severity": "medium",
-      "logLine": "45.148.10.244 - - [10/Apr/2026:05:22:31 +0200] \"GET /backup/.env HTTP/1.1\" 403 311 \"-\" \"Mozilla/5.0 (Windows NT 6.1; Win64; x64; rv:47.0) Gecko/20100101 Firefox/47.0\""
-    },
-    {
-      "timestamp": "2026-04-10T03:22:36.604Z",
-      "ip": "45.148.10.244",
-      "method": "GET",
-      "uri": "/db/.env",
-      "userAgent": "Mozilla/5.0 (Windows NT 6.1; Win64; x64; rv:47.0) Gecko/20100101 Firefox/47.0",
-      "attackType": "sensitive_file_access",
-      "severity": "medium",
-      "logLine": "45.148.10.244 - - [10/Apr/2026:05:22:31 +0200] \"GET /db/.env HTTP/1.1\" 403 311 \"-\" \"Mozilla/5.0 (Windows NT 6.1; Win64; x64; rv:47.0) Gecko/20100101 Firefox/47.0\""
-    },
-    {
-      "timestamp": "2026-04-10T03:22:36.604Z",
-      "ip": "45.148.10.244",
-      "method": "GET",
-      "uri": "/test/.env",
-      "userAgent": "Mozilla/5.0 (Windows NT 6.1; Win64; x64; rv:47.0) Gecko/20100101 Firefox/47.0",
-      "attackType": "sensitive_file_access",
-      "severity": "medium",
-      "logLine": "45.148.10.244 - - [10/Apr/2026:05:22:31 +0200] \"GET /test/.env HTTP/1.1\" 403 311 \"-\" \"Mozilla/5.0 (Windows NT 6.1; Win64; x64; rv:47.0) Gecko/20100101 Firefox/47.0\""
-    },
-    {
-      "timestamp": "2026-04-10T03:22:36.604Z",
-      "ip": "45.148.10.244",
-      "method": "GET",
-      "uri": "/database/.env",
-      "userAgent": "Mozilla/5.0 (Windows NT 6.1; Win64; x64; rv:47.0) Gecko/20100101 Firefox/47.0",
-      "attackType": "sensitive_file_access",
-      "severity": "medium",
-      "logLine": "45.148.10.244 - - [10/Apr/2026:05:22:31 +0200] \"GET /database/.env HTTP/1.1\" 403 311 \"-\" \"Mozilla/5.0 (Windows NT 6.1; Win64; x64; rv:47.0) Gecko/20100101 Firefox/47.0\""
-    },
-    {
-      "timestamp": "2026-04-10T03:22:36.604Z",
-      "ip": "45.148.10.244",
-      "method": "GET",
-      "uri": "/old/.env",
-      "userAgent": "Mozilla/5.0 (Windows NT 6.1; Win64; x64; rv:47.0) Gecko/20100101 Firefox/47.0",
-      "attackType": "sensitive_file_access",
-      "severity": "medium",
-      "logLine": "45.148.10.244 - - [10/Apr/2026:05:22:31 +0200] \"GET /old/.env HTTP/1.1\" 403 311 \"-\" \"Mozilla/5.0 (Windows NT 6.1; Win64; x64; rv:47.0) Gecko/20100101 Firefox/47.0\""
-    },
-    {
-      "timestamp": "2026-04-10T03:22:36.604Z",
-      "ip": "45.148.10.244",
-      "method": "GET",
-      "uri": "/development/.env",
-      "userAgent": "Mozilla/5.0 (Windows NT 6.1; Win64; x64; rv:47.0) Gecko/20100101 Firefox/47.0",
-      "attackType": "sensitive_file_access",
-      "severity": "medium",
-      "logLine": "45.148.10.244 - - [10/Apr/2026:05:22:32 +0200] \"GET /development/.env HTTP/1.1\" 403 311 \"-\" \"Mozilla/5.0 (Windows NT 6.1; Win64; x64; rv:47.0) Gecko/20100101 Firefox/47.0\""
-    },
-    {
-      "timestamp": "2026-04-10T03:22:36.604Z",
-      "ip": "45.148.10.244",
-      "method": "GET",
-      "uri": "/core/.env",
-      "userAgent": "Mozilla/5.0 (Windows NT 6.1; Win64; x64; rv:47.0) Gecko/20100101 Firefox/47.0",
-      "attackType": "sensitive_file_access",
-      "severity": "medium",
-      "logLine": "45.148.10.244 - - [10/Apr/2026:05:22:32 +0200] \"GET /core/.env HTTP/1.1\" 403 311 \"-\" \"Mozilla/5.0 (Windows NT 6.1; Win64; x64; rv:47.0) Gecko/20100101 Firefox/47.0\""
-    },
-    {
-      "timestamp": "2026-04-10T03:22:36.604Z",
-      "ip": "45.148.10.244",
-      "method": "GET",
-      "uri": "/rest/.env",
-      "userAgent": "Mozilla/5.0 (Windows NT 6.1; Win64; x64; rv:47.0) Gecko/20100101 Firefox/47.0",
-      "attackType": "sensitive_file_access",
-      "severity": "medium",
-      "logLine": "45.148.10.244 - - [10/Apr/2026:05:22:33 +0200] \"GET /rest/.env HTTP/1.1\" 403 311 \"-\" \"Mozilla/5.0 (Windows NT 6.1; Win64; x64; rv:47.0) Gecko/20100101 Firefox/47.0\""
-    },
-    {
-      "timestamp": "2026-04-10T03:22:36.604Z",
-      "ip": "45.148.10.244",
-      "method": "GET",
-      "uri": "/v1/.env",
-      "userAgent": "Mozilla/5.0 (Windows NT 6.1; Win64; x64; rv:47.0) Gecko/20100101 Firefox/47.0",
-      "attackType": "sensitive_file_access",
-      "severity": "medium",
-      "logLine": "45.148.10.244 - - [10/Apr/2026:05:22:33 +0200] \"GET /v1/.env HTTP/1.1\" 403 311 \"-\" \"Mozilla/5.0 (Windows NT 6.1; Win64; x64; rv:47.0) Gecko/20100101 Firefox/47.0\""
-    },
-    {
-      "timestamp": "2026-04-10T03:22:36.604Z",
-      "ip": "45.148.10.244",
-      "method": "GET",
-      "uri": "/v2/.env",
-      "userAgent": "Mozilla/5.0 (Windows NT 6.1; Win64; x64; rv:47.0) Gecko/20100101 Firefox/47.0",
-      "attackType": "sensitive_file_access",
-      "severity": "medium",
-      "logLine": "45.148.10.244 - - [10/Apr/2026:05:22:33 +0200] \"GET /v2/.env HTTP/1.1\" 403 311 \"-\" \"Mozilla/5.0 (Windows NT 6.1; Win64; x64; rv:47.0) Gecko/20100101 Firefox/47.0\""
-    },
-    {
-      "timestamp": "2026-04-10T03:22:36.604Z",
-      "ip": "45.148.10.244",
-      "method": "GET",
-      "uri": "/.env.local",
-      "userAgent": "Mozilla/5.0 (Windows NT 6.1; Win64; x64; rv:47.0) Gecko/20100101 Firefox/47.0",
-      "attackType": "sensitive_file_access",
-      "severity": "medium",
-      "logLine": "45.148.10.244 - - [10/Apr/2026:05:22:34 +0200] \"GET /.env.local HTTP/1.1\" 403 311 \"-\" \"Mozilla/5.0 (Windows NT 6.1; Win64; x64; rv:47.0) Gecko/20100101 Firefox/47.0\""
-    },
-    {
-      "timestamp": "2026-04-10T03:22:36.604Z",
-      "ip": "45.148.10.244",
-      "method": "GET",
-      "uri": "/local/.env",
-      "userAgent": "Mozilla/5.0 (Windows NT 6.1; Win64; x64; rv:47.0) Gecko/20100101 Firefox/47.0",
-      "attackType": "sensitive_file_access",
-      "severity": "medium",
-      "logLine": "45.148.10.244 - - [10/Apr/2026:05:22:34 +0200] \"GET /local/.env HTTP/1.1\" 403 311 \"-\" \"Mozilla/5.0 (Windows NT 6.1; Win64; x64; rv:47.0) Gecko/20100101 Firefox/47.0\""
-    },
-    {
-      "timestamp": "2026-04-10T03:22:36.604Z",
-      "ip": "45.148.10.244",
-      "method": "GET",
-      "uri": "/web/.env",
-      "userAgent": "Mozilla/5.0 (Windows NT 6.1; Win64; x64; rv:47.0) Gecko/20100101 Firefox/47.0",
-      "attackType": "sensitive_file_access",
-      "severity": "medium",
-      "logLine": "45.148.10.244 - - [10/Apr/2026:05:22:34 +0200] \"GET /web/.env HTTP/1.1\" 403 311 \"-\" \"Mozilla/5.0 (Windows NT 6.1; Win64; x64; rv:47.0) Gecko/20100101 Firefox/47.0\""
-    },
-    {
-      "timestamp": "2026-04-10T03:22:36.604Z",
-      "ip": "45.148.10.244",
-      "method": "GET",
-      "uri": "/.env.production",
-      "userAgent": "Mozilla/5.0 (Windows NT 6.1; Win64; x64; rv:47.0) Gecko/20100101 Firefox/47.0",
-      "attackType": "sensitive_file_access",
-      "severity": "medium",
-      "logLine": "45.148.10.244 - - [10/Apr/2026:05:22:35 +0200] \"GET /.env.production HTTP/1.1\" 403 311 \"-\" \"Mozilla/5.0 (Windows NT 6.1; Win64; x64; rv:47.0) Gecko/20100101 Firefox/47.0\""
-    },
-    {
-      "timestamp": "2026-04-10T03:22:36.604Z",
-      "ip": "45.148.10.244",
-      "method": "GET",
-      "uri": "/.env.staging",
-      "userAgent": "Mozilla/5.0 (Windows NT 6.1; Win64; x64; rv:47.0) Gecko/20100101 Firefox/47.0",
-      "attackType": "sensitive_file_access",
-      "severity": "medium",
-      "logLine": "45.148.10.244 - - [10/Apr/2026:05:22:35 +0200] \"GET /.env.staging HTTP/1.1\" 403 311 \"-\" \"Mozilla/5.0 (Windows NT 6.1; Win64; x64; rv:47.0) Gecko/20100101 Firefox/47.0\""
-    },
-    {
-      "timestamp": "2026-04-10T03:22:36.604Z",
-      "ip": "45.148.10.244",
-      "method": "GET",
-      "uri": "/.env.development",
-      "userAgent": "Mozilla/5.0 (Windows NT 6.1; Win64; x64; rv:47.0) Gecko/20100101 Firefox/47.0",
-      "attackType": "sensitive_file_access",
-      "severity": "medium",
-      "logLine": "45.148.10.244 - - [10/Apr/2026:05:22:35 +0200] \"GET /.env.development HTTP/1.1\" 403 311 \"-\" \"Mozilla/5.0 (Windows NT 6.1; Win64; x64; rv:47.0) Gecko/20100101 Firefox/47.0\""
-    },
-    {
-      "timestamp": "2026-04-10T03:22:36.604Z",
-      "ip": "45.148.10.244",
-      "method": "GET",
-      "uri": "/.env.example",
-      "userAgent": "Mozilla/5.0 (Windows NT 6.1; Win64; x64; rv:47.0) Gecko/20100101 Firefox/47.0",
-      "attackType": "sensitive_file_access",
-      "severity": "medium",
-      "logLine": "45.148.10.244 - - [10/Apr/2026:05:22:35 +0200] \"GET /.env.example HTTP/1.1\" 403 311 \"-\" \"Mozilla/5.0 (Windows NT 6.1; Win64; x64; rv:47.0) Gecko/20100101 Firefox/47.0\""
-    },
-    {
-      "timestamp": "2026-04-10T03:22:36.604Z",
-      "ip": "45.148.10.244",
+      "timestamp": "2026-06-03T20:45:12.464Z",
+      "ip": "3.99.211.194",
       "method": "GET",
       "uri": "/.env.stage",
-      "userAgent": "Mozilla/5.0 (Windows NT 6.1; Win64; x64; rv:47.0) Gecko/20100101 Firefox/47.0",
+      "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
       "attackType": "sensitive_file_access",
       "severity": "medium",
-      "logLine": "45.148.10.244 - - [10/Apr/2026:05:22:35 +0200] \"GET /.env.stage HTTP/1.1\" 403 311 \"-\" \"Mozilla/5.0 (Windows NT 6.1; Win64; x64; rv:47.0) Gecko/20100101 Firefox/47.0\""
+      "logLine": "3.99.211.194 - - [03/Jun/2026:22:45:04 +0200] \"GET /.env.stage HTTP/1.1\" 403 311 \"-\" \"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36\""
     },
     {
-      "timestamp": "2026-04-10T03:22:36.604Z",
-      "ip": "45.148.10.244",
+      "timestamp": "2026-06-03T20:45:12.464Z",
+      "ip": "3.99.211.194",
       "method": "GET",
-      "uri": "/.env.old",
-      "userAgent": "Mozilla/5.0 (Windows NT 6.1; Win64; x64; rv:47.0) Gecko/20100101 Firefox/47.0",
+      "uri": "/.env.swp",
+      "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
       "attackType": "sensitive_file_access",
       "severity": "medium",
-      "logLine": "45.148.10.244 - - [10/Apr/2026:05:22:36 +0200] \"GET /.env.old HTTP/1.1\" 403 311 \"-\" \"Mozilla/5.0 (Windows NT 6.1; Win64; x64; rv:47.0) Gecko/20100101 Firefox/47.0\""
+      "logLine": "3.99.211.194 - - [03/Jun/2026:22:45:04 +0200] \"GET /.env.swp HTTP/1.1\" 403 311 \"-\" \"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36\""
     },
     {
-      "timestamp": "2026-04-10T03:22:58.272Z",
-      "ip": "45.148.10.244",
+      "timestamp": "2026-06-03T20:45:12.464Z",
+      "ip": "3.99.211.194",
       "method": "GET",
-      "uri": "/.env.bak",
-      "userAgent": "Mozilla/5.0 (Windows NT 6.1; Win64; x64; rv:47.0) Gecko/20100101 Firefox/47.0",
+      "uri": "/.env.ci",
+      "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
       "attackType": "sensitive_file_access",
       "severity": "medium",
-      "logLine": "45.148.10.244 - - [10/Apr/2026:05:22:36 +0200] \"GET /.env.bak HTTP/1.1\" 403 311 \"-\" \"Mozilla/5.0 (Windows NT 6.1; Win64; x64; rv:47.0) Gecko/20100101 Firefox/47.0\""
+      "logLine": "3.99.211.194 - - [03/Jun/2026:22:45:04 +0200] \"GET /.env.ci HTTP/1.1\" 403 311 \"-\" \"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36\""
     },
     {
-      "timestamp": "2026-04-10T03:22:58.272Z",
-      "ip": "45.148.10.244",
+      "timestamp": "2026-06-03T20:45:12.464Z",
+      "ip": "3.99.211.194",
       "method": "GET",
-      "uri": "/.env.backup",
-      "userAgent": "Mozilla/5.0 (Windows NT 6.1; Win64; x64; rv:47.0) Gecko/20100101 Firefox/47.0",
+      "uri": "/.env~",
+      "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
       "attackType": "sensitive_file_access",
       "severity": "medium",
-      "logLine": "45.148.10.244 - - [10/Apr/2026:05:22:36 +0200] \"GET /.env.backup HTTP/1.1\" 403 311 \"-\" \"Mozilla/5.0 (Windows NT 6.1; Win64; x64; rv:47.0) Gecko/20100101 Firefox/47.0\""
+      "logLine": "3.99.211.194 - - [03/Jun/2026:22:45:04 +0200] \"GET /.env~ HTTP/1.1\" 403 311 \"-\" \"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36\""
     },
     {
-      "timestamp": "2026-04-10T03:22:58.272Z",
-      "ip": "45.148.10.244",
+      "timestamp": "2026-06-03T20:45:12.464Z",
+      "ip": "3.99.211.194",
+      "method": "GET",
+      "uri": "/.env.docker",
+      "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+      "attackType": "sensitive_file_access",
+      "severity": "medium",
+      "logLine": "3.99.211.194 - - [03/Jun/2026:22:45:04 +0200] \"GET /.env.docker HTTP/1.1\" 403 311 \"-\" \"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36\""
+    },
+    {
+      "timestamp": "2026-06-03T20:45:12.464Z",
+      "ip": "3.99.211.194",
+      "method": "GET",
+      "uri": "/app/.env",
+      "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+      "attackType": "sensitive_file_access",
+      "severity": "medium",
+      "logLine": "3.99.211.194 - - [03/Jun/2026:22:45:04 +0200] \"GET /app/.env HTTP/1.1\" 403 311 \"-\" \"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36\""
+    },
+    {
+      "timestamp": "2026-06-03T20:45:12.464Z",
+      "ip": "3.99.211.194",
+      "method": "GET",
+      "uri": "/.env.live",
+      "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+      "attackType": "sensitive_file_access",
+      "severity": "medium",
+      "logLine": "3.99.211.194 - - [03/Jun/2026:22:45:04 +0200] \"GET /.env.live HTTP/1.1\" 403 311 \"-\" \"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36\""
+    },
+    {
+      "timestamp": "2026-06-03T20:45:12.464Z",
+      "ip": "3.99.211.194",
+      "method": "GET",
+      "uri": "/apps/.env",
+      "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+      "attackType": "sensitive_file_access",
+      "severity": "medium",
+      "logLine": "3.99.211.194 - - [03/Jun/2026:22:45:04 +0200] \"GET /apps/.env HTTP/1.1\" 403 311 \"-\" \"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36\""
+    },
+    {
+      "timestamp": "2026-06-03T20:45:12.464Z",
+      "ip": "3.99.211.194",
+      "method": "GET",
+      "uri": "/.env.preprod",
+      "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+      "attackType": "sensitive_file_access",
+      "severity": "medium",
+      "logLine": "3.99.211.194 - - [03/Jun/2026:22:45:05 +0200] \"GET /.env.preprod HTTP/1.1\" 403 311 \"-\" \"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36\""
+    },
+    {
+      "timestamp": "2026-06-03T20:45:12.464Z",
+      "ip": "3.99.211.194",
+      "method": "GET",
+      "uri": "/web/.env",
+      "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+      "attackType": "sensitive_file_access",
+      "severity": "medium",
+      "logLine": "3.99.211.194 - - [03/Jun/2026:22:45:05 +0200] \"GET /web/.env HTTP/1.1\" 403 311 \"-\" \"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36\""
+    },
+    {
+      "timestamp": "2026-06-03T20:45:12.464Z",
+      "ip": "3.99.211.194",
+      "method": "GET",
+      "uri": "/.env.uat",
+      "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+      "attackType": "sensitive_file_access",
+      "severity": "medium",
+      "logLine": "3.99.211.194 - - [03/Jun/2026:22:45:05 +0200] \"GET /.env.uat HTTP/1.1\" 403 311 \"-\" \"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36\""
+    },
+    {
+      "timestamp": "2026-06-03T20:45:12.464Z",
+      "ip": "3.99.211.194",
+      "method": "GET",
+      "uri": "/site/.env",
+      "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+      "attackType": "sensitive_file_access",
+      "severity": "medium",
+      "logLine": "3.99.211.194 - - [03/Jun/2026:22:45:05 +0200] \"GET /site/.env HTTP/1.1\" 403 311 \"-\" \"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36\""
+    },
+    {
+      "timestamp": "2026-06-03T20:45:12.464Z",
+      "ip": "3.99.211.194",
       "method": "GET",
       "uri": "/.env.dist",
-      "userAgent": "Mozilla/5.0 (Windows NT 6.1; Win64; x64; rv:47.0) Gecko/20100101 Firefox/47.0",
+      "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
       "attackType": "sensitive_file_access",
       "severity": "medium",
-      "logLine": "45.148.10.244 - - [10/Apr/2026:05:22:36 +0200] \"GET /.env.dist HTTP/1.1\" 403 311 \"-\" \"Mozilla/5.0 (Windows NT 6.1; Win64; x64; rv:47.0) Gecko/20100101 Firefox/47.0\""
+      "logLine": "3.99.211.194 - - [03/Jun/2026:22:45:05 +0200] \"GET /.env.dist HTTP/1.1\" 403 311 \"-\" \"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36\""
     },
     {
-      "timestamp": "2026-04-10T03:22:58.272Z",
-      "ip": "45.148.10.244",
+      "timestamp": "2026-06-03T20:45:12.464Z",
+      "ip": "3.99.211.194",
       "method": "GET",
-      "uri": "/.env.save",
-      "userAgent": "Mozilla/5.0 (Windows NT 6.1; Win64; x64; rv:47.0) Gecko/20100101 Firefox/47.0",
+      "uri": "/public/.env",
+      "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
       "attackType": "sensitive_file_access",
       "severity": "medium",
-      "logLine": "45.148.10.244 - - [10/Apr/2026:05:22:36 +0200] \"GET /.env.save HTTP/1.1\" 403 311 \"-\" \"Mozilla/5.0 (Windows NT 6.1; Win64; x64; rv:47.0) Gecko/20100101 Firefox/47.0\""
+      "logLine": "3.99.211.194 - - [03/Jun/2026:22:45:05 +0200] \"GET /public/.env HTTP/1.1\" 403 311 \"-\" \"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36\""
     },
     {
-      "timestamp": "2026-04-10T21:37:57.915Z",
-      "ip": "93.123.109.79",
+      "timestamp": "2026-06-03T20:45:12.464Z",
+      "ip": "3.99.211.194",
       "method": "GET",
-      "uri": "/.git/config",
-      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
+      "uri": "/.env.swp",
+      "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
       "attackType": "sensitive_file_access",
       "severity": "medium",
-      "logLine": "93.123.109.79 - - [10/Apr/2026:23:37:49 +0200] \"GET /.git/config HTTP/1.1\" 403 311 \"https://gdri.fr/.git/config\" \"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36\""
+      "logLine": "3.99.211.194 - - [03/Jun/2026:22:45:05 +0200] \"GET /.env.swp HTTP/1.1\" 403 311 \"-\" \"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36\""
     },
     {
-      "timestamp": "2026-04-10T23:48:45.513Z",
-      "ip": "20.63.4.189",
+      "timestamp": "2026-06-03T20:45:12.464Z",
+      "ip": "3.99.211.194",
       "method": "GET",
-      "uri": "//backup.php",
-      "userAgent": "-",
+      "uri": "/admin/.env",
+      "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
       "attackType": "sensitive_file_access",
       "severity": "medium",
-      "logLine": "20.63.4.189 - - [11/Apr/2026:01:48:34 +0200] \"GET //backup.php HTTP/1.1\" 403 311 \"-\" \"-\""
+      "logLine": "3.99.211.194 - - [03/Jun/2026:22:45:05 +0200] \"GET /admin/.env HTTP/1.1\" 403 311 \"-\" \"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36\""
     },
     {
-      "timestamp": "2026-04-11T01:47:15.555Z",
-      "ip": "85.11.167.49",
+      "timestamp": "2026-06-03T20:45:12.464Z",
+      "ip": "3.99.211.194",
       "method": "GET",
-      "uri": "//.env",
-      "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+      "uri": "/.env~",
+      "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
       "attackType": "sensitive_file_access",
       "severity": "medium",
-      "logLine": "85.11.167.49 - - [11/Apr/2026:03:47:12 +0200] \"GET //.env HTTP/1.1\" 403 311 \"http://gdr-innovation.fr/.env\" \"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36\""
+      "logLine": "3.99.211.194 - - [03/Jun/2026:22:45:05 +0200] \"GET /.env~ HTTP/1.1\" 403 311 \"-\" \"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36\""
     },
     {
-      "timestamp": "2026-04-12T17:28:19.873Z",
-      "ip": "180.184.55.222",
-      "method": "GET",
-      "uri": "/.env",
-      "userAgent": "python-requests/2.33.1",
-      "attackType": "sensitive_file_access",
-      "severity": "medium",
-      "logLine": "180.184.55.222 - - [12/Apr/2026:19:28:19 +0200] \"GET /.env HTTP/1.1\" 403 311 \"-\" \"python-requests/2.33.1\""
-    },
-    {
-      "timestamp": "2026-04-13T18:08:33.343Z",
-      "ip": "134.185.83.25",
-      "method": "GET",
-      "uri": "/.env",
-      "userAgent": "python-requests/2.33.0",
-      "attackType": "sensitive_file_access",
-      "severity": "medium",
-      "logLine": "134.185.83.25 - - [13/Apr/2026:20:08:24 +0200] \"GET /.env HTTP/1.1\" 403 311 \"-\" \"python-requests/2.33.0\""
-    },
-    {
-      "timestamp": "2026-04-13T19:00:36.067Z",
-      "ip": "204.76.203.27",
-      "method": "GET",
-      "uri": "/.env",
-      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.3",
-      "attackType": "sensitive_file_access",
-      "severity": "medium",
-      "logLine": "204.76.203.27 - - [13/Apr/2026:21:00:21 +0200] \"GET /.env HTTP/1.1\" 403 311 \"-\" \"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.3\""
-    },
-    {
-      "timestamp": "2026-04-14T13:00:48.962Z",
-      "ip": "20.220.161.65",
-      "method": "GET",
-      "uri": "//backup.php",
-      "userAgent": "-",
-      "attackType": "sensitive_file_access",
-      "severity": "medium",
-      "logLine": "20.220.161.65 - - [14/Apr/2026:15:00:30 +0200] \"GET //backup.php HTTP/1.1\" 403 311 \"-\" \"-\""
-    },
-    {
-      "timestamp": "2026-04-14T21:17:48.421Z",
-      "ip": "4.205.60.171",
-      "method": "GET",
-      "uri": "//config-backup.php",
-      "userAgent": "-",
-      "attackType": "sensitive_file_access",
-      "severity": "medium",
-      "logLine": "4.205.60.171 - - [14/Apr/2026:23:17:28 +0200] \"GET //config-backup.php HTTP/1.1\" 403 311 \"-\" \"-\""
-    },
-    {
-      "timestamp": "2026-04-14T23:10:37.462Z",
-      "ip": "20.43.19.237",
-      "method": "GET",
-      "uri": "//backup/index.php",
-      "userAgent": "-",
-      "attackType": "sensitive_file_access",
-      "severity": "medium",
-      "logLine": "20.43.19.237 - - [15/Apr/2026:01:10:37 +0200] \"GET //backup/index.php HTTP/1.1\" 403 311 \"-\" \"-\""
-    },
-    {
-      "timestamp": "2026-04-16T03:53:01.680Z",
-      "ip": "20.48.184.58",
-      "method": "GET",
-      "uri": "//backup/index.php",
-      "userAgent": "-",
-      "attackType": "sensitive_file_access",
-      "severity": "medium",
-      "logLine": "20.48.184.58 - - [16/Apr/2026:05:52:54 +0200] \"GET //backup/index.php HTTP/1.1\" 403 311 \"-\" \"-\""
-    },
-    {
-      "timestamp": "2026-04-16T23:53:31.164Z",
-      "ip": "88.151.34.241",
-      "method": "GET",
-      "uri": "/.env",
-      "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:138.0) Gecko/20100101 Firefox/138.0",
-      "attackType": "sensitive_file_access",
-      "severity": "medium",
-      "logLine": "88.151.34.241 - - [17/Apr/2026:01:53:28 +0200] \"GET /.env HTTP/1.1\" 403 311 \"https://gdri.fr/.env\" \"Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:138.0) Gecko/20100101 Firefox/138.0\""
-    },
-    {
-      "timestamp": "2026-04-16T23:53:31.164Z",
-      "ip": "88.151.34.241",
-      "method": "GET",
-      "uri": "/.env.local",
-      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36",
-      "attackType": "sensitive_file_access",
-      "severity": "medium",
-      "logLine": "88.151.34.241 - - [17/Apr/2026:01:53:28 +0200] \"GET /.env.local HTTP/1.1\" 403 311 \"https://gdri.fr/.env.local\" \"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36\""
-    },
-    {
-      "timestamp": "2026-04-16T23:53:31.164Z",
-      "ip": "88.151.34.241",
-      "method": "GET",
-      "uri": "/.env.bak",
-      "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36",
-      "attackType": "sensitive_file_access",
-      "severity": "medium",
-      "logLine": "88.151.34.241 - - [17/Apr/2026:01:53:28 +0200] \"GET /.env.bak HTTP/1.1\" 403 311 \"https://gdri.fr/.env.bak\" \"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36\""
-    },
-    {
-      "timestamp": "2026-04-16T23:53:31.164Z",
-      "ip": "88.151.34.241",
+      "timestamp": "2026-06-03T20:45:12.464Z",
+      "ip": "3.99.211.194",
       "method": "GET",
       "uri": "/backend/.env",
-      "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36",
+      "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
       "attackType": "sensitive_file_access",
       "severity": "medium",
-      "logLine": "88.151.34.241 - - [17/Apr/2026:01:53:28 +0200] \"GET /backend/.env HTTP/1.1\" 403 311 \"https://gdri.fr/backend/.env\" \"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36\""
+      "logLine": "3.99.211.194 - - [03/Jun/2026:22:45:05 +0200] \"GET /backend/.env HTTP/1.1\" 403 311 \"-\" \"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36\""
     },
     {
-      "timestamp": "2026-04-16T23:53:31.164Z",
-      "ip": "88.151.34.241",
-      "method": "GET",
-      "uri": "/laravel/.env",
-      "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36",
-      "attackType": "sensitive_file_access",
-      "severity": "medium",
-      "logLine": "88.151.34.241 - - [17/Apr/2026:01:53:28 +0200] \"GET /laravel/.env HTTP/1.1\" 403 311 \"https://gdri.fr/laravel/.env\" \"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36\""
-    },
-    {
-      "timestamp": "2026-04-16T23:53:31.164Z",
-      "ip": "88.151.34.241",
-      "method": "GET",
-      "uri": "/.env.production",
-      "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36",
-      "attackType": "sensitive_file_access",
-      "severity": "medium",
-      "logLine": "88.151.34.241 - - [17/Apr/2026:01:53:28 +0200] \"GET /.env.production HTTP/1.1\" 403 311 \"https://gdri.fr/.env.production\" \"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36\""
-    },
-    {
-      "timestamp": "2026-04-16T23:53:31.165Z",
-      "ip": "88.151.34.241",
+      "timestamp": "2026-06-03T20:45:12.464Z",
+      "ip": "3.99.211.194",
       "method": "GET",
       "uri": "/app/.env",
-      "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:138.0) Gecko/20100101 Firefox/138.0",
+      "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
       "attackType": "sensitive_file_access",
       "severity": "medium",
-      "logLine": "88.151.34.241 - - [17/Apr/2026:01:53:28 +0200] \"GET /app/.env HTTP/1.1\" 403 311 \"https://gdri.fr/app/.env\" \"Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:138.0) Gecko/20100101 Firefox/138.0\""
+      "logLine": "3.99.211.194 - - [03/Jun/2026:22:45:05 +0200] \"GET /app/.env HTTP/1.1\" 403 311 \"-\" \"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36\""
     },
     {
-      "timestamp": "2026-04-16T23:53:31.165Z",
-      "ip": "88.151.34.241",
+      "timestamp": "2026-06-03T20:45:12.464Z",
+      "ip": "3.99.211.194",
       "method": "GET",
-      "uri": "/.env.backup",
-      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:138.0) Gecko/20100101 Firefox/138.0",
+      "uri": "/server/.env",
+      "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
       "attackType": "sensitive_file_access",
       "severity": "medium",
-      "logLine": "88.151.34.241 - - [17/Apr/2026:01:53:28 +0200] \"GET /.env.backup HTTP/1.1\" 403 311 \"https://gdri.fr/.env.backup\" \"Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:138.0) Gecko/20100101 Firefox/138.0\""
+      "logLine": "3.99.211.194 - - [03/Jun/2026:22:45:06 +0200] \"GET /server/.env HTTP/1.1\" 403 311 \"-\" \"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36\""
     },
     {
-      "timestamp": "2026-04-17T06:26:56.272Z",
-      "ip": "154.58.229.82",
+      "timestamp": "2026-06-03T20:45:12.464Z",
+      "ip": "3.99.211.194",
       "method": "GET",
-      "uri": "/.git/config",
-      "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
+      "uri": "/apps/.env",
+      "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
       "attackType": "sensitive_file_access",
       "severity": "medium",
-      "logLine": "154.58.229.82 - - [17/Apr/2026:08:26:48 +0200] \"GET /.git/config HTTP/1.1\" 403 311 \"https://gdr-innovation.fr/.git/config\" \"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36\""
+      "logLine": "3.99.211.194 - - [03/Jun/2026:22:45:06 +0200] \"GET /apps/.env HTTP/1.1\" 403 311 \"-\" \"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36\""
     },
     {
-      "timestamp": "2026-04-17T06:26:56.272Z",
-      "ip": "154.58.229.82",
+      "timestamp": "2026-06-03T20:45:12.464Z",
+      "ip": "3.99.211.194",
       "method": "GET",
-      "uri": "/.git/HEAD",
-      "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
+      "uri": "/frontend/.env",
+      "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
       "attackType": "sensitive_file_access",
       "severity": "medium",
-      "logLine": "154.58.229.82 - - [17/Apr/2026:08:26:48 +0200] \"GET /.git/HEAD HTTP/1.1\" 403 311 \"https://gdr-innovation.fr/.git/HEAD\" \"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36\""
+      "logLine": "3.99.211.194 - - [03/Jun/2026:22:45:06 +0200] \"GET /frontend/.env HTTP/1.1\" 403 311 \"-\" \"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36\""
     },
     {
-      "timestamp": "2026-04-17T06:26:56.272Z",
-      "ip": "154.58.229.82",
+      "timestamp": "2026-06-03T20:45:12.464Z",
+      "ip": "3.99.211.194",
       "method": "GET",
-      "uri": "/.git/HEAD",
-      "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
+      "uri": "/web/.env",
+      "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
       "attackType": "sensitive_file_access",
       "severity": "medium",
-      "logLine": "154.58.229.82 - - [17/Apr/2026:08:26:49 +0200] \"GET /.git/HEAD HTTP/1.1\" 403 311 \"https://gdri.fr/.git/HEAD\" \"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36\""
+      "logLine": "3.99.211.194 - - [03/Jun/2026:22:45:06 +0200] \"GET /web/.env HTTP/1.1\" 403 311 \"-\" \"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36\""
     },
     {
-      "timestamp": "2026-04-17T06:26:56.272Z",
-      "ip": "154.58.229.82",
+      "timestamp": "2026-06-03T20:45:12.464Z",
+      "ip": "3.99.211.194",
       "method": "GET",
-      "uri": "/.git/config",
-      "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
+      "uri": "/src/.env",
+      "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
       "attackType": "sensitive_file_access",
       "severity": "medium",
-      "logLine": "154.58.229.82 - - [17/Apr/2026:08:26:49 +0200] \"GET /.git/config HTTP/1.1\" 403 311 \"https://gdri.fr/.git/config\" \"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36\""
+      "logLine": "3.99.211.194 - - [03/Jun/2026:22:45:06 +0200] \"GET /src/.env HTTP/1.1\" 403 311 \"-\" \"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36\""
     },
     {
-      "timestamp": "2026-04-17T10:38:36.137Z",
-      "ip": "216.81.245.108",
+      "timestamp": "2026-06-03T20:45:12.464Z",
+      "ip": "3.99.211.194",
       "method": "GET",
-      "uri": "/.git/config",
-      "userAgent": "Mozilla/5.0 (iPhone; CPU iPhone OS 11_2_6 like Mac OS X) AppleWebKit/604.5.6 (KHTML, like Gecko) Version/11.0 Mobile/15D100 Safari/604.1",
+      "uri": "/site/.env",
+      "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
       "attackType": "sensitive_file_access",
       "severity": "medium",
-      "logLine": "216.81.245.108 - - [17/Apr/2026:12:38:21 +0200] \"GET /.git/config HTTP/1.1\" 403 311 \"-\" \"Mozilla/5.0 (iPhone; CPU iPhone OS 11_2_6 like Mac OS X) AppleWebKit/604.5.6 (KHTML, like Gecko) Version/11.0 Mobile/15D100 Safari/604.1\""
+      "logLine": "3.99.211.194 - - [03/Jun/2026:22:45:06 +0200] \"GET /site/.env HTTP/1.1\" 403 311 \"-\" \"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36\""
     },
     {
-      "timestamp": "2026-04-18T02:44:02.740Z",
-      "ip": "204.76.203.27",
+      "timestamp": "2026-06-03T20:45:12.464Z",
+      "ip": "3.99.211.194",
       "method": "GET",
-      "uri": "/.env",
-      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.3",
+      "uri": "/core/.env",
+      "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
       "attackType": "sensitive_file_access",
       "severity": "medium",
-      "logLine": "204.76.203.27 - - [18/Apr/2026:04:43:43 +0200] \"GET /.env HTTP/1.1\" 403 311 \"-\" \"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.3\""
+      "logLine": "3.99.211.194 - - [03/Jun/2026:22:45:06 +0200] \"GET /core/.env HTTP/1.1\" 403 311 \"-\" \"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36\""
     },
     {
-      "timestamp": "2026-04-18T04:50:57.267Z",
-      "ip": "88.151.33.234",
+      "timestamp": "2026-06-03T20:45:12.464Z",
+      "ip": "3.99.211.194",
       "method": "GET",
-      "uri": "/.env",
-      "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36",
+      "uri": "/public/.env",
+      "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
       "attackType": "sensitive_file_access",
       "severity": "medium",
-      "logLine": "88.151.33.234 - - [18/Apr/2026:06:50:45 +0200] \"GET /.env HTTP/1.1\" 403 311 \"https://www.gdri.fr/.env\" \"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36\""
+      "logLine": "3.99.211.194 - - [03/Jun/2026:22:45:06 +0200] \"GET /public/.env HTTP/1.1\" 403 311 \"-\" \"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36\""
     },
     {
-      "timestamp": "2026-04-18T04:50:57.267Z",
-      "ip": "88.151.33.234",
+      "timestamp": "2026-06-03T20:45:12.464Z",
+      "ip": "3.99.211.194",
       "method": "GET",
-      "uri": "/.env.local",
-      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:138.0) Gecko/20100101 Firefox/138.0",
+      "uri": "/core/app/.env",
+      "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
       "attackType": "sensitive_file_access",
       "severity": "medium",
-      "logLine": "88.151.33.234 - - [18/Apr/2026:06:50:45 +0200] \"GET /.env.local HTTP/1.1\" 403 311 \"https://www.gdri.fr/.env.local\" \"Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:138.0) Gecko/20100101 Firefox/138.0\""
+      "logLine": "3.99.211.194 - - [03/Jun/2026:22:45:06 +0200] \"GET /core/app/.env HTTP/1.1\" 403 311 \"-\" \"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36\""
     },
     {
-      "timestamp": "2026-04-18T04:50:57.267Z",
-      "ip": "88.151.33.234",
+      "timestamp": "2026-06-03T20:45:12.464Z",
+      "ip": "3.99.211.194",
       "method": "GET",
-      "uri": "/.env.production",
-      "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:138.0) Gecko/20100101 Firefox/138.0",
+      "uri": "/admin/.env",
+      "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
       "attackType": "sensitive_file_access",
       "severity": "medium",
-      "logLine": "88.151.33.234 - - [18/Apr/2026:06:50:45 +0200] \"GET /.env.production HTTP/1.1\" 403 311 \"https://www.gdri.fr/.env.production\" \"Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:138.0) Gecko/20100101 Firefox/138.0\""
+      "logLine": "3.99.211.194 - - [03/Jun/2026:22:45:06 +0200] \"GET /admin/.env HTTP/1.1\" 403 311 \"-\" \"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36\""
     },
     {
-      "timestamp": "2026-04-18T04:50:57.267Z",
-      "ip": "88.151.33.234",
+      "timestamp": "2026-06-03T20:45:12.464Z",
+      "ip": "3.99.211.194",
       "method": "GET",
-      "uri": "/laravel/.env",
-      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36",
+      "uri": "/core/Database/.env",
+      "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
       "attackType": "sensitive_file_access",
       "severity": "medium",
-      "logLine": "88.151.33.234 - - [18/Apr/2026:06:50:45 +0200] \"GET /laravel/.env HTTP/1.1\" 403 311 \"https://www.gdri.fr/laravel/.env\" \"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36\""
+      "logLine": "3.99.211.194 - - [03/Jun/2026:22:45:06 +0200] \"GET /core/Database/.env HTTP/1.1\" 403 311 \"-\" \"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36\""
     },
     {
-      "timestamp": "2026-04-18T04:50:57.267Z",
-      "ip": "88.151.33.234",
-      "method": "GET",
-      "uri": "/.env.bak",
-      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36",
-      "attackType": "sensitive_file_access",
-      "severity": "medium",
-      "logLine": "88.151.33.234 - - [18/Apr/2026:06:50:45 +0200] \"GET /.env.bak HTTP/1.1\" 403 311 \"https://www.gdri.fr/.env.bak\" \"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36\""
-    },
-    {
-      "timestamp": "2026-04-18T04:50:57.267Z",
-      "ip": "88.151.33.234",
-      "method": "GET",
-      "uri": "/app/.env",
-      "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36",
-      "attackType": "sensitive_file_access",
-      "severity": "medium",
-      "logLine": "88.151.33.234 - - [18/Apr/2026:06:50:45 +0200] \"GET /app/.env HTTP/1.1\" 403 311 \"https://www.gdri.fr/app/.env\" \"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36\""
-    },
-    {
-      "timestamp": "2026-04-18T04:50:57.267Z",
-      "ip": "88.151.33.234",
-      "method": "GET",
-      "uri": "/.env.backup",
-      "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36",
-      "attackType": "sensitive_file_access",
-      "severity": "medium",
-      "logLine": "88.151.33.234 - - [18/Apr/2026:06:50:45 +0200] \"GET /.env.backup HTTP/1.1\" 403 311 \"https://www.gdri.fr/.env.backup\" \"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36\""
-    },
-    {
-      "timestamp": "2026-04-18T04:50:57.267Z",
-      "ip": "88.151.33.234",
+      "timestamp": "2026-06-03T20:45:12.464Z",
+      "ip": "3.99.211.194",
       "method": "GET",
       "uri": "/backend/.env",
-      "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:138.0) Gecko/20100101 Firefox/138.0",
+      "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
       "attackType": "sensitive_file_access",
       "severity": "medium",
-      "logLine": "88.151.33.234 - - [18/Apr/2026:06:50:45 +0200] \"GET /backend/.env HTTP/1.1\" 403 311 \"https://www.gdri.fr/backend/.env\" \"Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:138.0) Gecko/20100101 Firefox/138.0\""
+      "logLine": "3.99.211.194 - - [03/Jun/2026:22:45:07 +0200] \"GET /backend/.env HTTP/1.1\" 403 311 \"-\" \"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36\""
     },
     {
-      "timestamp": "2026-04-18T05:19:50.968Z",
-      "ip": "172.202.75.66",
+      "timestamp": "2026-06-03T20:45:12.464Z",
+      "ip": "3.99.211.194",
       "method": "GET",
-      "uri": "//config-backup.php",
-      "userAgent": "-",
+      "uri": "/config/.env",
+      "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
       "attackType": "sensitive_file_access",
       "severity": "medium",
-      "logLine": "172.202.75.66 - - [18/Apr/2026:07:19:36 +0200] \"GET //config-backup.php HTTP/1.1\" 403 311 \"-\" \"-\""
+      "logLine": "3.99.211.194 - - [03/Jun/2026:22:45:07 +0200] \"GET /config/.env HTTP/1.1\" 403 311 \"-\" \"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36\""
     },
     {
-      "timestamp": "2026-04-19T07:00:56.446Z",
-      "ip": "204.76.203.27",
+      "timestamp": "2026-06-03T20:45:12.464Z",
+      "ip": "3.99.211.194",
       "method": "GET",
-      "uri": "/.env",
-      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.3",
+      "uri": "/server/.env",
+      "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
       "attackType": "sensitive_file_access",
       "severity": "medium",
-      "logLine": "204.76.203.27 - - [19/Apr/2026:09:00:50 +0200] \"GET /.env HTTP/1.1\" 403 311 \"-\" \"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.3\""
+      "logLine": "3.99.211.194 - - [03/Jun/2026:22:45:07 +0200] \"GET /server/.env HTTP/1.1\" 403 311 \"-\" \"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36\""
     },
     {
-      "timestamp": "2026-04-19T11:41:09.879Z",
-      "ip": "88.151.33.237",
+      "timestamp": "2026-06-03T20:45:12.464Z",
+      "ip": "3.99.211.194",
       "method": "GET",
-      "uri": "/.git/config",
-      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+      "uri": "/private/.env",
+      "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
       "attackType": "sensitive_file_access",
       "severity": "medium",
-      "logLine": "88.151.33.237 - - [19/Apr/2026:13:40:50 +0200] \"GET /.git/config HTTP/1.1\" 403 311 \"https://gdr-innovation.fr/.git/config\" \"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36\""
+      "logLine": "3.99.211.194 - - [03/Jun/2026:22:45:07 +0200] \"GET /private/.env HTTP/1.1\" 403 311 \"-\" \"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36\""
     },
     {
-      "timestamp": "2026-04-19T11:41:09.880Z",
-      "ip": "88.151.33.237",
+      "timestamp": "2026-06-03T20:45:12.464Z",
+      "ip": "3.99.211.194",
+      "method": "GET",
+      "uri": "/frontend/.env",
+      "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+      "attackType": "sensitive_file_access",
+      "severity": "medium",
+      "logLine": "3.99.211.194 - - [03/Jun/2026:22:45:07 +0200] \"GET /frontend/.env HTTP/1.1\" 403 311 \"-\" \"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36\""
+    },
+    {
+      "timestamp": "2026-06-03T20:45:12.464Z",
+      "ip": "3.99.211.194",
+      "method": "GET",
+      "uri": "/current/.env",
+      "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+      "attackType": "sensitive_file_access",
+      "severity": "medium",
+      "logLine": "3.99.211.194 - - [03/Jun/2026:22:45:07 +0200] \"GET /current/.env HTTP/1.1\" 403 311 \"-\" \"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36\""
+    },
+    {
+      "timestamp": "2026-06-03T20:45:12.464Z",
+      "ip": "3.99.211.194",
+      "method": "GET",
+      "uri": "/src/.env",
+      "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+      "attackType": "sensitive_file_access",
+      "severity": "medium",
+      "logLine": "3.99.211.194 - - [03/Jun/2026:22:45:07 +0200] \"GET /src/.env HTTP/1.1\" 403 311 \"-\" \"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36\""
+    },
+    {
+      "timestamp": "2026-06-03T20:45:12.464Z",
+      "ip": "3.99.211.194",
+      "method": "GET",
+      "uri": "/release/.env",
+      "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+      "attackType": "sensitive_file_access",
+      "severity": "medium",
+      "logLine": "3.99.211.194 - - [03/Jun/2026:22:45:07 +0200] \"GET /release/.env HTTP/1.1\" 403 311 \"-\" \"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36\""
+    },
+    {
+      "timestamp": "2026-06-03T20:45:12.464Z",
+      "ip": "3.99.211.194",
+      "method": "GET",
+      "uri": "/core/.env",
+      "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+      "attackType": "sensitive_file_access",
+      "severity": "medium",
+      "logLine": "3.99.211.194 - - [03/Jun/2026:22:45:07 +0200] \"GET /core/.env HTTP/1.1\" 403 311 \"-\" \"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36\""
+    },
+    {
+      "timestamp": "2026-06-03T20:45:12.464Z",
+      "ip": "3.99.211.194",
+      "method": "GET",
+      "uri": "/releases/.env",
+      "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+      "attackType": "sensitive_file_access",
+      "severity": "medium",
+      "logLine": "3.99.211.194 - - [03/Jun/2026:22:45:07 +0200] \"GET /releases/.env HTTP/1.1\" 403 311 \"-\" \"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36\""
+    },
+    {
+      "timestamp": "2026-06-03T20:45:12.464Z",
+      "ip": "3.99.211.194",
+      "method": "GET",
+      "uri": "/core/app/.env",
+      "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+      "attackType": "sensitive_file_access",
+      "severity": "medium",
+      "logLine": "3.99.211.194 - - [03/Jun/2026:22:45:08 +0200] \"GET /core/app/.env HTTP/1.1\" 403 311 \"-\" \"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36\""
+    },
+    {
+      "timestamp": "2026-06-03T20:45:12.464Z",
+      "ip": "3.99.211.194",
+      "method": "GET",
+      "uri": "/shared/.env",
+      "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+      "attackType": "sensitive_file_access",
+      "severity": "medium",
+      "logLine": "3.99.211.194 - - [03/Jun/2026:22:45:08 +0200] \"GET /shared/.env HTTP/1.1\" 403 311 \"-\" \"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36\""
+    },
+    {
+      "timestamp": "2026-06-03T20:45:12.464Z",
+      "ip": "3.99.211.194",
+      "method": "GET",
+      "uri": "/core/Database/.env",
+      "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+      "attackType": "sensitive_file_access",
+      "severity": "medium",
+      "logLine": "3.99.211.194 - - [03/Jun/2026:22:45:08 +0200] \"GET /core/Database/.env HTTP/1.1\" 403 311 \"-\" \"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36\""
+    },
+    {
+      "timestamp": "2026-06-03T20:45:12.464Z",
+      "ip": "3.99.211.194",
+      "method": "GET",
+      "uri": "/deploy/.env",
+      "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+      "attackType": "sensitive_file_access",
+      "severity": "medium",
+      "logLine": "3.99.211.194 - - [03/Jun/2026:22:45:08 +0200] \"GET /deploy/.env HTTP/1.1\" 403 311 \"-\" \"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36\""
+    },
+    {
+      "timestamp": "2026-06-03T20:45:12.464Z",
+      "ip": "3.99.211.194",
+      "method": "GET",
+      "uri": "/config/.env",
+      "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+      "attackType": "sensitive_file_access",
+      "severity": "medium",
+      "logLine": "3.99.211.194 - - [03/Jun/2026:22:45:08 +0200] \"GET /config/.env HTTP/1.1\" 403 311 \"-\" \"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36\""
+    },
+    {
+      "timestamp": "2026-06-03T20:45:12.464Z",
+      "ip": "3.99.211.194",
+      "method": "GET",
+      "uri": "/build/.env",
+      "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+      "attackType": "sensitive_file_access",
+      "severity": "medium",
+      "logLine": "3.99.211.194 - - [03/Jun/2026:22:45:08 +0200] \"GET /build/.env HTTP/1.1\" 403 311 \"-\" \"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36\""
+    },
+    {
+      "timestamp": "2026-06-03T20:45:12.464Z",
+      "ip": "3.99.211.194",
+      "method": "GET",
+      "uri": "/private/.env",
+      "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+      "attackType": "sensitive_file_access",
+      "severity": "medium",
+      "logLine": "3.99.211.194 - - [03/Jun/2026:22:45:08 +0200] \"GET /private/.env HTTP/1.1\" 403 311 \"-\" \"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36\""
+    },
+    {
+      "timestamp": "2026-06-03T20:45:12.464Z",
+      "ip": "3.99.211.194",
+      "method": "GET",
+      "uri": "/dist/.env",
+      "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+      "attackType": "sensitive_file_access",
+      "severity": "medium",
+      "logLine": "3.99.211.194 - - [03/Jun/2026:22:45:08 +0200] \"GET /dist/.env HTTP/1.1\" 403 311 \"-\" \"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36\""
+    },
+    {
+      "timestamp": "2026-06-03T20:45:12.464Z",
+      "ip": "3.99.211.194",
+      "method": "GET",
+      "uri": "/current/.env",
+      "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+      "attackType": "sensitive_file_access",
+      "severity": "medium",
+      "logLine": "3.99.211.194 - - [03/Jun/2026:22:45:08 +0200] \"GET /current/.env HTTP/1.1\" 403 311 \"-\" \"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36\""
+    },
+    {
+      "timestamp": "2026-06-03T20:45:12.464Z",
+      "ip": "3.99.211.194",
+      "method": "GET",
+      "uri": "/public_html/.env",
+      "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+      "attackType": "sensitive_file_access",
+      "severity": "medium",
+      "logLine": "3.99.211.194 - - [03/Jun/2026:22:45:08 +0200] \"GET /public_html/.env HTTP/1.1\" 403 311 \"-\" \"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36\""
+    },
+    {
+      "timestamp": "2026-06-03T20:45:12.464Z",
+      "ip": "3.99.211.194",
+      "method": "GET",
+      "uri": "/release/.env",
+      "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+      "attackType": "sensitive_file_access",
+      "severity": "medium",
+      "logLine": "3.99.211.194 - - [03/Jun/2026:22:45:08 +0200] \"GET /release/.env HTTP/1.1\" 403 311 \"-\" \"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36\""
+    },
+    {
+      "timestamp": "2026-06-03T20:45:12.464Z",
+      "ip": "3.99.211.194",
+      "method": "GET",
+      "uri": "/htdocs/.env",
+      "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+      "attackType": "sensitive_file_access",
+      "severity": "medium",
+      "logLine": "3.99.211.194 - - [03/Jun/2026:22:45:08 +0200] \"GET /htdocs/.env HTTP/1.1\" 403 311 \"-\" \"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36\""
+    },
+    {
+      "timestamp": "2026-06-03T20:45:12.464Z",
+      "ip": "3.99.211.194",
+      "method": "GET",
+      "uri": "/releases/.env",
+      "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+      "attackType": "sensitive_file_access",
+      "severity": "medium",
+      "logLine": "3.99.211.194 - - [03/Jun/2026:22:45:09 +0200] \"GET /releases/.env HTTP/1.1\" 403 311 \"-\" \"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36\""
+    },
+    {
+      "timestamp": "2026-06-03T20:45:12.464Z",
+      "ip": "3.99.211.194",
+      "method": "GET",
+      "uri": "/www/.env",
+      "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+      "attackType": "sensitive_file_access",
+      "severity": "medium",
+      "logLine": "3.99.211.194 - - [03/Jun/2026:22:45:09 +0200] \"GET /www/.env HTTP/1.1\" 403 311 \"-\" \"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36\""
+    },
+    {
+      "timestamp": "2026-06-03T20:45:12.464Z",
+      "ip": "3.99.211.194",
+      "method": "GET",
+      "uri": "/shared/.env",
+      "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+      "attackType": "sensitive_file_access",
+      "severity": "medium",
+      "logLine": "3.99.211.194 - - [03/Jun/2026:22:45:09 +0200] \"GET /shared/.env HTTP/1.1\" 403 311 \"-\" \"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36\""
+    },
+    {
+      "timestamp": "2026-06-03T20:45:12.464Z",
+      "ip": "3.99.211.194",
+      "method": "GET",
+      "uri": "/html/.env",
+      "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+      "attackType": "sensitive_file_access",
+      "severity": "medium",
+      "logLine": "3.99.211.194 - - [03/Jun/2026:22:45:09 +0200] \"GET /html/.env HTTP/1.1\" 403 311 \"-\" \"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36\""
+    },
+    {
+      "timestamp": "2026-06-03T20:45:12.464Z",
+      "ip": "3.99.211.194",
+      "method": "GET",
+      "uri": "/deploy/.env",
+      "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+      "attackType": "sensitive_file_access",
+      "severity": "medium",
+      "logLine": "3.99.211.194 - - [03/Jun/2026:22:45:09 +0200] \"GET /deploy/.env HTTP/1.1\" 403 311 \"-\" \"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36\""
+    },
+    {
+      "timestamp": "2026-06-03T20:45:12.464Z",
+      "ip": "3.99.211.194",
+      "method": "GET",
+      "uri": "/live/.env",
+      "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+      "attackType": "sensitive_file_access",
+      "severity": "medium",
+      "logLine": "3.99.211.194 - - [03/Jun/2026:22:45:09 +0200] \"GET /live/.env HTTP/1.1\" 403 311 \"-\" \"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36\""
+    },
+    {
+      "timestamp": "2026-06-03T20:45:12.464Z",
+      "ip": "3.99.211.194",
+      "method": "GET",
+      "uri": "/build/.env",
+      "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+      "attackType": "sensitive_file_access",
+      "severity": "medium",
+      "logLine": "3.99.211.194 - - [03/Jun/2026:22:45:09 +0200] \"GET /build/.env HTTP/1.1\" 403 311 \"-\" \"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36\""
+    },
+    {
+      "timestamp": "2026-06-03T20:45:12.464Z",
+      "ip": "3.99.211.194",
+      "method": "GET",
+      "uri": "/prod/.env",
+      "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+      "attackType": "sensitive_file_access",
+      "severity": "medium",
+      "logLine": "3.99.211.194 - - [03/Jun/2026:22:45:09 +0200] \"GET /prod/.env HTTP/1.1\" 403 311 \"-\" \"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36\""
+    },
+    {
+      "timestamp": "2026-06-03T20:45:12.464Z",
+      "ip": "3.99.211.194",
+      "method": "GET",
+      "uri": "/dist/.env",
+      "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+      "attackType": "sensitive_file_access",
+      "severity": "medium",
+      "logLine": "3.99.211.194 - - [03/Jun/2026:22:45:09 +0200] \"GET /dist/.env HTTP/1.1\" 403 311 \"-\" \"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36\""
+    },
+    {
+      "timestamp": "2026-06-03T20:45:12.464Z",
+      "ip": "3.99.211.194",
+      "method": "GET",
+      "uri": "/dev/.env",
+      "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+      "attackType": "sensitive_file_access",
+      "severity": "medium",
+      "logLine": "3.99.211.194 - - [03/Jun/2026:22:45:09 +0200] \"GET /dev/.env HTTP/1.1\" 403 311 \"-\" \"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36\""
+    },
+    {
+      "timestamp": "2026-06-03T20:45:12.464Z",
+      "ip": "3.99.211.194",
+      "method": "GET",
+      "uri": "/public_html/.env",
+      "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+      "attackType": "sensitive_file_access",
+      "severity": "medium",
+      "logLine": "3.99.211.194 - - [03/Jun/2026:22:45:10 +0200] \"GET /public_html/.env HTTP/1.1\" 403 311 \"-\" \"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36\""
+    },
+    {
+      "timestamp": "2026-06-03T20:45:12.464Z",
+      "ip": "3.99.211.194",
+      "method": "GET",
+      "uri": "/staging/.env",
+      "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+      "attackType": "sensitive_file_access",
+      "severity": "medium",
+      "logLine": "3.99.211.194 - - [03/Jun/2026:22:45:10 +0200] \"GET /staging/.env HTTP/1.1\" 403 311 \"-\" \"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36\""
+    },
+    {
+      "timestamp": "2026-06-03T20:45:12.464Z",
+      "ip": "3.99.211.194",
+      "method": "GET",
+      "uri": "/laravel/.env",
+      "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+      "attackType": "sensitive_file_access",
+      "severity": "medium",
+      "logLine": "3.99.211.194 - - [03/Jun/2026:22:45:10 +0200] \"GET /laravel/.env HTTP/1.1\" 403 311 \"-\" \"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36\""
+    },
+    {
+      "timestamp": "2026-06-03T20:45:12.464Z",
+      "ip": "3.99.211.194",
+      "method": "GET",
+      "uri": "/htdocs/.env",
+      "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+      "attackType": "sensitive_file_access",
+      "severity": "medium",
+      "logLine": "3.99.211.194 - - [03/Jun/2026:22:45:10 +0200] \"GET /htdocs/.env HTTP/1.1\" 403 311 \"-\" \"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36\""
+    },
+    {
+      "timestamp": "2026-06-03T20:45:12.464Z",
+      "ip": "3.99.211.194",
+      "method": "GET",
+      "uri": "/symfony/.env",
+      "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+      "attackType": "sensitive_file_access",
+      "severity": "medium",
+      "logLine": "3.99.211.194 - - [03/Jun/2026:22:45:10 +0200] \"GET /symfony/.env HTTP/1.1\" 403 311 \"-\" \"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36\""
+    },
+    {
+      "timestamp": "2026-06-03T20:45:12.464Z",
+      "ip": "3.99.211.194",
+      "method": "GET",
+      "uri": "/www/.env",
+      "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+      "attackType": "sensitive_file_access",
+      "severity": "medium",
+      "logLine": "3.99.211.194 - - [03/Jun/2026:22:45:10 +0200] \"GET /www/.env HTTP/1.1\" 403 311 \"-\" \"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36\""
+    },
+    {
+      "timestamp": "2026-06-03T20:45:12.464Z",
+      "ip": "3.99.211.194",
+      "method": "GET",
+      "uri": "/wordpress/.env",
+      "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+      "attackType": "sensitive_file_access",
+      "severity": "medium",
+      "logLine": "3.99.211.194 - - [03/Jun/2026:22:45:10 +0200] \"GET /wordpress/.env HTTP/1.1\" 403 311 \"-\" \"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36\""
+    },
+    {
+      "timestamp": "2026-06-03T20:45:12.464Z",
+      "ip": "3.99.211.194",
+      "method": "GET",
+      "uri": "/html/.env",
+      "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+      "attackType": "sensitive_file_access",
+      "severity": "medium",
+      "logLine": "3.99.211.194 - - [03/Jun/2026:22:45:10 +0200] \"GET /html/.env HTTP/1.1\" 403 311 \"-\" \"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36\""
+    },
+    {
+      "timestamp": "2026-06-03T20:45:12.464Z",
+      "ip": "3.99.211.194",
+      "method": "GET",
+      "uri": "/wp/.env",
+      "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+      "attackType": "sensitive_file_access",
+      "severity": "medium",
+      "logLine": "3.99.211.194 - - [03/Jun/2026:22:45:10 +0200] \"GET /wp/.env HTTP/1.1\" 403 311 \"-\" \"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36\""
+    },
+    {
+      "timestamp": "2026-06-03T20:45:12.464Z",
+      "ip": "3.99.211.194",
+      "method": "GET",
+      "uri": "/live/.env",
+      "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+      "attackType": "sensitive_file_access",
+      "severity": "medium",
+      "logLine": "3.99.211.194 - - [03/Jun/2026:22:45:10 +0200] \"GET /live/.env HTTP/1.1\" 403 311 \"-\" \"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36\""
+    },
+    {
+      "timestamp": "2026-06-03T20:45:12.464Z",
+      "ip": "3.99.211.194",
+      "method": "GET",
+      "uri": "/cms/.env",
+      "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+      "attackType": "sensitive_file_access",
+      "severity": "medium",
+      "logLine": "3.99.211.194 - - [03/Jun/2026:22:45:11 +0200] \"GET /cms/.env HTTP/1.1\" 403 311 \"-\" \"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36\""
+    },
+    {
+      "timestamp": "2026-06-03T20:45:12.464Z",
+      "ip": "3.99.211.194",
+      "method": "GET",
+      "uri": "/prod/.env",
+      "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+      "attackType": "sensitive_file_access",
+      "severity": "medium",
+      "logLine": "3.99.211.194 - - [03/Jun/2026:22:45:11 +0200] \"GET /prod/.env HTTP/1.1\" 403 311 \"-\" \"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36\""
+    },
+    {
+      "timestamp": "2026-06-03T20:45:12.464Z",
+      "ip": "3.99.211.194",
+      "method": "GET",
+      "uri": "/drupal/.env",
+      "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+      "attackType": "sensitive_file_access",
+      "severity": "medium",
+      "logLine": "3.99.211.194 - - [03/Jun/2026:22:45:11 +0200] \"GET /drupal/.env HTTP/1.1\" 403 311 \"-\" \"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36\""
+    },
+    {
+      "timestamp": "2026-06-03T20:45:12.464Z",
+      "ip": "3.99.211.194",
+      "method": "GET",
+      "uri": "/dev/.env",
+      "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+      "attackType": "sensitive_file_access",
+      "severity": "medium",
+      "logLine": "3.99.211.194 - - [03/Jun/2026:22:45:11 +0200] \"GET /dev/.env HTTP/1.1\" 403 311 \"-\" \"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36\""
+    },
+    {
+      "timestamp": "2026-06-03T20:45:12.464Z",
+      "ip": "3.99.211.194",
+      "method": "GET",
+      "uri": "/joomla/.env",
+      "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+      "attackType": "sensitive_file_access",
+      "severity": "medium",
+      "logLine": "3.99.211.194 - - [03/Jun/2026:22:45:11 +0200] \"GET /joomla/.env HTTP/1.1\" 403 311 \"-\" \"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36\""
+    },
+    {
+      "timestamp": "2026-06-03T20:45:12.464Z",
+      "ip": "3.99.211.194",
+      "method": "GET",
+      "uri": "/staging/.env",
+      "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+      "attackType": "sensitive_file_access",
+      "severity": "medium",
+      "logLine": "3.99.211.194 - - [03/Jun/2026:22:45:11 +0200] \"GET /staging/.env HTTP/1.1\" 403 311 \"-\" \"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36\""
+    },
+    {
+      "timestamp": "2026-06-03T20:45:12.464Z",
+      "ip": "3.99.211.194",
+      "method": "GET",
+      "uri": "/magento/.env",
+      "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+      "attackType": "sensitive_file_access",
+      "severity": "medium",
+      "logLine": "3.99.211.194 - - [03/Jun/2026:22:45:11 +0200] \"GET /magento/.env HTTP/1.1\" 403 311 \"-\" \"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36\""
+    },
+    {
+      "timestamp": "2026-06-03T20:45:12.464Z",
+      "ip": "3.99.211.194",
+      "method": "GET",
+      "uri": "/laravel/.env",
+      "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+      "attackType": "sensitive_file_access",
+      "severity": "medium",
+      "logLine": "3.99.211.194 - - [03/Jun/2026:22:45:11 +0200] \"GET /laravel/.env HTTP/1.1\" 403 311 \"-\" \"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36\""
+    },
+    {
+      "timestamp": "2026-06-03T20:45:12.464Z",
+      "ip": "3.99.211.194",
+      "method": "GET",
+      "uri": "/shopify/.env",
+      "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+      "attackType": "sensitive_file_access",
+      "severity": "medium",
+      "logLine": "3.99.211.194 - - [03/Jun/2026:22:45:11 +0200] \"GET /shopify/.env HTTP/1.1\" 403 311 \"-\" \"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36\""
+    },
+    {
+      "timestamp": "2026-06-03T20:45:12.464Z",
+      "ip": "3.99.211.194",
+      "method": "GET",
+      "uri": "/symfony/.env",
+      "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+      "attackType": "sensitive_file_access",
+      "severity": "medium",
+      "logLine": "3.99.211.194 - - [03/Jun/2026:22:45:11 +0200] \"GET /symfony/.env HTTP/1.1\" 403 311 \"-\" \"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36\""
+    },
+    {
+      "timestamp": "2026-06-03T20:45:12.464Z",
+      "ip": "3.99.211.194",
+      "method": "GET",
+      "uri": "/prestashop/.env",
+      "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+      "attackType": "sensitive_file_access",
+      "severity": "medium",
+      "logLine": "3.99.211.194 - - [03/Jun/2026:22:45:11 +0200] \"GET /prestashop/.env HTTP/1.1\" 403 311 \"-\" \"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36\""
+    },
+    {
+      "timestamp": "2026-06-03T20:45:12.464Z",
+      "ip": "3.99.211.194",
+      "method": "GET",
+      "uri": "/wordpress/.env",
+      "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+      "attackType": "sensitive_file_access",
+      "severity": "medium",
+      "logLine": "3.99.211.194 - - [03/Jun/2026:22:45:11 +0200] \"GET /wordpress/.env HTTP/1.1\" 403 311 \"-\" \"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36\""
+    },
+    {
+      "timestamp": "2026-06-03T20:45:12.464Z",
+      "ip": "3.99.211.194",
+      "method": "GET",
+      "uri": "/v1/.env",
+      "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+      "attackType": "sensitive_file_access",
+      "severity": "medium",
+      "logLine": "3.99.211.194 - - [03/Jun/2026:22:45:12 +0200] \"GET /v1/.env HTTP/1.1\" 403 311 \"-\" \"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36\""
+    },
+    {
+      "timestamp": "2026-06-03T20:45:12.464Z",
+      "ip": "3.99.211.194",
+      "method": "GET",
+      "uri": "/wp/.env",
+      "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+      "attackType": "sensitive_file_access",
+      "severity": "medium",
+      "logLine": "3.99.211.194 - - [03/Jun/2026:22:45:12 +0200] \"GET /wp/.env HTTP/1.1\" 403 311 \"-\" \"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36\""
+    },
+    {
+      "timestamp": "2026-06-03T20:45:12.465Z",
+      "ip": "3.99.211.194",
+      "method": "GET",
+      "uri": "/v2/.env",
+      "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+      "attackType": "sensitive_file_access",
+      "severity": "medium",
+      "logLine": "3.99.211.194 - - [03/Jun/2026:22:45:12 +0200] \"GET /v2/.env HTTP/1.1\" 403 311 \"-\" \"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36\""
+    },
+    {
+      "timestamp": "2026-06-03T20:45:12.465Z",
+      "ip": "3.99.211.194",
+      "method": "GET",
+      "uri": "/cms/.env",
+      "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+      "attackType": "sensitive_file_access",
+      "severity": "medium",
+      "logLine": "3.99.211.194 - - [03/Jun/2026:22:45:12 +0200] \"GET /cms/.env HTTP/1.1\" 403 311 \"-\" \"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36\""
+    },
+    {
+      "timestamp": "2026-06-03T20:45:33.523Z",
+      "ip": "3.99.211.194",
+      "method": "GET",
+      "uri": "/v3/.env",
+      "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+      "attackType": "sensitive_file_access",
+      "severity": "medium",
+      "logLine": "3.99.211.194 - - [03/Jun/2026:22:45:12 +0200] \"GET /v3/.env HTTP/1.1\" 403 311 \"-\" \"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36\""
+    },
+    {
+      "timestamp": "2026-06-03T20:45:33.523Z",
+      "ip": "3.99.211.194",
+      "method": "GET",
+      "uri": "/drupal/.env",
+      "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+      "attackType": "sensitive_file_access",
+      "severity": "medium",
+      "logLine": "3.99.211.194 - - [03/Jun/2026:22:45:12 +0200] \"GET /drupal/.env HTTP/1.1\" 403 311 \"-\" \"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36\""
+    },
+    {
+      "timestamp": "2026-06-03T20:45:33.523Z",
+      "ip": "3.99.211.194",
+      "method": "GET",
+      "uri": "/joomla/.env",
+      "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+      "attackType": "sensitive_file_access",
+      "severity": "medium",
+      "logLine": "3.99.211.194 - - [03/Jun/2026:22:45:12 +0200] \"GET /joomla/.env HTTP/1.1\" 403 311 \"-\" \"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36\""
+    },
+    {
+      "timestamp": "2026-06-04T02:48:18.593Z",
+      "ip": "95.169.173.32",
       "method": "GET",
       "uri": "/.git/HEAD",
-      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+      "userAgent": "Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko; compatible; GPTBot/1.3; +https://openai.com/gptbot)",
       "attackType": "sensitive_file_access",
       "severity": "medium",
-      "logLine": "88.151.33.237 - - [19/Apr/2026:13:40:50 +0200] \"GET /.git/HEAD HTTP/1.1\" 403 311 \"https://gdr-innovation.fr/.git/HEAD\" \"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36\""
+      "logLine": "95.169.173.32 - - [04/Jun/2026:04:48:08 +0200] \"GET /.git/HEAD HTTP/1.1\" 403 311 \"https://gdr-innovation.fr/.git/HEAD\" \"Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko; compatible; GPTBot/1.3; +https://openai.com/gptbot)\""
     },
     {
-      "timestamp": "2026-04-19T11:41:09.880Z",
-      "ip": "88.151.33.237",
+      "timestamp": "2026-06-04T02:48:18.593Z",
+      "ip": "95.169.173.32",
       "method": "GET",
-      "uri": "/.env.production",
-      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+      "uri": "/.git/config",
+      "userAgent": "Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko; compatible; ChatGPT-User/1.0; +https://openai.com/bot)",
       "attackType": "sensitive_file_access",
       "severity": "medium",
-      "logLine": "88.151.33.237 - - [19/Apr/2026:13:40:50 +0200] \"GET /.env.production HTTP/1.1\" 403 311 \"https://gdr-innovation.fr/.env.production\" \"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36\""
+      "logLine": "95.169.173.32 - - [04/Jun/2026:04:48:08 +0200] \"GET /.git/config HTTP/1.1\" 403 311 \"https://gdr-innovation.fr/.git/config\" \"Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko; compatible; ChatGPT-User/1.0; +https://openai.com/bot)\""
     },
     {
-      "timestamp": "2026-04-19T11:41:09.880Z",
-      "ip": "88.151.33.237",
+      "timestamp": "2026-06-04T02:48:18.593Z",
+      "ip": "95.169.173.32",
       "method": "GET",
       "uri": "/.env",
-      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+      "userAgent": "Mozilla/5.0 (compatible; bingbot/2.0; +http://www.bing.com/bingbot.htm)",
       "attackType": "sensitive_file_access",
       "severity": "medium",
-      "logLine": "88.151.33.237 - - [19/Apr/2026:13:40:50 +0200] \"GET /.env HTTP/1.1\" 403 311 \"https://gdr-innovation.fr/.env\" \"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36\""
+      "logLine": "95.169.173.32 - - [04/Jun/2026:04:48:09 +0200] \"GET /.env HTTP/1.1\" 403 311 \"https://gdr-innovation.fr/.env\" \"Mozilla/5.0 (compatible; bingbot/2.0; +http://www.bing.com/bingbot.htm)\""
     },
     {
-      "timestamp": "2026-04-19T11:41:09.880Z",
-      "ip": "88.151.33.237",
+      "timestamp": "2026-06-04T02:48:18.593Z",
+      "ip": "95.169.173.32",
+      "method": "GET",
+      "uri": "/.env.bak",
+      "userAgent": "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)",
+      "attackType": "sensitive_file_access",
+      "severity": "medium",
+      "logLine": "95.169.173.32 - - [04/Jun/2026:04:48:09 +0200] \"GET /.env.bak HTTP/1.1\" 403 311 \"https://gdr-innovation.fr/.env.bak\" \"Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)\""
+    },
+    {
+      "timestamp": "2026-06-04T02:48:18.593Z",
+      "ip": "95.169.173.32",
       "method": "GET",
       "uri": "/.env.local",
-      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+      "userAgent": "Mozilla/5.0 (compatible; OAI-SearchBot/1.3; +https://openai.com/searchbot)",
       "attackType": "sensitive_file_access",
       "severity": "medium",
-      "logLine": "88.151.33.237 - - [19/Apr/2026:13:40:51 +0200] \"GET /.env.local HTTP/1.1\" 403 311 \"https://gdr-innovation.fr/.env.local\" \"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36\""
+      "logLine": "95.169.173.32 - - [04/Jun/2026:04:48:09 +0200] \"GET /.env.local HTTP/1.1\" 403 311 \"https://gdr-innovation.fr/.env.local\" \"Mozilla/5.0 (compatible; OAI-SearchBot/1.3; +https://openai.com/searchbot)\""
     },
     {
-      "timestamp": "2026-04-19T13:03:44.057Z",
-      "ip": "88.151.34.250",
-      "method": "GET",
-      "uri": "/.git/config",
-      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-      "attackType": "sensitive_file_access",
-      "severity": "medium",
-      "logLine": "88.151.34.250 - - [19/Apr/2026:15:03:35 +0200] \"GET /.git/config HTTP/1.1\" 403 311 \"https://gdri.fr/.git/config\" \"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36\""
-    },
-    {
-      "timestamp": "2026-04-19T13:03:44.057Z",
-      "ip": "88.151.34.250",
-      "method": "GET",
-      "uri": "/.git/HEAD",
-      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-      "attackType": "sensitive_file_access",
-      "severity": "medium",
-      "logLine": "88.151.34.250 - - [19/Apr/2026:15:03:35 +0200] \"GET /.git/HEAD HTTP/1.1\" 403 311 \"https://gdri.fr/.git/HEAD\" \"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36\""
-    },
-    {
-      "timestamp": "2026-04-19T13:03:44.057Z",
-      "ip": "88.151.34.250",
-      "method": "GET",
-      "uri": "/.env",
-      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-      "attackType": "sensitive_file_access",
-      "severity": "medium",
-      "logLine": "88.151.34.250 - - [19/Apr/2026:15:03:36 +0200] \"GET /.env HTTP/1.1\" 403 311 \"https://gdri.fr/.env\" \"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36\""
-    },
-    {
-      "timestamp": "2026-04-19T13:03:44.057Z",
-      "ip": "88.151.34.250",
+      "timestamp": "2026-06-04T02:48:18.593Z",
+      "ip": "95.169.173.32",
       "method": "GET",
       "uri": "/.env.production",
-      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-      "attackType": "sensitive_file_access",
-      "severity": "medium",
-      "logLine": "88.151.34.250 - - [19/Apr/2026:15:03:36 +0200] \"GET /.env.production HTTP/1.1\" 403 311 \"https://gdri.fr/.env.production\" \"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36\""
-    },
-    {
-      "timestamp": "2026-04-19T13:03:44.057Z",
-      "ip": "88.151.34.250",
-      "method": "GET",
-      "uri": "/.env.local",
-      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-      "attackType": "sensitive_file_access",
-      "severity": "medium",
-      "logLine": "88.151.34.250 - - [19/Apr/2026:15:03:36 +0200] \"GET /.env.local HTTP/1.1\" 403 311 \"https://gdri.fr/.env.local\" \"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36\""
-    },
-    {
-      "timestamp": "2026-04-20T04:10:34.373Z",
-      "ip": "130.12.180.144",
-      "method": "GET",
-      "uri": "/.git/HEAD",
-      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-      "attackType": "sensitive_file_access",
-      "severity": "medium",
-      "logLine": "130.12.180.144 - - [20/Apr/2026:06:10:16 +0200] \"GET /.git/HEAD HTTP/1.1\" 403 311 \"-\" \"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36\""
-    },
-    {
-      "timestamp": "2026-04-20T04:10:34.373Z",
-      "ip": "130.12.180.144",
-      "method": "GET",
-      "uri": "/.git/config",
-      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-      "attackType": "sensitive_file_access",
-      "severity": "medium",
-      "logLine": "130.12.180.144 - - [20/Apr/2026:06:10:16 +0200] \"GET /.git/config HTTP/1.1\" 403 311 \"-\" \"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36\""
-    },
-    {
-      "timestamp": "2026-04-21T00:13:44.522Z",
-      "ip": "172.190.142.176",
-      "method": "GET",
-      "uri": "//bigdump.php",
-      "userAgent": "-",
-      "attackType": "sensitive_file_access",
-      "severity": "medium",
-      "logLine": "172.190.142.176 - - [21/Apr/2026:02:13:39 +0200] \"GET //bigdump.php HTTP/1.1\" 403 311 \"-\" \"-\""
-    },
-    {
-      "timestamp": "2026-04-21T01:08:09.066Z",
-      "ip": "72.61.203.185",
-      "method": "GET",
-      "uri": "//.env",
-      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36 Edg/146.0.3856.109",
-      "attackType": "sensitive_file_access",
-      "severity": "medium",
-      "logLine": "72.61.203.185 - - [21/Apr/2026:03:08:05 +0200] \"GET //.env HTTP/1.1\" 403 311 \"http://gdri.fr/.env\" \"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36 Edg/146.0.3856.109\""
-    },
-    {
-      "timestamp": "2026-04-21T01:08:09.066Z",
-      "ip": "72.61.203.185",
-      "method": "GET",
-      "uri": "//.env.local",
-      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:149.0) Gecko/20100101 Firefox/149.0",
-      "attackType": "sensitive_file_access",
-      "severity": "medium",
-      "logLine": "72.61.203.185 - - [21/Apr/2026:03:08:05 +0200] \"GET //.env.local HTTP/1.1\" 403 311 \"http://gdri.fr/.env.local\" \"Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:149.0) Gecko/20100101 Firefox/149.0\""
-    },
-    {
-      "timestamp": "2026-04-21T01:08:09.067Z",
-      "ip": "72.61.203.185",
-      "method": "GET",
-      "uri": "//.env.production",
-      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36 Edg/146.0.3856.109",
-      "attackType": "sensitive_file_access",
-      "severity": "medium",
-      "logLine": "72.61.203.185 - - [21/Apr/2026:03:08:05 +0200] \"GET //.env.production HTTP/1.1\" 403 311 \"http://gdri.fr/.env.production\" \"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36 Edg/146.0.3856.109\""
-    },
-    {
-      "timestamp": "2026-04-21T01:08:09.067Z",
-      "ip": "72.61.203.185",
-      "method": "GET",
-      "uri": "//.env.development",
-      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36",
-      "attackType": "sensitive_file_access",
-      "severity": "medium",
-      "logLine": "72.61.203.185 - - [21/Apr/2026:03:08:05 +0200] \"GET //.env.development HTTP/1.1\" 403 311 \"http://gdri.fr/.env.development\" \"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36\""
-    },
-    {
-      "timestamp": "2026-04-21T01:08:09.067Z",
-      "ip": "72.61.203.185",
-      "method": "GET",
-      "uri": "//backend/.env",
-      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36",
-      "attackType": "sensitive_file_access",
-      "severity": "medium",
-      "logLine": "72.61.203.185 - - [21/Apr/2026:03:08:05 +0200] \"GET //backend/.env HTTP/1.1\" 403 311 \"http://gdri.fr/backend/.env\" \"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36\""
-    },
-    {
-      "timestamp": "2026-04-21T01:27:18.922Z",
-      "ip": "47.128.20.194",
-      "method": "GET",
-      "uri": "/robots.txt",
-      "userAgent": "Mozilla/5.0 (Linux; Android 5.0) AppleWebKit/537.36 (KHTML, like Gecko) Mobile Safari/537.36 (compatible; Bytespider; spider-feedback@bytedance.com)",
+      "userAgent": "CCBot/2.0 (https://commoncrawl.org/faq/)",
       "attackType": "malicious_user_agent",
       "severity": "high",
-      "logLine": "47.128.20.194 - - [21/Apr/2026:03:27:03 +0200] \"GET /robots.txt HTTP/1.1\" 403 311 \"-\" \"Mozilla/5.0 (Linux; Android 5.0) AppleWebKit/537.36 (KHTML, like Gecko) Mobile Safari/537.36 (compatible; Bytespider; spider-feedback@bytedance.com)\""
+      "logLine": "95.169.173.32 - - [04/Jun/2026:04:48:09 +0200] \"GET /.env.production HTTP/1.1\" 403 311 \"https://gdr-innovation.fr/.env.production\" \"CCBot/2.0 (https://commoncrawl.org/faq/)\""
     },
     {
-      "timestamp": "2026-04-21T05:51:57.256Z",
-      "ip": "5.255.117.140",
+      "timestamp": "2026-06-04T02:48:18.593Z",
+      "ip": "95.169.173.32",
       "method": "GET",
-      "uri": "/.git/HEAD",
-      "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
+      "uri": "/.env.development",
+      "userAgent": "Mozilla/5.0 (compatible; ClaudeBot/1.0; +claudebot@anthropic.com)",
       "attackType": "sensitive_file_access",
       "severity": "medium",
-      "logLine": "5.255.117.140 - - [21/Apr/2026:07:51:56 +0200] \"GET /.git/HEAD HTTP/1.1\" 403 311 \"-\" \"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36\""
+      "logLine": "95.169.173.32 - - [04/Jun/2026:04:48:09 +0200] \"GET /.env.development HTTP/1.1\" 403 311 \"https://gdr-innovation.fr/.env.development\" \"Mozilla/5.0 (compatible; ClaudeBot/1.0; +claudebot@anthropic.com)\""
     },
     {
-      "timestamp": "2026-04-21T05:51:57.256Z",
-      "ip": "5.255.117.140",
+      "timestamp": "2026-06-04T02:48:18.593Z",
+      "ip": "95.169.173.32",
       "method": "GET",
-      "uri": "/.git/config",
-      "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
-      "attackType": "sensitive_file_access",
-      "severity": "medium",
-      "logLine": "5.255.117.140 - - [21/Apr/2026:07:51:56 +0200] \"GET /.git/config HTTP/1.1\" 403 311 \"-\" \"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36\""
+      "uri": "/credentials.json",
+      "userAgent": "CCBot/2.0 (https://commoncrawl.org/faq/)",
+      "attackType": "malicious_user_agent",
+      "severity": "high",
+      "logLine": "95.169.173.32 - - [04/Jun/2026:04:48:10 +0200] \"GET /credentials.json HTTP/1.1\" 403 311 \"https://gdr-innovation.fr/credentials.json\" \"CCBot/2.0 (https://commoncrawl.org/faq/)\""
     },
     {
-      "timestamp": "2026-04-21T05:51:57.256Z",
-      "ip": "5.255.117.140",
+      "timestamp": "2026-06-04T02:48:18.594Z",
+      "ip": "95.169.173.32",
       "method": "GET",
-      "uri": "/.git/HEAD",
-      "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
+      "uri": "/.env.backup",
+      "userAgent": "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)",
       "attackType": "sensitive_file_access",
       "severity": "medium",
-      "logLine": "5.255.117.140 - - [21/Apr/2026:07:51:56 +0200] \"GET /.git/HEAD HTTP/1.1\" 403 311 \"https://www.gdri.fr/.git/HEAD\" \"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36\""
-    },
-    {
-      "timestamp": "2026-04-21T05:51:57.256Z",
-      "ip": "5.255.117.140",
-      "method": "GET",
-      "uri": "/.git/config",
-      "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
-      "attackType": "sensitive_file_access",
-      "severity": "medium",
-      "logLine": "5.255.117.140 - - [21/Apr/2026:07:51:56 +0200] \"GET /.git/config HTTP/1.1\" 403 311 \"https://www.gdri.fr/.git/config\" \"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36\""
-    },
-    {
-      "timestamp": "2026-04-23T01:18:28.648Z",
-      "ip": "204.76.203.27",
-      "method": "GET",
-      "uri": "/.env",
-      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36",
-      "attackType": "sensitive_file_access",
-      "severity": "medium",
-      "logLine": "204.76.203.27 - - [23/Apr/2026:03:18:15 +0200] \"GET /.env HTTP/1.1\" 403 311 \"-\" \"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36\""
-    },
-    {
-      "timestamp": "2026-04-23T01:35:56.517Z",
-      "ip": "93.123.109.79",
-      "method": "GET",
-      "uri": "/.git/config",
-      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
-      "attackType": "sensitive_file_access",
-      "severity": "medium",
-      "logLine": "93.123.109.79 - - [23/Apr/2026:03:35:40 +0200] \"GET /.git/config HTTP/1.1\" 403 311 \"https://gdr-innovation.fr/.git/config\" \"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36\""
+      "logLine": "95.169.173.32 - - [04/Jun/2026:04:48:10 +0200] \"GET /.env.backup HTTP/1.1\" 403 311 \"https://gdr-innovation.fr/.env.backup\" \"Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)\""
     }
   ],
   "bannedIPs": [
@@ -23185,7 +23185,8 @@
     "181.189.10.127",
     "181.189.10.159",
     "181.189.10.206",
-    "195.178.110.160"
+    "195.178.110.160",
+    "95.169.173.32"
   ],
   "bannedSubnets": [
     "170.254.236.0/24",
@@ -25017,25 +25018,1550 @@
     "181.189.10.0/24",
     "195.178.110.0/24",
     "45.148.10.0/24",
-    "104.234.152.0/24"
+    "104.234.152.0/24",
+    "103.215.74.0/24",
+    "34.245.11.0/24",
+    "43.204.215.0/24",
+    "63.178.72.0/24",
+    "18.118.226.0/24",
+    "172.245.214.0/24",
+    "45.154.159.0/24",
+    "124.198.145.0/24",
+    "192.91.254.0/24",
+    "45.162.196.0/24",
+    "45.162.197.0/24",
+    "45.162.198.0/24",
+    "45.162.199.0/24",
+    "177.10.232.0/24",
+    "177.10.236.0/24",
+    "177.10.237.0/24",
+    "177.10.239.0/24",
+    "177.10.234.0/24",
+    "177.10.235.0/24",
+    "177.10.238.0/24",
+    "163.7.4.0/24",
+    "185.213.175.0/24",
+    "5.255.110.0/24",
+    "103.168.67.0/24",
+    "34.51.94.0/24",
+    "5.255.98.0/24",
+    "45.88.138.0/24",
+    "15.206.149.0/24",
+    "5.255.104.0/24",
+    "15.152.216.0/24",
+    "13.40.167.0/24",
+    "3.99.211.0/24"
   ],
   "synReceivedHistory": {
-    "104.234.152.2": {
-      "firstSeen": 1776175573214,
-      "lastSeen": 1776175573214,
-      "count": 39
+    "163.7.4.226": {
+      "firstSeen": 1778104840393,
+      "lastSeen": 1778104843540,
+      "count": 37
     }
   },
   "successiveConnections": {
-    "104.234.152.2": {
-      "count": 6,
-      "lastSeen": 1776175573214,
-      "firstSeen": 1776175556844
+    "163.7.4.226": {
+      "count": 7,
+      "lastSeen": 1778104843540,
+      "firstSeen": 1778104824416
     }
   },
   "currentInterval": 20000,
   "lastSynCount": 0,
-  "ipReputation": {},
-  "subnetReputation": {},
-  "banMetadata": {}
+  "ipReputation": {
+    "15.152.216.176": {
+      "score": 0,
+      "firstSeen": 1780458093672,
+      "lastSeen": 1780458093679,
+      "detections": [
+        {
+          "timestamp": 1780458093672,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780458093673,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780458093673,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780458093673,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780458093673,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780458093674,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780458093674,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780458093674,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780458093675,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780458093675,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780458093676,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780458093676,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780458093677,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780458093677,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780458093677,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780458093678,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780458093678,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780458093679,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        }
+      ]
+    },
+    "13.40.167.117": {
+      "score": 0,
+      "firstSeen": 1780460567607,
+      "lastSeen": 1780460567647,
+      "detections": [
+        {
+          "timestamp": 1780460567630,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780460567630,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780460567630,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780460567630,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780460567630,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780460567631,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780460567631,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780460567631,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780460567631,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780460567632,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780460567632,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780460567632,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780460567632,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780460567633,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780460567633,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780460567633,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780460567633,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780460567633,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780460567634,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780460567634,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780460567634,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780460567634,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780460567634,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780460567634,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780460567635,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780460567635,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780460567636,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780460567636,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780460567636,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780460567636,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780460567636,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780460567636,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780460567637,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780460567637,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780460567637,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780460567637,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780460567637,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780460567637,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780460567637,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780460567638,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780460567638,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780460567638,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780460567638,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780460567638,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780460567638,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780460567639,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780460567639,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780460567639,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780460567639,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780460567639,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780460567639,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780460567639,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780460567639,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780460567640,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780460567640,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780460567640,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780460567640,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780460567640,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780460567641,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780460567641,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780460567641,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780460567641,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780460567641,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780460567641,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780460567641,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780460567642,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780460567642,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780460567642,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780460567642,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780460567642,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780460567642,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780460567643,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780460567643,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780460567643,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780460567643,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780460567643,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780460567643,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780460567644,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780460567644,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780460567644,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780460567644,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780460567644,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780460567645,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780460567645,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780460567645,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780460567645,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780460567645,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780460567645,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780460567646,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780460567646,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780460567646,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780460567646,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780460567646,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780460567646,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780460567646,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780460567647,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780460567647,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780460567647,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780460567647,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780460567647,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        }
+      ]
+    },
+    "3.99.211.194": {
+      "score": 101.95789327737282,
+      "firstSeen": 1780519512722,
+      "lastSeen": 1780519533527,
+      "detections": [
+        {
+          "timestamp": 1780519512732,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780519512732,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780519512732,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780519512733,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780519512733,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780519512733,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780519512733,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780519512734,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780519512734,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780519512734,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780519512735,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780519512735,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780519512735,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780519512735,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780519512736,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780519512736,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780519512736,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780519512737,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780519512737,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780519512737,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780519512737,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780519512738,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780519512738,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780519512738,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780519512739,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780519512739,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780519512739,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780519512739,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780519512740,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780519512740,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780519512740,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780519512740,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780519512741,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780519512741,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780519512741,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780519512741,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780519512742,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780519512742,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780519512742,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780519512742,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780519512743,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780519512743,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780519512743,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780519512743,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780519512744,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780519512744,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780519512744,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780519512744,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780519512745,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780519512745,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780519512745,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780519512745,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780519512745,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780519512746,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780519512746,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780519512746,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780519512746,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780519512747,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780519512747,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780519512747,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780519512747,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780519512747,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780519512747,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780519512748,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780519512748,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780519512748,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780519512748,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780519512748,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780519512748,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780519512749,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780519512749,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780519512749,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780519512749,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780519512750,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780519512750,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780519512750,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780519512750,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780519512750,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780519512751,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780519512751,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780519512752,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780519512752,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780519512752,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780519512752,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780519512752,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780519512752,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780519512753,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780519512753,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780519512753,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780519512754,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780519512754,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780519512754,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780519512754,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780519512754,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780519512755,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780519512755,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780519512755,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780519533526,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780519533526,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780519533527,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        }
+      ]
+    },
+    "95.169.173.32": {
+      "score": 17.999998972222244,
+      "firstSeen": 1780541298811,
+      "lastSeen": 1780541298815,
+      "detections": [
+        {
+          "timestamp": 1780541298811,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780541298814,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780541298814,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780541298814,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780541298814,
+          "attackType": "malicious_user_agent",
+          "severity": "high",
+          "score": 3
+        },
+        {
+          "timestamp": 1780541298814,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        },
+        {
+          "timestamp": 1780541298815,
+          "attackType": "malicious_user_agent",
+          "severity": "high",
+          "score": 3
+        },
+        {
+          "timestamp": 1780541298815,
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 2
+        }
+      ]
+    }
+  },
+  "subnetReputation": {
+    "3.99.211.0/24": {
+      "score": 1.1862258946995201,
+      "firstSeen": 1780519533526,
+      "lastSeen": 1780519533527,
+      "detections": [
+        {
+          "timestamp": 1780519533526,
+          "ip": "3.99.211.194",
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 1
+        },
+        {
+          "timestamp": 1780519533526,
+          "ip": "3.99.211.194",
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 1
+        },
+        {
+          "timestamp": 1780519533527,
+          "ip": "3.99.211.194",
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 1
+        }
+      ],
+      "ipCount": 1,
+      "ips": [
+        "3.99.211.194"
+      ]
+    },
+    "95.169.173.0/24": {
+      "score": 8.999999541666673,
+      "firstSeen": 1780541298812,
+      "lastSeen": 1780541298815,
+      "detections": [
+        {
+          "timestamp": 1780541298812,
+          "ip": "95.169.173.32",
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 1
+        },
+        {
+          "timestamp": 1780541298814,
+          "ip": "95.169.173.32",
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 1
+        },
+        {
+          "timestamp": 1780541298814,
+          "ip": "95.169.173.32",
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 1
+        },
+        {
+          "timestamp": 1780541298814,
+          "ip": "95.169.173.32",
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 1
+        },
+        {
+          "timestamp": 1780541298814,
+          "ip": "95.169.173.32",
+          "attackType": "malicious_user_agent",
+          "severity": "high",
+          "score": 1.5
+        },
+        {
+          "timestamp": 1780541298815,
+          "ip": "95.169.173.32",
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 1
+        },
+        {
+          "timestamp": 1780541298815,
+          "ip": "95.169.173.32",
+          "attackType": "malicious_user_agent",
+          "severity": "high",
+          "score": 1.5
+        },
+        {
+          "timestamp": 1780541298815,
+          "ip": "95.169.173.32",
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 1
+        }
+      ],
+      "ipCount": 1,
+      "ips": [
+        "95.169.173.32"
+      ]
+    }
+  },
+  "banMetadata": {
+    "95.169.173.32": {
+      "bannedAt": 1780541298806,
+      "expiresAt": 1780627698806,
+      "reason": "immediate_attack_type",
+      "attackType": "sensitive_file_access",
+      "uri": "/.git/HEAD"
+    }
+  }
 }

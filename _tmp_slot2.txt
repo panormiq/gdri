@@ -1,0 +1,144 @@
+﻿    function renderBaseSlotHtml(mid, model, slot) {
+        const slotIdx = slot.__idx;
+        const choices = MBO()?.getChoiceRows?.(model, slot) || [];
+        const isMulti = MBO()?.isMultiChoiceSlot?.(slot) === true;
+        const assignedSet = new Set(MBO()?.getAssignedOptionIds?.(mid, slot) || []);
+        const GD = global.UgapGroupDisplay;
+        const header = GD?.renderGroupSlotHeaderHtml
+            ? GD.renderGroupSlotHeaderHtml(slot)
+            : `<div class="ugap-model-base-slot__title">${esc(slot.groupLabel || slot.groupId)}</div>`;
+        const emptyHint = !choices.length
+            ? `<p class="ugap-model-base-slot__empty">Aucune option dans ce groupe ÔÇö assignez des options catalogue (onglet Options ou Cat├®gories).</p>`
+            : '';
+
+        if (isMulti) {
+            const checks = choices.map((row) => {
+                const checked = assignedSet.has(row.id) ? ' checked' : '';
+                const ref = row.refUgap ? ` <span class="ugap-model-base-multi-pick__ref">${esc(row.refUgap)}</span>` : '';
+                const det = row.details ? ` <span class="ugap-model-base-multi-pick__det">${esc(row.details)}</span>` : '';
+                return `
+                    <label class="ugap-model-base-multi-pick__item">
+                        <input type="checkbox" class="ugap-model-base-multi-pick"
+                            data-model-id="${esc(mid)}" data-slot-idx="${slotIdx}" data-option-id="${esc(row.id)}"${checked}>
+                        <span class="ugap-model-base-multi-pick__label">${esc(row.name)}${ref}${det}</span>
+                    </label>`;
+            }).join('');
+            return `
+                <div class="ugap-model-base-slot ugap-model-base-slot--multi">
+                    ${header}
+                    <p class="ugap-model-base-slot__mode-hint">Choix multiple ÔÇö cochez toutes les options de base incluses.</p>
+                    <div class="ugap-model-base-multi-pick__list">${checks}</div>
+                    <div class="ugap-model-base-slot__row">
+                        <button type="button" class="btn btn-outline ugap-model-base-add" data-model-id="${esc(mid)}" data-slot-idx="${slotIdx}" title="Cr├®er une option de base">+ Cr├®er</button>
+                    </div>
+                    ${emptyHint}
+                </div>`;
+        }
+
+        const assigned = assignedSet.size ? [...assignedSet][0] : '';
+        const opts = choices.map((row) => {
+            const sel = assigned === row.id ? ' selected' : '';
+            const ref = row.refUgap ? ` ÔÇö ${row.refUgap}` : '';
+            const det = row.details ? ` (${row.details})` : '';
+            return `<option value="${esc(row.id)}"${sel}>${esc(row.name)}${esc(ref)}${esc(det)}</option>`;
+        }).join('');
+        return `
+            <div class="ugap-model-base-slot">
+                ${header}
+                <div class="ugap-model-base-slot__row">
+                    <select class="ugap-model-base-pick" data-model-id="${esc(mid)}" data-slot-idx="${slotIdx}" ${choices.length ? '' : 'disabled'}>
+                        <option value="">ÔÇö Choisir une option de base ÔÇö</option>
+                        ${opts}
+                    </select>
+                    <button type="button" class="btn btn-outline ugap-model-base-add" data-model-id="${esc(mid)}" data-slot-idx="${slotIdx}" title="Cr├®er une option de base">+</button>
+                </div>
+                ${emptyHint}
+            </div>`;
+    }
+            if (sel?.matches?.('.ugap-model-base-pick')) {
+                const modelId = sel.getAttribute('data-model-id');
+                const slotIdx = sel.getAttribute('data-slot-idx');
+                const optionId = sel.value;
+                if (!optionId) return;
+                void (async () => {
+                    try {
+                        await MBO()?.pickBaseOption?.(modelId, slotIdx, optionId);
+                        renderBaseEditor(modelId);
+                        refreshList();
+                        global.showAlert?.('Option de base associ├®e.', 'success');
+                    } catch (err) {
+                        global.showAlert?.(err?.message || 'Erreur association', 'error');
+                        renderBaseEditor(modelId);
+                    }
+                })();
+                return;
+            }
+            const multiCb = sel?.matches?.('.ugap-model-base-multi-pick') ? sel : null;
+            if (multiCb) {
+                const modelId = multiCb.getAttribute('data-model-id');
+                const slotIdx = multiCb.getAttribute('data-slot-idx');
+                const optionId = multiCb.getAttribute('data-option-id');
+                void (async () => {
+                    try {
+                        await MBO()?.toggleBaseOption?.(modelId, slotIdx, optionId, multiCb.checked);
+                        refreshList();
+                    } catch (err) {
+                        multiCb.checked = !multiCb.checked;
+                        global.showAlert?.(err?.message || 'Erreur association', 'error');
+                    }
+                })();
+            }
+        });
+.ugap-model-base-slot__mode-hint {
+    margin: 4px 0 8px;
+    font-size: 11px;
+    color: #64748b;
+}
+
+.ugap-model-base-multi-pick__list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    max-height: 200px;
+    overflow-y: auto;
+    padding: 6px 8px;
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+    background: #f8fafc;
+    margin-bottom: 8px;
+}
+
+.ugap-model-base-multi-pick__item {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    font-size: 12px;
+    cursor: pointer;
+    padding: 4px 2px;
+}
+
+.ugap-model-base-multi-pick__item:hover {
+    background: #fff;
+    border-radius: 4px;
+}
+
+.ugap-model-base-multi-pick__label {
+    flex: 1;
+    line-height: 1.35;
+}
+
+.ugap-model-base-multi-pick__ref {
+    color: #64748b;
+    font-size: 11px;
+}
+
+.ugap-model-base-multi-pick__det {
+    color: #94a3b8;
+    font-size: 11px;
+}
+
+.ugap-model-base-slot__row {
+    display: flex;
+    gap: 8px;
+    align-items: stretch;
+}

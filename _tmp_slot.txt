@@ -1,0 +1,118 @@
+﻿    function renderBaseSlotHtml(mid, model, slot, renderCtx) {
+        const slotIdx = slot.__idx;
+        const choices = renderCtx?.choiceRowsByIdx?.get(slotIdx)
+            || MBO()?.getChoiceRows?.(model, slot)
+            || [];
+        const isMulti = MBO()?.isMultiChoiceSlot?.(slot) === true;
+        const assignedList = renderCtx?.assignedByIdx?.get(slotIdx)
+            || MBO()?.getAssignedOptionIds?.(mid, slot)
+            || [];
+        const assignedSet = new Set(assignedList);
+    function buildBaseEditorHtml(model, renderCtx) {
+        const mid = String(model?.id || '').trim();
+        const status = renderCtx?.status || MBO()?.getStatus?.(model) || { slots: [], templateLabel: '' };
+        const templateId = String(model?.boatTemplateId || '').trim();
+        const GD = global.UgapGroupDisplay;
+
+        let bodyHtml = '';
+        if (!templateId) {
+            bodyHtml = `<p class="ugap-param-placeholder">Choisissez un bateau de base pour afficher cat├®gories et groupes.</p>`;
+        } else if (!status.slots.length) {
+            bodyHtml = `<p class="ugap-param-placeholder">Ce bateau de base ne contient aucun groupe ÔÇö v├®rifiez les cat├®gories rattach├®es (onglet Cat├®gories puis Bateau de base).</p>`;
+        } else {
+            const byCat = GD?.groupSlotsByCategoryAndFamily
+                ? GD.groupSlotsByCategoryAndFamily(status.slots)
+                : null;
+            if (byCat && byCat.size) {
+                bodyHtml = Array.from(byCat.entries()).map(([categoryName, famMap]) => {
+                    const familiesHtml = Array.from(famMap.entries()).map(([familyLabel, slots]) => {
+                        const slotsHtml = slots.map((slot) => renderBaseSlotHtml(mid, model, slot, renderCtx)).join('');
+            } else {
+                const byFamily = MBO()?.groupSlotsByFamily?.(status.slots) || new Map();
+                bodyHtml = Array.from(byFamily.entries()).map(([familyLabel, slots]) => {
+                    const groupsHtml = slots.map((slot) => renderBaseSlotHtml(mid, model, slot, renderCtx)).join('');
+                    return `
+                        <section class="ugap-model-base-family">
+                            <h4>${esc(familyLabel)}</h4>
+                            ${groupsHtml}
+                        </section>`;
+                }).join('');
+            }
+        }
+
+        return `
+            <div class="ugap-model-base-editor card">
+                <div class="ugap-model-base-editor__head">
+                    <div>
+                        <h3 style="margin:0 0 4px;">Options de base ÔÇö ${esc(model.name || mid)}</h3>
+                        <p style="margin:0;font-size:13px;color:#64748b;">Poste ${esc(model.posteNumber ?? 'ÔÇö')} ┬À ${esc(model.motorizationBase || 'ÔÇö')}</p>
+                    </div>
+                    <button type="button" class="btn btn-outline" id="ugap-modeles-base-close">Fermer</button>
+                </div>
+                <label style="display:block;margin:12px 0 8px;font-size:12px;color:#64748b;">Bateau de base</label>
+                <select id="ugap-modeles-base-template" style="width:100%;max-width:420px;padding:8px;border:1px solid #d1d5db;border-radius:6px;">
+                    ${templateOptionsHtml(templateId)}
+                </select>
+                ${templateId ? `<p style="margin:10px 0 0;font-size:13px;color:#1e40af;">Template ┬½ ${esc(status.templateLabel || templateId)} ┬╗ ÔÇö pour chaque <strong>groupe</strong>, choisissez lÔÇÖoption de base (plusieurs si le groupe est en <em>choix multiple</em>).</p>` : ''}
+                <div class="ugap-model-base-editor__body">${bodyHtml}</div>
+            </div>
+        `;
+    }
+
+    function renderBaseEditor(modelId) {
+        const root = global.document.getElementById(EDITOR_ID);
+        if (!root) return;
+        const model = getModelById(modelId);
+        if (!model) {
+            root.hidden = true;
+            return;
+        }
+        root.hidden = false;
+        root.innerHTML = '<div class="ugap-model-base-editor card"><p class="ugap-param-placeholder" style="padding:16px;">Chargement des options de baseÔÇª</p></div>';
+        root.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+
+        const run = () => {
+            const renderCtx = MBO()?.createEditorRenderContext?.(model)
+                || { status: MBO()?.getStatus?.(model) || { slots: [] } };
+            root.innerHTML = buildBaseEditorHtml(model, renderCtx);
+        };
+
+        if (typeof global.requestAnimationFrame === 'function') {
+            global.requestAnimationFrame(run);
+        } else {
+            setTimeout(run, 0);
+        }
+    }
+            state.editingModelId = String(btn.getAttribute('data-modeles-base') || '').trim();
+            global.requestAnimationFrame(() => renderBaseEditor(state.editingModelId));
+        });
+            const multiCb = sel?.matches?.('.ugap-model-base-multi-pick') ? sel : null;
+            if (multiCb) {
+                const modelId = multiCb.getAttribute('data-model-id');
+                const slotIdx = multiCb.getAttribute('data-slot-idx');
+                const optionId = multiCb.getAttribute('data-option-id');
+                const row = multiCb.closest('.ugap-model-base-multi-pick__item');
+                if (row) row.style.opacity = '0.55';
+                multiCb.disabled = true;
+                void (async () => {
+                    try {
+                        await MBO()?.toggleBaseOption?.(modelId, slotIdx, optionId, multiCb.checked);
+                    } catch (err) {
+                        multiCb.checked = !multiCb.checked;
+                        global.showAlert?.(err?.message || 'Erreur association', 'error');
+                    } finally {
+                        multiCb.disabled = false;
+                        if (row) row.style.opacity = '';
+                    }
+                })();
+            }
+                void (async () => {
+                    try {
+                        await MBO()?.pickBaseOption?.(modelId, slotIdx, optionId);
+                        renderBaseEditor(modelId);
+                        global.showAlert?.('Option de base associ├®e.', 'success');
+                    } catch (err) {
+                        global.showAlert?.(err?.message || 'Erreur association', 'error');
+                        renderBaseEditor(modelId);
+                    }
+                })();

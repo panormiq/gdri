@@ -1,0 +1,103 @@
+﻿LINE 326 c:\xampp\htdocs\gdri\modules\ugap\frontend\assets\js\shared\ugap-model-base-options.js match toggleBaseOption
+ng(modelId, slot, oid);
+            await linkBaseOption(oid, modelId, slot);
+            persistSlotPicks(modelId, slot, oid);
+        });
+        invalidateOptionCaches();
+    }
+
+    async function toggleBaseOption(modelId, slotIdx, optionId, selected) {
+        await runWithBatchedPersist(async () => {
+            const data = getData();
+            const model = (Array.isArray(data?.models) ? data.models : []).find((m) => String(m?.id) === String(modelId));
+            const status = getStatus(model);
+            const slot = status.slots[Number(slotIdx)];
+            const oid = String(optionId || '').trim();
+            if (!model || !slot || !oid || !isMultiChoiceSlot(slot)) return;
+            const current = ensureExplicitPicksSeeded(modelId, slot);
+            if (selected) {
+                if (current.includes(oid)) return;
+                await linkBaseOption(oid, modelId, slot);
+                persistSlotPicks(modelId, slot, [...current, oid]);
+                return;
+            }
+            const next = current.filter((id) => id !== oid);
+            persistSlotPicks(modelId, slot, next);
+            await unlinkBaseOption(oid, modelId);
+        });
+        invalidateOptionCaches();
+    }
+---
+
+LINE 327 c:\xampp\htdocs\gdri\modules\ugap\frontend\parametrage\assets\js\modeles\modeles-tab.js match toggleBaseOption
+tem');
+                if (row) row.style.opacity = '0.55';
+                multiCb.disabled = true;
+                void (async () => {
+                    try {
+                        await MBO()?.toggleBaseOption?.(modelId, slotIdx, optionId, multiCb.checked);
+                    } catch (err) {
+                        multiCb.checked = !multiCb.checked;
+                        global.showAlert?.(err?.message || 'Erreur association', 'error');
+                    } finally {
+                        multiCb.disabled = false;
+                        if (row) row.style.opacity = '';
+                    }
+                })();
+            }
+---
+
+LINE 333 c:\xampp\htdocs\gdri\modules\ugap\frontend\assets\js\shared\ugap-model-base-options.js match toggleBaseOption
+    async function toggleBaseOption(modelId, slotIdx, optionId, selected) {
+        const st = global.UgapBateauBaseLcState;
+        let needFullUiPersist = false;
+        if (st?.setSuppressPersist) st.setSuppressPersist(true);
+        try {
+            const data = getData();
+            const model = (Array.isArray(data?.models) ? data.models : []).find((m) => String(m?.id) === String(modelId));
+            const status = getStatus(model);
+            const slot = status.slots[Number(slotIdx)];
+            const oid = String(optionId || '').trim();
+            if (!model || !slot || !oid || !isMultiChoiceSlot(slot)) return;
+
+            let current = getExplicitPickIds(modelId, slot);
+            if (!current.length) {
+                const seeded = getAssignedOptionIds(modelId, slot);
+                if (seeded.length) {
+                    current = seeded;
+                    persistSlotPicks(modelId, slot, seeded);
+                }
+            }
+
+            if (selected) {
+                if (current.includes(oid)) return;
+                needFullUiPersist = await linkBaseOption(oid, modelId, slot) === true;
+                persistSlotPicks(modelId, slot, [...current, oid]);
+                return;
+            }
+
+            persistSlotPicks(modelId, slot, current.filter((id) => id !== oid));
+            // Choix multiple : on retire seulement la coche (picks), pas tout le catalogue.
+        } finally {
+            if (st?.setSuppressPersist) st.setSuppressPersist(false);
+            if (needFullUiPersist && st?.persistToServer) {
+                await st.persistToServer();
+            } else if (st?.persistModelBaseSlotPicksOnly) {
+                await st.persistModelBaseSlotPicksOnly();
+            }
+        }
+        invalidateOptionCaches();
+    }
+---
+
+LINE 355 c:\xampp\htdocs\gdri\modules\ugap\frontend\assets\js\shared\ugap-model-base-options.js match function getAssignedOptionIds
+function getAssignedOptionIds(modelId, slot) {
+        const mid = String(modelId || '').trim();
+        if (!mid || !slot) return [];
+        const explicit = getExplicitPickIds(mid, slot);
+        if (explicit.length) return explicit;
+        if (Array.isArray(slot?.groupOptionIds)) return [];
+        return collectAutoBaseOptionIds(mid, slot);
+    }
+---
+

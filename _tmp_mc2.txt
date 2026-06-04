@@ -1,0 +1,31 @@
+﻿=== 326 c:\xampp\htdocs\gdri\modules\ugap\frontend\assets\js\shared\ugap-model-base-options.js function collectAutoBaseOptionIds ===
+    function collectAutoBaseOptionIds(modelId, slot) {
+        const mid = String(modelId || '').trim();
+        const matches = [];
+        const groupIds = getGroupOptionIdsForSlot(slot);
+        const scanIds = groupIds.length
+            ? groupIds
+            : (() => {
+                const fallback = [];
+                (Array.isArray(getData()?.categories) ? getData().categories : []).forEach((cat) => {
+                    (cat.options || []).forEach((opt) => {
+                        const oid = String(opt?.id || '').trim();
+                        if (oid) fallback.push(oid);
+                    });
+                });
+                return fallback;
+            })();
+        scanIds.forEach((oid) => {
+            const rec = findOptionRecord(oid)?.option;
+            if (!rec || isMinorationOption(rec) || !isBaseForModel(oid, mid)) return;
+            if (optionMatchesSlot(oid, slot)) matches.push(oid);
+        });
+        if (!matches.length) return [];
+=== 355 c:\xampp\htdocs\gdri\modules\ugap\frontend\assets\js\shared\ugap-model-base-options.js decisionMode: ===
+ng(g?.label || g?.id || '').trim(),
+                        groupOptionIds,
+                        decisionMode: String(g?.decisionMode || '').trim().toLowerCase() === 'multi_choice'
+                            ? 'multi_choice'
+                            : 'single_choice',
+                    });
+                });
