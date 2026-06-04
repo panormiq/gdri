@@ -317,7 +317,6 @@
     function isBaseForModel(optionId, modelId) {
         const rec = findOptionRecord(optionId)?.option;
         if (!rec?.baseIncluded) return false;
-        if (isMotorTarifName(rec.name) && !isImportGeneratedBaseOption(rec)) return false;
         return isCompatible(rec, modelId);
     }
 
@@ -683,14 +682,25 @@
         return ids.length ? ids[0] : '';
     }
 
-    /** Options proposables : liées au nœud (ou groupe) et compatibles avec le modèle / poste choisi. */
+    /** Picks par défaut configurateur (= getAssignedOptionIds : picks enregistrés ou options taguées base). */
+    function getConfiguratorDefaultPickIds(modelId, slot) {
+        const mid = String(modelId || '').trim();
+        if (!mid || !slot) return [];
+        const assigned = getAssignedOptionIds(mid, slot)
+            .map((x) => String(x || '').trim())
+            .filter(Boolean);
+        if (!assigned.length) return [];
+        if (isMultiChoiceSlot(slot)) return [...new Set(assigned)];
+        return [assigned[0]];
+    }
+
+    /** Options proposables : liées au nœud (ou groupe) et compatibles avec le modèle (poste P1, etc.). */
     function canOfferAsChoice(opt, modelId, slot) {
         if (!opt || isMinorationOption(opt)) return false;
         const mid = String(modelId || '').trim();
         if (!mid) return false;
         const oid = String(opt.id || '').trim();
         if (!getGroupOptionIdsForSlot(slot).includes(oid)) return false;
-        if (isMotorTarifName(opt.name) && !isImportGeneratedBaseOption(opt)) return false;
         return isCompatible(opt, mid);
     }
 
@@ -698,7 +708,7 @@
         if (!opt || typeof opt !== 'object') return false;
         const oid = String(opt.id || '').trim();
         if (isImportGeneratedBaseOption(opt)) return true;
-        if (opt.manualBaseOption === true) return true;
+        if (opt.manualBaseOption === true || opt.baseIncluded === true || opt.isBaseOption === true) return true;
         return isBaseForModel(oid, modelId);
     }
 
@@ -994,9 +1004,6 @@
     async function linkBaseOption(optionId, modelId, slot) {
         const rec = findOptionRecord(optionId)?.option;
         if (!rec) throw new Error('Option introuvable.');
-        if (isMotorTarifName(rec.name) && !isImportGeneratedBaseOption(rec)) {
-            throw new Error('Ligne tarif moteur catalogue — utilisez une option de base import (IBP-…).');
-        }
         const mid = String(modelId || '').trim();
         const alreadyBase = !!rec.baseIncluded && isCompatible(rec, mid);
         let needFullUiPersist = false;
@@ -1248,6 +1255,8 @@
         getChoiceRows,
         getAssignedOptionId,
         getAssignedOptionIds,
+        getExplicitPickIds,
+        getConfiguratorDefaultPickIds,
         isMultiChoiceSlot,
         groupSlotsByFamily,
         groupSlotsByComponent,

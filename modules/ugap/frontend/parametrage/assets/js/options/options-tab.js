@@ -47,29 +47,6 @@
         return 'option';
     }
 
-    function getTagRegistry() {
-        const Types = global.UgapCatalogueTypes;
-        const byId = new Map();
-        (Types?.DEFAULT_TAG_REGISTRY || []).forEach((t) => {
-            const id = String(t?.id || '').trim();
-            if (id) byId.set(id, { id, label: String(t?.label || id).trim() });
-        });
-        const custom = CatalogState()?.getCatalog?.()?.tagRegistry;
-        (Array.isArray(custom) ? custom : []).forEach((t) => {
-            const id = String(t?.id || '').trim();
-            if (id) byId.set(id, { id, label: String(t?.label || id).trim() });
-        });
-        return Array.from(byId.values()).sort((a, b) =>
-            a.label.localeCompare(b.label, 'fr', { sensitivity: 'base' })
-        );
-    }
-
-    function tagLabel(tagId) {
-        const id = String(tagId || '').trim();
-        if (!id) return '';
-        return getTagRegistry().find((t) => t.id === id)?.label || id;
-    }
-
     function resolveOptionTypeMeta(opt) {
         const lineKind = inferPublishedOptionLineKind(opt);
 
@@ -84,6 +61,73 @@
             return { key: 'base', label: 'Base', className: 'ugap-option-tag--base' };
         }
         return { key: 'catalogue', label: 'Catalogue', className: 'ugap-option-tag--catalogue' };
+    }
+
+    function resolveUiTypeKey(opt) {
+        return resolveOptionTypeMeta(opt).key;
+    }
+
+    /** Patch catalogue pour le type affiché (MINO / MAJO / Base / Catalogue / PR). */
+    function buildPatchForUiTypeKey(uiKey) {
+        const k = String(uiKey || '').trim().toLowerCase();
+        if (k === 'mino') {
+            return {
+                importOptionLineKind: 'minoration',
+                isMinoration: true,
+                isSparePart: false,
+                manualMinorationAssignment: true,
+                manualMajorationAssignment: false,
+                manualBaseOption: false,
+                baseIncluded: false,
+                isBaseOption: false,
+            };
+        }
+        if (k === 'majo') {
+            return {
+                importOptionLineKind: 'majoration',
+                isMinoration: false,
+                isSparePart: false,
+                manualMajorationAssignment: true,
+                manualMinorationAssignment: false,
+                manualBaseOption: false,
+                baseIncluded: false,
+                isBaseOption: false,
+            };
+        }
+        if (k === 'pr') {
+            return {
+                importOptionLineKind: 'pr',
+                isMinoration: false,
+                isSparePart: true,
+                manualMajorationAssignment: false,
+                manualMinorationAssignment: false,
+                manualBaseOption: false,
+                baseIncluded: false,
+                isBaseOption: false,
+            };
+        }
+        if (k === 'base') {
+            return {
+                importOptionLineKind: 'option',
+                isMinoration: false,
+                isSparePart: false,
+                manualMajorationAssignment: false,
+                manualMinorationAssignment: false,
+                manualBaseOption: true,
+                baseIncluded: true,
+                isBaseOption: true,
+            };
+        }
+        return {
+            importOptionLineKind: 'option',
+            isMinoration: false,
+            isSparePart: false,
+            manualMajorationAssignment: false,
+            manualMinorationAssignment: false,
+            manualBaseOption: false,
+            baseIncluded: false,
+            isBaseOption: false,
+        };
     }
 
     function findRawOptionById(optionId) {
@@ -394,11 +438,7 @@
                 if (!cm.includes(modelFilter)) return false;
             }
             if (tagFilter !== 'all') {
-                const typeHit = String(row.optionType || '').toLowerCase() === tagFilter;
-                const catalogHit = (Array.isArray(row.catalogTags) ? row.catalogTags : [])
-                    .map((x) => String(x || '').trim().toLowerCase())
-                    .includes(tagFilter);
-                if (!typeHit && !catalogHit) return false;
+                if (String(row.optionType || '').toLowerCase() !== tagFilter) return false;
             }
             if (statusFilter === 'unassigned') {
                 return !hasNode;
@@ -532,24 +572,14 @@
                 : '';
             const optionNameCell = `<span class="ugap-options-edit-name" data-option-id="${esc(r.id)}" title="Double-clic pour renommer">${esc(r.name)}</span>`;
             const postesCell = `<span class="ugap-options-edit-postes" data-option-id="${esc(r.id)}" title="Double-clic pour modifier les postes">${esc(r.assignedPostes || '—')}</span>`;
-            const catalogTagPills = (Array.isArray(r.catalogTags) ? r.catalogTags : [])
-                .map((tid) => `<span class="ugap-catalogue-tag-pill">${esc(tagLabel(tid))}</span>`)
-                .join(' ');
-            const tagCellInner = catalogTagPills
-                ? `<span class="ugap-options-tag-pills">${catalogTagPills}</span>`
-                : '<span class="ugap-options-tag-empty">—</span>';
-            const tagCell = `
-                <span class="ugap-options-edit-tag" data-option-id="${esc(r.id)}" title="Double-clic pour modifier les tags catalogue">
-                    ${tagCellInner}
-                    <span class="ugap-option-tag ugap-option-tag--kind ${esc(r.optionTypeClassName || '')}" title="Type ligne (import)">${esc(r.optionTypeLabel || 'Catalogue')}</span>
-                </span>`;
+            const typeCell = `<span class="ugap-option-tag ugap-option-tag--kind ugap-options-edit-type ${esc(r.optionTypeClassName || '')}" data-option-id="${esc(r.id)}" title="Double-clic pour modifier le type (MINO, MAJO, Base, Catalogue, PR)">${esc(r.optionTypeLabel || 'Catalogue')}</span>`;
             return `
                 <tr data-option-row-id="${esc(r.id)}">
                     <td style="width:34px;text-align:center;">
                         <input type="checkbox" data-option-id="${esc(r.id)}" ${checked}>
                     </td>
                     <td>${optionNameCell}${ibp}${idHint}</td>
-                    <td class="ugap-options-tag-cell">${tagCell}</td>
+                    <td class="ugap-options-type-cell">${typeCell}</td>
                     <td class="num">${esc(fmtMoney(r.pricePublic))}</td>
                     <td class="num">${esc(fmtMoney(r.priceUgap))}</td>
                     <td>${postesCell}</td>
@@ -570,7 +600,7 @@
                     <tr>
                         <th style="width:34px;"></th>
                         <th>Option</th>
-                        <th>Tags catalogue</th>
+                        <th>Type</th>
                         <th class="num">Prix public</th>
                         <th class="num">Prix UGAP</th>
                         <th>Postes assignés</th>
@@ -756,20 +786,27 @@
                     </div>
                 </div>
             </div>`);
-        if (!byId('ugap-options-tags-modal')) parts.push(`
-            <div id="ugap-options-tags-modal" hidden class="ugap-model-base-modal">
-                <div class="ugap-model-base-modal__panel card" style="width:min(480px,96vw);">
+        if (!byId('ugap-options-type-modal')) parts.push(`
+            <div id="ugap-options-type-modal" hidden class="ugap-model-base-modal">
+                <div class="ugap-model-base-modal__panel card" style="width:min(420px,96vw);">
                     <div class="ugap-model-base-modal__head">
-                        <strong>Tags catalogue</strong>
-                        <button type="button" class="btn btn-outline" id="ugap-options-tags-close">×</button>
+                        <strong>Modifier le type de ligne</strong>
+                        <button type="button" class="btn btn-outline" id="ugap-options-type-close">×</button>
                     </div>
                     <div style="padding:14px;">
-                        <div id="ugap-options-tags-option-id" style="margin-bottom:10px;font-size:12px;color:#64748b;"></div>
-                        <p style="margin:0 0 10px;font-size:12px;color:#64748b;">Tags du registre catalogue (onglet Catalogue). Le badge MINO / MAJO / Base reflète le type d’import.</p>
-                        <div id="ugap-options-tags-list" class="ugap-options-tags-list"></div>
+                        <div id="ugap-options-type-option-id" style="margin-bottom:10px;font-size:12px;color:#64748b;"></div>
+                        <label style="display:block;font-size:12px;margin-bottom:4px;">Type</label>
+                        <select id="ugap-options-type-select" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px;">
+                            <option value="catalogue">Catalogue</option>
+                            <option value="mino">MINO</option>
+                            <option value="majo">MAJO</option>
+                            <option value="base">Base</option>
+                            <option value="pr">PR</option>
+                        </select>
+                        <p style="margin:10px 0 0;font-size:12px;color:#64748b;">Correction manuelle si l’import a classé la ligne incorrectement. Les tags catalogue se gèrent sur les nœuds (onglet Catalogue).</p>
                         <div style="margin-top:14px;display:flex;gap:8px;justify-content:flex-end;">
-                            <button type="button" class="btn btn-outline" id="ugap-options-tags-cancel">Annuler</button>
-                            <button type="button" class="btn btn-primary" id="ugap-options-tags-save">Enregistrer</button>
+                            <button type="button" class="btn btn-outline" id="ugap-options-type-cancel">Annuler</button>
+                            <button type="button" class="btn btn-primary" id="ugap-options-type-save">Enregistrer</button>
                         </div>
                     </div>
                 </div>
@@ -789,8 +826,8 @@
         if (modal) modal.hidden = true;
     }
 
-    function closeTagsModal() {
-        const modal = byId('ugap-options-tags-modal');
+    function closeTypeModal() {
+        const modal = byId('ugap-options-type-modal');
         if (modal) modal.hidden = true;
     }
 
@@ -907,13 +944,13 @@
                 });
                 return;
             }
-            if (target.id === 'ugap-options-tags-cancel' || target.id === 'ugap-options-tags-close') {
-                closeTagsModal();
+            if (target.id === 'ugap-options-type-cancel' || target.id === 'ugap-options-type-close') {
+                closeTypeModal();
                 return;
             }
-            if (target.id === 'ugap-options-tags-save') {
-                void saveTagsModal().catch((err) => {
-                    showOptionsStatusInline(err?.message || 'Erreur mise à jour tags', 'error');
+            if (target.id === 'ugap-options-type-save') {
+                void saveTypeModal().catch((err) => {
+                    showOptionsStatusInline(err?.message || 'Erreur mise à jour type', 'error');
                 });
                 return;
             }
@@ -937,9 +974,10 @@
                 closePostesModal();
                 return;
             }
-            const tagsModal = byId('ugap-options-tags-modal');
-            if (tagsModal && target === tagsModal) {
-                closeTagsModal();
+            const typeModal = byId('ugap-options-type-modal');
+            if (typeModal && target === typeModal) {
+                closeTypeModal();
+                return;
             }
         });
 
@@ -947,7 +985,7 @@
             if (event.key === 'Escape') {
                 closeRenameModal();
                 closePostesModal();
-                closeTagsModal();
+                closeTypeModal();
                 return;
             }
             if (event.key === 'Enter') {
@@ -970,97 +1008,80 @@
         openPostesModal(optionId);
     }
 
-    function openTagsModal(optionId) {
+    function openTypeModal(optionId) {
         const id = String(optionId || '').trim();
         const row = state.rows.find((r) => r.id === id);
-        if (!row) return;
+        const opt = findRawOptionById(id);
+        if (!row || !opt) return;
+        if (row.isImportBase || isImportGeneratedBaseOption(opt)) {
+            showOptionsStatusInline('Le type des options IBP (import) n’est pas modifiable ici.', 'warning');
+            return;
+        }
         ensureOptionEditModals();
-        const modal = byId('ugap-options-tags-modal');
-        const hint = byId('ugap-options-tags-option-id');
-        const list = byId('ugap-options-tags-list');
-        if (!modal || !list) return;
+        const modal = byId('ugap-options-type-modal');
+        const hint = byId('ugap-options-type-option-id');
+        const select = byId('ugap-options-type-select');
+        if (!modal || !(select instanceof HTMLSelectElement)) return;
         modal.dataset.optionId = id;
-        const selected = new Set(
-            (Array.isArray(row.catalogTags) ? row.catalogTags : [])
-                .map((x) => String(x || '').trim())
-                .filter(Boolean)
-        );
-        const registry = getTagRegistry();
-        if (!registry.length) {
-            list.innerHTML = '<p class="ugap-param-placeholder">Aucun tag dans le registre — configurez l’onglet Catalogue.</p>';
-        } else {
-            list.innerHTML = registry.map((t) => {
-                const tid = String(t.id || '').trim();
-                const on = selected.has(tid) ? ' checked' : '';
-                return `
-                    <label class="ugap-options-tags-list__item">
-                        <input type="checkbox" data-catalog-tag-id="${esc(tid)}"${on}>
-                        <span>${esc(t.label || tid)}</span>
-                    </label>`;
-            }).join('');
+        select.value = resolveUiTypeKey(opt);
+        const baseOpt = select.querySelector('option[value="base"]');
+        const motorTarif = isCatalogMotorTarifOption(opt);
+        if (baseOpt) {
+            baseOpt.disabled = motorTarif;
+            baseOpt.title = motorTarif
+                ? 'Ligne tarif moteur catalogue : utiliser une option IBP (import), pas une MAJO'
+                : '';
         }
-        if (hint) hint.textContent = `Option: ${row.name || id}`;
+        if (hint) {
+            hint.textContent = motorTarif
+                ? `Option: ${row.name || id} — tarif moteur : type Base indisponible (IBP à l’import).`
+                : `Option: ${row.name || id}`;
+        }
         modal.hidden = false;
+        requestAnimationFrame(() => select.focus());
     }
 
-    function getCheckedCatalogTagIdsFromModal() {
-        const list = byId('ugap-options-tags-list');
-        if (!list) return [];
-        return Array.from(list.querySelectorAll('input[type="checkbox"][data-catalog-tag-id]:checked'))
-            .map((el) => String(el.getAttribute('data-catalog-tag-id') || '').trim())
-            .filter(Boolean);
-    }
-
-    async function saveTagsModal() {
-        const modal = byId('ugap-options-tags-modal');
-        if (!modal) return;
+    async function saveTypeModal() {
+        const modal = byId('ugap-options-type-modal');
+        const select = byId('ugap-options-type-select');
+        if (!modal || !(select instanceof HTMLSelectElement)) return;
         const optionId = String(modal.dataset.optionId || '').trim();
-        if (!optionId) return closeTagsModal();
-        const nextTags = getCheckedCatalogTagIdsFromModal();
-        const current = findRawOptionById(optionId);
-        const prevTags = (Array.isArray(current?.tags) ? current.tags : [])
-            .map((x) => String(x || '').trim())
-            .filter(Boolean)
-            .sort()
-            .join('|');
-        const nextKey = nextTags.slice().sort().join('|');
-        if (prevTags === nextKey) return closeTagsModal();
-
-        const Cat = CatalogState();
-        if (Cat?.updateOptionFields) {
-            await Cat.updateOptionFields(optionId, { tags: nextTags });
-        } else {
-            await updateOptionWithPatch(optionId, { tags: nextTags });
+        const opt = findRawOptionById(optionId);
+        if (!opt) return closeTypeModal();
+        const nextKey = String(select.value || '').trim().toLowerCase();
+        const currentKey = resolveUiTypeKey(opt);
+        if (nextKey === currentKey) return closeTypeModal();
+        const patch = buildPatchForUiTypeKey(nextKey);
+        if (nextKey !== 'base' && isImportGeneratedBaseOption(opt)) {
+            patch.importGeneratedFromBaseProduct = false;
+            patch.isBaseOption = false;
+            delete patch.importBaseProductId;
         }
-        closeTagsModal();
+        await updateOptionWithPatch(optionId, patch);
+        closeTypeModal();
         await loadOptions();
-        showOptionsStatusInline('Tags catalogue mis à jour.', 'success');
+        showOptionsStatusInline('Type de ligne mis à jour.', 'success');
     }
 
-    async function editOptionTagsById(optionId) {
-        openTagsModal(optionId);
+    async function updateOptionTypeById(optionId) {
+        openTypeModal(optionId);
     }
 
     function syncTagFilterSelectOptions() {
         const sel = byId('ugap-options-filter-tag');
         if (!sel) return;
         const current = String(state.filterTag || 'all');
-        const fixed = [
-            { value: 'all', label: 'Tous les tags' },
-            { value: 'catalogue', label: 'Type : Catalogue' },
-            { value: 'mino', label: 'Type : MINO' },
-            { value: 'majo', label: 'Type : MAJO' },
-            { value: 'base', label: 'Type : Base' },
-            { value: 'pr', label: 'Type : PR' },
+        const types = [
+            { value: 'all', label: 'Tous les types' },
+            { value: 'catalogue', label: 'Catalogue' },
+            { value: 'mino', label: 'MINO' },
+            { value: 'majo', label: 'MAJO' },
+            { value: 'base', label: 'Base' },
+            { value: 'pr', label: 'PR' },
         ];
-        const registry = getTagRegistry().map((t) => ({
-            value: String(t.id || '').trim(),
-            label: `Tag : ${t.label || t.id}`,
-        }));
-        const html = fixed.concat(registry).map((o) =>
+        sel.innerHTML = types.map((o) =>
             `<option value="${esc(o.value)}"${o.value === current ? ' selected' : ''}>${esc(o.label)}</option>`
         ).join('');
-        sel.innerHTML = html;
     }
 
     function suggestCatalogNodeForRow(row) {
@@ -1261,12 +1282,12 @@
                 }
                 return;
             }
-            const tagEl = target.closest('.ugap-options-edit-tag');
-            if (tagEl) {
-                const optionId = String(tagEl.getAttribute('data-option-id') || '').trim();
+            const typeEl = target.closest('.ugap-options-edit-type');
+            if (typeEl) {
+                const optionId = String(typeEl.getAttribute('data-option-id') || '').trim();
                 if (optionId) {
-                    void editOptionTagsById(optionId).catch((err) => {
-                        showOptionsStatus(err?.message || 'Erreur modification tags', 'error');
+                    void updateOptionTypeById(optionId).catch((err) => {
+                        showOptionsStatus(err?.message || 'Erreur mise à jour type', 'error');
                     });
                 }
             }

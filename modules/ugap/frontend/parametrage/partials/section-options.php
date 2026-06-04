@@ -50,9 +50,9 @@
                 </select>
             </label>
             <label style="display:flex;flex-direction:column;gap:4px;min-width:180px;">
-                <span style="font-size:12px;color:#64748b;">Filtre tag</span>
+                <span style="font-size:12px;color:#64748b;">Type de ligne</span>
                 <select id="ugap-options-filter-tag" style="padding:7px 8px;border:1px solid #d1d5db;border-radius:6px;">
-                    <option value="all">Tous les tags</option>
+                    <option value="all">Tous les types</option>
                     <option value="catalogue">Catalogue</option>
                     <option value="mino">MINO</option>
                     <option value="majo">MAJO</option>

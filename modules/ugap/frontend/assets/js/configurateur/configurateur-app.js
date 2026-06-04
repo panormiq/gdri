@@ -237,6 +237,7 @@
             invalidateBillableDerivationCache();
             state._categoryTableRowsCache = null;
             state._categoryTableRowsCacheKey = '';
+            state._modelBaseDefaultsAppliedForModelId = '';
             if (window.UgapConfiguratorTemplateTree?.onModelSelected) {
                 window.UgapConfiguratorTemplateTree.onModelSelected(state);
             }
@@ -489,11 +490,69 @@
             return `${mid}|${tplId}|${catCount}|${famCount}|${custom5}`;
         }
 
+        function collectDecisionGroupsForModelDefaults() {
+            const groups = [];
+            const Tree = window.UgapBoatTemplateTree;
+            const catalogueFamilies = getValidatedFamiliesForBusinessViews();
+            const optionById = getCatalogueOptionByIdMap();
+            getCategoryTableCatalogueCategories().forEach((category) => {
+                const resolved = Tree?.resolveCategoryFamiliesWithGroups
+                    ? Tree.resolveCategoryFamiliesWithGroups(category, catalogueFamilies)
+                    : [];
+                resolved.forEach((fam) => {
+                    const famLabel = String(fam?.familyLabel || '').trim();
+                    const src = Tree?.findCatalogueFamily
+                        ? Tree.findCatalogueFamily(catalogueFamilies, {
+                            familyLabel: famLabel,
+                            sourceIndex: fam.sourceIndex
+                        })
+                        : catalogueFamilies.find((f) =>
+                            String(f?.familyLabel || '').trim().toLowerCase() === famLabel.toLowerCase()
+                        );
+                    const defId = src?.defaultOptionId != null
+                        ? String(src.defaultOptionId).trim()
+                        : '';
+                    (Array.isArray(fam?.decisionGroups) ? fam.decisionGroups : []).forEach((g) => {
+                        const catalogueOptionIds = (Array.isArray(g?.optionIds) ? g.optionIds : [])
+                            .map((x) => String(x || '').trim())
+                            .filter(Boolean);
+                        if (!catalogueOptionIds.length) return;
+                        groups.push(buildConfiguratorGroupObject(fam, g, optionById, defId));
+                    });
+                });
+            });
+            return groups;
+        }
+
+        /** Applique les picks du modèle de base (single + multi) avant affichage du devis. */
+        function applyConfiguratorDefaultsFromModelBase(force) {
+            if (!state.selectedModel) return;
+            const mid = String(state.selectedModel?.id || '').trim();
+            if (!force && state._modelBaseDefaultsAppliedForModelId === mid) return;
+            state._modelBaseDefaultsAppliedForModelId = mid;
+
+            syncConfiguratorModelBaseContext();
+            const Tpl = window.UgapConfiguratorTemplateTree;
+            const hooks = getTemplateTreeHooks();
+            if (typeof Tpl?.applyDefaultSelectionsForParcours === 'function') {
+                Tpl.applyDefaultSelectionsForParcours(state, hooks);
+            }
+            const groups = collectDecisionGroupsForModelDefaults();
+            if (groups.length && typeof Tpl?.ensureSingleChoiceDefaultsForGroups === 'function') {
+                Tpl.ensureSingleChoiceDefaultsForGroups(state, groups, hooks);
+            }
+            syncConfiguratorDevisTable();
+            syncConfiguratorExcelTable();
+            refreshCategoryTableIfVisible();
+            invalidateBillableDerivationCache();
+        }
+
         function getCategoryTableRows() {
             const key = getCategoryTableRowsCacheKey();
             if (state._categoryTableRowsCache && state._categoryTableRowsCacheKey === key) {
                 return state._categoryTableRowsCache;
             }
+            applyConfiguratorDefaultsFromModelBase();
             const rows = collectCategoryTableRows();
             state._categoryTableRowsCache = rows;
             state._categoryTableRowsCacheKey = key;
@@ -731,10 +790,19 @@
             return custom ? isFivePercentCustomOptionCounted(custom) : false;
         }
 
+        function catalogUgapPrice(opt) {
+            const ODN = global.UgapOptionDisplayName;
+            if (ODN?.resolveCatalogOptionUgapPrice) return ODN.resolveCatalogOptionUgapPrice(opt);
+            if (!opt) return 0;
+            const ugap = Number(opt.priceUgap);
+            if (Number.isFinite(ugap)) return ugap;
+            return Number(opt.priceClient) || 0;
+        }
+
         function getFivePercentOptionPrice(opt) {
             if (!opt) return 0;
             if (Number.isFinite(Number(opt.price))) return Number(opt.price);
-            return Number(opt.priceClient || opt.priceUgap || 0);
+            return catalogUgapPrice(opt);
         }
 
         function tryAddFivePercentPriceDelta(price) {
@@ -964,7 +1032,14 @@
                 const group = row.group;
                 const eyeOn = isCategoryTableMultiGroupExpanded(group);
                 const allOpts = Array.isArray(group.options) ? group.options : [];
-                const selectedOpts = allOpts.filter((o) => isCategoryTableGroupOptionSelected(o));
+                const seenSel = new Set();
+                const selectedOpts = allOpts.filter((o) => {
+                    const id = String(o?.id || '').trim();
+                    if (!id || !isCategoryTableGroupOptionSelected(o)) return false;
+                    if (seenSel.has(id)) return false;
+                    seenSel.add(id);
+                    return true;
+                });
                 const pendingOpts = eyeOn
                     ? allOpts.filter((o) => !isCategoryTableGroupOptionSelected(o))
                     : [];
@@ -1717,7 +1792,7 @@
                     || (fromExcelTable && state.use5Percent && !state.fivePercentOptions.has(option.id))
                 );
                 if (routeToFivePct) {
-                    const price = option.priceClient || option.priceUgap || 0;
+                    const price = catalogUgapPrice(option);
                     if (state.budget5Percent > 0 && getFivePercentTotal() + price > state.budget5Percent) {
                         alert('Budget 5% dépassé !');
                         checkbox.checked = false;
@@ -2233,7 +2308,7 @@
         function formatCategoryTablePriceCell(opt) {
             if (!opt) return '—';
             if (isInclusionShownInCategoryTableColumn(opt)) {
-                const p = Number(opt.priceClient ?? opt.priceUgap ?? 0);
+                const p = catalogUgapPrice(opt);
                 if (getOptionInclusionKind(opt) === 'devis_5pct' && p > 0) {
                     return `${p.toFixed(2)} €`;
                 }
@@ -2265,7 +2340,7 @@
                 opt = row.option;
                 rowId = String(opt.id || '').trim();
                 name = String(opt.name || '').trim() || '—';
-                price = Number(opt.priceClient ?? opt.priceUgap) || 0;
+                price = catalogUgapPrice(opt);
             }
             const checked = rowId && (state.fivePercentOptions.has(rowId)
                 || (row?.isFivePercentCustomRow && row.customOption?.selected === true));
@@ -2294,9 +2369,20 @@
             const Tpl = window.UgapConfiguratorTemplateTree;
             const gkey = escapeHtml(categoryTableGroupKey(group));
             if (group.decisionMode === 'multi_choice') {
+                const allOpts = Array.isArray(group.options) ? group.options : [];
+                const seenChip = new Set();
+                const selectedIds = (group.options || [])
+                    .map((o) => String(o?.id || '').trim())
+                    .filter((id) => {
+                        if (!id || seenChip.has(id)) return false;
+                        if (!state.selectedOptions.has(id) && !state.fivePercentOptions.has(id)) return false;
+                        seenChip.add(id);
+                        return true;
+                    });
+                const count = allOpts.length;
+                let hintHtml = '';
                 if (state.selectedModel) {
-                    const allOpts = Array.isArray(group.options) ? group.options : [];
-                    const selectedCount = allOpts.filter((o) => isCategoryTableGroupOptionSelected(o)).length;
+                    const selectedCount = selectedIds.length;
                     const eyeOn = isCategoryTableMultiGroupExpanded(group);
                     const pendingCount = eyeOn
                         ? allOpts.filter((o) => !isCategoryTableGroupOptionSelected(o)).length
@@ -2307,29 +2393,15 @@
                     const hintPending = pendingCount
                         ? `${pendingCount} option(s) à valider — listées ci-dessous`
                         : (eyeOn ? 'Toutes les options de ce groupe sont sélectionnées' : '');
-                    return `
-                        <div style="font-size:12px;color:#64748b;font-style:italic;line-height:1.45;">
+                    hintHtml = `
+                        <div style="font-size:12px;color:#64748b;font-style:italic;line-height:1.45;margin-bottom:8px;">
                             <div>${escapeHtml(hintValidated)}</div>
                             ${hintPending ? `<div style="margin-top:4px;">${escapeHtml(hintPending)}</div>` : ''}
                         </div>`;
                 }
-                const selectedIds = (group.options || [])
-                    .map((o) => o.id)
-                    .filter((id) => state.selectedOptions.has(id) || state.fivePercentOptions.has(id));
-                const chips = selectedIds.map((optId) => {
-                    const opt = (group.options || []).find((o) => o.id === optId);
-                    if (!opt) return '';
-                    return `<span class="tpl-config-chip" data-cat-group="${gkey}" data-cat-opt="${escapeHtml(opt.id)}"
-                        style="display:inline-flex;align-items:center;gap:6px;padding:4px 8px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:999px;font-size:12px;">
-                        ${escapeHtml(opt.name)}
-                        <button type="button" class="cat-table-chip-remove" data-cat-group="${gkey}" data-cat-opt="${escapeHtml(opt.id)}"
-                            style="border:none;background:transparent;cursor:pointer;font-size:14px;color:#64748b;">×</button>
-                    </span>`;
-                }).filter(Boolean).join('');
-                const count = (group.options || []).length;
                 return `
+                    ${hintHtml}
                     <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;">
-                        ${chips}
                         <button type="button" class="cat-table-multi-add btn btn-outline" data-cat-group="${gkey}"
                             style="width:32px;height:32px;border-radius:50%;padding:0;font-size:18px;line-height:1;" title="${count} option(s)">+</button>
                         ${buildCategoryTableFivePctButtonHtml(gkey)}
@@ -2990,6 +3062,7 @@
             state.isOptionCompatibleWithSelectedModel = isOptionCompatibleWithSelectedModel;
             state.passesCategoryTableModelFilter = passesCategoryTableModelFilter;
             syncConfiguratorModelBaseContext();
+            applyConfiguratorDefaultsFromModelBase(true);
 
             const hasBaseBoat = !!String(state.selectedModel?.boatTemplateId || '').trim();
             if (!hasBaseBoat) {
@@ -3148,7 +3221,7 @@
         function applyOptionSelectionFromCheckbox(checkbox, option) {
             if (checkbox.checked) {
                 if (state.use5Percent && !state.fivePercentOptions.has(option.id)) {
-                    const price = option.priceClient || option.priceUgap || 0;
+                    const price = catalogUgapPrice(option);
                     if (state.budget5Percent > 0 && getFivePercentTotal() + price > state.budget5Percent) {
                         alert('Budget 5% dépassé !');
                         checkbox.checked = false;
@@ -3477,8 +3550,7 @@
             if (!opt || typeof opt !== 'object') return 0;
             if (isBaseCatalogOption(opt)) return 0;
             if (getOptionInclusionKind(opt) === 'inclus') return 0;
-            const price = Number(opt.priceClient ?? opt.priceUgap);
-            return Number.isFinite(price) ? price : 0;
+            return catalogUgapPrice(opt);
         }
 
         function forEachResolvedTemplateGroup(visitor) {
@@ -3783,7 +3855,7 @@
                 ` : `
                     <ul style="margin: 0 0 10px 18px; padding: 0;">
                         ${selectedInCategory.map(opt => `
-                            <li>${opt.name} — ${(opt.priceClient || opt.priceUgap || 0).toFixed(2)} €</li>
+                            <li>${opt.name} — ${catalogUgapPrice(opt).toFixed(2)} €</li>
                         `).join('')}
                         ${customInCategory.map(opt => `
                             <li>${opt.name} — ${opt.price.toFixed(2)} € 
@@ -3813,7 +3885,7 @@
             const optionById = getCatalogueOptionByIdMap();
             state.fivePercentOptions.forEach((optId) => {
                 const option = optionById.get(String(optId || '').trim());
-                if (option) total += option.priceClient || option.priceUgap || 0;
+                if (option) total += catalogUgapPrice(option);
             });
             (state.fivePercentCustomOptions || []).forEach((opt) => {
                 if (isFivePercentCustomOptionCounted(opt)) total += opt.price || 0;

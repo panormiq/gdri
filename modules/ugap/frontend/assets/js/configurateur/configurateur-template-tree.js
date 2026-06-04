@@ -240,7 +240,7 @@
             const assigned = String(MBO.getAssignedOptionId(mid, groupToSlot(group)) || '').trim();
             if (assigned) {
                 const opt = findCatalogOption(state, hooks, assigned);
-                if (!opt || !isMotorTarifCatalogOption(hooks, opt)) return assigned;
+                if (opt) return assigned;
             }
         }
 
@@ -248,40 +248,17 @@
         const defId = String(group.defaultOptionId || '').trim();
         if (defId) {
             const opt = findCatalogOption(state, hooks, defId);
-            if (opt && !isMotorTarifCatalogOption(hooks, opt)) return defId;
+            if (opt) return defId;
         }
         for (const opt of opts) {
             if (!isBaseCatalogOption(hooks, opt)) continue;
-            if (isMotorTarifCatalogOption(hooks, opt)) continue;
             return opt.id;
         }
         return '';
     }
 
-    function purgeMotorTarifFromGroupSelection(state, group, hooks) {
-        const baseId = getGroupBaseOptionId(state, group, hooks);
-        const slot = groupToSlot(group);
-        const MBO = getModelBaseOptions();
-        const toCheck = new Set(getSelectedInGroup(state, group));
-        if (MBO?.getChoiceRows && state.selectedModel) {
-            syncModelBaseBridge(state);
-            (MBO.getChoiceRows(state.selectedModel, slot, { baseOnly: false }) || []).forEach((row) => {
-                const id = String(row?.id || '').trim();
-                if (id && (state.selectedOptions.has(id) || state.fivePercentOptions.has(id))) {
-                    toCheck.add(id);
-                }
-            });
-        }
-        toCheck.forEach((id) => {
-            if (id === baseId) return;
-            const opt = findCatalogOption(state, hooks, id)
-                || (group.options || []).find((o) => o.id === id);
-            if (opt && isMotorTarifCatalogOption(hooks, opt)) {
-                state.selectedOptions.delete(id);
-                state.fivePercentOptions.delete(id);
-            }
-        });
-    }
+    /** Ne retire plus les lignes moteur catalogue : remplacement valide si le modèle (poste) est coché. */
+    function purgeMotorTarifFromGroupSelection() {}
 
     /**
      * On ne fournit pas le moteur / produit de base du groupe (choix ≠ base assignée).
@@ -308,13 +285,7 @@
 
     /** Option affichée pour un choix unique : sélection utilisateur, sinon option de base. */
     function getSingleChoiceDisplay(state, group, hooks) {
-        purgeMotorTarifFromGroupSelection(state, group, hooks);
         let selected = getSingleSelectedOption(state, group, hooks);
-        if (selected && isMotorTarifCatalogOption(hooks, selected)) {
-            state.selectedOptions.delete(selected.id);
-            state.fivePercentOptions.delete(selected.id);
-            selected = null;
-        }
         if (selected) {
             return { option: selected, isExplicitSelection: true, isBaseDefault: false };
         }
@@ -334,21 +305,68 @@
     function ensureSingleChoiceGroupDefault(state, group, hooks) {
         if (group.decisionMode === 'multi_choice') return;
         if (isDevisSlotUserCleared(state, group)) return;
-        purgeMotorTarifFromGroupSelection(state, group, hooks);
+        if (getSelectedInGroup(state, group).length > 0) return;
+
+        syncModelBaseBridge(state);
+        const mid = String(state.selectedModel?.id || '').trim();
+        const MBO = getModelBaseOptions();
+        if (mid && MBO?.getConfiguratorDefaultPickIds) {
+            const pickIds = MBO.getConfiguratorDefaultPickIds(mid, groupToSlot(group));
+            if (pickIds.length) {
+                applyDefaultPickIdsToGroup(state, group, [pickIds[0]]);
+                return;
+            }
+        }
+
         const baseId = getGroupBaseOptionId(state, group, hooks);
         if (!baseId) return;
-        if (!getSelectedInGroup(state, group).length) {
-            state.selectedOptions.add(baseId);
-        }
+        state.selectedOptions.add(baseId);
+    }
+
+    function applyDefaultPickIdsToGroup(state, group, pickIds) {
+        const slot = groupToSlot(group);
+        const allowed = new Set(collectChoiceIdsForSlot(state, slot));
+        (Array.isArray(group?.options) ? group.options : []).forEach((o) => {
+            const id = String(o?.id || '').trim();
+            if (id) allowed.add(id);
+        });
+        [...new Set(pickIds)].forEach((rawId) => {
+            const oid = String(rawId || '').trim();
+            if (!oid) return;
+            if (allowed.size > 0 && !allowed.has(oid)) return;
+            state.selectedOptions.add(oid);
+        });
+    }
+
+    /** Choix multiple : coche par défaut les options de base du modèle (comme paramétrage modèle de base). */
+    function ensureMultiChoiceGroupDefault(state, group, hooks) {
+        if (!group || group.decisionMode !== 'multi_choice') return;
+        if (isDevisSlotUserCleared(state, group)) return;
+
+        syncModelBaseBridge(state);
+        const mid = String(state.selectedModel?.id || '').trim();
+        const MBO = getModelBaseOptions();
+        if (!mid || !MBO?.getConfiguratorDefaultPickIds) return;
+
+        const pickIds = MBO.getConfiguratorDefaultPickIds(mid, groupToSlot(group));
+        if (!pickIds.length) return;
+
+        const missing = pickIds.filter(
+            (id) => !state.selectedOptions.has(id) && !state.fivePercentOptions.has(id)
+        );
+        if (missing.length) applyDefaultPickIdsToGroup(state, group, missing);
     }
 
     function ensureSingleChoiceDefaultsForGroups(state, groups, hooks) {
         const list = Array.isArray(groups) ? groups : [];
         list.forEach((g) => {
-            if (g?.decisionMode !== 'multi_choice' && !g?.missing) {
-                ensureSingleChoiceGroupDefault(state, g, hooks);
-                purgeLinkedAdjForDefaultBaseInGroup(state, g, hooks);
+            if (!g || g.missing) return;
+            if (g.decisionMode === 'multi_choice') {
+                ensureMultiChoiceGroupDefault(state, g, hooks);
+                return;
             }
+            ensureSingleChoiceGroupDefault(state, g, hooks);
+            purgeLinkedAdjForDefaultBaseInGroup(state, g, hooks);
         });
         const BAL = global.UgapBaseAdjLinks;
         if (BAL?.syncLinkedAdjForAdjPricingGroups) {
@@ -524,9 +542,12 @@
 
     function parcoursSelectedIds(state, slot) {
         const out = [];
+        const seen = new Set();
         parcoursChoiceRows(state, slot).forEach((row) => {
             const id = String(row?.id || '').trim();
-            if (id && (state.selectedOptions.has(id) || state.fivePercentOptions.has(id))) {
+            if (!id || seen.has(id)) return;
+            if (state.selectedOptions.has(id) || state.fivePercentOptions.has(id)) {
+                seen.add(id);
                 out.push(id);
             }
         });
@@ -548,7 +569,7 @@
             const opt = findCatalogOption(state, hooks, id);
             if (!opt || isImportGeneratedBaseOption(opt)) return;
             if (typeof hooks?.isBaseCatalogOption === 'function' && hooks.isBaseCatalogOption(opt)) return;
-            sum += Number(opt.priceClient ?? opt.priceUgap ?? 0) || 0;
+            sum += catalogUgapPrice(opt);
         });
         return sum;
     }
@@ -586,9 +607,13 @@
     }
 
     function applyDefaultSelectionsForParcours(state, hooks) {
+        syncModelBaseBridge(state);
         collectParcoursSlots(getModelBaseEditorTree(state)).forEach((slot) => {
-            const g = slotToGroup(slot);
-            if (parcoursSlotChoiceCount(state, slot) > 0) {
+            if (parcoursSlotChoiceCount(state, slot) <= 0) return;
+            const g = hydrateGroupOptions(state, slotToGroup(slot));
+            if (g.decisionMode === 'multi_choice') {
+                ensureMultiChoiceGroupDefault(state, g, hooks);
+            } else {
                 ensureSingleChoiceGroupDefault(state, g, hooks);
             }
         });
@@ -782,12 +807,45 @@
         }).filter(Boolean).join('');
     }
 
+    function isTechnicalCatalogRef(ref) {
+        const r = String(ref || '').trim();
+        if (!r) return false;
+        return /^(BASE-|IBP-|bp_src_|opt_ibp_)/i.test(r);
+    }
+
+    function resolveMultiChoiceOptionLabel(state, opt, hooks, rowName) {
+        let text = String(rowName || '').trim();
+        if (!text) text = resolveOptionDisplayName(state, opt, hooks);
+        if (!text || text === '—' || text === 'de base') {
+            const raw = String(opt?.name || opt?.importExcelLabel || '')
+                .replace(/^\d{5,}\s*/, '')
+                .replace(/\s+/g, ' ')
+                .trim();
+            if (raw) text = raw;
+        }
+        return text || 'Option';
+    }
+
+    function formatParcoursOptionLineLabel(state, opt, hooks) {
+        if (!opt) return '—';
+        const text = resolveMultiChoiceOptionLabel(state, opt, hooks, '');
+        const ref = String(opt.refUgap || opt.baseRefUgap || '').trim();
+        const det = String(opt.details || '').trim();
+        if (ref && !isTechnicalCatalogRef(ref) && !text.includes(ref)) {
+            return `${text} — ${ref}`;
+        }
+        if (det && det !== text && !text.includes(det)) {
+            return `${text} (${det})`;
+        }
+        return text;
+    }
+
     function buildDevisTableOptionCell(state, group, hooks, mode, optId) {
         const key = escapeHtml(groupSelectionKey(group));
 
         if (mode === 'multi_line' && optId) {
             const opt = findCatalogOption(state, hooks, optId);
-            const name = opt ? resolveOptionDisplayName(state, opt, hooks) : '—';
+            const name = formatParcoursOptionLineLabel(state, opt, hooks);
             return `<span class="ugap-devis-opt-name">${escapeHtml(name)}</span>`;
         }
 
@@ -854,38 +912,9 @@
         const tree = MBO.buildModelBaseEditorTree(model) || { roots: [], orphanSlots: [] };
         const catalogNodes = getCatalogNodesForParcours();
         const rowDefs = collectDevisTableRowDefs(state, hooks, tree, catalogNodes);
-        const rowByKey = new Map();
-        rowDefs.forEach((r) => {
-            const k = groupSelectionKey(r.group);
-            if (!rowByKey.has(k)) rowByKey.set(k, r);
-        });
-
-        tbody.querySelectorAll('tr[data-tpl-group]').forEach((tr) => {
-            const def = rowByKey.get(tr.getAttribute('data-tpl-group'));
-            if (!def) return;
-            const optCell = tr.querySelector('.ugap-devis-td-option');
-            const priceCell = tr.querySelector('.ugap-devis-td-price');
-            if (optCell) {
-                optCell.innerHTML = buildDevisTableOptionCell(
-                    state,
-                    def.group,
-                    hooks,
-                    def.mode,
-                    def.optId
-                );
-            }
-            if (priceCell) {
-                priceCell.innerHTML = buildDevisTablePriceCell(
-                    state,
-                    hooks,
-                    def.mode,
-                    def.group,
-                    def.optId
-                );
-            }
-        });
-
+        tbody.innerHTML = rowDefs.map((r) => buildDevisTableRowHtml(state, hooks, r)).join('');
         bindDevisTableEvents(state, hooks, root);
+        refreshParcoursProgressUi(root, state, hooks);
     }
 
     function buildDevisTableRowHtml(state, hooks, rowDef) {
@@ -1146,13 +1175,22 @@
         return kind || 'Option devis';
     }
 
+    function catalogUgapPrice(opt) {
+        const ODN = global.UgapOptionDisplayName;
+        if (ODN?.resolveCatalogOptionUgapPrice) return ODN.resolveCatalogOptionUgapPrice(opt);
+        if (!opt) return 0;
+        const ugap = Number(opt.priceUgap);
+        if (Number.isFinite(ugap)) return ugap;
+        return Number(opt.priceClient) || 0;
+    }
+
     function formatPrice(opt, hooks) {
         if (!opt) return '';
         if (isImportGeneratedBaseOption(opt)) return '0,00 € (inclus)';
         if (typeof hooks?.isBaseCatalogOption === 'function' && hooks.isBaseCatalogOption(opt)) {
             return '0,00 € (inclus)';
         }
-        return `${(opt.priceClient || opt.priceUgap || 0).toFixed(2)} €`;
+        return `${catalogUgapPrice(opt).toFixed(2)} €`;
     }
 
     function formatPickerDeltaHint(state, hooks, ibpCatalogId) {
@@ -1167,7 +1205,7 @@
         let sum = 0;
         linked.forEach((adjId) => {
             const adj = findCatalogOption(state, hooks, adjId);
-            if (adj) sum += Number(adj.priceClient ?? adj.priceUgap ?? 0) || 0;
+            if (adj) sum += catalogUgapPrice(adj);
         });
         if (!sum) return '';
         const sign = sum >= 0 ? '+' : '';
@@ -1199,11 +1237,9 @@
             if (!comp.length) return !!opt?.isDivers;
             return comp.includes(mid);
         };
-        const filtered = all
-            .filter((opt) => opt && !isMotorTarifCatalogOption(hooks, opt) && compatible(opt));
+        const filtered = all.filter((opt) => opt && compatible(opt));
         if (filtered.length) return filtered;
-        // Debug/failsafe: ne pas bloquer le choix moteur si la compatibilité modèle est incohérente.
-        return all.filter((opt) => opt && !isMotorTarifCatalogOption(hooks, opt));
+        return all.filter(Boolean);
     }
 
     function resolveOptionDisplayName(state, opt, hooks) {
@@ -1227,7 +1263,7 @@
                 if (!opt) return '';
                 return `<span class="tpl-config-chip" data-tpl-group="${key}" data-tpl-opt="${escapeHtml(opt.id)}"
                     style="display:inline-flex;align-items:center;gap:6px;padding:6px 10px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:999px;font-size:13px;">
-                    ${escapeHtml(resolveOptionDisplayName(state, opt, hooks))}
+                    ${escapeHtml(resolveMultiChoiceOptionLabel(state, opt, hooks, ''))}
                     <button type="button" class="tpl-config-chip-remove" data-tpl-group="${key}" data-tpl-opt="${escapeHtml(opt.id)}"
                         aria-label="Retirer" style="border:none;background:transparent;cursor:pointer;font-size:16px;line-height:1;color:#64748b;">×</button>
                 </span>`;
@@ -1277,7 +1313,7 @@
             const opt = findCatalogOption(state, hooks, optId)
                 || (group.options || []).find((o) => o.id === optId);
             if (opt && !isImportGeneratedBaseOption(opt)) {
-                sum += Number(opt.priceClient ?? opt.priceUgap ?? 0) || 0;
+                sum += catalogUgapPrice(opt);
             }
         });
         return `<span style="font-size:13px;font-weight:600;color:#334155;">${sum.toFixed(2)} €</span>`;
@@ -1604,6 +1640,7 @@
         if (!modal || !title || !optionsList) return;
 
         group = hydrateGroupOptions(state, group);
+        ensureMultiChoiceGroupDefault(state, group, hooks);
         state.familyModalContext = null;
         state._templateTreeModalGroup = group;
         modal.querySelector('.modal-content')?.classList.remove('modal-wide');
@@ -1655,7 +1692,7 @@
             };
             const label = global.document.createElement('label');
             label.htmlFor = cb.id;
-            label.textContent = row.name || resolveOptionDisplayName(state, opt, hooks);
+            label.textContent = resolveMultiChoiceOptionLabel(state, opt, hooks, row.name);
             label.style.flex = '1';
             label.style.marginLeft = '10px';
             const price = global.document.createElement('div');
@@ -1765,6 +1802,9 @@
         hydrateGroupOptions,
         appendSingleChoicePickerToModal,
         ensureSingleChoiceGroupDefault,
+        ensureMultiChoiceGroupDefault,
+        ensureSingleChoiceDefaultsForGroups,
+        applyDefaultSelectionsForParcours,
         getSingleChoiceDisplay,
         getGroupBaseOptionId,
         isBaseReplacedInGroup,

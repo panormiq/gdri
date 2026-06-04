@@ -228,9 +228,19 @@
         return String(opt?.details || '').trim();
     }
 
+    /** Prix catalogue affiché / devis : UGAP en priorité, client en secours si UGAP absent. */
+    function resolveCatalogOptionUgapPrice(opt) {
+        if (!opt || typeof opt !== 'object') return 0;
+        const ugap = Number(opt.priceUgap);
+        if (Number.isFinite(ugap)) return ugap;
+        const client = Number(opt.priceClient);
+        return Number.isFinite(client) ? client : 0;
+    }
+
     global.UgapOptionDisplayName = {
         resolveOptionDisplayName,
         resolveOptionDisplayDetails,
+        resolveCatalogOptionUgapPrice,
         isGenericBasePlaceholderLabel,
         parseReplacementFromLabel,
         parseBaseReplacementProducts,

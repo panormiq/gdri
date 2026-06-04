@@ -111,8 +111,14 @@
         return !!String(slot?.catalogNodeId || '').trim();
     }
 
+    function isTechnicalCatalogRef(ref) {
+        const r = String(ref || '').trim();
+        if (!r) return false;
+        return /^(BASE-|IBP-|bp_src_|opt_ibp_)/i.test(r);
+    }
+
     function slotChoiceCount(model, slot) {
-        return (MBO()?.getChoiceRows?.(model, slot, { baseOnly: false }) || []).length;
+        return (MBO()?.getChoiceRows?.(model, slot, { baseOnly: true }) || []).length;
     }
 
     function renderCompactAddBtn(mid, slot) {
@@ -122,7 +128,7 @@
 
     function renderBaseSlotHtml(mid, model, slot) {
         const slotIdx = slot.__idx;
-        const choices = MBO()?.getChoiceRows?.(model, slot, { baseOnly: false }) || [];
+        const choices = MBO()?.getChoiceRows?.(model, slot, { baseOnly: true }) || [];
         const isMulti = MBO()?.isMultiChoiceSlot?.(slot) === true;
         const assignedSet = new Set(MBO()?.getAssignedOptionIds?.(mid, slot) || []);
         const catalogNode = isCatalogNodeSlot(slot);
@@ -130,7 +136,7 @@
             return '';
         }
         const emptyHint = !choices.length
-            ? `<p class="ugap-model-base-slot__empty">Aucune option pour ce <strong>poste</strong> sur ce nœud — vérifiez les postes assignés dans l’onglet <strong>Options</strong>, le lien « Nœud catalogue », ou créez une option avec <strong>+</strong>.</p>`
+            ? `<p class="ugap-model-base-slot__empty">Aucune <strong>option de base</strong> pour ce poste sur ce nœud — cochez le modèle dans l’onglet <strong>Options</strong>, marquez la ligne en type <strong>Base</strong>, ou créez-en une avec <strong>+</strong>.</p>`
             : '';
         const modeHint = isMulti
             ? '<p class="ugap-model-base-slot__mode-hint">Choix multiple sur ce nœud</p>'
@@ -141,8 +147,13 @@
                 const checked = assignedSet.has(row.id) ? ' checked' : '';
                 const baseCls = row.isBaseOption ? ' ugap-model-base-multi-pick__item--base' : '';
                 const baseTag = row.isBaseOption ? '<span class="ugap-model-base-pick__base-tag">base</span>' : '';
-                const ref = row.refUgap ? ` <span class="ugap-model-base-multi-pick__ref">${esc(row.refUgap)}</span>` : '';
-                const det = row.details ? ` <span class="ugap-model-base-multi-pick__det">${esc(row.details)}</span>` : '';
+                const ref = row.refUgap && !isTechnicalCatalogRef(row.refUgap)
+                    ? ` <span class="ugap-model-base-multi-pick__ref">${esc(row.refUgap)}</span>`
+                    : '';
+                const det = row.details && row.details !== row.name
+                    && !isTechnicalCatalogRef(row.details)
+                    ? ` <span class="ugap-model-base-multi-pick__det">${esc(row.details)}</span>`
+                    : '';
                 return `
                     <label class="ugap-model-base-multi-pick__item${baseCls}">
                         <input type="checkbox" class="ugap-model-base-multi-pick"

@@ -299,6 +299,16 @@ class UgapDataService {
     };
   }
 
+  static normalizeModelBaseSlotPickValue(optionId) {
+    if (Array.isArray(optionId)) {
+      const ids = optionId.map((x) => String(x || '').trim()).filter(Boolean);
+      if (!ids.length) return null;
+      return ids.length === 1 ? ids[0] : ids;
+    }
+    const one = String(optionId || '').trim();
+    return one || null;
+  }
+
   static normalizeModelBaseSlotPicks(raw) {
     const source = raw && typeof raw === 'object' ? raw : {};
     const out = {};
@@ -308,8 +318,8 @@ class UgapDataService {
       const slotMap = {};
       Object.entries(slots).forEach(([key, optionId]) => {
         const k = String(key || '').trim();
-        const oid = String(optionId || '').trim();
-        if (k && oid) slotMap[k] = oid;
+        const val = UgapDataService.normalizeModelBaseSlotPickValue(optionId);
+        if (k && val != null) slotMap[k] = val;
       });
       if (Object.keys(slotMap).length) out[mid] = slotMap;
     });
@@ -650,6 +660,8 @@ class UgapDataService {
       return opt;
     }
     if (!this.isCatalogMotorTarifOptionName(opt.name)) return opt;
+    // Correction manuelle (paramétrage) : ne pas écraser un marquage base explicite.
+    if (opt.manualBaseOption === true || opt.baseIncluded === true) return opt;
     opt.baseIncluded = false;
     opt.isBaseOption = false;
     opt.manualBaseOption = false;
@@ -871,17 +883,13 @@ class UgapDataService {
    */
   static computeIsBaseOption(option) {
     const opt = option && typeof option === 'object' ? option : {};
+    if (opt.manualBaseOption === true || opt.baseIncluded === true) return true;
     if (this.isCatalogMotorTarifOptionName(opt.name) && opt.importGeneratedFromBaseProduct !== true) {
       return false;
     }
     if (opt.isBaseOption === true) return true;
     if (opt.importGeneratedFromBaseProduct === true) return true;
     if (String(opt.importBaseProductId || '').trim()) return true;
-    if (opt.baseIncluded === true) return true;
-    if (opt.manualBaseOption === true) {
-      if (String(opt.baseRefUgap || '').trim()) return true;
-      if (String(opt.importBaseProductId || '').trim()) return true;
-    }
     const ref = String(opt.refUgap || '').trim().toUpperCase();
     if (ref.startsWith('IBP-')) return true;
     return false;
@@ -937,7 +945,7 @@ class UgapDataService {
       isSparePart: !!source.isSparePart,
       isMinoration: !!source.isMinoration
     });
-    if (isIbp) {
+    if (isIbp && source.importGeneratedFromBaseProduct !== false) {
       out.importGeneratedFromBaseProduct = true;
       out.baseIncluded = true;
       out.isBaseOption = true;
