@@ -373,6 +373,45 @@
     background: #eff6ff !important;
 }
 
+/* Template bateau — replier / déplier branches catalogue */
+.ugap-tpl-fold-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    padding: 0;
+    border: 1px solid #d1d5db;
+    border-radius: 4px;
+    background: #fff;
+    color: #475569;
+    font-size: 11px;
+    line-height: 1;
+    cursor: pointer;
+    flex-shrink: 0;
+}
+
+.ugap-tpl-fold-btn:hover {
+    background: #f1f5f9;
+    border-color: #94a3b8;
+}
+
+.ugap-tpl-fold-spacer {
+    width: 22px;
+    flex-shrink: 0;
+}
+
+.ugap-tpl-tree-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 10px;
+}
+
+.ugap-tpl-tree-node--mirror.is-collapsed > .ugap-tpl-tree-node__body {
+    display: none;
+}
+
 .ugap-categorie-subcategory-block.ugap-dnd--dragging {
     opacity: 0.5;
 }

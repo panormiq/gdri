@@ -12,6 +12,11 @@ const XLSX = require('xlsx');
 const { detectTablesFromWorksheet } = require('../services/ExcelTableDetector');
 const crypto = require('crypto');
 const ugapImportController = require('./ugapImportController');
+const UgapSavedDevisService = require('../services/UgapSavedDevisService');
+
+function resolveRequestUserId(req) {
+  return String(req.user?.user_id || req.user?.sub || req.user?.id || req.user?._id || '').trim();
+}
 
 async function getData(req, res) {
   try {
@@ -165,6 +170,72 @@ async function generateDevis(req, res) {
     });
   } catch (error) {
     console.error('❌ UGAP generateDevis error:', error);
+    res.status(500).json({ success: false, message: error.message || 'Erreur serveur' });
+  }
+}
+
+/** GET /api/ugap/saved-devis — brouillons configurateur de l'utilisateur. */
+async function listSavedDevis(req, res) {
+  try {
+    const userId = resolveRequestUserId(req);
+    if (!userId) {
+      return res.status(401).json({ success: false, message: 'Utilisateur non identifié' });
+    }
+    const versions = await UgapSavedDevisService.listVersions(
+      req.entrepriseDb,
+      req.entrepriseId,
+      userId
+    );
+    res.json({ success: true, data: { versions } });
+  } catch (error) {
+    console.error('❌ UGAP listSavedDevis error:', error);
+    res.status(500).json({ success: false, message: error.message || 'Erreur serveur' });
+  }
+}
+
+/** POST /api/ugap/saved-devis — nouvelle version d'un brouillon. */
+async function createSavedDevis(req, res) {
+  try {
+    const userId = resolveRequestUserId(req);
+    if (!userId) {
+      return res.status(401).json({ success: false, message: 'Utilisateur non identifié' });
+    }
+    const body = req.body && typeof req.body === 'object' ? req.body : {};
+    const entry = await UgapSavedDevisService.createVersion(
+      req.entrepriseDb,
+      req.entrepriseId,
+      userId,
+      { name: body.name, payload: body.payload }
+    );
+    res.json({ success: true, data: entry });
+  } catch (error) {
+    console.error('❌ UGAP createSavedDevis error:', error);
+    res.status(500).json({ success: false, message: error.message || 'Erreur serveur' });
+  }
+}
+
+/** POST /api/ugap/saved-devis/migrate-local — import one-shot depuis localStorage. */
+async function migrateSavedDevisLocal(req, res) {
+  try {
+    const userId = resolveRequestUserId(req);
+    if (!userId) {
+      return res.status(401).json({ success: false, message: 'Utilisateur non identifié' });
+    }
+    const body = req.body && typeof req.body === 'object' ? req.body : {};
+    const stats = await UgapSavedDevisService.migrateLocalVersions(
+      req.entrepriseDb,
+      req.entrepriseId,
+      userId,
+      body.versions
+    );
+    const versions = await UgapSavedDevisService.listVersions(
+      req.entrepriseDb,
+      req.entrepriseId,
+      userId
+    );
+    res.json({ success: true, data: { versions, ...stats } });
+  } catch (error) {
+    console.error('❌ UGAP migrateSavedDevisLocal error:', error);
     res.status(500).json({ success: false, message: error.message || 'Erreur serveur' });
   }
 }
@@ -371,18 +442,8 @@ async function updateOption(req, res) {
 
 async function createOption(req, res) {
   try {
-    const {
-      categoryId,
-      id,
-      name,
-      refUgap,
-      baseRefUgap,
-      compatibleModels,
-      familyLabel,
-      subFamily,
-      baseIncludedPrice,
-      priceUgap
-    } = req.body || {};
+    const body = req.body && typeof req.body === 'object' ? req.body : {};
+    const { categoryId, id, name } = body;
 
     if (!id || !name) {
       return res.status(400).json({
@@ -391,21 +452,12 @@ async function createOption(req, res) {
       });
     }
 
+    const { categoryId: _cat, id: _id, name: _name, ...optionFields } = body;
     const result = await UgapDataService.createOption(
       req.entrepriseDb,
       req.entrepriseId,
       categoryId,
-      {
-        id,
-        name,
-        refUgap,
-        baseRefUgap,
-        compatibleModels,
-        familyLabel,
-        subFamily,
-        baseIncludedPrice,
-        priceUgap
-      }
+      { id, name, ...optionFields }
     );
 
     if (!result?.ok) {
@@ -489,6 +541,52 @@ async function assignOptionsFamiliesBulk(req, res) {
     res.json({ success: true, data: { updatedCount, updatedOptionIds } });
   } catch (error) {
     console.error('❌ UGAP assignOptionsFamiliesBulk error:', error);
+    res.status(500).json({ success: false, message: error.message || 'Erreur serveur' });
+  }
+}
+
+async function assignOptionsCatalogBulk(req, res) {
+  try {
+    const body = req.body && typeof req.body === 'object' ? req.body : {};
+    let assignments = Array.isArray(body.assignments) ? body.assignments : [];
+    if (!assignments.length && Array.isArray(body.optionIds) && body.optionIds.length) {
+      const catalogObjectId = String(body.catalogObjectId || '').trim();
+      assignments = body.optionIds.map((optionId) => ({
+        optionId: String(optionId || '').trim(),
+        catalogObjectId,
+      }));
+    }
+    if (!assignments.length) {
+      return res.status(400).json({
+        success: false,
+        message: 'assignments ou optionIds requis (tableau non vide)',
+      });
+    }
+    const { updatedCount, updatedOptionIds } = await UgapDataService.assignOptionsCatalogBulk(
+      req.entrepriseDb,
+      req.entrepriseId,
+      assignments
+    );
+    res.json({ success: true, data: { updatedCount, updatedOptionIds } });
+  } catch (error) {
+    console.error('❌ UGAP assignOptionsCatalogBulk error:', error);
+    res.status(500).json({ success: false, message: error.message || 'Erreur serveur' });
+  }
+}
+
+async function resetOptionsFamilyAssignments(req, res) {
+  try {
+    const data = await UgapDataService.resetAllOptionsFamilyAssignments(
+      req.entrepriseDb,
+      req.entrepriseId
+    );
+    res.json({
+      success: true,
+      data,
+      message: 'Assignations options réinitialisées'
+    });
+  } catch (error) {
+    console.error('❌ UGAP resetOptionsFamilyAssignments error:', error);
     res.status(500).json({ success: false, message: error.message || 'Erreur serveur' });
   }
 }
@@ -2792,6 +2890,9 @@ module.exports = {
   updateUiState,  getModels,
   getCategories,
   generateDevis,
+  listSavedDevis,
+  createSavedDevis,
+  migrateSavedDevisLocal,
   createCategory,
   updateCategory,
   reorderCategories,
@@ -2806,6 +2907,8 @@ module.exports = {
   deleteOption,
   deleteOptionsBulk,
   assignOptionsFamiliesBulk,
+  assignOptionsCatalogBulk,
+  resetOptionsFamilyAssignments,
   updateBaseProductAdjLinks,
   updateOption,
   moveOptionToCategory,

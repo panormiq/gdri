@@ -47,14 +47,25 @@
         return all.filter((cat) => !isSystemBucketCategory(cat));
     }
 
+    function stripLegacyGroupSelectionKey(key) {
+        const raw = String(key || '').trim();
+        if (!raw.includes('::')) return raw;
+        const idx = raw.indexOf('::');
+        const prefix = raw.slice(0, idx).toLowerCase();
+        if (prefix === 'principal' || prefix === 'composant' || prefix === 'default' || prefix === 'main') {
+            return raw.slice(idx + 2).trim();
+        }
+        return raw;
+    }
+
     function sanitizeDraftFamilyEntry(entry) {
         const e = entry && typeof entry === 'object' ? entry : {};
         const sourceIndex = Number(e.sourceIndex);
         const groupOrder = Array.isArray(e.groupOrder)
-            ? e.groupOrder.map((x) => String(x || '').trim()).filter(Boolean)
+            ? e.groupOrder.map((x) => stripLegacyGroupSelectionKey(x)).filter(Boolean)
             : [];
         const selectedGroupIds = Array.isArray(e.selectedGroupIds)
-            ? e.selectedGroupIds.map((x) => String(x || '').trim()).filter(Boolean)
+            ? e.selectedGroupIds.map((x) => stripLegacyGroupSelectionKey(x)).filter(Boolean)
             : [];
         const orderedSelected = groupOrder.length
             ? groupOrder.filter((gid) => selectedGroupIds.includes(gid))
@@ -76,6 +87,14 @@
             ? global.normalizeFamilyDecisionGroups(catalogueFamily?.decisionGroups)
             : (Array.isArray(catalogueFamily?.decisionGroups) ? catalogueFamily.decisionGroups : []);
         const ids = groups.map((g) => String(g?.id || '').trim()).filter(Boolean);
+        if (Array.isArray(entry.groupOrder) && entry.groupOrder.length) {
+            entry.groupOrder = entry.groupOrder.map((x) => stripLegacyGroupSelectionKey(x)).filter(Boolean);
+        }
+        if (Array.isArray(entry.selectedGroupIds)) {
+            entry.selectedGroupIds = entry.selectedGroupIds
+                .map((x) => stripLegacyGroupSelectionKey(x))
+                .filter(Boolean);
+        }
         if (!Array.isArray(entry.groupOrder) || !entry.groupOrder.length) {
             entry.groupOrder = ids.slice();
         } else {

@@ -1484,7 +1484,24 @@
             return `${normalized}__${String(opt?.id || '').trim()}`;
         }
         if (isImportMotorBaseProductLabel(label)) {
-            return normalized;
+            const modelList = Array.isArray(models) ? models : getImportStagingModelsForAssignment();
+            const targets = getImportMinorationTargetModelsForMotor(opt, modelList);
+            if (targets.length === 1) {
+                const lab = resolveImportMotorRegistryLabelForModel(opt, targets[0]);
+                const k = buildMotorBaseProductRegistryKey(lab, targets[0]);
+                if (k) return k;
+            }
+            const cm = (Array.isArray(opt?.compatibleModels) ? opt.compatibleModels : [])
+                .map((x) => String(x || '').trim())
+                .filter(Boolean);
+            if (cm.length === 1) {
+                const m = modelList.find((x) => String(x?.id || '').trim() === cm[0]);
+                if (m) {
+                    const k = buildMotorBaseProductRegistryKey(label, m);
+                    if (k) return k;
+                }
+            }
+            return `${normalized}__${String(opt?.id || '').trim()}`;
         }
         const parsed = getImportParsedBaseReplacementLinks(opt);
         const finalNorm = normalizeBaseProductKey(parsed?.finalProduct || '');
@@ -1634,8 +1651,13 @@
                 groups.set(`__motor_${String(bp?.id || bp?.key || Math.random())}`, [bp]);
                 return;
             }
-            if (!groups.has(ln)) groups.set(ln, []);
-            groups.get(ln).push(bp);
+            const modelKey = sortModelIdsByPosteNumber(
+                [...new Set((bp.modelIds || []).map((x) => String(x || '').trim()).filter(Boolean))],
+                modelById
+            ).join('|');
+            const groupKey = modelKey ? `${ln}::__${modelKey}` : `${ln}::__${String(bp?.id || bp?.key || Math.random())}`;
+            if (!groups.has(groupKey)) groups.set(groupKey, []);
+            groups.get(groupKey).push(bp);
         });
 
         const out = [];
@@ -1742,10 +1764,13 @@
         if (name && /\b(en\s+remplacement|lieu\s+et\s+place)\b/i.test(name)) {
             const parsed = getImportParsedBaseReplacementLinks(opt);
             const parsedInitial = String(parsed?.initialProduct || '').trim();
+            const beforeNoPrefix = String(parsed?.finalProduct || '')
+                .replace(/^(moins-value|plus-value|plus\s+value)\s+/i, '')
+                .trim();
             if (parsedInitial) {
                 if (isImportGenericBasePlaceholderLabel(parsedInitial)) {
-                    const finalLabel = stripImportLeadingRefFromLabel(parsed?.finalProduct || '');
-                    if (finalLabel) return finalLabel;
+                    const inferred = inferImportReplacedBaseProductLabel(beforeNoPrefix, parsedInitial);
+                    if (inferred && !isImportGenericBasePlaceholderLabel(inferred)) return inferred;
                 }
                 return parsedInitial;
             }

@@ -423,9 +423,11 @@ class UgapExcelService {
 
       // "en remplacement de celui de base" -> inférence simple depuis le début.
       let initialProduct = replacedBase;
-      if (/^celui\s+de\s+base$/i.test(initialProduct)) {
-        const head = beforeNoPrefix.match(/\b(flotteur|moteur|combin[ée]|sondeur|module|coque|console)\b/i);
-        initialProduct = head ? `${head[1].toLowerCase()} de base` : 'produit de base';
+      if (/^cel(le|ui|les)?\s+de\s+base$/i.test(initialProduct) || /^ceux\s+de\s+base$/i.test(initialProduct)) {
+        const head = beforeNoPrefix.match(/\b(flotteur|moteur|combin[ée]|sondeur|sonde|module|coque|console)\b/i);
+        let term = head ? head[1].toLowerCase() : '';
+        if (term === 'sonde') term = 'sondeur';
+        initialProduct = term ? `${term} de base` : 'produit de base';
       }
 
       return {

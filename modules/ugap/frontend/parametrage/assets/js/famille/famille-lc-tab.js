@@ -12,7 +12,9 @@
     }
 
     function groupsSummary(family) {
-        const groups = normalizeGroups(family?.decisionGroups);
+        const groups = global.UgapFamilleLcState?.getFamilyDisplayGroups
+            ? global.UgapFamilleLcState.getFamilyDisplayGroups(family)
+            : normalizeGroups(family?.decisionGroups);
         if (!groups.length) return '—';
         const defaultId = global.UgapFamilleLcState?.resolveDefaultDecisionGroupId(
             groups,

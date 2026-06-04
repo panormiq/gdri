@@ -4,14 +4,23 @@
 (function initUgapConfiguratorModelBaseBridge(global) {
     'use strict';
 
-    function groupToModelBaseSlot(group) {
-        const g = group && typeof group === 'object' ? group : {};
-        return {
+    function groupToModelBaseSlot(groupOrSlot) {
+        const g = groupOrSlot && typeof groupOrSlot === 'object' ? groupOrSlot : {};
+        const catalogNodeId = String(g.catalogNodeId || '').trim();
+        const groupId = String(g.groupId || '').trim();
+        const slot = {
             familyLabel: String(g.familyLabel || '').trim(),
-            groupId: String(g.groupId || '').trim(),
-            groupLabel: String(g.label || g.groupId || '').trim(),
+            groupId,
+            groupLabel: String(g.groupLabel || g.label || groupId || '').trim(),
             categoryName: String(g.categoryName || g.familyLabel || '').trim(),
         };
+        if (catalogNodeId) slot.catalogNodeId = catalogNodeId;
+        const mode = String(g.decisionMode || '').trim().toLowerCase();
+        if (mode) slot.decisionMode = mode;
+        const nodeId = String(g.nodeId || '').trim();
+        if (nodeId) slot.nodeId = nodeId;
+        if (g.__idx != null && g.__idx !== '') slot.__idx = g.__idx;
+        return slot;
     }
 
     function syncConfiguratorModelBaseBridge(state) {
@@ -50,6 +59,16 @@
             getModelBaseSlotPicks: () => {
                 const picks = state.uiState?.modelBaseSlotPicks;
                 return picks && typeof picks === 'object' && !Array.isArray(picks) ? picks : {};
+            },
+            isOptionCompatible: (opt, modelId) => {
+                const mid = String(modelId || state.selectedModel?.id || '').trim();
+                if (!mid) return true;
+                if (typeof state.isOptionCompatibleWithSelectedModel === 'function') {
+                    return state.isOptionCompatibleWithSelectedModel(opt) !== false;
+                }
+                const comp = Array.isArray(opt?.compatibleModels) ? opt.compatibleModels.map(String) : [];
+                if (!comp.length) return !!opt?.isDivers;
+                return comp.includes(mid);
             },
         });
     }

@@ -1,11 +1,11 @@
 /**
  * FICHIER : modules/ugap/frontend/assets/js/configurateur/configurateur-template-tree.js
- * RÔLE : Parcours configurateur step 3 via categoryTree du template bateau (modals choix unique / multiple).
+ * RÔLE : Parcours configurateur step 3 — arbre catalogue (UgapModelBaseOptions), comme « Définir options de base ».
  *
- * ENTRÉES : state (modèle, sélections), template résolu, callbacks DOM
- * SORTIES : Rendu onglets / nœuds / modals
+ * ENTRÉES : state (modèle, sélections), slots catalogue, callbacks DOM
+ * SORTIES : Rendu onglets / nœuds / modals (affichage prix uniquement, toutes options du nœud)
  *
- * DÉPEND DE : boat-template-tree.js
+ * DÉPEND DE : ugap-model-base-options.js, boat-template-tree.js
  * NE PAS : admin template CRUD, vues métier Excel
  *
  * APPELÉ PAR : index.html renderStep3
@@ -27,34 +27,73 @@
         return state._boatTemplateResolved || null;
     }
 
-    function getNavPath(state) {
-        if (!Array.isArray(state.templateTreePath)) state.templateTreePath = [];
-        return state.templateTreePath;
+    function getModelBaseEditorTree(state) {
+        syncModelBaseBridge(state);
+        const MBO = getModelBaseOptions();
+        const model = state?.selectedModel;
+        if (!MBO?.buildModelBaseEditorTree || !model) {
+            return { roots: [], orphanSlots: [] };
+        }
+        return MBO.buildModelBaseEditorTree(model) || { roots: [], orphanSlots: [] };
     }
 
-    function getActiveRoot(state) {
-        const tpl = getTpl(state);
-        const roots = tpl?.resolvedRoots || [];
-        if (!roots.length) return null;
-        const ri = Number(state.templateTreeRootIndex);
-        const idx = Number.isInteger(ri) && ri >= 0 && ri < roots.length ? ri : 0;
-        return roots[idx];
+    function getCatalogRoots(state) {
+        const tree = getModelBaseEditorTree(state);
+        return Array.isArray(tree.roots) ? tree.roots : [];
     }
 
-    function getCurrentNode(state) {
-        let node = getActiveRoot(state);
-        if (!node) return null;
-        getNavPath(state).forEach((raw) => {
-            const i = Number(raw);
-            const children = Array.isArray(node?.children) ? node.children : [];
-            if (!Number.isInteger(i) || i < 0 || i >= children.length) return;
-            node = children[i];
-        });
-        return node;
+    function editorTreeHasParcours(tree) {
+        if (!tree || typeof tree !== 'object') return false;
+        if ((Array.isArray(tree.roots) ? tree.roots : []).length) return true;
+        if ((Array.isArray(tree.orphanSlots) ? tree.orphanSlots : []).length) return true;
+        return false;
+    }
+
+    function slotToGroup(slot) {
+        const s = slot && typeof slot === 'object' ? slot : {};
+        const MBO = getModelBaseOptions();
+        const isMulti = MBO?.isMultiChoiceSlot?.(s) === true
+            || String(s.decisionMode || '').trim().toLowerCase() === 'multi_choice';
+        const title = MBO?.formatSlotTitle?.(s)
+            || String(s.groupLabel || s.catalogNodeLabel || s.groupId || '').trim();
+        return {
+            familyLabel: String(s.familyLabel || '').trim(),
+            groupId: String(s.groupId || '').trim(),
+            label: title || String(s.groupId || '').trim(),
+            categoryName: String(s.categoryName || s.familyLabel || '').trim(),
+            catalogNodeId: String(s.catalogNodeId || '').trim() || undefined,
+            decisionMode: isMulti ? 'multi_choice' : 'single_choice',
+            options: [],
+            _slot: s,
+        };
     }
 
     function groupSelectionKey(group) {
+        const slot = group?._slot || groupToSlot(group);
+        const MBO = getModelBaseOptions();
+        if (MBO?.getSlotKey) return MBO.getSlotKey(slot);
         return `${String(group.familyLabel || '').trim()}:${String(group.groupId || '').trim()}`;
+    }
+
+    function isDevisSlotUserCleared(state, group) {
+        const key = groupSelectionKey(group);
+        return !!(state._devisSlotNoAutoDefault && state._devisSlotNoAutoDefault.has(key));
+    }
+
+    function markDevisSlotUserCleared(state, group) {
+        if (!state._devisSlotNoAutoDefault) state._devisSlotNoAutoDefault = new Set();
+        state._devisSlotNoAutoDefault.add(groupSelectionKey(group));
+    }
+
+    function unmarkDevisSlotUserCleared(state, group) {
+        state._devisSlotNoAutoDefault?.delete(groupSelectionKey(group));
+    }
+
+    function clearDevisSingleChoiceSlot(state, group, hooks) {
+        markDevisSlotUserCleared(state, group);
+        global.UgapBaseAdjLinks?.clearLinkedAdjForGroup?.(state, group);
+        clearGroupSelection(state, group);
+        hooks.updateSummary?.();
     }
 
     function getModelBaseOptions() {
@@ -66,25 +105,53 @@
     }
 
     function groupToSlot(group) {
+        if (group?._slot) return group._slot;
         if (global.UgapConfiguratorModelBaseBridge?.groupToSlot) {
             return global.UgapConfiguratorModelBaseBridge.groupToSlot(group);
         }
         const g = group && typeof group === 'object' ? group : {};
-        return {
+        const slot = {
             familyLabel: String(g.familyLabel || '').trim(),
             groupId: String(g.groupId || '').trim(),
             groupLabel: String(g.label || g.groupId || '').trim(),
             categoryName: String(g.categoryName || g.familyLabel || '').trim(),
         };
+        const cn = String(g.catalogNodeId || '').trim();
+        if (cn) slot.catalogNodeId = cn;
+        return slot;
+    }
+
+    function collectChoiceIdsForSlot(state, slot) {
+        const MBO = getModelBaseOptions();
+        const model = state?.selectedModel;
+        const ids = new Set();
+        if (MBO?.getChoiceRows && model) {
+            syncModelBaseBridge(state);
+            (MBO.getChoiceRows(model, slot, { baseOnly: false }) || []).forEach((row) => {
+                const id = String(row?.id || '').trim();
+                if (id) ids.add(id);
+            });
+        }
+        return ids;
     }
 
     function getSelectedInGroup(state, group) {
-        const ids = (Array.isArray(group?.options) ? group.options : [])
+        const found = new Set();
+        const slot = groupToSlot(group);
+        collectChoiceIdsForSlot(state, slot).forEach((id) => {
+            if (state.selectedOptions.has(id) || state.fivePercentOptions.has(id)) {
+                found.add(id);
+            }
+        });
+        (Array.isArray(group?.options) ? group.options : [])
             .map((o) => String(o?.id || '').trim())
-            .filter(Boolean);
-        return ids.filter((id) =>
-            state.selectedOptions.has(id) || state.fivePercentOptions.has(id)
-        );
+            .filter(Boolean)
+            .forEach((id) => {
+                if (state.selectedOptions.has(id) || state.fivePercentOptions.has(id)) {
+                    found.add(id);
+                }
+            });
+        return Array.from(found);
     }
 
     function getSingleSelectedOption(state, group, hooks) {
@@ -127,12 +194,19 @@
         const oid = String(optionId || '').trim();
         if (!oid) return null;
         if (typeof hooks?.getCatalogOptionById === 'function') {
-            return hooks.getCatalogOptionById(oid);
+            const fromHook = hooks.getCatalogOptionById(oid);
+            if (fromHook) return fromHook;
         }
         const cats = Array.isArray(state.categories) ? state.categories : [];
         for (const cat of cats) {
             const hit = (Array.isArray(cat?.options) ? cat.options : []).find((o) => String(o?.id) === oid);
-            if (hit) return hit;
+            if (hit) {
+                const catName = String(cat?.name || cat?.objectName || '').trim();
+                return {
+                    ...hit,
+                    categoryName: String(hit.categoryName || catName || '').trim() || catName,
+                };
+            }
         }
         return null;
     }
@@ -191,7 +265,7 @@
         const toCheck = new Set(getSelectedInGroup(state, group));
         if (MBO?.getChoiceRows && state.selectedModel) {
             syncModelBaseBridge(state);
-            (MBO.getChoiceRows(state.selectedModel, slot) || []).forEach((row) => {
+            (MBO.getChoiceRows(state.selectedModel, slot, { baseOnly: false }) || []).forEach((row) => {
                 const id = String(row?.id || '').trim();
                 if (id && (state.selectedOptions.has(id) || state.fivePercentOptions.has(id))) {
                     toCheck.add(id);
@@ -244,6 +318,9 @@
         if (selected) {
             return { option: selected, isExplicitSelection: true, isBaseDefault: false };
         }
+        if (isDevisSlotUserCleared(state, group)) {
+            return { option: null, isExplicitSelection: false, isBaseDefault: false };
+        }
         const baseId = getGroupBaseOptionId(state, group, hooks);
         if (baseId) {
             const baseOpt = findOptionInGroupOrCatalog(state, group, hooks, baseId);
@@ -256,6 +333,7 @@
 
     function ensureSingleChoiceGroupDefault(state, group, hooks) {
         if (group.decisionMode === 'multi_choice') return;
+        if (isDevisSlotUserCleared(state, group)) return;
         purgeMotorTarifFromGroupSelection(state, group, hooks);
         const baseId = getGroupBaseOptionId(state, group, hooks);
         if (!baseId) return;
@@ -295,13 +373,19 @@
     }
 
     function getBoatTemplateForModel(state) {
+        syncModelBaseBridge(state);
         const tid = String(state.selectedModel?.boatTemplateId || '').trim();
         if (!tid) return null;
+        const MBO = getModelBaseOptions();
+        if (MBO?.getTemplateById) {
+            const tpl = MBO.getTemplateById(tid);
+            if (tpl) return tpl;
+        }
         const list = Array.isArray(state.uiState?.boatTemplates) ? state.uiState.boatTemplates : [];
         let tpl = list.find((t) => String(t?.id || '') === tid);
         if (!tpl) {
             try {
-                const raw = localStorage.getItem('ugap.templateBateau.saved');
+                const raw = global.localStorage.getItem('ugap.templateBateau.saved');
                 const parsed = raw ? JSON.parse(raw) : [];
                 tpl = (Array.isArray(parsed) ? parsed : []).find((t) => String(t?.id || '') === tid);
             } catch (_) {
@@ -329,8 +413,15 @@
         const isSelectable = typeof state.isOptionCompatibleWithSelectedModel === 'function'
             ? state.isOptionCompatibleWithSelectedModel
             : (typeof state.isOptionSelectable === 'function' ? state.isOptionSelectable : () => true);
+        const MBO = getModelBaseOptions();
+        const catalogNodes = MBO?.getCatalogNodesForRuntime
+            ? MBO.getCatalogNodesForRuntime()
+            : (Array.isArray(state.uiState?.catalog?.nodes)
+                ? state.uiState.catalog.nodes
+                : (global.UgapCatalogueLcState?.getCatalog?.()?.nodes || []));
         const snap = Tree().normalizeBoatTemplateSnapshot(tpl.snapshot || {}, {
-            resolveCategoryById: (id) => byCatId.get(String(id || '').trim()) || null
+            resolveCategoryById: (id) => byCatId.get(String(id || '').trim()) || null,
+            catalogNodes,
         });
         const migrated = { ...tpl, snapshot: snap };
         return Tree().resolveTemplateTree(migrated, {
@@ -357,18 +448,19 @@
         if (!tpl) {
             return { mode: 'template_error', reason: 'missing_template' };
         }
-        if (!Tree()) {
-            return { mode: 'template_error', reason: 'module_unavailable', tpl };
+        const Core = global.UgapCatalogueNodesCore;
+        if (!Core?.getChildren) {
+            return { mode: 'template_error', reason: 'catalog_core_unavailable', tpl };
         }
-        const resolved = ensureResolved(state);
-        const roots = resolved?.resolvedRoots || [];
-        if (!roots.length) {
-            return { mode: 'template_error', reason: 'empty_tree', tpl, resolved };
+        syncModelBaseBridge(state);
+        const model = state.selectedModel;
+        const mboStatus = getModelBaseOptions()?.getStatus?.(model) || { slots: [] };
+        const tree = getModelBaseEditorTree(state);
+        const hasSlots = (Array.isArray(mboStatus.slots) ? mboStatus.slots : []).length > 0;
+        if (!editorTreeHasParcours(tree) && !hasSlots) {
+            return { mode: 'template_error', reason: 'empty_tree', tpl };
         }
-        // Ne bloque pas le configurateur sur ce diagnostic :
-        // certains catalogues (IDs normalisés / groupes hybrides) peuvent être utilisables
-        // même si treeHasResolvableGroups renvoie false.
-        return { mode: 'template', tpl, resolved };
+        return { mode: 'template', tpl };
     }
 
     function renderTemplateError(state, hooks, status) {
@@ -381,10 +473,12 @@
 
         const tid = String(state.selectedModel?.boatTemplateId || '').trim();
         const messages = {
-            missing_template: `Template « ${escapeHtml(tid)} » introuvable. Enregistrez-le dans l’admin (Template bateau) puis rechargez cette page.`,
-            empty_tree: 'Le template lié au modèle n’a pas d’arbre de catégories. Ouvrez Template bateau → Modifier et construisez l’arbre.',
-            no_groups: 'L’arbre du template n’a aucun groupe de décision utilisable. Ajoutez des groupes (+ Groupe) sur les nœuds, après avoir paramétré Famille et Catégorie.',
-            module_unavailable: 'Module template bateau non chargé (boat-template-tree.js).'
+            missing_template: `Template « ${escapeHtml(tid)} » introuvable. Enregistrez-le dans Paramétrage → Bateau de base, puis rechargez cette page.`,
+            empty_tree: 'Aucun nœud catalogue pour ce bateau de base — créez l’arborescence dans Paramétrage → Catalogue, enregistrez le template Bateau de base, et liez-le au modèle.',
+            catalog_nodes_missing: 'Le catalogue publié n’est pas chargé dans le configurateur. Rechargez la page (Ctrl+F5). Si le paramétrage affiche bien l’arbre, republiez les données UGAP.',
+            no_groups: 'Aucun poste catalogue sur ce modèle. Assignez les options de base par nœud dans Modèles → Définir options de base.',
+            module_unavailable: 'Module template bateau non chargé (boat-template-tree.js). Rechargez la page (Ctrl+F5).',
+            catalog_core_unavailable: 'Module catalogue non chargé (catalogue-nodes-core.js). Rechargez la page (Ctrl+F5).',
         };
         const msg = messages[status.reason] || 'Configuration template invalide.';
 
@@ -400,11 +494,609 @@
     }
 
     function clearGroupSelection(state, group, exceptId) {
-        (Array.isArray(group?.options) ? group.options : []).forEach((opt) => {
-            if (exceptId && opt.id === exceptId) return;
-            state.selectedOptions.delete(opt.id);
-            state.fivePercentOptions.delete(opt.id);
+        const slot = groupToSlot(group);
+        collectChoiceIdsForSlot(state, slot).forEach((id) => {
+            if (exceptId && id === exceptId) return;
+            state.selectedOptions.delete(id);
+            state.fivePercentOptions.delete(id);
         });
+        (Array.isArray(group?.options) ? group.options : []).forEach((opt) => {
+            const oid = String(opt?.id || '').trim();
+            if (!oid || (exceptId && oid === exceptId)) return;
+            state.selectedOptions.delete(oid);
+            state.fivePercentOptions.delete(oid);
+        });
+    }
+
+    /* ——— Parcours étape 3 (création devis) : tableau Famille | Poste | Option | Prix + modals ——— */
+
+    function parcoursChoiceRows(state, slot) {
+        syncModelBaseBridge(state);
+        const model = state.selectedModel;
+        const MBO = getModelBaseOptions();
+        if (!MBO?.getChoiceRows || !model) return [];
+        return MBO.getChoiceRows(model, slot, { baseOnly: false }) || [];
+    }
+
+    function parcoursSlotChoiceCount(state, slot) {
+        return parcoursChoiceRows(state, slot).length;
+    }
+
+    function parcoursSelectedIds(state, slot) {
+        const out = [];
+        parcoursChoiceRows(state, slot).forEach((row) => {
+            const id = String(row?.id || '').trim();
+            if (id && (state.selectedOptions.has(id) || state.fivePercentOptions.has(id))) {
+                out.push(id);
+            }
+        });
+        return out;
+    }
+
+    function clearSlotSelection(state, slot, exceptId) {
+        parcoursChoiceRows(state, slot).forEach((row) => {
+            const id = String(row?.id || '').trim();
+            if (!id || (exceptId && id === exceptId)) return;
+            state.selectedOptions.delete(id);
+            state.fivePercentOptions.delete(id);
+        });
+    }
+
+    function parcoursSlotPriceSum(state, slot, hooks) {
+        let sum = 0;
+        parcoursSelectedIds(state, slot).forEach((id) => {
+            const opt = findCatalogOption(state, hooks, id);
+            if (!opt || isImportGeneratedBaseOption(opt)) return;
+            if (typeof hooks?.isBaseCatalogOption === 'function' && hooks.isBaseCatalogOption(opt)) return;
+            sum += Number(opt.priceClient ?? opt.priceUgap ?? 0) || 0;
+        });
+        return sum;
+    }
+
+    function isOptionIncludedInDevis(hooks, opt) {
+        if (!opt) return true;
+        if (isImportGeneratedBaseOption(opt)) return true;
+        if (typeof hooks?.isBaseCatalogOption === 'function' && hooks.isBaseCatalogOption(opt)) return true;
+        return false;
+    }
+
+    function formatDevisOptionPrice(state, hooks, opt) {
+        if (isOptionIncludedInDevis(hooks, opt)) {
+            return { text: 'Inclus', included: true };
+        }
+        return { text: formatPrice(opt, hooks), included: false };
+    }
+
+    function parcoursProgress(state, hooks) {
+        const tree = getModelBaseEditorTree(state);
+        const slots = collectParcoursSlots(tree).filter((s) => parcoursSlotChoiceCount(state, s) > 0);
+        const done = slots.filter((s) => parcoursSelectedIds(state, s).length > 0).length;
+        return { total: slots.length, done };
+    }
+
+    function collectParcoursSlots(tree) {
+        const list = [];
+        const walk = (node) => {
+            (Array.isArray(node?.slots) ? node.slots : []).forEach((s) => list.push(s));
+            (Array.isArray(node?.children) ? node.children : []).forEach(walk);
+        };
+        (Array.isArray(tree?.roots) ? tree.roots : []).forEach(walk);
+        (Array.isArray(tree?.orphanSlots) ? tree.orphanSlots : []).forEach((s) => list.push(s));
+        return list;
+    }
+
+    function applyDefaultSelectionsForParcours(state, hooks) {
+        collectParcoursSlots(getModelBaseEditorTree(state)).forEach((slot) => {
+            const g = slotToGroup(slot);
+            if (parcoursSlotChoiceCount(state, slot) > 0) {
+                ensureSingleChoiceGroupDefault(state, g, hooks);
+            }
+        });
+    }
+
+    function getCatalogNodesForParcours() {
+        return getModelBaseOptions()?.getCatalogNodesForRuntime?.() || [];
+    }
+
+    function catalogNodeIdFromSlot(slot) {
+        const s = slot && typeof slot === 'object' ? slot : {};
+        const direct = String(s.catalogNodeId || '').trim();
+        if (direct) return direct;
+        const gid = String(s.groupId || '').trim();
+        return gid.startsWith('cn_') ? gid.slice(3) : '';
+    }
+
+    /** Col. 1 = catégorie racine catalogue, col. 2 = chemin sous la racine (ou poste sur racine). */
+    function catalogNodeCategoryLabels(catalogNodes, catalogNodeId, slot) {
+        const cnId = String(catalogNodeId || '').trim();
+        const poste = String(slot?.groupLabel || slot?.groupId || '').trim();
+        if (!cnId) {
+            return { categorie: '—', sousNoeud: poste || '—' };
+        }
+        const Core = global.UgapCatalogueNodesCore;
+        const chain = [];
+        let cur = Core?.getNodeById?.(catalogNodes, cnId);
+        let guard = 0;
+        while (cur && guard < 32) {
+            chain.unshift(cur);
+            cur = cur.parentId ? Core.getNodeById(catalogNodes, cur.parentId) : null;
+            guard += 1;
+        }
+        if (!chain.length) {
+            return { categorie: cnId, sousNoeud: poste || '—' };
+        }
+        const categorie = String(chain[0].label || chain[0].id || '').trim() || '—';
+        if (chain.length === 1) {
+            return { categorie, sousNoeud: poste || '—' };
+        }
+        const pathBelowRoot = chain
+            .slice(1)
+            .map((n) => String(n.label || n.id || '').trim())
+            .filter(Boolean);
+        return {
+            categorie,
+            sousNoeud: pathBelowRoot.join(' › ') || poste || '—',
+        };
+    }
+
+    function slotTableColumnLabels(slot, catalogNodes) {
+        const cnId = catalogNodeIdFromSlot(slot);
+        if (cnId) {
+            return catalogNodeCategoryLabels(catalogNodes, cnId, slot);
+        }
+        const fallback = String(
+            slot?.catalogNodeLabel || slot?.groupLabel || slot?.familyLabel || ''
+        ).trim() || '—';
+        return { categorie: 'Autres', sousNoeud: fallback };
+    }
+
+    function devisPickerModalTitle(slot, catalogNodes, fallbackLabel, suffix) {
+        const { categorie, sousNoeud } = slotTableColumnLabels(slot, catalogNodes);
+        const tail = suffix ? ` ${suffix}` : '';
+        if (sousNoeud && sousNoeud !== '—') {
+            return `${categorie} — ${sousNoeud}${tail}`;
+        }
+        return `${categorie || fallbackLabel || 'Choix'}${tail}`;
+    }
+
+    function collectDevisTableRowDefs(state, hooks, tree, catalogNodes) {
+        const rows = [];
+        let lastCategorie = '';
+        /** Catégorie à afficher sur la prochaine ligne réellement émise (pas seulement slotIdx 0). */
+        let pendingCategorieCell = false;
+
+        const takeShowCategorie = () => {
+            if (!pendingCategorieCell) return false;
+            pendingCategorieCell = false;
+            return true;
+        };
+
+        const markCategorieColumn = (categorie) => {
+            if (categorie !== lastCategorie) {
+                lastCategorie = categorie;
+                pendingCategorieCell = true;
+            }
+        };
+
+        const pushSlot = (slot, categorie, sousNoeud, showSousNoeud) => {
+            if (!parcoursSlotChoiceCount(state, slot)) return;
+            const group = hydrateGroupOptions(state, slotToGroup(slot));
+            const isMulti = getModelBaseOptions()?.isMultiChoiceSlot?.(slot) === true
+                || group.decisionMode === 'multi_choice';
+
+            if (isMulti) {
+                const ids = parcoursSelectedIds(state, slot);
+                if (!ids.length) {
+                    rows.push({
+                        group,
+                        slot,
+                        categorie,
+                        sousNoeud,
+                        showCategorie: takeShowCategorie(),
+                        showSousNoeud,
+                        mode: 'multi_empty',
+                    });
+                    return;
+                }
+                ids.forEach((optId, idx) => {
+                    rows.push({
+                        group,
+                        slot,
+                        categorie,
+                        sousNoeud,
+                        showCategorie: idx === 0 ? takeShowCategorie() : false,
+                        showSousNoeud: showSousNoeud && idx === 0,
+                        mode: 'multi_line',
+                        optId,
+                    });
+                });
+                rows.push({
+                    group,
+                    slot,
+                    categorie,
+                    sousNoeud,
+                    showCategorie: false,
+                    showSousNoeud: false,
+                    mode: 'multi_pick',
+                });
+                return;
+            }
+
+            rows.push({
+                group,
+                slot,
+                categorie,
+                sousNoeud,
+                showCategorie: takeShowCategorie(),
+                showSousNoeud,
+                mode: 'single',
+            });
+        };
+
+        const walkNode = (node) => {
+            const cnId = String(node?.catalogNodeId || node?.nodeId || '').trim();
+            const slotsOnNode = Array.isArray(node?.slots) ? node.slots : [];
+            slotsOnNode.forEach((slot) => {
+                const { categorie, sousNoeud } = catalogNodeCategoryLabels(catalogNodes, cnId, slot);
+                markCategorieColumn(categorie);
+                pushSlot(slot, categorie, sousNoeud, true);
+            });
+            (Array.isArray(node?.children) ? node.children : []).forEach((child) => walkNode(child));
+        };
+
+        (Array.isArray(tree?.roots) ? tree.roots : []).forEach(walkNode);
+
+        (Array.isArray(tree?.orphanSlots) ? tree.orphanSlots : []).forEach((slot) => {
+            const { categorie, sousNoeud } = slotTableColumnLabels(slot, catalogNodes);
+            markCategorieColumn(categorie);
+            pushSlot(slot, categorie, sousNoeud, true);
+        });
+
+        return rows;
+    }
+
+    function getLinkedAdjIdsForReplacedBaseInGroup(state, group, hooks) {
+        if (!isBaseReplacedInGroup(state, group, hooks)) return [];
+        const baseId = String(getGroupBaseOptionId(state, group, hooks) || '').trim();
+        if (!baseId) return [];
+        const BAL = global.UgapBaseAdjLinks;
+        if (!BAL?.resolveSourceAdjOptionIdsForBase) return [];
+        const categories = Array.isArray(state?.categories) ? state.categories : [];
+        const importBaseProducts = Array.isArray(state?.importBaseProducts) ? state.importBaseProducts : [];
+        return BAL.resolveSourceAdjOptionIdsForBase(baseId, categories, importBaseProducts)
+            .map((x) => String(x || '').trim())
+            .filter(Boolean);
+    }
+
+    function buildLinkedAdjSupplementHtml(state, group, hooks) {
+        const ids = getLinkedAdjIdsForReplacedBaseInGroup(state, group, hooks);
+        if (!ids.length) return '';
+        return ids.map((adjId) => {
+            const adj = findCatalogOption(state, hooks, adjId);
+            if (!adj) return '';
+            const name = resolveOptionDisplayName(state, adj, hooks);
+            return `<div class="ugap-devis-linked-adj" style="margin-top:6px;padding:6px 10px;background:#f5f0ff;border:1px solid #d8b4fe;border-radius:6px;font-size:12px;color:#5b21b6;line-height:1.35;">
+                <span class="excel-line-badge minoration" style="margin-right:6px;vertical-align:middle;">MINO</span>
+                <span style="vertical-align:middle;">${escapeHtml(name)}</span>
+            </div>`;
+        }).filter(Boolean).join('');
+    }
+
+    function buildDevisTableOptionCell(state, group, hooks, mode, optId) {
+        const key = escapeHtml(groupSelectionKey(group));
+
+        if (mode === 'multi_line' && optId) {
+            const opt = findCatalogOption(state, hooks, optId);
+            const name = opt ? resolveOptionDisplayName(state, opt, hooks) : '—';
+            return `<span class="ugap-devis-opt-name">${escapeHtml(name)}</span>`;
+        }
+
+        if (mode === 'multi_empty' || mode === 'multi_pick') {
+            return `
+                <button type="button" class="ugap-devis-pick-btn tpl-config-multi-add" data-tpl-group="${key}">
+                    <span class="ugap-devis-pick-action">Choisir des options</span>
+                    <span class="ugap-devis-pick-chevron" aria-hidden="true">›</span>
+                </button>`;
+        }
+
+        const display = getSingleChoiceDisplay(state, group, hooks);
+        const opt = display.option;
+        const nameHtml = opt
+            ? `<span class="ugap-devis-pick-current">${escapeHtml(resolveOptionDisplayName(state, opt, hooks))}</span>`
+            : '<span class="ugap-devis-pick-placeholder">Sélectionnez une option</span>';
+        const linkedHtml = buildLinkedAdjSupplementHtml(state, group, hooks);
+        return `
+            <div class="tpl-config-single-pick ugap-devis-pick-btn" data-tpl-group="${key}" role="button" tabindex="0">
+                <span class="ugap-devis-pick-label">${nameHtml}</span>
+                <span class="ugap-devis-pick-chevron" aria-hidden="true">›</span>
+            </div>${linkedHtml}`;
+    }
+
+    function buildDevisTablePriceCell(state, hooks, mode, group, optId) {
+        if (mode === 'multi_empty' || mode === 'multi_pick') {
+            return '<span class="ugap-devis-price ugap-devis-price--muted">—</span>';
+        }
+        if (mode === 'multi_line' && optId) {
+            const opt = findCatalogOption(state, hooks, optId);
+            const price = formatDevisOptionPrice(state, hooks, opt);
+            const cls = price.included ? 'ugap-devis-price is-included' : 'ugap-devis-price';
+            return `<span class="${cls}">${escapeHtml(price.text)}</span>`;
+        }
+        const display = getSingleChoiceDisplay(state, group, hooks);
+        if (!display.option) {
+            return '<span class="ugap-devis-price ugap-devis-price--muted">—</span>';
+        }
+        const price = formatDevisOptionPrice(state, hooks, display.option);
+        const cls = price.included ? 'ugap-devis-price is-included' : 'ugap-devis-price';
+        let html = `<span class="${cls}">${escapeHtml(price.text)}</span>`;
+        getLinkedAdjIdsForReplacedBaseInGroup(state, group, hooks).forEach((adjId) => {
+            const adj = findCatalogOption(state, hooks, adjId);
+            if (!adj) return;
+            const adjPrice = formatDevisOptionPrice(state, hooks, adj);
+            const adjCls = adjPrice.included ? 'ugap-devis-price is-included' : 'ugap-devis-price';
+            html += `<div class="${adjCls}" style="margin-top:4px;font-size:12px;">${escapeHtml(adjPrice.text)}</div>`;
+        });
+        return html;
+    }
+
+    function refreshDevisTableChoiceCells(state, hooks) {
+        const root = global.document.getElementById('ugap-config-parcours-root');
+        if (!root) return;
+        const tbody = root.querySelector('#ugap-devis-options-tbody');
+        if (!tbody) return;
+
+        syncModelBaseBridge(state);
+        const model = state.selectedModel;
+        const MBO = getModelBaseOptions();
+        const templateId = String(model?.boatTemplateId || '').trim();
+        if (!templateId || !MBO?.getTemplateById?.(templateId)) return;
+
+        const tree = MBO.buildModelBaseEditorTree(model) || { roots: [], orphanSlots: [] };
+        const catalogNodes = getCatalogNodesForParcours();
+        const rowDefs = collectDevisTableRowDefs(state, hooks, tree, catalogNodes);
+        const rowByKey = new Map();
+        rowDefs.forEach((r) => {
+            const k = groupSelectionKey(r.group);
+            if (!rowByKey.has(k)) rowByKey.set(k, r);
+        });
+
+        tbody.querySelectorAll('tr[data-tpl-group]').forEach((tr) => {
+            const def = rowByKey.get(tr.getAttribute('data-tpl-group'));
+            if (!def) return;
+            const optCell = tr.querySelector('.ugap-devis-td-option');
+            const priceCell = tr.querySelector('.ugap-devis-td-price');
+            if (optCell) {
+                optCell.innerHTML = buildDevisTableOptionCell(
+                    state,
+                    def.group,
+                    hooks,
+                    def.mode,
+                    def.optId
+                );
+            }
+            if (priceCell) {
+                priceCell.innerHTML = buildDevisTablePriceCell(
+                    state,
+                    hooks,
+                    def.mode,
+                    def.group,
+                    def.optId
+                );
+            }
+        });
+
+        bindDevisTableEvents(state, hooks, root);
+    }
+
+    function buildDevisTableRowHtml(state, hooks, rowDef) {
+        const {
+            group, mode, optId, categorie, sousNoeud, showCategorie, showSousNoeud,
+        } = rowDef;
+        const key = escapeHtml(groupSelectionKey(group));
+        const rowClass = mode === 'single'
+            ? 'ugap-devis-row ugap-devis-row--single tpl-config-row-group tpl-config-row-group--single'
+            : (mode === 'multi_empty'
+                ? 'ugap-devis-row ugap-devis-row--multi tpl-config-row-group'
+                : (mode === 'multi_pick'
+                    ? 'ugap-devis-row ugap-devis-row--multi-pick tpl-config-row-group'
+                    : 'ugap-devis-row ugap-devis-row--multi-line tpl-config-row-group'));
+
+        const categorieCell = showCategorie
+            ? `<span class="ugap-devis-categorie">${escapeHtml(categorie)}</span>`
+            : '';
+        const sousNoeudCell = showSousNoeud
+            ? `<span class="ugap-devis-sous-noeud">${escapeHtml(sousNoeud)}</span>`
+            : '';
+
+        return `
+            <tr class="${rowClass}" data-tpl-group="${key}">
+                <td class="ugap-devis-td-categorie">${categorieCell}</td>
+                <td class="ugap-devis-td-sous-noeud">${sousNoeudCell}</td>
+                <td class="ugap-devis-td-option">${buildDevisTableOptionCell(state, group, hooks, mode, optId)}</td>
+                <td class="ugap-devis-td-price">${buildDevisTablePriceCell(state, hooks, mode, group, optId)}</td>
+            </tr>`;
+    }
+
+    function bindDevisTableEvents(state, hooks, container) {
+        const tbody = container.querySelector('#ugap-devis-options-tbody');
+        if (!tbody) return;
+
+        const groups = [];
+        collectDevisTableRowDefs(
+            state,
+            hooks,
+            getModelBaseEditorTree(state),
+            getCatalogNodesForParcours()
+        ).forEach((r) => {
+            if (!groups.some((g) => groupSelectionKey(g) === groupSelectionKey(r.group))) {
+                groups.push(r.group);
+            }
+        });
+        const groupByKey = new Map(groups.map((g) => [groupSelectionKey(g), g]));
+
+        const openSingleFromEl = (el, e) => {
+            e?.stopPropagation?.();
+            const g = groupByKey.get(el.getAttribute('data-tpl-group'));
+            if (g) openSingleChoiceModal(state, g, hooks);
+        };
+
+        tbody.querySelectorAll('.tpl-config-single-pick').forEach((el) => {
+            el.addEventListener('click', (e) => openSingleFromEl(el, e));
+            el.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    openSingleFromEl(el, e);
+                }
+            });
+        });
+        tbody.querySelectorAll('.ugap-devis-row--single').forEach((tr) => {
+            tr.addEventListener('click', (e) => {
+                if (e.target.closest('.tpl-config-multi-add')) return;
+                openSingleFromEl(tr, e);
+            });
+        });
+        tbody.querySelectorAll('.tpl-config-multi-add').forEach((btn) => {
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const g = groupByKey.get(btn.getAttribute('data-tpl-group'));
+                if (g) openMultiChoiceModal(state, g, hooks);
+            });
+        });
+        tbody.querySelectorAll('.ugap-devis-row--multi-pick').forEach((tr) => {
+            tr.addEventListener('click', (e) => {
+                if (e.target.closest('.tpl-config-multi-add')) return;
+                const g = groupByKey.get(tr.getAttribute('data-tpl-group'));
+                if (g) openMultiChoiceModal(state, g, hooks);
+            });
+        });
+    }
+
+    function renderDevisOptionsTableHtml(state, hooks) {
+        syncModelBaseBridge(state);
+        const model = state.selectedModel;
+        const MBO = getModelBaseOptions();
+        const mboStatus = MBO?.getStatus?.(model) || { slots: [] };
+        const templateId = String(model?.boatTemplateId || '').trim();
+
+        if (!templateId) {
+            return '<p class="ugap-devis-empty">Aucun bateau de base lié à ce modèle.</p>';
+        }
+        if (!MBO?.getTemplateById?.(templateId)) {
+            return '<p class="ugap-devis-empty">Bateau de base introuvable.</p>';
+        }
+        if (!mboStatus.slots?.length) {
+            return '<p class="ugap-devis-empty">Aucun poste sur ce template — paramétrez les options de base dans <strong>Modèles</strong>.</p>';
+        }
+
+        applyDefaultSelectionsForParcours(state, hooks);
+
+        const tree = MBO.buildModelBaseEditorTree(model) || { roots: [], orphanSlots: mboStatus.slots };
+        const catalogNodes = getCatalogNodesForParcours();
+        const rowDefs = collectDevisTableRowDefs(state, hooks, tree, catalogNodes);
+
+        if (!rowDefs.length) {
+            return '<p class="ugap-devis-empty">Aucun choix affichable (vérifiez les liens nœud catalogue sur les options).</p>';
+        }
+
+        const bodyHtml = rowDefs.map((r) => buildDevisTableRowHtml(state, hooks, r)).join('');
+
+        return `
+            <div class="excel-options-wrap ugap-devis-table-wrap">
+                <div class="excel-options-scroll">
+                    <table class="excel-options-table ugap-devis-options-table tpl-config-table">
+                        <thead>
+                            <tr>
+                                <th class="ugap-devis-th-categorie">Catégorie</th>
+                                <th class="ugap-devis-th-sous-noeud">Sous-nœud</th>
+                                <th>Option sélectionnée</th>
+                                <th class="ugap-devis-th-price">Prix</th>
+                            </tr>
+                        </thead>
+                        <tbody id="ugap-devis-options-tbody">${bodyHtml}</tbody>
+                    </table>
+                </div>
+            </div>`;
+    }
+
+    function renderParcoursProgressHtml(state, hooks) {
+        const { total, done } = parcoursProgress(state, hooks);
+        if (!total) return '';
+        const pct = Math.round((done / total) * 100);
+        const pending = total - done;
+        const sub = pending
+            ? `${pending} équipement${pending > 1 ? 's' : ''} restant${pending > 1 ? 's' : ''}`
+            : 'Tous les équipements sont renseignés — vous pouvez encore modifier vos choix';
+        return `
+            <div class="ugap-devis-progress" role="status" aria-live="polite">
+                <div class="ugap-devis-progress__top">
+                    <span class="ugap-devis-progress__label"><strong>${done}</strong> / ${total} équipements</span>
+                    <span class="ugap-devis-progress__sub">${escapeHtml(sub)}</span>
+                </div>
+                <div class="ugap-devis-progress__track" aria-hidden="true">
+                    <div class="ugap-devis-progress__bar" style="width:${pct}%"></div>
+                </div>
+            </div>`;
+    }
+
+    function refreshParcoursProgressUi(rootEl, state, hooks) {
+        if (!rootEl) return;
+        const host = rootEl.querySelector('.ugap-devis-progress');
+        const html = renderParcoursProgressHtml(state, hooks);
+        if (!host || !html) return;
+        const wrap = document.createElement('div');
+        wrap.innerHTML = html.trim();
+        const next = wrap.firstElementChild;
+        if (next) host.replaceWith(next);
+    }
+
+    function renderCatalogParcoursPanel(state, hooks, container) {
+        const tplLabel = String(
+            getBoatTemplateForModel(state)?.label || hooks.getBoatTemplateLabel?.() || ''
+        ).trim();
+        const modelName = escapeHtml(getModelTabLabel(state));
+        const poste = state.selectedModel?.posteNumber;
+        const posteLabel = poste != null && poste !== '' && Number.isFinite(Number(poste))
+            ? `P${poste}`
+            : '';
+        const modelLine = posteLabel
+            ? `${posteLabel} — ${modelName}`
+            : modelName;
+
+        const excelLabel = typeof hooks.getExcelTabLabel === 'function'
+            ? String(hooks.getExcelTabLabel() || '').trim()
+            : 'Tableau motorisation';
+        const excelBlock = typeof hooks.renderExcelTable === 'function'
+            ? `<details class="ugap-devis-excel-fold">
+                <summary class="ugap-devis-excel-fold__summary">${escapeHtml(excelLabel)} (optionnel)</summary>
+                <div class="ugap-devis-excel-fold__body" id="ugap-config-excel-host"></div>
+               </details>`
+            : '';
+
+        const bodyHtml = renderDevisOptionsTableHtml(state, hooks);
+        const progressHtml = renderParcoursProgressHtml(state, hooks);
+
+        container.innerHTML = `
+            <div class="ugap-config-parcours ugap-devis-parcours" id="ugap-config-parcours-root">
+                <p class="ugap-devis-parcours__model-line">${modelLine}${tplLabel ? ` — <span class="ugap-devis-parcours__boat-inline">${escapeHtml(tplLabel)}</span>` : ''}</p>
+                ${progressHtml}
+                ${excelBlock}
+                <div class="ugap-devis-parcours__body">${bodyHtml}</div>
+            </div>`;
+        const root = container.querySelector('#ugap-config-parcours-root');
+        if (root) {
+            bindDevisTableEvents(state, hooks, root);
+            const excelFold = root.querySelector('.ugap-devis-excel-fold');
+            if (excelFold && typeof hooks.renderExcelTable === 'function') {
+                excelFold.addEventListener('toggle', () => {
+                    const host = root.querySelector('#ugap-config-excel-host');
+                    if (!host || !excelFold.open) return;
+                    if (!host.innerHTML.trim()) {
+                        hooks.renderExcelTable(host);
+                        hooks.onResize?.();
+                    }
+                });
+            }
+        }
     }
 
     function renderTemplateTreeStep3(state, hooks) {
@@ -418,7 +1110,6 @@
             return renderTemplateError(state, hooks, status);
         }
 
-        const tpl = status.resolved;
         if (typeof h.setStep3Hint === 'function') {
             h.setStep3Hint(true, 'ok');
         }
@@ -428,85 +1119,16 @@
         const optContainer = h.optionsContainer;
         if (!tabsContainer || !subContainer || !optContainer) return false;
 
-        const roots = tpl.resolvedRoots || [];
-        const path = getNavPath(state);
-        if (!Number.isInteger(Number(state.templateTreeRootIndex))) {
-            state.templateTreeRootIndex = -1;
-        }
-        const onModelTab = isModelCategoryTabActive(state);
-        const activeRootIndex = getActiveTemplateRootIndex(state, roots);
-        const excelRootActive = isExcelTemplateRootActive(state, roots);
-        const excelTabLabel = typeof h.getExcelTabLabel === 'function'
-            ? String(h.getExcelTabLabel() || '').trim()
-            : 'Excel de base';
+        state.templateTreeRootIndex = 0;
+        state.templateTreePath = [];
 
         tabsContainer.innerHTML = '';
-
-        const modelTab = global.document.createElement('div');
-        modelTab.className = `tab ${onModelTab ? 'active' : ''}`;
-        modelTab.textContent = getModelTabLabel(state);
-        modelTab.onclick = () => {
-            state.templateTreeRootIndex = -1;
-            state.templateTreePath = [];
-            renderTemplateTreeStep3(state, hooks);
-            h.onResize?.();
-        };
-        tabsContainer.appendChild(modelTab);
-
-        roots.forEach((node, index) => {
-            const tab = global.document.createElement('div');
-            const isActive = !onModelTab && index === activeRootIndex;
-            tab.className = `tab ${isActive ? 'active' : ''}`;
-            tab.textContent = isMotorisationTemplateRoot(node)
-                ? (excelTabLabel || 'Excel de base')
-                : (node.label || 'Catégorie');
-            tab.onclick = () => {
-                state.templateTreeRootIndex = index;
-                state.templateTreePath = [];
-                renderTemplateTreeStep3(state, hooks);
-                h.onResize?.();
-            };
-            tabsContainer.appendChild(tab);
-        });
-        if (path.length && !onModelTab && !excelRootActive) {
-            const back = global.document.createElement('div');
-            back.className = 'tab';
-            back.textContent = '← Sous-catégorie';
-            back.style.marginLeft = '8px';
-            back.onclick = () => {
-                state.templateTreePath = path.slice(0, -1);
-                renderTemplateTreeStep3(state, hooks);
-                h.onResize?.();
-            };
-            tabsContainer.appendChild(back);
-        }
-
         subContainer.innerHTML = '';
         optContainer.innerHTML = '';
 
-        if (onModelTab) {
-            renderModelCategoryTab(state, hooks, status);
-            return true;
-        }
+        renderCatalogParcoursPanel(state, hooks, optContainer);
 
-        if (excelRootActive) {
-            subContainer.innerHTML = '';
-            if (typeof h.renderExcelTable === 'function') {
-                h.renderExcelTable(optContainer);
-            } else {
-                optContainer.innerHTML = '<p style="color:#666;">Tableau Excel indisponible.</p>';
-            }
-            h.onResize?.();
-            return true;
-        }
-
-        const displayNode = getCurrentNode(state);
-        if (!displayNode) {
-            optContainer.innerHTML = '<p style="color:#666;">Catégorie introuvable.</p>';
-            return true;
-        }
-
-        renderTemplateConfiguratorTable(state, displayNode, path, hooks, optContainer);
+        h.onResize?.();
         return true;
     }
 
@@ -584,73 +1206,28 @@
         return all.filter((opt) => opt && !isMotorTarifCatalogOption(hooks, opt));
     }
 
-    function buildCol3OptionHtml(selected, showCol3) {
-        if (!showCol3 || !selected) {
-            return '<span style="color:#94a3b8;">—</span>';
+    function resolveOptionDisplayName(state, opt, hooks) {
+        if (!opt) return '—';
+        const ODN = global.UgapOptionDisplayName;
+        const models = Array.isArray(state?.models) ? state.models : [];
+        const modelId = String(state.selectedModel?.id || '').trim();
+        if (ODN?.resolveOptionDisplayName) {
+            return String(ODN.resolveOptionDisplayName(opt, { models, modelId }) || opt.name || '—').trim() || '—';
         }
-        const name = escapeHtml(String(selected.name || '—').trim() || '—');
-        const details = String(selected.details || '').trim();
-        if (!details) {
-            return `<span style="font-weight:600;">${name}</span>`;
-        }
-        return `<span style="font-weight:600;">${name}</span>
-            <div style="font-size:13px;color:#475569;margin-top:4px;">${escapeHtml(details)}</div>`;
+        return String(opt.name || '—').trim() || '—';
     }
 
-    function buildCol3ForGroup(state, group, showCol3, hooks) {
-        if (!showCol3) {
-            return '<span style="color:#94a3b8;">—</span>';
-        }
-        if (group.decisionMode === 'multi_choice') {
-            const parts = getSelectedInGroup(state, group).map((optId) => {
-                const opt = (group.options || []).find((o) => o.id === optId);
-                if (!opt) return null;
-                const details = String(opt.details || '').trim();
-                const name = escapeHtml(String(opt.name || '').trim() || '—');
-                if (!details) return `<span style="font-weight:600;">${name}</span>`;
-                return `<span style="font-weight:600;">${name}</span>
-                    <span style="display:block;font-size:13px;color:#475569;margin-top:2px;">${escapeHtml(details)}</span>`;
-            }).filter(Boolean);
-            if (!parts.length) return '<span style="color:#94a3b8;">—</span>';
-            return parts.join('<div style="height:8px;"></div>');
-        }
-        const display = getSingleChoiceDisplay(state, group, hooks);
-        return buildCol3OptionHtml(display.option, true);
-    }
-
-    function getRootCategoryLabel(state) {
-        const root = getActiveRoot(state);
-        return String(root?.label || '').trim() || '—';
-    }
-
-    function buildCol1CategoryHtml(categoryLabel, showCategory) {
-        if (!showCategory) return '';
-        return `<span style="font-size:12px;color:#64748b;font-weight:600;">${escapeHtml(categoryLabel)}</span>`;
-    }
-
-    function buildInclusionBadgeHtml(hooks, opt) {
-        if (!opt) return '';
-        const kind = getInclusionKind(hooks, opt);
-        const label = getInclusionLabel(hooks, kind);
-        const price = formatPrice(opt, hooks);
-        return `
-            <div style="margin-top:8px;">
-                <span class="category-table-inclusion ${escapeHtml(kind)}">${escapeHtml(label)}</span>
-                ${price ? `<span style="font-size:12px;color:#64748b;margin-left:8px;">${escapeHtml(price)}</span>` : ''}
-            </div>
-        `;
-    }
-
-    function buildCol2ChoiceHtml(state, group, showCol3, hooks) {
+    function buildCol2ChoiceHtml(state, group, hooks) {
         const key = escapeHtml(groupSelectionKey(group));
         if (group.decisionMode === 'multi_choice') {
             const ids = getSelectedInGroup(state, group);
             const chips = ids.map((optId) => {
-                const opt = (group.options || []).find((o) => o.id === optId);
+                const opt = findCatalogOption(state, hooks, optId)
+                    || (group.options || []).find((o) => o.id === optId);
                 if (!opt) return '';
                 return `<span class="tpl-config-chip" data-tpl-group="${key}" data-tpl-opt="${escapeHtml(opt.id)}"
                     style="display:inline-flex;align-items:center;gap:6px;padding:6px 10px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:999px;font-size:13px;">
-                    ${escapeHtml(opt.name)}
+                    ${escapeHtml(resolveOptionDisplayName(state, opt, hooks))}
                     <button type="button" class="tpl-config-chip-remove" data-tpl-group="${key}" data-tpl-opt="${escapeHtml(opt.id)}"
                         aria-label="Retirer" style="border:none;background:transparent;cursor:pointer;font-size:16px;line-height:1;color:#64748b;">×</button>
                 </span>`;
@@ -667,347 +1244,159 @@
         const display = getSingleChoiceDisplay(state, group, hooks);
         const opt = display.option;
         const nameHtml = opt
-            ? `<span style="font-weight:600;color:#0f172a;">${escapeHtml(String(opt.name || '').trim() || '—')}</span>`
+            ? `<span style="font-weight:600;color:#0f172a;">${escapeHtml(resolveOptionDisplayName(state, opt, hooks))}</span>`
             : '<span style="color:#b45309;font-style:italic;">Sélectionnez une option</span>';
-        const priceHtml = opt
-            ? `<span style="font-size:12px;color:#64748b;">${escapeHtml(formatPrice(opt, hooks))}</span>`
-            : '';
-        const baseHint = display.isBaseDefault && !display.isExplicitSelection
-            ? '<span style="font-size:11px;color:#059669;">option de base</span>'
-            : '';
         const borderColor = opt ? '#cbd5e1' : '#fcd34d';
-        const linkedDebug = buildLinkedAdjDebugHtml(state, group, hooks);
         return `
             <div style="font-size:12px;font-weight:600;color:#475569;margin-bottom:6px;">${escapeHtml(group.label)}</div>
             <div class="tpl-config-single-pick" data-tpl-group="${key}" role="button" tabindex="0"
-                style="display:flex;align-items:center;justify-content:space-between;gap:10px;width:100%;max-width:480px;padding:10px 12px;border:1px solid ${borderColor};border-radius:6px;background:#fff;cursor:pointer;font-size:14px;">
+                style="display:flex;align-items:center;justify-content:space-between;gap:10px;width:100%;max-width:520px;padding:10px 12px;border:1px solid ${borderColor};border-radius:6px;background:#fff;cursor:pointer;font-size:14px;">
                 <span style="flex:1;min-width:0;">${nameHtml}</span>
-                <span style="display:flex;align-items:center;gap:8px;flex-shrink:0;">${baseHint}${priceHtml}<span style="color:#94a3b8;font-size:18px;line-height:1;">›</span></span>
+                <span style="color:#94a3b8;font-size:18px;line-height:1;flex-shrink:0;">›</span>
             </div>
-            ${linkedDebug}
         `;
     }
 
-    function buildLinkedAdjDebugHtml(state, group, hooks) {
-        const BAL = global.UgapBaseAdjLinks;
-        if (!BAL?.resolveSourceAdjOptionIdsForBase) return '';
-        if (String(group?.decisionMode || '') === 'multi_choice') return '';
-        const normalizeId = (raw) => {
-            const id = String(raw || '').trim();
-            if (!id) return '';
-            if (/^opt_/i.test(id)) return id;
-            const m = id.match(/(opt_[a-z0-9_]+)/i);
-            return m ? m[1] : id;
-        };
-
-        const categories = Array.isArray(state?.categories) ? state.categories : [];
-        const importBaseProducts = Array.isArray(state?.importBaseProducts) ? state.importBaseProducts : [];
-        const display = getSingleChoiceDisplay(state, group, hooks);
-        const shownId = String(display?.option?.id || '').trim();
-        const baseId = String(getGroupBaseOptionId(state, group, hooks) || '').trim();
-        if (!shownId && !baseId) return '';
-
-        const dbg = [];
-        if (baseId) {
-            dbg.push(
-                `<div>option de base → brut:<code>${escapeHtml(baseId)}</code> normalisé:<code>${escapeHtml(normalizeId(baseId))}</code></div>`
-            );
-        }
-        const pushRows = (label, sourceId) => {
-            const sid = String(sourceId || '').trim();
-            if (!sid) return;
-            const linked = BAL.resolveSourceAdjOptionIdsForBase(sid, categories, importBaseProducts);
-            if (!linked.length) return;
-            linked.forEach((adjId) => {
-                const aid = String(adjId || '').trim();
-                if (!aid) return;
-                const opt = findCatalogOption(state, hooks, aid);
-                const checked = state.selectedOptions?.has(aid) ? '✓' : '✗';
-                const name = escapeHtml(String(opt?.name || '—').trim());
-                dbg.push(`<div>${checked} ${escapeHtml(label)} → <code>${escapeHtml(aid)}</code> ${name}</div>`);
-            });
-        };
-
-        pushRows('base', baseId);
-        if (!dbg.length) {
-            return '<div style="font-size:11px;color:#94a3b8;margin-top:6px;">MINO liée: aucune trouvée</div>';
-        }
-        return `<div style="font-size:11px;color:#475569;margin-top:6px;">MINO/MAJO liées (debug):${dbg.join('')}</div>`;
+    function getNodeCatalogSlots(node) {
+        return Array.isArray(node?.slots) ? node.slots : [];
     }
 
-    function getResolvableGroups(node) {
-        return (Array.isArray(node?.decisionGroups) ? node.decisionGroups : [])
-            .filter((g) => !g.missing);
+    function getNodeCatalogChildren(node) {
+        return Array.isArray(node?.children) ? node.children : [];
     }
 
-    function childHasNestedTemplateChildren(child) {
-        return (Array.isArray(child?.children) ? child.children : []).length > 0;
+    function groupsForNode(node) {
+        return getNodeCatalogSlots(node).map(slotToGroup);
     }
 
-    /** Groupes affichés sous la ligne sous-catégorie (sans navigation). */
-    function shouldInlineChildGroups(child) {
-        const childGroups = getResolvableGroups(child);
-        if (!childGroups.length) return false;
-        if (String(child?.subCategoryRefId || '').trim()) return true;
-        return !childHasNestedTemplateChildren(child);
+    function buildMultiChoicePriceCell(state, group, hooks) {
+        const ids = getSelectedInGroup(state, group);
+        if (!ids.length) return '<span style="color:#94a3b8;">—</span>';
+        let sum = 0;
+        ids.forEach((optId) => {
+            const opt = findCatalogOption(state, hooks, optId)
+                || (group.options || []).find((o) => o.id === optId);
+            if (opt && !isImportGeneratedBaseOption(opt)) {
+                sum += Number(opt.priceClient ?? opt.priceUgap ?? 0) || 0;
+            }
+        });
+        return `<span style="font-size:13px;font-weight:600;color:#334155;">${sum.toFixed(2)} €</span>`;
     }
 
-    function buildSubCategoryLabelRowHtml(child, categoryLabel, showCategory) {
-        const grpCount = getResolvableGroups(child).length;
-        const countHint = grpCount
-            ? `<span style="font-size:12px;color:#64748b;font-weight:400;margin-left:8px;">${grpCount} groupe(s)</span>`
-            : '';
-        return `
-            <tr class="tpl-config-row-subcategory-label">
-                <td style="vertical-align:top;">${buildCol1CategoryHtml(categoryLabel, showCategory)}</td>
-                <td style="font-weight:600;font-size:14px;color:#1e293b;">${escapeHtml(child.label)}${countHint}</td>
-                <td style="color:#94a3b8;">—</td>
-            </tr>
-        `;
-    }
-
-    function buildCategoryNavRowHtml(child, childIdx, categoryLabel, showCategory) {
-        const grpCount = getResolvableGroups(child).length;
-        const nestedCount = (Array.isArray(child?.children) ? child.children : []).length;
-        const countHint = nestedCount
-            ? `<span style="font-size:12px;color:#64748b;font-weight:400;margin-left:8px;">${nestedCount} sous-niveau(x)</span>`
-            : (grpCount ? `<span style="font-size:12px;color:#64748b;font-weight:400;margin-left:8px;">${grpCount} groupe(s)</span>` : '');
-        return `
-            <tr class="tpl-config-row-category" data-tpl-child-idx="${childIdx}" style="cursor:pointer;">
-                <td style="vertical-align:top;">${buildCol1CategoryHtml(categoryLabel, showCategory)}</td>
-                <td style="font-weight:600;font-size:14px;color:#1e293b;">${escapeHtml(child.label)}${countHint}</td>
-                <td style="color:#94a3b8;">—</td>
-            </tr>
-        `;
-    }
-
-    function buildGroupRowHtml(state, group, hooks, showCol3, categoryLabel, showCategory) {
+    function buildGroupRowHtml(state, group, hooks, categoryLabel, showCategory) {
         const key = escapeHtml(groupSelectionKey(group));
         const isSingle = group.decisionMode !== 'multi_choice';
-        const display = isSingle ? getSingleChoiceDisplay(state, group, hooks) : null;
-        const col1Selected = isSingle
-            ? display?.option
-            : (group.options || []).find((o) => getSelectedInGroup(state, group).includes(o.id)) || null;
-        const col3Body = showCol3
-            ? `${buildCol3ForGroup(state, group, true, hooks)}${buildInclusionBadgeHtml(hooks, col1Selected)}`
-            : `${buildCol3ForGroup(state, group, false, hooks)}${!showCol3 ? buildInclusionBadgeHtml(hooks, col1Selected) : ''}`;
         const rowClass = isSingle ? 'tpl-config-row-group tpl-config-row-group--single' : 'tpl-config-row-group';
+        let priceCell = '—';
+        if (isSingle) {
+            const display = getSingleChoiceDisplay(state, group, hooks);
+            priceCell = display.option
+                ? escapeHtml(formatPrice(display.option, hooks))
+                : '—';
+        } else {
+            priceCell = buildMultiChoicePriceCell(state, group, hooks);
+        }
+        const catCell = showCategory
+            ? `<span style="font-size:12px;color:#64748b;font-weight:600;">${escapeHtml(categoryLabel)}</span>`
+            : '';
         return `
             <tr class="${rowClass}" data-tpl-group="${key}">
-                <td style="vertical-align:top;">${buildCol1CategoryHtml(categoryLabel, showCategory)}</td>
-                <td style="vertical-align:top;">${buildCol2ChoiceHtml(state, group, showCol3, hooks)}</td>
-                <td style="vertical-align:top;font-size:13px;color:#475569;">${col3Body}</td>
+                <td style="vertical-align:top;">${catCell}</td>
+                <td style="vertical-align:top;">${buildCol2ChoiceHtml(state, group, hooks)}</td>
+                <td style="vertical-align:top;text-align:right;">${priceCell}</td>
             </tr>
         `;
     }
 
-    function collectTableGroupsByKey(displayNode, inlineGroupNodes) {
-        const groupByKey = new Map();
-        const register = (node) => {
-            getResolvableGroups(node).forEach((g) => {
-                groupByKey.set(groupSelectionKey(g), g);
-            });
-        };
-        register(displayNode);
-        (Array.isArray(inlineGroupNodes) ? inlineGroupNodes : []).forEach(register);
-        return groupByKey;
-    }
-
-    function bindTemplateTableEvents(state, displayNode, path, hooks, rootEl, inlineGroupNodes) {
-        const groupByKey = collectTableGroupsByKey(displayNode, inlineGroupNodes);
-
-        rootEl.querySelectorAll('.tpl-config-row-category').forEach((tr) => {
-            tr.addEventListener('click', () => {
-                const childIdx = Number(tr.getAttribute('data-tpl-child-idx'));
-                if (!Number.isInteger(childIdx)) return;
-                state.templateTreePath = [...path, childIdx];
-                renderTemplateTreeStep3(state, hooks);
-                hooks.onResize?.();
-            });
-        });
-
-        const openSingleFromEl = (el, e) => {
-            e?.stopPropagation?.();
-            const g = groupByKey.get(el.getAttribute('data-tpl-group'));
-            if (g) openSingleChoiceModal(state, g, hooks);
-        };
-        rootEl.querySelectorAll('.tpl-config-single-pick').forEach((el) => {
-            el.addEventListener('click', (e) => openSingleFromEl(el, e));
-            el.addEventListener('keydown', (e) => {
-                if (e.key === 'Enter' || e.key === ' ') {
-                    e.preventDefault();
-                    openSingleFromEl(el, e);
+    function applyDevisSingleChoicePick(state, group, hooks, oid) {
+        unmarkDevisSlotUserCleared(state, group);
+        const BAL = global.UgapBaseAdjLinks;
+        const groupForAdj = { ...group, options: group.options };
+        if (BAL?.clearLinkedAdjForGroup) {
+            BAL.clearLinkedAdjForGroup(state, groupForAdj);
+        }
+        clearGroupSelection(state, group, oid);
+        state.selectedOptions.add(oid);
+        const addedAdjIds = [];
+        if (isBaseReplacedInGroup(state, groupForAdj, hooks)) {
+            const defaultBaseId = getGroupBaseOptionId(state, groupForAdj, hooks);
+            if (defaultBaseId) {
+                const adjGroup = BAL?.isAdjPricingGroup?.(groupForAdj)
+                    ? groupForAdj
+                    : { ...groupForAdj, priceMode: 'minoration', pricingMode: 'minoration' };
+                const added = BAL?.applyLinkedAdjToConfiguratorSelection?.(
+                    state,
+                    defaultBaseId,
+                    hooks,
+                    (id) => findCatalogOption(state, hooks, id),
+                    adjGroup
+                );
+                if (Array.isArray(added)) {
+                    addedAdjIds.push(...added.map((x) => String(x || '').trim()).filter(Boolean));
                 }
-            });
-        });
-        rootEl.querySelectorAll('.tpl-config-row-group--single').forEach((tr) => {
-            tr.addEventListener('click', (e) => {
-                if (e.target.closest('.tpl-config-chip-remove, .tpl-config-multi-add')) return;
-                openSingleFromEl(tr, e);
-            });
-        });
-
-        rootEl.querySelectorAll('.tpl-config-multi-add').forEach((btn) => {
-            btn.addEventListener('click', (e) => {
-                e.stopPropagation();
-                const g = groupByKey.get(btn.getAttribute('data-tpl-group'));
-                if (g) openMultiChoiceModal(state, g, hooks);
-            });
-        });
-
-        rootEl.querySelectorAll('.tpl-config-chip-remove').forEach((btn) => {
-            btn.addEventListener('click', (e) => {
-                e.stopPropagation();
-                const optId = String(btn.getAttribute('data-tpl-opt') || '').trim();
-                if (!optId) return;
-                state.selectedOptions.delete(optId);
-                state.fivePercentOptions.delete(optId);
-                hooks.updateSummary?.();
-                renderTemplateTreeStep3(state, hooks);
-            });
-        });
-    }
-
-    function renderTemplateConfiguratorTable(state, displayNode, path, hooks, container) {
-        const children = Array.isArray(displayNode.children) ? displayNode.children : [];
-        const groups = getResolvableGroups(displayNode);
-        ensureSingleChoiceDefaultsForGroups(state, groups, hooks);
-        const inSubCategory = path.length > 0;
-        const categoryLabel = getRootCategoryLabel(state);
-        const rows = [];
-        const inlineGroupNodes = [];
-        let showCategoryOnNext = true;
-
-        if (inSubCategory) {
-            rows.push(`
-                <tr class="tpl-config-row-category tpl-config-row-category--current">
-                    <td style="vertical-align:top;">${buildCol1CategoryHtml(categoryLabel, true)}</td>
-                    <td style="font-weight:600;font-size:14px;color:#1e293b;">${escapeHtml(displayNode.label)}</td>
-                    <td style="color:#94a3b8;">—</td>
-                </tr>
-            `);
-            showCategoryOnNext = false;
+            }
         }
-
-        if (children.length) {
-            children.forEach((child, childIdx) => {
-                if (shouldInlineChildGroups(child)) {
-                    rows.push(buildSubCategoryLabelRowHtml(child, categoryLabel, showCategoryOnNext));
-                    showCategoryOnNext = false;
-                    const childGroups = getResolvableGroups(child);
-                    ensureSingleChoiceDefaultsForGroups(state, childGroups, hooks);
-                    childGroups.forEach((group) => {
-                        rows.push(buildGroupRowHtml(state, group, hooks, true, categoryLabel, showCategoryOnNext));
-                        showCategoryOnNext = false;
-                    });
-                    inlineGroupNodes.push(child);
-                } else if (childHasNestedTemplateChildren(child)) {
-                    rows.push(buildCategoryNavRowHtml(child, childIdx, categoryLabel, showCategoryOnNext));
-                    showCategoryOnNext = false;
-                } else {
-                    rows.push(buildSubCategoryLabelRowHtml(child, categoryLabel, showCategoryOnNext));
-                    showCategoryOnNext = false;
-                }
+        try {
+            const selectedNow = Array.from(state.selectedOptions || []).map((x) => String(x || '').trim());
+            console.log('[UGAP][moteur-change] added', {
+                selectedMotorId: String(oid || '').trim(),
+                addedMinorationIds: addedAdjIds,
+                selectedOptionsNow: selectedNow
             });
+        } catch (_) {
+            // no-op debug
         }
-
-        const hasAnyContent = groups.length
-            || children.length
-            || inlineGroupNodes.some((c) => getResolvableGroups(c).length);
-        if (!hasAnyContent) {
-            container.innerHTML = '<p style="color:#666;">Aucune option.</p>';
-            return;
-        }
-
-        groups.forEach((group) => {
-            rows.push(buildGroupRowHtml(state, group, hooks, inSubCategory, categoryLabel, showCategoryOnNext));
-            showCategoryOnNext = false;
-        });
-
-        container.innerHTML = `
-            <div class="excel-options-wrap" id="ugap-template-config-table">
-                <div class="excel-options-scroll">
-                    <table class="excel-options-table tpl-config-table">
-                        <thead>
-                            <tr>
-                                <th style="width:140px;">Catégorie</th>
-                                <th>Option / Sous-catégorie</th>
-                                <th>Option</th>
-                            </tr>
-                        </thead>
-                        <tbody id="ugap-template-config-tbody">${rows.join('')}</tbody>
-                    </table>
-                </div>
-            </div>
-        `;
-
-        const tbody = container.querySelector('#ugap-template-config-tbody');
-        if (tbody) bindTemplateTableEvents(state, displayNode, path, hooks, tbody, inlineGroupNodes);
+        hooks.updateSummary?.();
     }
 
     function appendSingleChoicePickerToModal(state, group, hooks, optionsList, onClose) {
-        const normalizeId = (raw) => {
-            const id = String(raw || '').trim();
-            if (!id) return '';
-            if (/^opt_/i.test(id)) return id;
-            const m = id.match(/(opt_[a-z0-9_]+)/i);
-            return m ? m[1] : id;
-        };
         const hint = global.document.createElement('p');
         hint.style.cssText = 'color:#666;margin:0 0 12px;font-size:13px;';
-        hint.textContent = 'Options de cette famille / groupe pour le modèle. L’option de base (IBP) est indiquée ; en choisir une autre peut appliquer la minoration liée.';
+        hint.textContent = 'Cliquez sur une option pour la sélectionner ; recliquez sur la même pour décocher.';
         optionsList.appendChild(hint);
+
+        const clearBtn = global.document.createElement('button');
+        clearBtn.type = 'button';
+        clearBtn.className = 'btn btn-secondary ugap-devis-modal-clear';
+        clearBtn.style.cssText = 'margin-bottom:12px;width:100%;';
+        clearBtn.textContent = 'Aucune option sélectionnée';
+        clearBtn.onclick = () => {
+            clearDevisSingleChoiceSlot(state, group, hooks);
+            if (typeof onClose === 'function') onClose();
+            else finishConfiguratorPickerModal(state, hooks);
+        };
+        optionsList.appendChild(clearBtn);
 
         const list = global.document.createElement('div');
         list.className = 'options-list';
         const baseId = getGroupBaseOptionId(state, group, hooks);
-        const BAL = global.UgapBaseAdjLinks;
-        const categories = Array.isArray(state?.categories) ? state.categories : [];
-        const importBaseProducts = Array.isArray(state?.importBaseProducts) ? state.importBaseProducts : [];
-        const baseOpt = baseId ? findCatalogOption(state, hooks, baseId) : null;
-        const rawFromSource = (Array.isArray(baseOpt?.importBaseProductSourceOptionIds) ? baseOpt.importBaseProductSourceOptionIds : [])
-            .map((id) => String(id || '').trim())
-            .filter(Boolean);
-        const rawFromLinked = (Array.isArray(baseOpt?.linkedMinorationOptions) ? baseOpt.linkedMinorationOptions : [])
-            .map((x) => String(x?.optionId || '').trim())
-            .filter(Boolean);
-        const rawFromBp = [];
-        if (baseId) {
-            const bp = (Array.isArray(importBaseProducts) ? importBaseProducts : [])
-                .find((x) => String(x?.catalogOptionId || '').trim() === String(baseId || '').trim());
-            (Array.isArray(bp?.optionIds) ? bp.optionIds : [])
-                .forEach((id) => rawFromBp.push(String(id || '').trim()));
-        }
-        const rawAssociatedIds = [...rawFromSource, ...rawFromLinked, ...rawFromBp].filter(Boolean);
-        const resolvedAssociatedIds = (BAL?.resolveSourceAdjOptionIdsForBase
-            ? BAL.resolveSourceAdjOptionIdsForBase(baseId, categories, importBaseProducts)
-            : [])
-            .map((id) => String(id || '').trim())
-            .filter(Boolean);
         const MBO = getModelBaseOptions();
         const model = state.selectedModel;
         const slot = groupToSlot(group);
         let rows = [];
-        const baseDebug = global.document.createElement('p');
-        baseDebug.style.cssText = 'color:#7c2d12;margin:0 0 10px;font-size:13px;font-weight:700;background:#ffedd5;padding:6px 8px;border:1px solid #fdba74;border-radius:6px;';
-        const rawFirst = rawAssociatedIds.find(Boolean) || '—';
-        const resolvedFirst = resolvedAssociatedIds.find(Boolean) || '—';
-        baseDebug.innerHTML =
-            `BASE DEBUG >>> brut: <code>${escapeHtml(rawFirst)}</code> | normalisé: <code>${escapeHtml(normalizeId(rawFirst) || '—')}</code> | résolu: <code>${escapeHtml(resolvedFirst)}</code><br>` +
-            `sourceIds: <code>${escapeHtml(rawFromSource.join(', ') || '—')}</code> | linkedIds: <code>${escapeHtml(rawFromLinked.join(', ') || '—')}</code> | bp.optionIds: <code>${escapeHtml(rawFromBp.join(', ') || '—')}</code>`;
-        optionsList.appendChild(baseDebug);
 
         if (MBO?.getChoiceRows && model) {
             syncModelBaseBridge(state);
-            rows = MBO.getChoiceRows(model, slot) || [];
+            rows = MBO.getChoiceRows(model, slot, { baseOnly: false }) || [];
         }
         if (!rows.length) {
+            const ODN = global.UgapOptionDisplayName;
+            const models = Array.isArray(state?.models) ? state.models : [];
+            const modelId = String(model?.id || '').trim();
             rows = getGroupChoiceOptionsForPicker(group, hooks, model)
-                .map((opt) => ({
-                    id: String(opt.id || '').trim(),
-                    name: String(opt.name || opt.id || '').trim(),
-                    refUgap: String(opt.refUgap || opt.baseRefUgap || '').trim(),
-                }))
+                .map((opt) => {
+                    const displayName = ODN?.resolveOptionDisplayName
+                        ? ODN.resolveOptionDisplayName(opt, { models, modelId })
+                        : String(opt.name || opt.id || '').trim();
+                    return {
+                        id: String(opt.id || '').trim(),
+                        name: String(displayName || opt.name || opt.id || '').trim(),
+                        refUgap: String(opt.refUgap || opt.baseRefUgap || '').trim(),
+                        details: ODN?.resolveOptionDisplayDetails
+                            ? ODN.resolveOptionDisplayDetails(opt, displayName)
+                            : String(opt.details || '').trim(),
+                    };
+                })
                 .filter((row) => row.id);
         }
 
@@ -1024,69 +1413,37 @@
             const item = global.document.createElement('div');
             item.className = 'option-item';
             item.style.cursor = 'pointer';
-            const selected = getSelectedInGroup(state, group).includes(oid)
-                || state.selectedOptions.has(oid);
+            const displayRow = getSingleChoiceDisplay(state, group, hooks);
+            const selected = String(displayRow?.option?.id || '').trim() === oid;
             const isBase = oid === baseId;
             if (selected) item.style.background = '#eff6ff';
             else if (isBase) item.style.borderLeft = '3px solid #059669';
-            const ref = row.refUgap ? ` <span style="font-size:11px;color:#64748b;">${escapeHtml(row.refUgap)}</span>` : '';
             const isIbp = isImportGeneratedBaseOption(opt)
                 || (typeof hooks?.isBaseCatalogOption === 'function' && hooks.isBaseCatalogOption(opt));
             const deltaHint = isIbp ? formatPickerDeltaHint(state, hooks, oid) : '';
-            const baseTag = isBase
-                ? ' <span style="font-size:11px;color:#059669;">(base modèle)</span>'
-                : (isIbp ? ' <span style="font-size:11px;color:#64748b;">(IBP)</span>' : '');
+            const baseTag = isBase ? ' <span style="font-size:11px;color:#059669;">(base)</span>' : '';
             item.innerHTML = `
-                <span style="flex:1;">${escapeHtml(row.name || opt.name)}${ref}${baseTag}</span>
-                <span class="price">${isIbp ? `${formatPrice(opt, hooks)}${deltaHint}` : formatPrice(opt, hooks)}</span>
+                <span style="flex:1;">${escapeHtml(row.name || resolveOptionDisplayName(state, opt, hooks))}${baseTag}</span>
+                <span class="price">${formatDevisOptionPrice(state, hooks, opt).text}${deltaHint}</span>
             `;
             item.onclick = () => {
-                const BAL = global.UgapBaseAdjLinks;
-                const groupForAdj = { ...group, options: group.options };
+                const display = getSingleChoiceDisplay(state, group, hooks);
+                const currentId = String(display?.option?.id || '').trim();
+                if (currentId === oid) {
+                    clearDevisSingleChoiceSlot(state, group, hooks);
+                    if (typeof onClose === 'function') onClose();
+                    else finishConfiguratorPickerModal(state, hooks);
+                    return;
+                }
                 try {
                     console.log('[UGAP][group-change][start]', {
-                        groupId: String(groupForAdj?.groupId || groupForAdj?.id || '').trim(),
-                        groupLabel: String(groupForAdj?.label || '').trim(),
-                        decisionMode: String(groupForAdj?.decisionMode || '').trim(),
-                        priceMode: String(groupForAdj?.priceMode || groupForAdj?.pricingMode || '').trim(),
+                        groupId: String(group?.groupId || group?.id || '').trim(),
+                        groupLabel: String(group?.label || '').trim(),
                         selectedOptionId: String(oid || '').trim(),
-                        baseOptionId: String(getGroupBaseOptionId(state, groupForAdj, hooks) || '').trim()
+                        baseOptionId: String(getGroupBaseOptionId(state, group, hooks) || '').trim()
                     });
                 } catch (_) {}
-                if (BAL?.clearLinkedAdjForGroup) {
-                    try { console.log('[UGAP][group-change][clear-linked]'); } catch (_) {}
-                    BAL.clearLinkedAdjForGroup(state, groupForAdj);
-                }
-                clearGroupSelection(state, group, oid);
-                state.selectedOptions.add(oid);
-                const addedAdjIds = [];
-                if (isBaseReplacedInGroup(state, groupForAdj, hooks)) {
-                    const defaultBaseId = getGroupBaseOptionId(state, groupForAdj, hooks);
-                    try { console.log('[UGAP][group-change][base-replaced]', { defaultBaseId: String(defaultBaseId || '').trim() }); } catch (_) {}
-                    if (defaultBaseId) {
-                        const added = BAL?.applyLinkedAdjToConfiguratorSelection?.(
-                            state,
-                            defaultBaseId,
-                            hooks,
-                            (id) => findCatalogOption(state, hooks, id),
-                            groupForAdj
-                        );
-                        if (Array.isArray(added)) addedAdjIds.push(...added.map((x) => String(x || '').trim()).filter(Boolean));
-                    }
-                } else {
-                    try { console.log('[UGAP][group-change][base-not-replaced]'); } catch (_) {}
-                }
-                try {
-                    const selectedNow = Array.from(state.selectedOptions || []).map((x) => String(x || '').trim());
-                    console.log('[UGAP][moteur-change] added', {
-                        selectedMotorId: String(oid || '').trim(),
-                        addedMinorationIds: addedAdjIds,
-                        selectedOptionsNow: selectedNow
-                    });
-                } catch (_) {
-                    // no-op debug
-                }
-                hooks.updateSummary?.();
+                applyDevisSingleChoicePick(state, group, hooks, oid);
                 if (typeof onClose === 'function') onClose();
                 else finishConfiguratorPickerModal(state, hooks);
             };
@@ -1120,11 +1477,15 @@
         if (!modal || !title || !optionsList) return;
 
         group = hydrateGroupOptions(state, group);
-        ensureSingleChoiceGroupDefault(state, group, hooks);
         state.familyModalContext = null;
         state._templateTreeModalGroup = group;
         modal.querySelector('.modal-content')?.classList.remove('modal-wide');
-        title.textContent = group.label || 'Choix';
+        const slot = groupToSlot(group);
+        title.textContent = devisPickerModalTitle(
+            slot,
+            getCatalogNodesForParcours(),
+            group.label
+        );
         optionsList.innerHTML = '';
         appendSingleChoicePickerToModal(state, group, hooks, optionsList);
         modal.classList.add('active');
@@ -1179,7 +1540,7 @@
                 if (!(norm.optionIds || []).length) return;
                 const col1 = String(fam.categoryName || norm.familyLabel || '').trim() || '—';
                 const showCategory = col1 !== prevCol1;
-                rows.push(buildGroupRowHtml(state, norm, hooks, true, col1, showCategory));
+                rows.push(buildGroupRowHtml(state, norm, hooks, col1, showCategory));
                 prevCol1 = col1;
             });
         });
@@ -1191,7 +1552,7 @@
                             <tr>
                                 <th style="width:140px;">Famille</th>
                                 <th>Option</th>
-                                <th>Détail</th>
+                                <th style="width:120px;text-align:right;">Prix</th>
                             </tr>
                         </thead>
                         <tbody id="ugap-family-config-tbody">${rows.join('')}</tbody>
@@ -1246,30 +1607,60 @@
         state.familyModalContext = null;
         state._templateTreeModalGroup = group;
         modal.querySelector('.modal-content')?.classList.remove('modal-wide');
-        title.textContent = group.label || 'Options';
+        const slotMc = groupToSlot(group);
+        title.textContent = devisPickerModalTitle(
+            slotMc,
+            getCatalogNodesForParcours(),
+            group.label,
+            '(choix multiple)'
+        );
         optionsList.innerHTML = '';
 
         const draft = new Set(getSelectedInGroup(state, group));
+        const MBO = getModelBaseOptions();
+        const model = state.selectedModel;
+        const slot = groupToSlot(group);
+        let rows = [];
+        if (MBO?.getChoiceRows && model) {
+            syncModelBaseBridge(state);
+            rows = MBO.getChoiceRows(model, slot, { baseOnly: false }) || [];
+        }
+        if (!rows.length) {
+            const ODN = global.UgapOptionDisplayName;
+            const models = Array.isArray(state?.models) ? state.models : [];
+            const modelId = String(model?.id || '').trim();
+            rows = (Array.isArray(group.options) ? group.options : [])
+                .map((opt) => ({
+                    id: String(opt?.id || '').trim(),
+                    name: ODN?.resolveOptionDisplayName
+                        ? ODN.resolveOptionDisplayName(opt, { models, modelId })
+                        : String(opt?.name || '').trim(),
+                }))
+                .filter((row) => row.id);
+        }
 
-        (Array.isArray(group.options) ? group.options : []).forEach((opt) => {
+        rows.forEach((row) => {
+            const oid = String(row.id || '').trim();
+            const opt = findCatalogOption(state, hooks, oid);
+            if (!opt) return;
             const item = global.document.createElement('div');
             item.className = 'option-item';
             const cb = global.document.createElement('input');
             cb.type = 'checkbox';
-            cb.id = `tpl-mc-${opt.id}`;
-            cb.checked = draft.has(opt.id);
+            cb.id = `tpl-mc-${oid}`;
+            cb.checked = draft.has(oid);
             cb.onchange = () => {
-                if (cb.checked) draft.add(opt.id);
-                else draft.delete(opt.id);
+                if (cb.checked) draft.add(oid);
+                else draft.delete(oid);
             };
             const label = global.document.createElement('label');
             label.htmlFor = cb.id;
-            label.textContent = opt.name;
+            label.textContent = row.name || resolveOptionDisplayName(state, opt, hooks);
             label.style.flex = '1';
             label.style.marginLeft = '10px';
             const price = global.document.createElement('div');
             price.className = 'price';
-            price.textContent = `${(opt.priceClient || opt.priceUgap || 0).toFixed(2)} €`;
+            price.textContent = formatDevisOptionPrice(state, hooks, opt).text;
             item.appendChild(cb);
             item.appendChild(label);
             item.appendChild(price);
@@ -1326,8 +1717,8 @@
 
     function onModelSelected(state) {
         state.templateTreePath = [];
-        state.templateTreeRootIndex = -1;
         state._boatTemplateResolved = null;
+        state.templateTreeRootIndex = editorTreeHasParcours(getModelBaseEditorTree(state)) ? 0 : -1;
     }
 
     function getModelTabLabel(state) {
@@ -1336,25 +1727,6 @@
 
     function isModelCategoryTabActive(state) {
         return Number(state.templateTreeRootIndex) === -1;
-    }
-
-    function isMotorisationTemplateRoot(node) {
-        const label = String(node?.label || '').trim().toLowerCase();
-        return /\bmotorisation\b/.test(label) || /^moteurs?$/.test(label);
-    }
-
-    function getActiveTemplateRootIndex(state, roots) {
-        const list = Array.isArray(roots) ? roots : [];
-        if (isModelCategoryTabActive(state) || !list.length) return -1;
-        const rootIdx = Number(state.templateTreeRootIndex);
-        if (Number.isInteger(rootIdx) && rootIdx >= 0 && rootIdx < list.length) return rootIdx;
-        return 0;
-    }
-
-    function isExcelTemplateRootActive(state, roots) {
-        const idx = getActiveTemplateRootIndex(state, roots);
-        if (idx < 0) return false;
-        return isMotorisationTemplateRoot(roots[idx]);
     }
 
     function renderModelCategoryTab(state, hooks, status) {
@@ -1400,6 +1772,7 @@
         normalizeFamilyGroupForConfigurator,
         closeTemplateTreeModal,
         onModelSelected,
-        getBoatTemplateForModel
+        getBoatTemplateForModel,
+        refreshDevisTableChoiceCells
     };
 })(typeof window !== 'undefined' ? window : global);

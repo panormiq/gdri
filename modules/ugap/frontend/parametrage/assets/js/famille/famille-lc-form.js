@@ -92,7 +92,7 @@
                     </div>
                 </div>
                 <p class="ugap-famille-create-form__hint ugap-famille-create-form__hint--inline">
-                    Le mot clé sert à la recherche heuristique (try automatique des options).
+                    Mots-clés famille : séparez par virgule, point-virgule ou barre (ex. carène, pont).
                 </p>
                 <div class="ugap-famille-create-form__groups-head">
                     <strong>Groupes de décision</strong>
@@ -323,12 +323,11 @@
         const to = slugifyTypeId(nextType || 'option') || 'option';
         if (!from || from === to) return;
         const list = state().getFamilies().map((family) => {
-            const next = { ...(family || {}) };
-            next.decisionGroups = normalizeGroups(family?.decisionGroups).map((group) => {
+            const groups = state().getFamilyDisplayGroups(family).map((group) => {
                 if (slugifyTypeId(group?.type) !== from) return group;
                 return { ...group, type: to };
             });
-            return next;
+            return state().applyFamilyDisplayGroups(family, groups, family?.defaultDecisionGroupId);
         });
         state().setFamilies(list);
         const draft = state().getCreateDraft();
@@ -522,16 +521,20 @@
             groups,
             draft.defaultDecisionGroupId
         );
-        const payload = {
-            familyLabel,
-            familyKeyword: keyword,
-            objectName: keyword,
-            defaultDecisionGroupId,
-            decisionGroups: groups,
-            optionIds: [],
-        };
         const editIndex = Number(draft.editIndex);
         const isEdit = Number.isInteger(editIndex) && editIndex >= 0;
+        const existing = isEdit ? (state().getFamilies()[editIndex] || {}) : {};
+        const payload = state().applyFamilyDisplayGroups(
+            {
+                ...existing,
+                familyLabel,
+                familyKeyword: keyword,
+                objectName: keyword,
+                optionIds: Array.isArray(existing.optionIds) ? existing.optionIds : [],
+            },
+            groups,
+            defaultDecisionGroupId
+        );
         if (isEdit) {
             state().updateFamily(editIndex, payload);
         } else {
@@ -565,7 +568,7 @@
         draft.editIndex = idx;
         draft.familyLabel = String(family.familyLabel || '').trim();
         draft.familyKeyword = String(family.familyKeyword || family.objectName || '').trim();
-        draft.groups = normalizeGroups(family.decisionGroups);
+        draft.groups = state().getFamilyDisplayGroups(family);
         draft.defaultDecisionGroupId = state().resolveDefaultDecisionGroupId(
             draft.groups,
             family.defaultDecisionGroupId

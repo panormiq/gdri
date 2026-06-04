@@ -80,6 +80,63 @@
         return families.slice();
     }
 
+    /** Groupes visibles (racine decisionGroups ou composants — même logique que Catégories / catalogue). */
+    function getFamilyDisplayGroups(family) {
+        const FDG = global.UgapFamilyDecisionGroup;
+        const normalize = (raw) => (FDG?.normalizeList ? FDG.normalizeList(raw) : (Array.isArray(raw) ? raw : []));
+        const FCmp = global.UgapFamilyComponents;
+        if (FCmp?.flattenDecisionGroups) {
+            return normalize(FCmp.flattenDecisionGroups(family));
+        }
+        return normalize(family?.decisionGroups);
+    }
+
+    /** Réinjecte les groupes édités dans la structure famille (composant unique ou multi-composants). */
+    function applyFamilyDisplayGroups(family, groups, defaultDecisionGroupId) {
+        const FDG = global.UgapFamilyDecisionGroup;
+        const normalized = (FDG?.normalizeList ? FDG.normalizeList(groups) : (Array.isArray(groups) ? groups : []))
+            .filter(Boolean);
+        const stripComponentMeta = (g) => {
+            const row = g && typeof g === 'object' ? { ...g } : {};
+            delete row.componentId;
+            delete row.componentLabel;
+            delete row.componentKeyword;
+            return row;
+        };
+        const pref = String(defaultDecisionGroupId || '').trim();
+        const FCmp = global.UgapFamilyComponents;
+        if (FCmp?.ensureComponentsArray) {
+            const f = FCmp.ensureComponentsArray({ ...(family && typeof family === 'object' ? family : {}) });
+            if (f.components.length === 1) {
+                f.components[0] = {
+                    ...f.components[0],
+                    decisionGroups: normalized.map(stripComponentMeta),
+                    defaultDecisionGroupId: pref || f.components[0].defaultDecisionGroupId,
+                };
+            } else {
+                const byComp = new Map();
+                normalized.forEach((g) => {
+                    const cid = String(g.componentId || f.components[0]?.id || '').trim();
+                    if (!byComp.has(cid)) byComp.set(cid, []);
+                    byComp.get(cid).push(stripComponentMeta(g));
+                });
+                f.components = f.components.map((comp) => {
+                    const id = String(comp.id || '').trim();
+                    const list = byComp.get(id);
+                    if (!list) return comp;
+                    return { ...comp, decisionGroups: list };
+                });
+            }
+            if (pref) f.components[0].defaultDecisionGroupId = pref;
+            return f;
+        }
+        return {
+            ...(family && typeof family === 'object' ? family : {}),
+            defaultDecisionGroupId: pref || family?.defaultDecisionGroupId,
+            decisionGroups: normalized.map(stripComponentMeta),
+        };
+    }
+
     function sanitizeFamiliesForServer(list) {
         return (Array.isArray(list) ? list : []).map((f) => {
             const row = f && typeof f === 'object' ? { ...f } : {};
@@ -214,6 +271,8 @@
 
     global.UgapFamilleLcState = {
         getFamilies,
+        getFamilyDisplayGroups,
+        applyFamilyDisplayGroups,
         setFamilies,
         addFamily,
         updateFamily,

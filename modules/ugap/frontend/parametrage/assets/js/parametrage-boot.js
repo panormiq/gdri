@@ -6,7 +6,7 @@
     'use strict';
 
     const SECTIONS = [
-        'importation', 'famille', 'options', 'categorie', 'bateau-base', 'modeles',
+        'importation', 'catalogue', 'options', 'bateau-base', 'modeles',
     ];
 
     const IMPORT_TABS = [
@@ -35,6 +35,7 @@
     }
 
     function normalizeSection(sectionId) {
+        if (sectionId === 'categorie') return 'catalogue';
         return SECTIONS.includes(sectionId) ? sectionId : 'importation';
     }
 
@@ -99,8 +100,8 @@
         if (section === 'importation' && activeTab === 'valider' && window.UgapImportValiderTab?.refreshStaging) {
             window.UgapImportValiderTab.refreshStaging();
         }
-        if (section === 'famille' && typeof window.mountUgapFamilleLc === 'function') {
-            window.mountUgapFamilleLc();
+        if (section === 'catalogue' && typeof window.mountUgapCatalogue === 'function') {
+            window.mountUgapCatalogue();
         }
         if (section === 'modeles' && window.UgapModelesTab?.mount) {
             window.UgapModelesTab.mount();
@@ -108,11 +109,9 @@
         if (section === 'options' && window.UgapOptionsTab?.mount) {
             window.UgapOptionsTab.mount();
         }
-        if (section === 'categorie' && window.UgapCategorieLcTab?.mount) {
-            window.UgapCategorieLcTab.mount();
-        }
-        if (section === 'bateau-base' && window.UgapBateauBaseLcTab?.mount) {
-            window.UgapBateauBaseLcTab.mount();
+        if (section === 'bateau-base') {
+            const run = window.UgapBateauBaseLcTab?.refresh || window.UgapBateauBaseLcTab?.mount;
+            if (run) void run();
         }
         if (typeof window.onEmbeddedTabActivated === 'function') {
             window.onEmbeddedTabActivated();
@@ -144,6 +143,12 @@
         }
         if (window.UgapDetectBind) {
             window.UgapDetectBind.bindDetectionPanel();
+        }
+        if (window.UgapCatalogueLcState?.loadFromServer) {
+            void window.UgapCatalogueLcState.loadFromServer(true);
+        }
+        if (window.UgapBateauBaseLcState?.loadFromServer) {
+            void window.UgapBateauBaseLcState.loadFromServer();
         }
     }
 

@@ -65,6 +65,40 @@
         return Array.isArray(raw) ? raw : [];
     }
 
+    /** Anciennes clés composant (ex. principal::model) → id groupe seul. */
+    function stripLegacyGroupSelectionKey(key) {
+        const raw = String(key || '').trim();
+        if (!raw.includes('::')) return raw;
+        const idx = raw.indexOf('::');
+        const prefix = raw.slice(0, idx).toLowerCase();
+        if (prefix === 'principal' || prefix === 'composant' || prefix === 'default' || prefix === 'main') {
+            return raw.slice(idx + 2).trim();
+        }
+        return raw;
+    }
+
+    function getFlatGroups(family) {
+        const fromDecision = normalizeGroups(family?.decisionGroups);
+        if (fromDecision.length) return fromDecision;
+        const fromGroups = normalizeGroups(family?.groups);
+        if (fromGroups.length) return fromGroups;
+        const FCmp = global.UgapFamilyComponents;
+        if (FCmp?.flattenDecisionGroups) return FCmp.flattenDecisionGroups(family);
+        return [];
+    }
+
+    function groupSelKey(group) {
+        return String(group?.id || group?.groupId || '').trim();
+    }
+
+    function selectionKeyMatchesGroup(selectedKey, group) {
+        const sk = groupSelKey(group);
+        const raw = String(selectedKey || '').trim();
+        if (!raw) return false;
+        if (raw === sk) return true;
+        return stripLegacyGroupSelectionKey(raw) === sk;
+    }
+
     /** Libellé famille dans la liste (ex. « Garantie #2 » si doublon). */
     function formatFamilyDisplayLabel(entry, draftIdx, families) {
         const label = String(entry?.familyLabel || 'Famille').trim();
@@ -100,13 +134,13 @@
     function defaultSelectedGroupIdsForAdd(catalogueFamily, draftFamilies) {
         const src = catalogueFamily && typeof catalogueFamily === 'object' ? catalogueFamily : {};
         const labelKey = String(src?.familyLabel || '').trim().toLowerCase();
-        const groups = normalizeGroups(src?.decisionGroups);
+        const groups = getFlatGroups(src);
         const list = Array.isArray(draftFamilies) ? draftFamilies : [];
         const hasSameLabel = labelKey && list.some(
             (f) => String(f?.familyLabel || '').trim().toLowerCase() === labelKey
         );
         if (hasSameLabel) return [];
-        return groups.map((g) => String(g.id || '').trim()).filter(Boolean);
+        return groups.map((g) => groupSelKey(g)).filter(Boolean);
     }
 
     function countDraftUsesOfSourceIndex(draftFamilies, sourceIndex) {
@@ -131,7 +165,7 @@
                 const idx = f.__idx;
                 const label = String(f?.familyLabel || '').trim();
                 const obj = String(f?.objectName || '').trim();
-                const groups = normalizeGroups(f?.decisionGroups);
+                const groups = getFlatGroups(f);
                 const suffix = obj ? ` — ${obj}` : '';
                 const gCount = groups.length ? ` (${groups.length} g.)` : '';
                 const uses = countDraftUsesOfSourceIndex(draftFamilies, idx);
@@ -213,7 +247,7 @@
         return families.map((entry, draftIdx) => {
             const src = catalogue.find((f) => Number(f.__idx) === Number(entry.sourceIndex))
                 || catalogue[entry.sourceIndex];
-            const groups = normalizeGroups(src?.decisionGroups || entry.decisionGroups);
+            const groups = getFlatGroups(src || entry);
             const selectedIds = new Set(
                 (Array.isArray(entry.selectedGroupIds) ? entry.selectedGroupIds : [])
                     .map((x) => String(x || '').trim())
@@ -223,11 +257,11 @@
                 ? entry.groupOrder.map((x) => String(x || '').trim()).filter(Boolean)
                 : [];
             const orderedGroups = order.length
-                ? order.map((gid) => groups.find((g) => String(g.id || '').trim() === gid)).filter(Boolean)
+                ? order.map((selKey) => groups.find((g) => groupSelKey(g) === selKey)).filter(Boolean)
                 : groups.slice();
             groups.forEach((g) => {
-                const gid = String(g.id || '').trim();
-                if (gid && !orderedGroups.some((x) => String(x.id || '').trim() === gid)) {
+                const sk = groupSelKey(g);
+                if (sk && !orderedGroups.some((x) => groupSelKey(x) === sk)) {
                     orderedGroups.push(g);
                 }
             });
@@ -235,17 +269,19 @@
             const objectName = String(entry.objectName || src?.objectName || '').trim();
             const groupsInline = orderedGroups.length
                 ? orderedGroups.map((g, gIdx) => {
-                    const gid = String(g.id || '').trim();
-                    const checked = selectedIds.has(gid);
+                    const selKey = groupSelKey(g);
+                    const checked = selectedIds.has(selKey)
+                        || [...selectedIds].some((id) => selectionKeyMatchesGroup(id, g));
                     const optCount = Array.isArray(g.optionIds) ? g.optionIds.length : 0;
-                    const gLabel = escapeHtml(formatGroupDisplayLabel(g, gIdx, orderedGroups));
+                    const baseGLabel = formatGroupDisplayLabel(g, gIdx, orderedGroups);
+                    const gLabel = escapeHtml(baseGLabel);
                     const groupHandle = groupDragReorder
                         ? `<span class="ugap-dnd-handle ugap-dnd-handle-group" draggable="true" title="Glisser pour réordonner le groupe" onclick="event.stopPropagation();">⋮</span>`
                         : '';
-                    const groupDragAttr = groupDragReorder ? ` data-ugap-fd-group-item="${escapeHtml(gid)}"` : '';
+                    const groupDragAttr = groupDragReorder ? ` data-ugap-fd-group-item="${escapeHtml(selKey)}"` : '';
                     return `<label class="ugap-family-draft-group" data-ugap-fd-group-item-wrap${groupDragAttr} style="display:inline-flex; align-items:center; gap:4px; font-size:12px; white-space:nowrap; cursor:pointer; margin:0; padding:2px 4px; border-radius:4px; background:#fff; border:1px solid #e2e8f0;">
                         ${groupHandle}
-                        <input type="checkbox" data-ugap-fd-prefix="${escapeHtml(prefix)}" data-ugap-fd-draft-idx="${draftIdx}" data-ugap-fd-group-id="${escapeHtml(gid)}" ${checked ? 'checked' : ''} onchange="UgapFamilyDraftUi.onGroupToggleFromEl(this)">
+                        <input type="checkbox" data-ugap-fd-prefix="${escapeHtml(prefix)}" data-ugap-fd-draft-idx="${draftIdx}" data-ugap-fd-group-id="${escapeHtml(selKey)}" ${checked ? 'checked' : ''} onchange="UgapFamilyDraftUi.onGroupToggleFromEl(this)">
                         <span><strong>${gLabel}</strong><span style="color:#64748b;"> (${groupTypeLabel(g.type)}${groupPriceLabel(g) ? ` · ${escapeHtml(groupPriceLabel(g))}` : ''}${optCount ? `, ${optCount} opt.` : ''})</span></span>
                     </label>`;
                 }).join('')

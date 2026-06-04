@@ -7,9 +7,9 @@
     const MOUNT_ID = 'ugap-template-bateau-lc-mount';
 
     async function ensureDataLoaded() {
-        await global.UgapFamilleLcState?.loadFromServer?.();
-        await global.UgapCategorieLcState?.loadFromServer?.();
+        await global.UgapCatalogueLcState?.loadFromServer?.();
         await global.UgapBateauBaseLcState?.loadFromServer?.();
+        await global.UgapCatalogueLcState?.refreshOptionsFromServer?.();
     }
 
     async function mount() {

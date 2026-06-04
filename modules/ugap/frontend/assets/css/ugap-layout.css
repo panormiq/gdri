@@ -1,0 +1,11 @@
+/**
+ * Largeur globale du module UGAP (+20 % par rapport à 1400px).
+ */
+:root {
+    --ugap-container-max-width: 1680px;
+}
+
+body:has(#ugap-gdri-host) > .section > .container {
+    max-width: var(--ugap-container-max-width);
+    width: 100%;
+}

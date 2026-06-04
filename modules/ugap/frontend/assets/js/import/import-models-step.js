@@ -22,7 +22,14 @@
 
     function importModelRowDisplayValidated(modelId, stagingValidatedIdSet) {
         const id = String(modelId || '').trim();
-        return !!id && stagingValidatedIdSet.has(id);
+        if (!id || !stagingValidatedIdSet.has(id)) return false;
+        const catalogIds = new Set(
+            (window.__lastLoadDataSnapshot?.models || [])
+                .map((m) => String(m?.id || '').trim())
+                .filter(Boolean)
+        );
+        if (!catalogIds.size) return true;
+        return catalogIds.has(id);
     }
 
     function collectImportModelPriceUpdates() {
@@ -200,21 +207,18 @@
                 const freshCatalog = await apiCall('/data', { allowBusinessError: true });
                 if (freshCatalog?.data && typeof window.normalizeUgapDataContract === 'function') {
                     window.__lastLoadDataSnapshot = window.normalizeUgapDataContract(freshCatalog.data);
-                    if (typeof window.hydrateUiStateFromServer === 'function') await window.hydrateUiStateFromServer();
-                    if (typeof window.cleanupDeletedOptionReferences === 'function') window.cleanupDeletedOptionReferences();
                     if (typeof window.updateStats === 'function') window.updateStats();
                     if (typeof window.updateAllTabWarningBadges === 'function') window.updateAllTabWarningBadges();
                 } else if (typeof window.loadData === 'function') {
-                    await window.loadData(true);
+                    await window.loadData(true, true);
                 }
             } catch (_e) {
-                if (typeof window.loadData === 'function') await window.loadData(true);
+                if (typeof window.loadData === 'function') await window.loadData(true, true);
             }
             showAlert(`${modelIds.length} modèle(s) enregistré(s).`, 'success');
             if (typeof window.renderImportStagingIndicator === 'function') {
                 window.renderImportStagingIndicator(window.currentImportStaging);
             }
-            if (typeof window.updateStats === 'function') window.updateStats();
             if (typeof window.renderImportWorkflow === 'function') window.renderImportWorkflow();
             if (typeof window.switchImportWorkflowStep === 'function') window.switchImportWorkflowStep('families-tri');
         } catch (error) {

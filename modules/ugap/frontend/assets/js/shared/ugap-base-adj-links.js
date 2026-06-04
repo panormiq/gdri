@@ -172,20 +172,33 @@
         return out;
     }
 
+    /** Option de base créée à la main (paramétrage modèle) — pas d’IBP import / moteur. */
+    function isManualBaseCatalogOption(opt) {
+        if (!opt || typeof opt !== 'object') return false;
+        if (opt.manualBaseOption === true) return true;
+        if (opt.importGeneratedFromBaseProduct === true || opt.importBaseProductId) return false;
+        const id = String(opt?.id || '').trim();
+        if (id.startsWith('opt_ibp_')) return false;
+        return opt.baseIncluded === true && opt.isBaseOption === true;
+    }
+
     /** Lignes « Non fourniture du moteur de base » liées au moteur de base du poste. */
     function findMotorNonSupplyAdjOptionIds(baseOpt, categories) {
         const baseId = String(baseOpt?.id || '').trim();
         const out = new Set();
+        if (!baseId || isManualBaseCatalogOption(baseOpt)) return [];
         flattenCatalogOptions(categories).forEach((opt) => {
             const oid = String(opt?.id || '').trim();
             if (!oid || !isMotorBaseNonSupplyLabel(opt?.name)) return;
             if (inferAdjLineKind(opt) !== 'minoration') return;
             const linkedBase = String(opt.linkedBaseCatalogOptionId || '').trim();
-            if (baseId && linkedBase && linkedBase === baseId) {
+            if (linkedBase && linkedBase === baseId) {
                 out.add(oid);
                 return;
             }
-            if (baseOpt && modelsOverlap(baseOpt, opt)) out.add(oid);
+            if (isImportGeneratedBaseOption(baseOpt) && modelsOverlap(baseOpt, opt)) {
+                out.add(oid);
+            }
         });
         return [...out];
     }
@@ -367,10 +380,11 @@
         const isReplaced = ctx.isBaseReplacedInGroup || ctx.isIbpReplacedInGroup;
         const getBaseId = ctx.getGroupBaseOptionId;
         (Array.isArray(groups) ? groups : []).forEach((group) => {
-            if (!group || group.missing || !isAdjPricingGroup(group)) return;
+            if (!group || group.missing) return;
 
-            if (typeof isReplaced === 'function' && !isReplaced(state, group, hooks)) {
-                clearLinkedAdjForGroup(state, group);
+            const replaced = typeof isReplaced === 'function' && isReplaced(state, group, hooks);
+            if (!replaced) {
+                if (isAdjPricingGroup(group)) clearLinkedAdjForGroup(state, group);
                 return;
             }
 
@@ -378,7 +392,11 @@
                 ? String(getBaseId(state, group, hooks) || '').trim()
                 : '';
             if (!defaultBaseId) return;
-            applyLinkedAdjToConfiguratorSelection(state, defaultBaseId, hooks, findOptionFn, group);
+
+            const groupForApply = isAdjPricingGroup(group)
+                ? group
+                : { ...group, priceMode: 'minoration', pricingMode: 'minoration' };
+            applyLinkedAdjToConfiguratorSelection(state, defaultBaseId, hooks, findOptionFn, groupForApply);
         });
     }
 
@@ -386,6 +404,7 @@
         inferAdjLineKind,
         isAdjOptionForBaseLink,
         isImportGeneratedBaseOption,
+        isManualBaseCatalogOption,
         normalizeGroupPriceMode,
         isAdjPricingGroup,
         isMotorBaseNonSupplyLabel,

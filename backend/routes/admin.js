@@ -7,6 +7,7 @@
 const express = require('express');
 const moduleRegistry = require('../core/module-registry');
 const { loadNewModules } = require('../core/module-loader');
+const { syncServicesCatalogFromModules } = require('../core/services-catalog-sync');
 const { authenticateJWT } = require('../config/jwt');
 
 /**
@@ -38,13 +39,15 @@ function createAdminRouter(app, db) {
   router.post('/modules/reload', authenticateJWT, requireAdminGdri, async (req, res) => {
     try {
       moduleRegistry.rediscover();
+      const catalog = await syncServicesCatalogFromModules();
       const newlyLoaded = await loadNewModules(app, db);
       res.json({
         success: true,
         message: newlyLoaded.length > 0
           ? `${newlyLoaded.length} module(s) chargé(s) à chaud.`
           : 'Aucun nouveau module à charger.',
-        newlyLoaded
+        newlyLoaded,
+        servicesCatalog: catalog
       });
     } catch (error) {
       console.error('Erreur reload modules:', error);
@@ -59,6 +62,28 @@ function createAdminRouter(app, db) {
    * GET /api/admin/modules/status
    * Liste les modules enregistrés et leur état (chargé ou non).
    */
+  /**
+   * POST /api/admin/services/sync
+   * Met à jour la collection `services` depuis les modules découverts (sans redémarrage).
+   */
+  router.post('/services/sync', authenticateJWT, requireAdminGdri, async (req, res) => {
+    try {
+      moduleRegistry.rediscover();
+      const catalog = await syncServicesCatalogFromModules();
+      res.json({
+        success: true,
+        message: `Catalogue services synchronisé (${catalog.synced} module(s)).`,
+        data: catalog
+      });
+    } catch (error) {
+      console.error('Erreur sync services:', error);
+      res.status(500).json({
+        success: false,
+        message: error.message || 'Erreur synchronisation catalogue services.'
+      });
+    }
+  });
+
   router.get('/modules/status', authenticateJWT, requireAdminGdri, (req, res) => {
     const modules = moduleRegistry.getModules().map(m => ({
       name: m.name,

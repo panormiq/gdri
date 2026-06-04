@@ -22,14 +22,14 @@
                 <input
                     id="ugap-options-filter-search"
                     type="search"
-                    placeholder="Rechercher une option, famille ou groupe…"
+                    placeholder="Rechercher une option ou nœud catalogue…"
                     style="padding:7px 8px;border:1px solid #d1d5db;border-radius:6px;"
                 >
             </label>
             <label style="display:flex;flex-direction:column;gap:4px;min-width:220px;">
-                <span style="font-size:12px;color:#64748b;">Filtre famille</span>
-                <select id="ugap-options-filter-family" style="padding:7px 8px;border:1px solid #d1d5db;border-radius:6px;">
-                    <option value="">Toutes les familles</option>
+                <span style="font-size:12px;color:#64748b;">Filtre nœud catalogue</span>
+                <select id="ugap-options-filter-node" style="padding:7px 8px;border:1px solid #d1d5db;border-radius:6px;">
+                    <option value="">Tous les nœuds</option>
                 </select>
             </label>
             <label style="display:flex;flex-direction:column;gap:4px;min-width:220px;">
@@ -42,7 +42,7 @@
                 <span style="font-size:12px;color:#64748b;">Filtre statut</span>
                 <select id="ugap-options-filter-status" style="padding:7px 8px;border:1px solid #d1d5db;border-radius:6px;">
                     <option value="all">Tous</option>
-                    <option value="unassigned">Non assignées (famille)</option>
+                    <option value="unassigned">Non liées (nœud catalogue)</option>
                     <option value="catalogue">Options catalogue</option>
                     <option value="mino">Minorations (MINO)</option>
                     <option value="majo">Majorations (MAJO)</option>
@@ -65,23 +65,23 @@
         <div style="height:1px;background:#e5e7eb;margin:12px 0;"></div>
 
         <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;">
-            <label style="display:flex;flex-direction:column;gap:4px;min-width:220px;">
-                <span style="font-size:12px;color:#64748b;">Affecter famille</span>
-                <select id="ugap-options-assign-family" style="padding:7px 8px;border:1px solid #d1d5db;border-radius:6px;">
-                    <option value="">Choisir une famille…</option>
+            <label style="display:flex;flex-direction:column;gap:4px;min-width:320px;flex:1;">
+                <span style="font-size:12px;color:#64748b;">Affecter nœud catalogue</span>
+                <select id="ugap-options-assign-node" style="padding:7px 8px;border:1px solid #d1d5db;border-radius:6px;">
+                    <option value="">Choisir un nœud…</option>
                 </select>
             </label>
-            <label style="display:flex;flex-direction:column;gap:4px;min-width:260px;">
-                <span style="font-size:12px;color:#64748b;">Affecter groupe</span>
-                <select id="ugap-options-assign-group" style="padding:7px 8px;border:1px solid #d1d5db;border-radius:6px;">
-                    <option value="">Sans groupe</option>
-                </select>
-            </label>
-            <button type="button" id="ugap-options-apply-manual" class="btn btn-primary">Affecter la sélection</button>
-            <button type="button" id="ugap-options-delete-selected" class="btn btn-outline" style="border-color:#dc3545;color:#b91c1c;" title="Retire les options du catalogue (familles et picks inclus)">Supprimer la sélection</button>
-            <button type="button" id="ugap-options-reassign-groups" class="btn btn-outline" hidden>Réassigner groupes</button>
+            <button type="button" id="ugap-options-apply-manual" class="btn btn-primary">Lier la sélection</button>
+            <button type="button" id="ugap-options-delete-selected" class="btn btn-outline" style="border-color:#dc3545;color:#b91c1c;" title="Retire les options du catalogue (liens nœuds et picks inclus)">Supprimer la sélection</button>
             <button type="button" id="ugap-options-select-visible" class="btn btn-outline">Sélectionner tout</button>
-            <button type="button" id="ugap-options-auto-assign" class="btn btn-outline">Auto-assigner par mots-clés</button>
+            <button type="button" id="ugap-options-auto-assign" class="btn btn-outline" title="Lie chaque option non liée au nœud catalogue dont les mots-clés correspondent (même règle que l’onglet Catalogue)">Auto-assigner (mots-clés nœuds)</button>
+            <button
+                type="button"
+                id="ugap-options-reset-assignments"
+                class="btn btn-outline"
+                style="border-color:#b45309;color:#b45309;"
+                title="Retire tous les liens option → nœud catalogue (catalogObjectId), sans supprimer les options ni l’arbre catalogue"
+            >Réinitialiser assignations</button>
         </div>
         <p id="ugap-options-action-status" class="ugap-options-action-status" hidden aria-live="polite"></p>
     </div>

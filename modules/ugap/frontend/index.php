@@ -12,6 +12,7 @@ if (ugap_is_gdri_embed()) {
 
 ugap_enqueue_style('/frontend/assets/css/variables.css');
 ugap_enqueue_style('/frontend/assets/css/main.css');
+ugap_enqueue_style('/modules/ugap/frontend/assets/css/ugap-layout.css');
 ugap_enqueue_style('/modules/ugap/frontend/assets/css/configurateur.css');
 ?>
 <!DOCTYPE html>
@@ -26,7 +27,13 @@ ugap_enqueue_style('/modules/ugap/frontend/assets/css/configurateur.css');
     <?php require __DIR__ . '/configurateur/partials/body.php'; ?>
     <script src="/modules/ugap/frontend/assets/js/shared/ugap-embed-layout.js?v=<?= ugap_asset_version('/modules/ugap/frontend/assets/js/shared/ugap-embed-layout.js') ?>"></script>
     <script src="/modules/ugap/frontend/assets/js/shared/ugap-family-decision-group.js?v=<?= ugap_asset_version('/modules/ugap/frontend/assets/js/shared/ugap-family-decision-group.js') ?>"></script>
+    <script src="/modules/ugap/frontend/assets/js/shared/ugap-family-components.js?v=<?= ugap_asset_version('/modules/ugap/frontend/assets/js/shared/ugap-family-components.js') ?>"></script>
+    <script src="/modules/ugap/frontend/assets/js/shared/ugap-categorie-display-behavior.js?v=<?= ugap_asset_version('/modules/ugap/frontend/assets/js/shared/ugap-categorie-display-behavior.js') ?>"></script>
+    <script src="/modules/ugap/frontend/parametrage/assets/js/catalogue/catalogue-nodes-core.js?v=<?= ugap_asset_version('/modules/ugap/frontend/parametrage/assets/js/catalogue/catalogue-nodes-core.js') ?>"></script>
     <script src="/modules/ugap/frontend/assets/js/shared/boat-template-tree.js?v=<?= ugap_asset_version('/modules/ugap/frontend/assets/js/shared/boat-template-tree.js') ?>"></script>
+    <script src="/modules/ugap/frontend/assets/js/shared/ugap-group-catalog.js?v=<?= ugap_asset_version('/modules/ugap/frontend/assets/js/shared/ugap-group-catalog.js') ?>"></script>
+    <script src="/modules/ugap/frontend/assets/js/shared/ugap-group-display.js?v=<?= ugap_asset_version('/modules/ugap/frontend/assets/js/shared/ugap-group-display.js') ?>"></script>
+    <script src="/modules/ugap/frontend/assets/js/shared/ugap-option-display-name.js?v=<?= ugap_asset_version('/modules/ugap/frontend/assets/js/shared/ugap-option-display-name.js') ?>"></script>
     <script src="/modules/ugap/frontend/assets/js/shared/ugap-model-base-options.js?v=<?= ugap_asset_version('/modules/ugap/frontend/assets/js/shared/ugap-model-base-options.js') ?>"></script>
     <script src="/modules/ugap/frontend/assets/js/shared/ugap-option-line-kind.js?v=<?= ugap_asset_version('/modules/ugap/frontend/assets/js/shared/ugap-option-line-kind.js') ?>"></script>
     <script src="/modules/ugap/frontend/assets/js/shared/ugap-base-adj-links.js?v=<?= ugap_asset_version('/modules/ugap/frontend/assets/js/shared/ugap-base-adj-links.js') ?>"></script>

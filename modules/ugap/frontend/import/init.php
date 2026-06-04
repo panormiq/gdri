@@ -13,6 +13,7 @@ $__ugapFrontendRoot = dirname(__DIR__);
 $ugapImportEnqueueAssets = static function (): void {
     ugap_enqueue_style('/frontend/assets/css/variables.css');
     ugap_enqueue_style('/frontend/assets/css/main.css');
+    ugap_enqueue_style('/modules/ugap/frontend/assets/css/ugap-layout.css');
     ugap_enqueue_style('/modules/ugap/frontend/assets/css/ugap-templates.css');
     ugap_enqueue_style('/modules/ugap/frontend/import/assets/css/import.css');
 

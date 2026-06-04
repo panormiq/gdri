@@ -235,25 +235,38 @@
         installUgapModalViewportAlign();
     }
 
+    function portalUgapModalToBody(modal) {
+        if (!modal || modal.parentNode === document.body) return;
+        document.body.appendChild(modal);
+    }
+
     function alignUgapModalToViewport(modal) {
         if (!modal) return;
-        const vh = global.innerHeight || 600;
-        const margin = 16;
-        const ptr = global.__ugapLastPointer || { clientY: Math.round(vh * 0.2) };
-        let padTop = Math.max(margin, (ptr.clientY || 0) - 28);
-        padTop = Math.min(padTop, Math.max(margin, vh - 72));
+        portalUgapModalToBody(modal);
+        const margin = 20;
 
         modal.style.display = 'flex';
         modal.style.alignItems = 'flex-start';
         modal.style.justifyContent = 'center';
-        modal.style.paddingTop = padTop + 'px';
+        modal.style.paddingTop = margin + 'px';
         modal.style.paddingBottom = margin + 'px';
-        modal.style.paddingLeft = '12px';
-        modal.style.paddingRight = '12px';
+        modal.style.paddingLeft = '16px';
+        modal.style.paddingRight = '16px';
         modal.style.overflowY = 'auto';
         modal.style.boxSizing = 'border-box';
+        modal.scrollTop = 0;
 
-        if (isEmbeddedMode()) {
+        const content = modal.querySelector('.modal-content');
+        if (content) content.scrollTop = 0;
+
+        const isIframeEmbed = (() => {
+            try {
+                return new URLSearchParams(global.location.search || '').get('embedded') === '1';
+            } catch (_) {
+                return false;
+            }
+        })();
+        if (isIframeEmbed) {
             resetEmbeddedDocumentHeight();
             try {
                 global.parent.postMessage(
@@ -262,6 +275,35 @@
                 );
             } catch (_) { /* ignore */ }
         }
+    }
+
+    function setUgapModalOpenLock(open) {
+        const root = document.documentElement;
+        if (!root) return;
+        if (open) root.classList.add('ugap-modal-open');
+        else if (!document.querySelector('.modal.active')) {
+            root.classList.remove('ugap-modal-open');
+        }
+    }
+
+    function openUgapModal(modal) {
+        if (!modal) return;
+        portalUgapModalToBody(modal);
+        modal.classList.add('active');
+        alignUgapModalToViewport(modal);
+        setUgapModalOpenLock(true);
+        try {
+            global.scrollTo({ top: 0, behavior: 'instant' });
+        } catch (_) {
+            global.scrollTo(0, 0);
+        }
+    }
+
+    function closeUgapModal(modal) {
+        if (!modal) return;
+        modal.classList.remove('active');
+        clearUgapModalViewportStyles(modal);
+        setUgapModalOpenLock(false);
     }
 
     function clearUgapModalViewportStyles(modal) {
@@ -357,9 +399,14 @@
         applyEmbeddedLayout,
         onEmbeddedTabActivated,
         installUgapModalViewportAlign,
-        alignUgapModalToViewport
+        alignUgapModalToViewport,
+        portalUgapModalToBody,
+        openUgapModal,
+        closeUgapModal
     };
 
+    global.openUgapModal = openUgapModal;
+    global.closeUgapModal = closeUgapModal;
     global.isEmbeddedMode = isEmbeddedMode;
     global.measureEmbeddedContentHeight = measureEmbeddedContentHeight;
     global.scheduleParentEmbedResize = scheduleParentEmbedResize;

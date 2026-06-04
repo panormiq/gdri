@@ -1,6 +1,6 @@
 /**
  * Section Parametrage > Options
- * Assignation famille/groupe + filtres + auto-assign mots-cles.
+ * Liaison option ↔ nœud catalogue (catalogObjectId) + filtres + auto-assign mots-clés nœuds.
  */
 (function initUgapOptionsTab(global) {
     'use strict';
@@ -11,12 +11,16 @@
         rows: [],
         visibleRows: [],
         selectedIds: new Set(),
-        filterFamily: '',
+        filterCatalogNode: '',
         filterModel: '',
         filterQuery: '',
         filterStatus: 'all',
         filterTag: 'all',
     };
+
+    const CatalogState = () => global.UgapCatalogueLcState;
+    const NodesCore = () => global.UgapCatalogueNodesCore;
+    const LinkHeur = () => global.UgapCatalogueOptionLinkHeuristic;
 
     function esc(v) {
         if (typeof global.escapeHtml === 'function') return global.escapeHtml(v);
@@ -41,6 +45,29 @@
         const OLK = global.UgapOptionLineKind;
         if (OLK?.inferOptionLineKind) return OLK.inferOptionLineKind(opt);
         return 'option';
+    }
+
+    function getTagRegistry() {
+        const Types = global.UgapCatalogueTypes;
+        const byId = new Map();
+        (Types?.DEFAULT_TAG_REGISTRY || []).forEach((t) => {
+            const id = String(t?.id || '').trim();
+            if (id) byId.set(id, { id, label: String(t?.label || id).trim() });
+        });
+        const custom = CatalogState()?.getCatalog?.()?.tagRegistry;
+        (Array.isArray(custom) ? custom : []).forEach((t) => {
+            const id = String(t?.id || '').trim();
+            if (id) byId.set(id, { id, label: String(t?.label || id).trim() });
+        });
+        return Array.from(byId.values()).sort((a, b) =>
+            a.label.localeCompare(b.label, 'fr', { sensitivity: 'base' })
+        );
+    }
+
+    function tagLabel(tagId) {
+        const id = String(tagId || '').trim();
+        if (!id) return '';
+        return getTagRegistry().find((t) => t.id === id)?.label || id;
     }
 
     function resolveOptionTypeMeta(opt) {
@@ -74,37 +101,38 @@
         return document.getElementById(id);
     }
 
-    function getFamilies() {
-        return Array.isArray(state.uiState?.families) ? state.uiState.families : [];
+    function getCatalogNodes() {
+        return CatalogState()?.getCatalog?.()?.nodes || [];
     }
 
-    function getFamilyByLabel(label) {
-        const key = String(label || '').trim().toLowerCase();
-        return getFamilies().find((f) => String(f?.familyLabel || '').trim().toLowerCase() === key) || null;
+    function resolveCatalogNodeLabel(nodeId) {
+        const id = String(nodeId || '').trim();
+        if (!id) return '';
+        const nodes = getCatalogNodes();
+        return NodesCore()?.nodeBreadcrumb?.(nodes, id)
+            || CatalogState()?.getNodeById?.(id)?.label
+            || id;
     }
 
-    function findFamilyInList(families, label) {
-        const key = String(label || '').trim().toLowerCase();
-        if (!key) return null;
-        return (Array.isArray(families) ? families : []).find(
-            (f) => String(f?.familyLabel || '').trim().toLowerCase() === key
-        ) || null;
+    function buildNodeSelectOptions() {
+        const nodes = getCatalogNodes();
+        const options = [];
+        const walk = (parentId, depth) => {
+            (NodesCore()?.getChildren?.(nodes, parentId) || []).forEach((node) => {
+                const path = NodesCore()?.nodeBreadcrumb?.(nodes, node.id) || node.label;
+                const prefix = depth > 0 ? `${'　'.repeat(depth)}└ ` : '';
+                options.push({ value: node.id, label: `${prefix}${path}` });
+                walk(node.id, depth + 1);
+            });
+        };
+        walk('', 0);
+        return options;
     }
 
-    function getDecisionGroups(family) {
-        if (Array.isArray(family?.decisionGroups) && family.decisionGroups.length) {
-            return family.decisionGroups;
-        }
-        if (Array.isArray(family?.groups) && family.groups.length) {
-            return family.groups;
-        }
-        return [];
-    }
-
-    function getAssignFamilyLabel() {
-        const assign = String(byId('ugap-options-assign-family')?.value || '').trim();
+    function getAssignCatalogNodeId() {
+        const assign = String(byId('ugap-options-assign-node')?.value || '').trim();
         if (assign) return assign;
-        return String(byId('ugap-options-filter-family')?.value || '').trim();
+        return String(byId('ugap-options-filter-node')?.value || '').trim();
     }
 
     function showOptionsStatus(message, type = 'info') {
@@ -228,38 +256,6 @@
         return `${cm.length} modèle(s)`;
     }
 
-    function buildLinksByOptionId(uiState) {
-        const map = new Map();
-        getFamilies(uiState).forEach((family) => {
-            const familyLabel = String(family?.familyLabel || '').trim();
-            const famOptionIds = Array.isArray(family?.optionIds) ? family.optionIds : [];
-            famOptionIds.forEach((idRaw) => {
-                const id = String(idRaw || '').trim();
-                if (!id) return;
-                if (!map.has(id)) {
-                    map.set(id, { familyLabel: '', groupIds: new Set(), groupLabels: new Set() });
-                }
-                if (familyLabel) map.get(id).familyLabel = familyLabel;
-            });
-            (Array.isArray(family?.decisionGroups) ? family.decisionGroups : []).forEach((group) => {
-                const gid = String(group?.id || '').trim();
-                const glabel = String(group?.label || gid || '').trim();
-                const optionIds = Array.isArray(group?.optionIds) ? group.optionIds : [];
-                optionIds.forEach((idRaw) => {
-                    const id = String(idRaw || '').trim();
-                    if (!id) return;
-                    if (!map.has(id)) {
-                        map.set(id, { familyLabel: familyLabel || '', groupIds: new Set(), groupLabels: new Set() });
-                    }
-                    if (familyLabel && !map.get(id).familyLabel) map.get(id).familyLabel = familyLabel;
-                    if (gid) map.get(id).groupIds.add(gid);
-                    if (glabel) map.get(id).groupLabels.add(glabel);
-                });
-            });
-        });
-        return map;
-    }
-
     function getBaseAdjLinksApi() {
         return global.UgapBaseAdjLinks || null;
     }
@@ -308,10 +304,8 @@
     }
 
     function normalizeRows() {
-        const optionLinks = buildLinksByOptionId(state.uiState);
         const rows = flattenOptions(state.data).map((opt, idx) => {
             const id = String(opt?.id || '').trim();
-            const link = optionLinks.get(id);
             const typeMeta = resolveOptionTypeMeta(opt);
             const isImportBase = isImportGeneratedBaseOption(opt);
             const sourceAdjIds = isImportBase ? resolveSourceAdjIdsForBaseRow(id) : [];
@@ -322,17 +316,22 @@
                 sourceAdjIds,
             };
             const sourceOptionId = isImportBase ? resolveSourceOptionIdForBaseRow(rowDraft) : '';
+            const catalogObjectId = String(opt?.catalogObjectId || '').trim();
+            const catalogNodeLabel = resolveCatalogNodeLabel(catalogObjectId);
             return {
                 id,
                 name: String(opt?.name || id || `Option ${idx + 1}`).trim(),
+                details: excelLabel,
+                importExcelLabel: excelLabel,
+                refUgap: String(opt?.refUgap || opt?.baseRefUgap || '').trim(),
+                familyLabel: String(opt?.familyLabel || '').trim(),
                 category: String(opt?.__categoryName || '—'),
                 pricePublic: Number.isFinite(Number(opt?.priceClient)) ? Number(opt.priceClient) : null,
                 priceUgap: Number.isFinite(Number(opt?.priceUgap)) ? Number(opt.priceUgap) : null,
                 baseIncluded: opt?.baseIncluded === true,
                 assignedPostes: formatAssignedPostes(opt),
-                familyLabel: String(link?.familyLabel || opt?.familyLabel || '').trim(),
-                groupIds: link ? Array.from(link.groupIds) : [],
-                groups: link ? Array.from(link.groupLabels) : [],
+                catalogObjectId,
+                catalogNodeLabel,
                 isImportBase,
                 importExcelLabel: excelLabel,
                 sourceAdjIds,
@@ -343,6 +342,9 @@
                 compatibleModelIds: (Array.isArray(opt?.compatibleModels) ? opt.compatibleModels : [])
                     .map((mid) => String(mid || '').trim())
                     .filter(Boolean),
+                catalogTags: (Array.isArray(opt?.tags) ? opt.tags : [])
+                    .map((x) => String(x || '').trim())
+                    .filter(Boolean),
                 optionType: typeMeta.key,
                 optionTypeLabel: typeMeta.label,
                 optionTypeClassName: typeMeta.className,
@@ -350,41 +352,56 @@
         });
 
         rows.sort((a, b) => {
-            const fa = String(a.familyLabel || '');
-            const fb = String(b.familyLabel || '');
-            if (fa !== fb) return fa.localeCompare(fb, 'fr');
+            const na = String(a.catalogNodeLabel || '');
+            const nb = String(b.catalogNodeLabel || '');
+            if (na !== nb) return na.localeCompare(nb, 'fr');
             return String(a.name || '').localeCompare(String(b.name || ''), 'fr');
         });
         return rows;
     }
 
     function filteredRows() {
-        const familyFilter = String(state.filterFamily || '').trim().toLowerCase();
+        const nodeFilter = String(state.filterCatalogNode || '').trim();
         const modelFilter = String(state.filterModel || '').trim();
-        const query = normalizeText(state.filterQuery || '');
+        const filterQuery = String(state.filterQuery || '');
         const statusFilter = String(state.filterStatus || 'all');
         const tagFilter = String(state.filterTag || 'all').trim().toLowerCase();
+        const Text = () => global.UgapOptionTextMatch;
         return state.rows.filter((row) => {
-            const hasFamily = !!String(row.familyLabel || '').trim();
-            const haystack = normalizeText([
-                row.name,
-                row.familyLabel,
-                row.groups.join(' '),
-                row.category,
-                row.optionTypeLabel,
-                row.optionType,
-                row.assignedPostes
-            ].join(' '));
-            if (query && !haystack.includes(query)) return false;
-            const familyOk = !familyFilter || String(row.familyLabel || '').trim().toLowerCase() === familyFilter;
-            if (!familyOk) return false;
+            const hasNode = !!String(row.catalogObjectId || '').trim();
+            if (filterQuery && Text()?.rowMatchesOptionsFilter) {
+                if (!Text().rowMatchesOptionsFilter(row, filterQuery)) return false;
+            } else if (filterQuery) {
+                const query = normalizeText(filterQuery);
+                const haystack = normalizeText([
+                    row.name,
+                    row.details,
+                    row.importExcelLabel,
+                    row.refUgap,
+                    row.familyLabel,
+                    row.catalogNodeLabel,
+                    row.category,
+                    row.optionTypeLabel,
+                    row.optionType,
+                    row.assignedPostes,
+                ].join(' '));
+                if (!haystack.includes(query)) return false;
+            }
+            const nodeOk = !nodeFilter || String(row.catalogObjectId || '').trim() === nodeFilter;
+            if (!nodeOk) return false;
             if (modelFilter) {
                 const cm = Array.isArray(row.compatibleModelIds) ? row.compatibleModelIds : [];
                 if (!cm.includes(modelFilter)) return false;
             }
-            if (tagFilter !== 'all' && String(row.optionType || '').toLowerCase() !== tagFilter) return false;
+            if (tagFilter !== 'all') {
+                const typeHit = String(row.optionType || '').toLowerCase() === tagFilter;
+                const catalogHit = (Array.isArray(row.catalogTags) ? row.catalogTags : [])
+                    .map((x) => String(x || '').trim().toLowerCase())
+                    .includes(tagFilter);
+                if (!typeHit && !catalogHit) return false;
+            }
             if (statusFilter === 'unassigned') {
-                return !hasFamily;
+                return !hasNode;
             }
             if (statusFilter === 'catalogue') {
                 return row.optionType === 'catalogue';
@@ -404,47 +421,19 @@
         });
     }
 
-    function renderFamilySelectCell(row) {
-        const current = String(row?.familyLabel || '').trim();
-        const placeholder = current
-            ? ''
-            : '<option value="" selected disabled>Choisir une famille…</option>';
-        const options = getFamilies().map((family) => {
-            const label = String(family?.familyLabel || '').trim();
-            if (!label) return '';
-            const selected = label === current ? 'selected' : '';
-            return `<option value="${esc(label)}" ${selected}>${esc(label)}</option>`;
+    function renderNodeSelectCell(row) {
+        const current = String(row?.catalogObjectId || '').trim();
+        const options = buildNodeSelectOptions().map((opt) => {
+            const selected = opt.value === current ? 'selected' : '';
+            return `<option value="${esc(opt.value)}" ${selected}>${esc(opt.label)}</option>`;
         }).join('');
+        const emptySelected = current ? '' : ' selected';
         return `
             <select
-                data-row-family-option-id="${esc(row.id)}"
-                style="min-width:180px;padding:4px 6px;border:1px solid #d1d5db;border-radius:6px;background:#fff;"
+                data-row-node-option-id="${esc(row.id)}"
+                style="min-width:220px;padding:4px 6px;border:1px solid #d1d5db;border-radius:6px;background:#fff;"
             >
-                ${placeholder}
-                ${options}
-            </select>
-        `;
-    }
-
-    function renderGroupSelectCell(row) {
-        const family = getFamilyByLabel(row?.familyLabel);
-        const groups = getDecisionGroups(family);
-        const currentGroup = String((Array.isArray(row?.groupIds) ? row.groupIds[0] : '') || '').trim();
-        const options = groups.map((group) => {
-            const gid = String(group?.id || '').trim();
-            if (!gid) return '';
-            const glabel = String(group?.label || gid).trim();
-            const selected = gid === currentGroup ? 'selected' : '';
-            return `<option value="${esc(gid)}" ${selected}>${esc(glabel)}</option>`;
-        }).join('');
-        const disabled = row?.familyLabel ? '' : 'disabled';
-        return `
-            <select
-                data-row-group-option-id="${esc(row.id)}"
-                ${disabled}
-                style="min-width:180px;padding:4px 6px;border:1px solid #d1d5db;border-radius:6px;background:#fff;"
-            >
-                <option value="">Sans groupe</option>
+                <option value=""${emptySelected}>— non lié —</option>
                 ${options}
             </select>
         `;
@@ -460,27 +449,22 @@
         btn.textContent = allSelected ? 'Désélectionner la vue' : 'Sélectionner la vue';
     }
 
-    function fillFamilySelects() {
-        const families = getFamilies();
-        const familyFilter = byId('ugap-options-filter-family');
-        const familyAssign = byId('ugap-options-assign-family');
-        if (!familyFilter || !familyAssign) return;
+    function fillNodeSelects() {
+        const nodeFilter = byId('ugap-options-filter-node');
+        const nodeAssign = byId('ugap-options-assign-node');
+        if (!nodeFilter || !nodeAssign) return;
 
-        const opts = families.map((f) => {
-            const label = String(f?.familyLabel || '').trim();
-            if (!label) return '';
-            return `<option value="${esc(label)}">${esc(label)}</option>`;
-        }).join('');
+        const opts = buildNodeSelectOptions().map((opt) =>
+            `<option value="${esc(opt.value)}">${esc(opt.label)}</option>`
+        ).join('');
 
-        const curFilter = state.filterFamily;
-        const curAssign = familyAssign.value;
-        familyFilter.innerHTML = `<option value="">Toutes les familles</option>${opts}`;
-        familyAssign.innerHTML = `<option value="">Choisir une famille…</option>${opts}`;
-        if (curFilter) familyFilter.value = curFilter;
-        if (curAssign) familyAssign.value = curAssign;
+        const curFilter = state.filterCatalogNode;
+        const curAssign = nodeAssign.value;
+        nodeFilter.innerHTML = `<option value="">Tous les nœuds</option>${opts}`;
+        nodeAssign.innerHTML = `<option value="">— Retirer le lien —</option>${opts}`;
+        if (curFilter) nodeFilter.value = curFilter;
+        if (curAssign) nodeAssign.value = curAssign;
         fillModelSelect();
-        fillGroupAssignSelect();
-        updateReassignGroupsButton();
     }
 
     function fillModelSelect() {
@@ -497,197 +481,23 @@
         if (cur) select.value = cur;
     }
 
-    function resolveDefaultGroupId(family) {
-        const groups = getDecisionGroups(family);
-        const preferred = String(family?.defaultDecisionGroupId || '').trim();
-        if (global.UgapFamilleLcState?.resolveDefaultDecisionGroupId) {
-            const resolved = global.UgapFamilleLcState.resolveDefaultDecisionGroupId(groups, preferred);
-            if (resolved) return String(resolved).trim();
-        }
-        return preferred
-            || String(groups.find((g) => String(g?.id || '').trim() === 'option_catalogue')?.id || '').trim()
-            || String(groups[0]?.id || '').trim();
-    }
-
-    function suggestGroupIdForOptionInFamily(row, family) {
-        const name = String(row?.name || '').trim();
-        const groups = getDecisionGroups(family);
-        let bestGroupId = '';
-        let bestScore = 0;
-        groups.forEach((group) => {
-            const gid = String(group?.id || '').trim();
-            if (!gid) return;
-            const hits = tokenizeKeywords(group?.keywords).filter((kw) => matchKeyword(name, kw)).length;
-            if (hits > bestScore) {
-                bestScore = hits;
-                bestGroupId = gid;
-            }
-        });
-        if (bestGroupId) return bestGroupId;
-        return resolveDefaultGroupId(family);
-    }
-
-    function collectOptionIdsForFamily(family) {
-        const ids = new Set();
-        const labelKey = String(family?.familyLabel || '').trim().toLowerCase();
-        if (!labelKey) return [];
-
-        (Array.isArray(family?.optionIds) ? family.optionIds : []).forEach((id) => {
-            const s = String(id || '').trim();
-            if (s) ids.add(s);
-        });
-            (Array.isArray(family?.decisionGroups) ? family.decisionGroups : []).forEach((group) => {
-            (Array.isArray(group?.optionIds) ? group.optionIds : []).forEach((id) => {
-                const s = String(id || '').trim();
-                if (s) ids.add(s);
-            });
-        });
+    function applyCatalogNodeToLocalRows(optionIds, catalogObjectId) {
+        const ids = new Set((optionIds || []).map((x) => String(x || '').trim()).filter(Boolean));
+        const nodeId = String(catalogObjectId || '').trim();
+        const label = resolveCatalogNodeLabel(nodeId);
         state.rows.forEach((row) => {
-            if (String(row.familyLabel || '').trim().toLowerCase() === labelKey && row.id) {
-                ids.add(row.id);
-            }
+            if (!ids.has(row.id)) return;
+            row.catalogObjectId = nodeId;
+            row.catalogNodeLabel = label;
+            const raw = findRawOptionById(row.id);
+            if (raw) raw.catalogObjectId = nodeId;
         });
-        return Array.from(ids);
-    }
-
-    function reassignGroupsInFamily(families, familyLabel, optionIds) {
-        const next = Array.isArray(families) ? families : [];
-        const target = findFamilyInList(next, familyLabel);
-        if (!target) return { families: next, count: 0, reason: 'family_not_found' };
-
-        const groups = getDecisionGroups(target);
-        if (!groups.length) {
-            return { families: next, count: 0, reason: 'no_groups' };
-        }
-        if (!target.decisionGroups?.length && groups.length) {
-            target.decisionGroups = groups;
-        }
-
-        const familyOptionIds = collectOptionIdsForFamily(target);
-        const familySet = new Set(familyOptionIds);
-        let toProcess = (Array.isArray(optionIds) ? optionIds : [])
-            .map((id) => String(id || '').trim())
-            .filter((id) => familySet.has(id));
-        if (!toProcess.length) toProcess = familyOptionIds;
-        if (!toProcess.length) return { families: next, count: 0, reason: 'no_options' };
-
-        const processSet = new Set(toProcess);
-        groups.forEach((group) => {
-            group.optionIds = (Array.isArray(group.optionIds) ? group.optionIds : [])
-                .filter((id) => !processSet.has(String(id || '').trim()));
-        });
-
-        let count = 0;
-        toProcess.forEach((optionId) => {
-            const row = state.rows.find((r) => r.id === optionId) || { id: optionId, name: '' };
-            const groupId = suggestGroupIdForOptionInFamily(row, target);
-            const group = groups.find((g) => String(g?.id || '').trim() === groupId);
-            if (!group) return;
-            group.optionIds = uniquePush(Array.isArray(group.optionIds) ? group.optionIds : [], optionId);
-            target.optionIds = uniquePush(Array.isArray(target.optionIds) ? target.optionIds : [], optionId);
-            count += 1;
-        });
-        return { families: next, count, reason: count ? 'ok' : 'no_groups' };
-    }
-
-    function fillGroupAssignSelect() {
-        const familyLabel = String(byId('ugap-options-assign-family')?.value || '').trim();
-        const groupSelect = byId('ugap-options-assign-group');
-        if (!groupSelect) return;
-        const family = getFamilyByLabel(familyLabel);
-        const groups = getDecisionGroups(family);
-        const defaultGroupId = family ? resolveDefaultGroupId(family) : '';
-        const opts = groups.map((g) => {
-            const id = String(g?.id || '').trim();
-            const label = String(g?.label || id || '').trim();
-            if (!id) return '';
-            const suffix = id === defaultGroupId ? ' (défaut)' : '';
-            return `<option value="${esc(id)}">${esc(label || id)}${esc(suffix)}</option>`;
-        }).join('');
-        groupSelect.innerHTML = `<option value="">Groupe par défaut si vide</option>${opts}`;
-        updateReassignGroupsButton();
-    }
-
-    function updateReassignGroupsButton() {
-        const btn = byId('ugap-options-reassign-groups');
-        if (!btn) return;
-        const familyLabel = getAssignFamilyLabel();
-        btn.hidden = !familyLabel;
-        btn.disabled = false;
     }
 
     function renderSourceAdjCell(row) {
         const label = resolveExcelSourceLabelForRow(row);
         if (!label) return '<span style="color:#94a3b8;">—</span>';
         return `<span class="ugap-options-source-excel">${esc(label)}</span>`;
-    }
-
-    function getDecisionGroupInFamily(familyLabel, groupId) {
-        const family = getFamilyByLabel(familyLabel);
-        const gid = String(groupId || '').trim();
-        if (!family || !gid) return null;
-        return getDecisionGroups(family).find((g) => String(g?.id || '').trim() === gid) || null;
-    }
-
-    function isAdjPricingGroup(group) {
-        const BAL = getBaseAdjLinksApi();
-        if (BAL?.isAdjPricingGroup) return BAL.isAdjPricingGroup(group);
-        const mode = String(group?.priceMode || group?.pricingMode || '').trim().toLowerCase();
-        return mode === 'minoration' || mode === 'majoration';
-    }
-
-    const baseAdjSaveInFlight = new Map();
-
-    /** Persiste les liens IBP ↔ source quand le groupe famille est en prix mino/majo. */
-    async function autoPersistAdjLinksForIbp(optionId, familyLabel, groupId) {
-        const baseId = String(optionId || '').trim();
-        if (!baseId || !isImportGeneratedBaseOption(findRawOptionById(baseId))) return;
-
-        const group = getDecisionGroupInFamily(familyLabel, groupId || resolveDefaultGroupId(getFamilyByLabel(familyLabel)));
-        if (!isAdjPricingGroup(group)) return;
-
-        const linked = resolveSourceAdjIdsForBaseRow(baseId);
-        if (!linked.length) return;
-        if (baseAdjSaveInFlight.get(baseId)) return baseAdjSaveInFlight.get(baseId);
-
-        const promise = (async () => {
-            await global.apiCall(`/base-products/${encodeURIComponent(baseId)}/adj-links`, {
-                method: 'POST',
-                body: JSON.stringify({ linkedOptionIds: linked }),
-            });
-            const row = state.rows.find((r) => r.id === baseId);
-            if (row) {
-                row.sourceAdjIds = linked;
-                row.sourceLinked = linked.length > 0;
-            }
-        })().catch((err) => {
-            console.warn('UGAP autoPersistAdjLinksForIbp:', err?.message || err);
-        }).finally(() => {
-            baseAdjSaveInFlight.delete(baseId);
-        });
-
-        baseAdjSaveInFlight.set(baseId, promise);
-        return promise;
-    }
-
-    function applyFamiliesToLocalState(nextFamilies) {
-        state.uiState = { ...(state.uiState || {}), families: nextFamilies };
-        const links = buildLinksByOptionId(state.uiState);
-        state.rows.forEach((row) => {
-            const link = links.get(String(row?.id || '').trim());
-            if (!link) return;
-            row.familyLabel = String(link.familyLabel || '').trim();
-            row.groupIds = Array.from(link.groupIds);
-            row.groups = Array.from(link.groupLabels);
-        });
-    }
-
-    function resolveGroupIdForFamilyChange(row, familyLabel) {
-        const previousGroupId = String((Array.isArray(row?.groupIds) ? row.groupIds[0] : '') || '').trim();
-        if (!previousGroupId) return '';
-        const groups = getDecisionGroups(getFamilyByLabel(familyLabel));
-        const ok = groups.some((g) => String(g?.id || '').trim() === previousGroupId);
-        return ok ? previousGroupId : '';
     }
 
     function focusOptionRow(mount, optionId) {
@@ -722,19 +532,29 @@
                 : '';
             const optionNameCell = `<span class="ugap-options-edit-name" data-option-id="${esc(r.id)}" title="Double-clic pour renommer">${esc(r.name)}</span>`;
             const postesCell = `<span class="ugap-options-edit-postes" data-option-id="${esc(r.id)}" title="Double-clic pour modifier les postes">${esc(r.assignedPostes || '—')}</span>`;
+            const catalogTagPills = (Array.isArray(r.catalogTags) ? r.catalogTags : [])
+                .map((tid) => `<span class="ugap-catalogue-tag-pill">${esc(tagLabel(tid))}</span>`)
+                .join(' ');
+            const tagCellInner = catalogTagPills
+                ? `<span class="ugap-options-tag-pills">${catalogTagPills}</span>`
+                : '<span class="ugap-options-tag-empty">—</span>';
+            const tagCell = `
+                <span class="ugap-options-edit-tag" data-option-id="${esc(r.id)}" title="Double-clic pour modifier les tags catalogue">
+                    ${tagCellInner}
+                    <span class="ugap-option-tag ugap-option-tag--kind ${esc(r.optionTypeClassName || '')}" title="Type ligne (import)">${esc(r.optionTypeLabel || 'Catalogue')}</span>
+                </span>`;
             return `
                 <tr data-option-row-id="${esc(r.id)}">
                     <td style="width:34px;text-align:center;">
                         <input type="checkbox" data-option-id="${esc(r.id)}" ${checked}>
                     </td>
                     <td>${optionNameCell}${ibp}${idHint}</td>
-                    <td><span class="ugap-option-tag ${esc(r.optionTypeClassName || '')}">${esc(r.optionTypeLabel || 'Catalogue')}</span></td>
+                    <td class="ugap-options-tag-cell">${tagCell}</td>
                     <td class="num">${esc(fmtMoney(r.pricePublic))}</td>
                     <td class="num">${esc(fmtMoney(r.priceUgap))}</td>
                     <td>${postesCell}</td>
                     <td class="ugap-options-adj-cell">${renderSourceAdjCell(r)}</td>
-                    <td>${renderFamilySelectCell(r)}</td>
-                    <td>${renderGroupSelectCell(r)}</td>
+                    <td>${renderNodeSelectCell(r)}</td>
                     <td style="width:42px;text-align:center;">
                         <button type="button" class="ugap-options-row-delete" data-option-id="${esc(r.id)}"
                             title="Supprimer cette option du catalogue"
@@ -750,13 +570,12 @@
                     <tr>
                         <th style="width:34px;"></th>
                         <th>Option</th>
-                        <th>Tag</th>
+                        <th>Tags catalogue</th>
                         <th class="num">Prix public</th>
                         <th class="num">Prix UGAP</th>
                         <th>Postes assignés</th>
                         <th>Libellé Excel source</th>
-                        <th>Famille</th>
-                        <th>Groupes</th>
+                        <th>Nœud catalogue</th>
                         <th style="width:42px;"></th>
                     </tr>
                 </thead>
@@ -768,125 +587,32 @@
         if (focusOptionId) focusOptionRow(mount, focusOptionId);
     }
 
-    function deepCloneFamilies() {
-        return JSON.parse(JSON.stringify(getFamilies()));
-    }
-
-    function uniquePush(list, value) {
-        const set = new Set(Array.isArray(list) ? list : []);
-        if (value) set.add(value);
-        return Array.from(set);
-    }
-
-    function tokenizeKeywords(raw) {
-        return String(raw || '')
-            .split(/[;,|]/g)
-            .map((x) => x.trim().toLowerCase())
-            .filter(Boolean);
-    }
-
     function normalizeText(value) {
+        if (global.UgapOptionTextMatch?.normalizeText) {
+            return global.UgapOptionTextMatch.normalizeText(value);
+        }
         return String(value || '')
             .normalize('NFD')
             .replace(/[\u0300-\u036f]/g, '')
             .toLowerCase();
     }
 
-    function matchKeyword(optionName, keyword) {
-        const n = normalizeText(optionName);
-        const k = normalizeText(keyword);
-        return !!k && n.includes(k);
-    }
-
-    function applyAssignmentToFamilies(families, optionIds, familyLabel, groupId) {
-        const ids = new Set((optionIds || []).map((x) => String(x || '').trim()).filter(Boolean));
-        if (!ids.size) return families;
-        const next = Array.isArray(families) ? families : [];
-
-        // Retrait de toutes les familles/groupes existants.
-        next.forEach((family) => {
-            family.optionIds = (Array.isArray(family.optionIds) ? family.optionIds : [])
-                .filter((id) => !ids.has(String(id || '').trim()));
-            getDecisionGroups(family).forEach((group) => {
-                group.optionIds = (Array.isArray(group.optionIds) ? group.optionIds : [])
-                    .filter((id) => !ids.has(String(id || '').trim()));
-            });
-        });
-
-        const target = findFamilyInList(next, familyLabel);
-        if (!target) return next;
-        target.optionIds = (Array.isArray(target.optionIds) ? target.optionIds : []);
-        ids.forEach((id) => {
-            target.optionIds = uniquePush(target.optionIds, id);
-        });
-
-        const groups = getDecisionGroups(target);
-        if (!target.decisionGroups?.length && groups.length) {
-            target.decisionGroups = groups;
+    async function persistCatalogNodeForOptions(optionIds, catalogObjectId) {
+        const Cat = CatalogState();
+        if (!Cat?.updateOptionFields) throw new Error('État catalogue indisponible.');
+        const nodeId = String(catalogObjectId || '').trim();
+        if (nodeId && !Cat.getNodeById?.(nodeId)) {
+            throw new Error('Nœud catalogue introuvable.');
         }
-        const preferred = String(groupId || '').trim();
-        const resolvedGroupId = preferred || resolveDefaultGroupId(target);
-
-        groups.forEach((group) => {
-            const gid = String(group?.id || '').trim();
-            group.optionIds = Array.isArray(group.optionIds) ? group.optionIds : [];
-            if (gid && gid === resolvedGroupId) {
-                ids.forEach((id) => {
-                    group.optionIds = uniquePush(group.optionIds, id);
-                });
-            } else {
-                group.optionIds = group.optionIds.filter((id) => !ids.has(String(id || '').trim()));
+        const assignments = optionIds.map((id) => ({ optionId: id, catalogObjectId: nodeId }));
+        if (Cat.updateOptionFieldsBulk) {
+            await Cat.updateOptionFieldsBulk(assignments);
+        } else {
+            for (const id of optionIds) {
+                await Cat.updateOptionFields(id, { catalogObjectId: nodeId });
             }
-        });
-
-        return next;
-    }
-
-    async function saveFamilies(nextFamilies) {
-        await global.apiCall('/ui-state', {
-            method: 'PUT',
-            body: JSON.stringify({
-                families: nextFamilies,
-                familyGroupTypes: Array.isArray(state.uiState?.familyGroupTypes) ? state.uiState.familyGroupTypes : []
-            })
-        });
-    }
-
-    /** Met à jour les lignes visibles sans recharger tout le catalogue (filtres / scroll conservés). */
-    function syncRowsFromFamilies(nextFamilies) {
-        state.uiState = { ...(state.uiState || {}), families: nextFamilies };
-        const links = buildLinksByOptionId(state.uiState);
-        state.rows.forEach((row) => {
-            const link = links.get(row.id);
-            if (!link) {
-                row.familyLabel = '';
-                row.groupIds = [];
-                row.groups = [];
-                return;
-            }
-            row.familyLabel = String(link.familyLabel || '').trim();
-            row.groupIds = Array.from(link.groupIds);
-            row.groups = Array.from(link.groupLabels);
-        });
-        renderRows();
-    }
-
-    function resolveGroupIdForFamilyChange(row, familyLabel) {
-        const previousGroupId = String((Array.isArray(row?.groupIds) ? row.groupIds[0] : '') || '').trim();
-        if (!previousGroupId) return '';
-        const family = getFamilyByLabel(familyLabel);
-        const groups = getDecisionGroups(family);
-        const stillValid = groups.some((g) => String(g?.id || '').trim() === previousGroupId);
-        return stillValid ? previousGroupId : '';
-    }
-
-    async function saveFamilyLabelsInCatalog(optionIds, familyLabel) {
-        const assignments = optionIds.map((id) => ({ optionId: id, familyLabel }));
-        if (!assignments.length) return;
-        await global.apiCall('/options/assign-families-bulk', {
-            method: 'POST',
-            body: JSON.stringify({ assignments })
-        });
+        }
+        applyCatalogNodeToLocalRows(optionIds, nodeId);
     }
 
     function selectedOptionIds() {
@@ -897,8 +623,8 @@
         const ids = Array.isArray(optionIds) ? optionIds : [];
         const ibpCount = ids.filter((id) => isImportGeneratedBaseOption(findRawOptionById(id))).length;
         let msg = ids.length === 1
-            ? `Supprimer définitivement cette option du catalogue ?\n\nLes références (familles, groupes, picks de base) seront nettoyées.`
-            : `Supprimer définitivement ${ids.length} option(s) du catalogue ?\n\nLes références (familles, groupes, picks de base) seront nettoyées.`;
+            ? `Supprimer définitivement cette option du catalogue ?\n\nLes liens nœud catalogue et picks de base seront nettoyés.`
+            : `Supprimer définitivement ${ids.length} option(s) du catalogue ?\n\nLes liens nœud catalogue et picks de base seront nettoyés.`;
         if (ibpCount) {
             msg += `\n\nAttention : ${ibpCount} option(s) de base (IBP) — ne supprimez que si vous êtes sûr.`;
         }
@@ -931,8 +657,8 @@
                     : `${deleted} option(s) supprimée(s).`,
                 'success'
             );
+            await CatalogState()?.loadFromServer?.(true);
             await loadOptions();
-            global.UgapFamilleLcState?.loadFromServer?.();
         } catch (err) {
             showOptionsStatus(err?.message || 'Erreur suppression', 'error');
         } finally {
@@ -944,37 +670,27 @@
     }
 
     async function applyManualAssign() {
-        const familyLabel = String(byId('ugap-options-assign-family')?.value || '').trim();
-        const groupId = String(byId('ugap-options-assign-group')?.value || '').trim();
+        const catalogObjectId = String(byId('ugap-options-assign-node')?.value || '').trim();
         const optionIds = selectedOptionIds();
-        if (!familyLabel) {
-            global.showAlert?.('Choisir une famille.', 'warning');
-            return;
-        }
         if (!optionIds.length) {
             global.showAlert?.('Sélectionner au moins une option.', 'warning');
             return;
         }
-        const nextFamilies = applyAssignmentToFamilies(deepCloneFamilies(), optionIds, familyLabel, groupId);
-        await saveFamilies(nextFamilies);
-        await saveFamilyLabelsInCatalog(optionIds, familyLabel);
-        applyFamiliesToLocalState(nextFamilies);
-        const resolvedGroupId = groupId || resolveDefaultGroupId(getFamilyByLabel(familyLabel));
-        await Promise.all(optionIds.map((id) => autoPersistAdjLinksForIbp(id, familyLabel, resolvedGroupId)));
+        await persistCatalogNodeForOptions(optionIds, catalogObjectId);
         renderRows(optionIds[0]);
-        global.showAlert?.(`${optionIds.length} option(s) assignée(s).`, 'success');
+        const label = catalogObjectId ? resolveCatalogNodeLabel(catalogObjectId) : 'aucun nœud';
+        global.showAlert?.(
+            catalogObjectId
+                ? `${optionIds.length} option(s) liée(s) à « ${label} ».`
+                : `${optionIds.length} option(s) : lien catalogue retiré.`,
+            'success'
+        );
     }
 
-    async function assignSingleOption(optionId, familyLabel, groupId) {
+    async function assignSingleOption(optionId, catalogObjectId) {
         const optionIds = [String(optionId || '').trim()].filter(Boolean);
         if (!optionIds.length) return;
-        if (!familyLabel) return;
-        const nextFamilies = applyAssignmentToFamilies(deepCloneFamilies(), optionIds, familyLabel, groupId || '');
-        await saveFamilies(nextFamilies);
-        await saveFamilyLabelsInCatalog(optionIds, familyLabel);
-        applyFamiliesToLocalState(nextFamilies);
-        const resolvedGroupId = groupId || resolveDefaultGroupId(getFamilyByLabel(familyLabel));
-        await autoPersistAdjLinksForIbp(optionIds[0], familyLabel, resolvedGroupId);
+        await persistCatalogNodeForOptions(optionIds, catalogObjectId);
         renderRows(optionIds[0]);
         showOptionsStatus('Enregistré.', 'success');
     }
@@ -999,9 +715,9 @@
     }
 
     function ensureOptionEditModals() {
-        if (byId('ugap-options-rename-modal') && byId('ugap-options-postes-modal')) return;
         const wrap = document.createElement('div');
-        wrap.innerHTML = `
+        const parts = [];
+        if (!byId('ugap-options-rename-modal')) parts.push(`
             <div id="ugap-options-rename-modal" hidden class="ugap-model-base-modal">
                 <div class="ugap-model-base-modal__panel card">
                     <div class="ugap-model-base-modal__head">
@@ -1018,7 +734,8 @@
                         </div>
                     </div>
                 </div>
-            </div>
+            </div>`);
+        if (!byId('ugap-options-postes-modal')) parts.push(`
             <div id="ugap-options-postes-modal" hidden class="ugap-model-base-modal">
                 <div class="ugap-model-base-modal__panel card" style="width:min(640px,96vw);">
                     <div class="ugap-model-base-modal__head">
@@ -1038,8 +755,27 @@
                         </div>
                     </div>
                 </div>
-            </div>
-        `;
+            </div>`);
+        if (!byId('ugap-options-tags-modal')) parts.push(`
+            <div id="ugap-options-tags-modal" hidden class="ugap-model-base-modal">
+                <div class="ugap-model-base-modal__panel card" style="width:min(480px,96vw);">
+                    <div class="ugap-model-base-modal__head">
+                        <strong>Tags catalogue</strong>
+                        <button type="button" class="btn btn-outline" id="ugap-options-tags-close">×</button>
+                    </div>
+                    <div style="padding:14px;">
+                        <div id="ugap-options-tags-option-id" style="margin-bottom:10px;font-size:12px;color:#64748b;"></div>
+                        <p style="margin:0 0 10px;font-size:12px;color:#64748b;">Tags du registre catalogue (onglet Catalogue). Le badge MINO / MAJO / Base reflète le type d’import.</p>
+                        <div id="ugap-options-tags-list" class="ugap-options-tags-list"></div>
+                        <div style="margin-top:14px;display:flex;gap:8px;justify-content:flex-end;">
+                            <button type="button" class="btn btn-outline" id="ugap-options-tags-cancel">Annuler</button>
+                            <button type="button" class="btn btn-primary" id="ugap-options-tags-save">Enregistrer</button>
+                        </div>
+                    </div>
+                </div>
+            </div>`);
+        if (!parts.length) return;
+        wrap.innerHTML = parts.join('');
         Array.from(wrap.children).forEach((el) => document.body.appendChild(el));
     }
 
@@ -1050,6 +786,11 @@
 
     function closePostesModal() {
         const modal = byId('ugap-options-postes-modal');
+        if (modal) modal.hidden = true;
+    }
+
+    function closeTagsModal() {
+        const modal = byId('ugap-options-tags-modal');
         if (modal) modal.hidden = true;
     }
 
@@ -1100,10 +841,15 @@
         if (!modal || !list) return;
         modal.dataset.optionId = id;
         const models = getCatalogModels().slice().sort(compareCatalogModelsByPoste);
+        const assigned = new Set(
+            (Array.isArray(row.compatibleModelIds) ? row.compatibleModelIds : [])
+                .map((x) => String(x || '').trim())
+                .filter(Boolean)
+        );
         list.innerHTML = models.map((m) => {
             const mid = String(m?.id || '').trim();
             if (!mid) return '';
-            const checked = 'checked';
+            const checked = assigned.has(mid) ? ' checked' : '';
             return `
                 <label style="display:flex;align-items:center;gap:8px;padding:6px 4px;border-bottom:1px solid #f1f5f9;">
                     <input type="checkbox" data-poste-model-id="${esc(mid)}" ${checked}>
@@ -1161,6 +907,16 @@
                 });
                 return;
             }
+            if (target.id === 'ugap-options-tags-cancel' || target.id === 'ugap-options-tags-close') {
+                closeTagsModal();
+                return;
+            }
+            if (target.id === 'ugap-options-tags-save') {
+                void saveTagsModal().catch((err) => {
+                    showOptionsStatusInline(err?.message || 'Erreur mise à jour tags', 'error');
+                });
+                return;
+            }
             if (target.id === 'ugap-options-postes-select-all') {
                 byId('ugap-options-postes-list')?.querySelectorAll('input[type="checkbox"][data-poste-model-id]')
                     .forEach((el) => { el.checked = true; });
@@ -1179,6 +935,11 @@
             const postesModal = byId('ugap-options-postes-modal');
             if (postesModal && target === postesModal) {
                 closePostesModal();
+                return;
+            }
+            const tagsModal = byId('ugap-options-tags-modal');
+            if (tagsModal && target === tagsModal) {
+                closeTagsModal();
             }
         });
 
@@ -1186,6 +947,7 @@
             if (event.key === 'Escape') {
                 closeRenameModal();
                 closePostesModal();
+                closeTagsModal();
                 return;
             }
             if (event.key === 'Enter') {
@@ -1208,127 +970,191 @@
         openPostesModal(optionId);
     }
 
-    function suggestByKeywordsForRow(row) {
-        const name = String(row?.name || '').trim();
-        if (!name) return null;
-        const families = getFamilies();
+    function openTagsModal(optionId) {
+        const id = String(optionId || '').trim();
+        const row = state.rows.find((r) => r.id === id);
+        if (!row) return;
+        ensureOptionEditModals();
+        const modal = byId('ugap-options-tags-modal');
+        const hint = byId('ugap-options-tags-option-id');
+        const list = byId('ugap-options-tags-list');
+        if (!modal || !list) return;
+        modal.dataset.optionId = id;
+        const selected = new Set(
+            (Array.isArray(row.catalogTags) ? row.catalogTags : [])
+                .map((x) => String(x || '').trim())
+                .filter(Boolean)
+        );
+        const registry = getTagRegistry();
+        if (!registry.length) {
+            list.innerHTML = '<p class="ugap-param-placeholder">Aucun tag dans le registre — configurez l’onglet Catalogue.</p>';
+        } else {
+            list.innerHTML = registry.map((t) => {
+                const tid = String(t.id || '').trim();
+                const on = selected.has(tid) ? ' checked' : '';
+                return `
+                    <label class="ugap-options-tags-list__item">
+                        <input type="checkbox" data-catalog-tag-id="${esc(tid)}"${on}>
+                        <span>${esc(t.label || tid)}</span>
+                    </label>`;
+            }).join('');
+        }
+        if (hint) hint.textContent = `Option: ${row.name || id}`;
+        modal.hidden = false;
+    }
+
+    function getCheckedCatalogTagIdsFromModal() {
+        const list = byId('ugap-options-tags-list');
+        if (!list) return [];
+        return Array.from(list.querySelectorAll('input[type="checkbox"][data-catalog-tag-id]:checked'))
+            .map((el) => String(el.getAttribute('data-catalog-tag-id') || '').trim())
+            .filter(Boolean);
+    }
+
+    async function saveTagsModal() {
+        const modal = byId('ugap-options-tags-modal');
+        if (!modal) return;
+        const optionId = String(modal.dataset.optionId || '').trim();
+        if (!optionId) return closeTagsModal();
+        const nextTags = getCheckedCatalogTagIdsFromModal();
+        const current = findRawOptionById(optionId);
+        const prevTags = (Array.isArray(current?.tags) ? current.tags : [])
+            .map((x) => String(x || '').trim())
+            .filter(Boolean)
+            .sort()
+            .join('|');
+        const nextKey = nextTags.slice().sort().join('|');
+        if (prevTags === nextKey) return closeTagsModal();
+
+        const Cat = CatalogState();
+        if (Cat?.updateOptionFields) {
+            await Cat.updateOptionFields(optionId, { tags: nextTags });
+        } else {
+            await updateOptionWithPatch(optionId, { tags: nextTags });
+        }
+        closeTagsModal();
+        await loadOptions();
+        showOptionsStatusInline('Tags catalogue mis à jour.', 'success');
+    }
+
+    async function editOptionTagsById(optionId) {
+        openTagsModal(optionId);
+    }
+
+    function syncTagFilterSelectOptions() {
+        const sel = byId('ugap-options-filter-tag');
+        if (!sel) return;
+        const current = String(state.filterTag || 'all');
+        const fixed = [
+            { value: 'all', label: 'Tous les tags' },
+            { value: 'catalogue', label: 'Type : Catalogue' },
+            { value: 'mino', label: 'Type : MINO' },
+            { value: 'majo', label: 'Type : MAJO' },
+            { value: 'base', label: 'Type : Base' },
+            { value: 'pr', label: 'Type : PR' },
+        ];
+        const registry = getTagRegistry().map((t) => ({
+            value: String(t.id || '').trim(),
+            label: `Tag : ${t.label || t.id}`,
+        }));
+        const html = fixed.concat(registry).map((o) =>
+            `<option value="${esc(o.value)}"${o.value === current ? ' selected' : ''}>${esc(o.label)}</option>`
+        ).join('');
+        sel.innerHTML = html;
+    }
+
+    function suggestCatalogNodeForRow(row) {
+        const opt = findRawOptionById(row?.id);
+        if (!opt) return null;
+        const Heur = LinkHeur();
+        if (!Heur?.scoreOptionForCatalogObject) return null;
+
+        const nodes = getCatalogNodes().filter((n) => String(n?.keywords || '').trim());
         let best = null;
-        families.forEach((family) => {
-            const familyLabel = String(family?.familyLabel || '').trim();
-            if (!familyLabel) return;
-            const familyKeyword = String(family?.familyKeyword || '').trim();
-            let score = 0;
-            if (familyKeyword && matchKeyword(name, familyKeyword)) score += 4;
-            let bestGroupId = '';
-            (Array.isArray(family?.decisionGroups) ? family.decisionGroups : []).forEach((group) => {
-                const gKeywords = tokenizeKeywords(group?.keywords);
-                const hits = gKeywords.filter((kw) => matchKeyword(name, kw)).length;
-                if (hits > 0) {
-                    score += hits;
-                    if (!bestGroupId) bestGroupId = String(group?.id || '').trim();
-                }
-            });
-            if (score <= 0) return;
-            if (!best || score > best.score) {
-                best = { familyLabel, groupId: bestGroupId, score };
+        nodes.forEach((node) => {
+            const hit = Heur.scoreOptionForCatalogObject(opt, node);
+            if (!hit?.score) return;
+            if (!best || hit.score > best.score) {
+                best = { catalogObjectId: String(node.id || '').trim(), score: hit.score };
             }
         });
-        if (!best) return null;
-        const family = getFamilyByLabel(best.familyLabel);
-        if (family && !best.groupId) {
-            best.groupId = suggestGroupIdForOptionInFamily(row, family);
-        }
         return best;
     }
 
-    async function reassignGroupsForSelectedFamily() {
-        const btn = byId('ugap-options-reassign-groups');
-        const family = getFamilyByLabel(getAssignFamilyLabel());
-        const familyLabel = String(family?.familyLabel || getAssignFamilyLabel() || '').trim();
-        if (!familyLabel) {
-            showOptionsStatus('Choisir une famille (filtre ou affectation).', 'warning');
+    async function autoAssignByKeywords() {
+        const pool = state.visibleRows.filter((row) => !String(row.catalogObjectId || '').trim());
+        if (!pool.length) {
+            global.showAlert?.('Aucune option sans nœud catalogue dans ce filtre.', 'info');
             return;
         }
+        const nodesWithKw = getCatalogNodes().filter((n) => String(n?.keywords || '').trim());
+        if (!nodesWithKw.length) {
+            global.showAlert?.('Aucun nœud catalogue avec mots-clés — configurez-les dans l’onglet Catalogue.', 'warning');
+            return;
+        }
+
+        const updates = [];
+        pool.forEach((row) => {
+            const suggestion = suggestCatalogNodeForRow(row);
+            if (!suggestion?.catalogObjectId) return;
+            updates.push({ optionId: row.id, catalogObjectId: suggestion.catalogObjectId });
+        });
+        if (!updates.length) {
+            global.showAlert?.('Aucune correspondance mot-clé trouvée (même règle que les liaisons Catalogue).', 'warning');
+            return;
+        }
+
+        const Cat = CatalogState();
+        if (Cat?.updateOptionFieldsBulk) {
+            await Cat.updateOptionFieldsBulk(
+                updates.map((item) => ({
+                    optionId: item.optionId,
+                    catalogObjectId: item.catalogObjectId,
+                }))
+            );
+            updates.forEach((item) => {
+                applyCatalogNodeToLocalRows([item.optionId], item.catalogObjectId);
+            });
+        } else {
+            for (const item of updates) {
+                await persistCatalogNodeForOptions([item.optionId], item.catalogObjectId);
+            }
+        }
+        renderRows(updates[0]?.optionId || null);
+        global.showAlert?.(`Auto-assignation terminée (${updates.length} option(s) liée(s) à un nœud).`, 'success');
+    }
+
+    async function resetAllOptionAssignments() {
+        const msg = [
+            'Réinitialiser tous les liens option → nœud catalogue ?',
+            '',
+            'Conservé : les options, l’arbre catalogue et les mots-clés des nœuds.',
+            'Retiré : catalogObjectId sur chaque option liée.',
+        ].join('\n');
+        const ok = typeof global.confirm === 'function' ? global.confirm(msg) : window.confirm(msg);
+        if (!ok) return;
+
+        const btn = byId('ugap-options-reset-assignments');
         if (btn) {
             btn.disabled = true;
-            btn.textContent = 'Réassignation…';
+            btn.textContent = 'Réinitialisation…';
         }
         try {
-            const labelKey = familyLabel.toLowerCase();
-            const selectedInFamily = selectedOptionIds().filter((id) => {
-                const row = state.rows.find((r) => r.id === id);
-                return String(row?.familyLabel || '').trim().toLowerCase() === labelKey;
-            });
-            const scopeIds = selectedInFamily.length ? selectedInFamily : null;
-            const result = reassignGroupsInFamily(deepCloneFamilies(), familyLabel, scopeIds);
-            if (result.reason === 'family_not_found') {
-                showOptionsStatus(`Famille « ${familyLabel} » introuvable.`, 'warning');
-                return;
-            }
-            if (result.reason === 'no_groups') {
-                showOptionsStatus(`La famille « ${familyLabel} » n'a aucun groupe configuré.`, 'warning');
-                return;
-            }
-            if (!result.count) {
-                showOptionsStatus(`Aucune option à réassigner pour « ${familyLabel} ».`, 'info');
-                return;
-            }
-            await saveFamilies(result.families);
-            applyFamiliesToLocalState(result.families);
-            renderRows(scopeIds?.[0] || null);
-            showOptionsStatus(
-                `${result.count} option(s) réassignée(s) (mot-clé groupe ou groupe par défaut).`,
-                'success'
-            );
+            const res = await global.apiCall('/options/reset-family-assignments', { method: 'POST' });
+            const n = Number(res?.data?.catalogClearedCount || 0);
+            await CatalogState()?.loadFromServer?.(true);
+            await loadOptions();
+            const text = `Liens catalogue réinitialisés (${n} option(s) déliée(s)).`;
+            showOptionsStatus(text, 'success');
+            global.showAlert?.(text, 'success');
         } catch (err) {
-            showOptionsStatus(err?.message || 'Erreur réassignation groupes', 'error');
+            showOptionsStatus(err?.message || 'Erreur réinitialisation assignations', 'error');
         } finally {
             if (btn) {
                 btn.disabled = false;
-                btn.textContent = 'Réassigner groupes';
+                btn.textContent = 'Réinitialiser assignations';
             }
         }
-    }
-
-    async function autoAssignByKeywords() {
-        const pool = state.visibleRows.filter((row) => !String(row.familyLabel || '').trim());
-        if (!pool.length) {
-            global.showAlert?.('Aucune option non assignée dans ce filtre.', 'info');
-            return;
-        }
-        let nextFamilies = deepCloneFamilies();
-        const familyBuckets = new Map();
-        let touched = 0;
-        pool.forEach((row) => {
-            const suggestion = suggestByKeywordsForRow(row);
-            if (!suggestion?.familyLabel) return;
-            touched += 1;
-            nextFamilies = applyAssignmentToFamilies(nextFamilies, [row.id], suggestion.familyLabel, suggestion.groupId);
-            if (!familyBuckets.has(suggestion.familyLabel)) familyBuckets.set(suggestion.familyLabel, []);
-            familyBuckets.get(suggestion.familyLabel).push(row.id);
-        });
-        if (!touched) {
-            global.showAlert?.('Aucune correspondance mot-clé trouvée.', 'warning');
-            return;
-        }
-        await saveFamilies(nextFamilies);
-        const bulk = [];
-        familyBuckets.forEach((optionIds, familyLabel) => {
-            optionIds.forEach((id) => bulk.push({ optionId: id, familyLabel }));
-        });
-        if (bulk.length) {
-            await global.apiCall('/options/assign-families-bulk', {
-                method: 'POST',
-                body: JSON.stringify({ assignments: bulk })
-            });
-        }
-        applyFamiliesToLocalState(nextFamilies);
-        let firstAssignedId = null;
-        familyBuckets.forEach((ids) => {
-            if (!firstAssignedId && ids.length) firstAssignedId = ids[0];
-        });
-        renderRows(firstAssignedId);
-        global.showAlert?.(`Auto-assignation terminée (${touched} option(s)).`, 'success');
     }
 
     async function loadOptions() {
@@ -1336,15 +1162,18 @@
         if (!mount) return;
         mount.innerHTML = '<p class="ugap-param-placeholder">Chargement des options…</p>';
         try {
+            await CatalogState()?.loadFromServer?.();
             const [dataRes, uiStateRes] = await Promise.all([
                 global.apiCall('/data', { method: 'GET' }),
                 global.apiCall('/ui-state', { method: 'GET' }),
             ]);
             state.data = dataRes?.data || {};
             state.uiState = uiStateRes?.data || {};
+            CatalogState()?.syncOptionsIndexFromPayload?.(state.data);
             state.rows = normalizeRows();
             state.selectedIds.clear();
-            fillFamilySelects();
+            fillNodeSelects();
+            syncTagFilterSelectOptions();
             const searchInput = byId('ugap-options-filter-search');
             if (searchInput) searchInput.value = state.filterQuery;
             renderRows();
@@ -1369,10 +1198,6 @@
                 void loadOptions();
                 return;
             }
-            if (target.closest('#ugap-options-reassign-groups')) {
-                void reassignGroupsForSelectedFamily();
-                return;
-            }
             if (target.closest('#ugap-options-apply-manual')) {
                 void applyManualAssign().catch((err) => {
                     showOptionsStatus(err?.message || 'Erreur assignation manuelle', 'error');
@@ -1382,6 +1207,12 @@
             if (target.closest('#ugap-options-auto-assign')) {
                 void autoAssignByKeywords().catch((err) => {
                     showOptionsStatus(err?.message || 'Erreur auto-assignation', 'error');
+                });
+                return;
+            }
+            if (target.closest('#ugap-options-reset-assignments')) {
+                void resetAllOptionAssignments().catch((err) => {
+                    showOptionsStatus(err?.message || 'Erreur réinitialisation assignations', 'error');
                 });
                 return;
             }
@@ -1428,12 +1259,21 @@
                         showOptionsStatus(err?.message || 'Erreur mise à jour postes', 'error');
                     });
                 }
+                return;
+            }
+            const tagEl = target.closest('.ugap-options-edit-tag');
+            if (tagEl) {
+                const optionId = String(tagEl.getAttribute('data-option-id') || '').trim();
+                if (optionId) {
+                    void editOptionTagsById(optionId).catch((err) => {
+                        showOptionsStatus(err?.message || 'Erreur modification tags', 'error');
+                    });
+                }
             }
         });
 
-        byId('ugap-options-filter-family')?.addEventListener('change', (e) => {
-            state.filterFamily = String(e.target?.value || '');
-            updateReassignGroupsButton();
+        byId('ugap-options-filter-node')?.addEventListener('change', (e) => {
+            state.filterCatalogNode = String(e.target?.value || '').trim();
             renderRows();
         });
         byId('ugap-options-filter-model')?.addEventListener('change', (e) => {
@@ -1452,11 +1292,6 @@
             state.filterTag = String(e.target?.value || 'all');
             renderRows();
         });
-        byId('ugap-options-assign-family')?.addEventListener('change', () => {
-            fillGroupAssignSelect();
-            updateReassignGroupsButton();
-        });
-
         document.addEventListener('change', (event) => {
             const input = event.target;
             if (!(input instanceof HTMLInputElement)) return;
@@ -1473,24 +1308,11 @@
         document.addEventListener('change', (event) => {
             const target = event.target;
             if (!(target instanceof HTMLSelectElement)) return;
-            if (target.matches('#ugap-options-table-wrap select[data-row-family-option-id]')) {
-                const optionId = String(target.getAttribute('data-row-family-option-id') || '').trim();
-                const familyLabel = String(target.value || '').trim();
-                const row = state.rows.find((r) => r.id === optionId);
-                const groupId = row ? resolveGroupIdForFamilyChange(row, familyLabel) : '';
-                void assignSingleOption(optionId, familyLabel, groupId).catch((err) => {
-                    showOptionsStatus(err?.message || 'Erreur affectation famille', 'error');
-                });
-                return;
-            }
-            if (target.matches('#ugap-options-table-wrap select[data-row-group-option-id]')) {
-                const optionId = String(target.getAttribute('data-row-group-option-id') || '').trim();
-                const row = state.rows.find((r) => r.id === optionId);
-                const familyLabel = String(row?.familyLabel || '').trim();
-                const groupId = String(target.value || '').trim();
-                if (!familyLabel) return;
-                void assignSingleOption(optionId, familyLabel, groupId).catch((err) => {
-                    showOptionsStatus(err?.message || 'Erreur affectation groupe', 'error');
+            if (target.matches('#ugap-options-table-wrap select[data-row-node-option-id]')) {
+                const optionId = String(target.getAttribute('data-row-node-option-id') || '').trim();
+                const catalogObjectId = String(target.value || '').trim();
+                void assignSingleOption(optionId, catalogObjectId).catch((err) => {
+                    showOptionsStatus(err?.message || 'Erreur liaison nœud catalogue', 'error');
                 });
             }
         });
@@ -1498,7 +1320,6 @@
 
     function mountOptionsSection() {
         bindEvents();
-        updateReassignGroupsButton();
         void loadOptions();
     }
 

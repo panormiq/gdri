@@ -1,0 +1,46 @@
+{
+  "publicApiBase": "https://www.gdr-innovation.fr/api",
+  "defaultLinkTtlDays": 7,
+  "maxUploadSizeMb": 25,
+  "maxFilesPerRequest": 50,
+  "defaultGroupLinkAsZip": true,
+  "defaultTags": [
+    { "code": "pre-visite", "label": "Pré-visite", "color": "#0d6efd", "sortOrder": 1 },
+    { "code": "investisseur", "label": "Investisseur", "color": "#198754", "sortOrder": 2 },
+    { "code": "annonce", "label": "Annonce", "color": "#fd7e14", "sortOrder": 3 }
+  ],
+  "defaultSlotTemplates": [
+    {
+      "code": "photos",
+      "label": "Photos du bien",
+      "multiple": true,
+      "required": false,
+      "sortOrder": 1,
+      "allowedMimeTypes": ["image/jpeg", "image/png", "image/webp", "image/heic", "image/heif"]
+    },
+    {
+      "code": "dpe",
+      "label": "DPE",
+      "multiple": false,
+      "required": false,
+      "sortOrder": 2,
+      "allowedMimeTypes": ["application/pdf", "image/jpeg", "image/png"]
+    },
+    {
+      "code": "plans",
+      "label": "Plans / diagnostics",
+      "multiple": true,
+      "required": false,
+      "sortOrder": 3,
+      "allowedMimeTypes": ["application/pdf", "image/jpeg", "image/png"]
+    },
+    {
+      "code": "autre",
+      "label": "Autre document",
+      "multiple": true,
+      "required": false,
+      "sortOrder": 99,
+      "allowedMimeTypes": ["application/pdf", "image/jpeg", "image/png", "image/webp"]
+    }
+  ]
+}

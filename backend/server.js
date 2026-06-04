@@ -17,6 +17,7 @@ const EntrepriseDatabaseService = require('./services/EntrepriseDatabaseService'
 const { ObjectId } = require('mongodb');
 const moduleRegistry = require('./core/module-registry');
 const { loadModules } = require('./core/module-loader');
+const { syncServicesCatalogFromModules } = require('./core/services-catalog-sync');
 const { globalLimiter, detectSuspiciousConnections } = require('./middleware/rate-limiter');
 
 // Créer l'application Express
@@ -217,38 +218,6 @@ async function ensureGdriEntity() {
       { _id: new ObjectId(adminUser._id) },
       { $set: updateData }
     );
-  }
-}
-
-async function syncServicesCatalogFromModules() {
-  const servicesCollection = database.getCollection('services');
-  const discoveredModules = moduleRegistry.getModules();
-
-  for (const moduleInfo of discoveredModules) {
-    const slug = String(moduleInfo.name || '').trim().toLowerCase();
-    if (!slug) continue;
-
-    const serviceDoc = {
-      name: moduleInfo.displayName || moduleInfo.name,
-      slug,
-      description: moduleInfo.description || `Module ${moduleInfo.displayName || moduleInfo.name}`,
-      icon: moduleInfo.icon || '🧩',
-      status: moduleInfo.enabled === false ? 'inactive' : 'active',
-      updated_at: new Date()
-    };
-
-    const existing = await servicesCollection.findOne({ slug });
-    if (existing) {
-      await servicesCollection.updateOne(
-        { _id: existing._id },
-        { $set: serviceDoc }
-      );
-    } else {
-      await servicesCollection.insertOne({
-        ...serviceDoc,
-        created_at: new Date()
-      });
-    }
   }
 }
 

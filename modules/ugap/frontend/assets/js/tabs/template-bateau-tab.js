@@ -1,14 +1,18 @@
 /**
  * FICHIER : modules/ugap/frontend/assets/js/tabs/template-bateau-tab.js
- * RÔLE : Template bateau — éditeur d’arbre categoryTree + refs groupes de décision.
+ * RÔLE : Template bateau — ordre du parcours (miroir onglet Catalogue) + snapshot dérivé (categoryTree + catalogNodeOrder).
+ * Pas d’édition famille/groupe ici : nœuds = Catalogue, options = onglet Options (catalogObjectId).
  *
- * SORTIES : snapshot { categoryTree[], categoryIds[], baseOptionIds[] }
+ * SORTIES : snapshot { catalogNodeOrder, categoryTree[], categoryIds[], baseOptionIds[] }
  * APPELÉ PAR : admin.php renderActiveTab('template-bateau')
  */
 (function initUgapTemplateBateauTab(global) {
     'use strict';
 
     const Tree = () => global.UgapBoatTemplateTree;
+    const Catalog = () => global.UgapGroupCatalog;
+    const CatalogState = () => global.UgapCatalogueLcState;
+    const NodesCore = () => global.UgapCatalogueNodesCore;
 
     function escapeHtml(value) {
         if (typeof global.escapeHtml === 'function') return global.escapeHtml(value);
@@ -17,13 +21,6 @@
             .replace(/</g, '&lt;')
             .replace(/>/g, '&gt;')
             .replace(/"/g, '&quot;');
-    }
-
-    function normalizeGroups(raw) {
-        if (typeof global.normalizeFamilyDecisionGroups === 'function') {
-            return global.normalizeFamilyDecisionGroups(raw);
-        }
-        return Array.isArray(raw) ? raw : [];
     }
 
     function getUgapData() {
@@ -44,66 +41,232 @@
         return all.filter((cat) => !isSystemBucketCategory(cat));
     }
 
-    function getCatalogueFamilies() {
-        if (typeof global.getFamiliesForAssignationTab === 'function') {
-            return global.getFamiliesForAssignationTab();
+    async function ensureCatalogForTemplate() {
+        const St = CatalogState();
+        if (!St) return;
+        if (St.refreshOptionsFromServer) {
+            const payload = await St.refreshOptionsFromServer();
+            if (payload && typeof global.setUgapCurrentData === 'function') {
+                const cur = getUgapData();
+                global.setUgapCurrentData({ ...(cur || {}), ...payload, categories: payload.categories || cur?.categories });
+            }
+            return;
         }
-        if (typeof global.getFamilleValidatedFamilies === 'function') {
-            return global.getFamilleValidatedFamilies();
-        }
-        return [];
+        if (St.loadFromServer) await St.loadFromServer(true);
     }
 
-    function resolveCategoryFamiliesWithGroups(cat) {
-        if (Tree()) {
-            return Tree().resolveCategoryFamiliesWithGroups(cat, getCatalogueFamilies());
+    function getCatalogNodesForTemplate() {
+        const Cat = Catalog();
+        if (Cat?.resolveCatalogNodes) {
+            return Cat.resolveCatalogNodes({});
         }
-        return [];
+        const Core = NodesCore();
+        let nodes = CatalogState()?.getCatalog?.()?.nodes || [];
+        if (!nodes.length) {
+            const data = getUgapData();
+            const raw = data?.uiState?.catalog;
+            if (raw && Core?.normalizeCatalog) {
+                nodes = Core.normalizeCatalog(raw).nodes || [];
+            }
+            if (!nodes.length && Array.isArray(data?.categories) && data.categories.length && Core?.migrateLegacyCatalog) {
+                const migrated = Core.migrateLegacyCatalog({
+                    categories: data.categories,
+                    objects: raw?.objects,
+                    nodes: raw?.nodes,
+                });
+                nodes = Array.isArray(migrated) ? migrated : [];
+            }
+            if (nodes.length && CatalogState()?.setCatalog) {
+                const tagRegistry = Array.isArray(raw?.tagRegistry) ? raw.tagRegistry : undefined;
+                CatalogState().setCatalog(
+                    { nodes, ...(tagRegistry ? { tagRegistry } : {}) },
+                    { persist: false }
+                );
+            }
+        }
+        if (nodes.length && Core?.normalizeCatalog) {
+            return Core.normalizeCatalog({ nodes }).nodes || [];
+        }
+        return nodes;
+    }
+
+    function hasCatalogNodes() {
+        return getCatalogNodesForTemplate().length > 0;
+    }
+
+    function getCatalogNodeById(nodeId) {
+        const id = String(nodeId || '').trim();
+        if (!id) return null;
+        const nodes = getCatalogNodesForTemplate();
+        return NodesCore()?.getNodeById?.(nodes, id)
+            || nodes.find((n) => NodesCore()?.resolveNodeId?.(n) === id || String(n?.id || '').trim() === id)
+            || null;
+    }
+
+    /** IDs enfants ordonnés (catalogue + ordre parcours template). */
+    function getOrderedSiblingIds(parentCatalogId, catalogNodes, orderMap) {
+        const Core = NodesCore();
+        const pid = String(parentCatalogId || '').trim();
+        const defaultIds = (Core?.getChildren?.(catalogNodes, pid) || [])
+            .map((n) => String(n.id || '').trim())
+            .filter(Boolean);
+        const order = orderMap && typeof orderMap === 'object' ? orderMap : {};
+        const stored = Array.isArray(order[pid]) ? order[pid].map((x) => String(x || '').trim()).filter(Boolean) : [];
+        if (!stored.length) return defaultIds;
+        const valid = new Set(defaultIds);
+        const out = [];
+        stored.forEach((id) => {
+            if (valid.has(id)) out.push(id);
+        });
+        defaultIds.forEach((id) => {
+            if (!out.includes(id)) out.push(id);
+        });
+        return out;
+    }
+
+    function sanitizeCatalogNodeOrder(orderMap, catalogNodes) {
+        const Core = NodesCore();
+        const rows = Core?.asNodeRows?.(catalogNodes) || [];
+        const byId = new Set(rows.map((n) => n.id));
+        const out = {};
+        Object.keys(orderMap && typeof orderMap === 'object' ? orderMap : {}).forEach((key) => {
+            const pid = String(key === 'root' ? '' : key).trim();
+            if (pid && !byId.has(pid)) return;
+            const raw = Array.isArray(orderMap[key]) ? orderMap[key] : [];
+            const ids = raw.map((x) => String(x || '').trim()).filter((id) => byId.has(id));
+            if (ids.length) out[pid] = ids;
+        });
+        return out;
+    }
+
+    function ensureCatalogNodeOrderIfEmpty(draft) {
+        const d = draft || getTemplateBateauCreateDraft();
+        if (!d.catalogNodeOrder || typeof d.catalogNodeOrder !== 'object') {
+            d.catalogNodeOrder = {};
+        }
+        const catalogNodes = getCatalogNodesForTemplate();
+        if (!catalogNodes.length) return d.catalogNodeOrder;
+        const hasKeys = Object.keys(d.catalogNodeOrder).some((k) => {
+            const ids = d.catalogNodeOrder[k];
+            return Array.isArray(ids) && ids.length > 0;
+        });
+        if (!hasKeys && Tree()?.defaultCatalogNodeOrder) {
+            d.catalogNodeOrder = Tree().defaultCatalogNodeOrder(catalogNodes);
+        } else if (Tree()?.mergeCatalogNodeOrder) {
+            d.catalogNodeOrder = Tree().mergeCatalogNodeOrder(catalogNodes, d.catalogNodeOrder);
+        }
+        return d.catalogNodeOrder;
+    }
+
+    function buildVirtualNodeFromCatalogId(catalogNodeId) {
+        const id = String(catalogNodeId || '').trim();
+        if (!id) return null;
+        const catalogNodes = getCatalogNodesForTemplate();
+        const cn = getCatalogNodeById(id);
+        if (!cn) return null;
+        const label = NodesCore()?.nodeBreadcrumb?.(catalogNodes, id)
+            || String(cn.label || id).trim();
+        const refs = Tree()?.buildRefsFromCatalogNode
+            ? Tree().buildRefsFromCatalogNode(cn, catalogNodes)
+            : [];
+        return {
+            id: Tree()?.templateNodeIdForCatalog?.(id) || id,
+            label,
+            catalogNodeRefId: id,
+            decisionGroupRefs: refs,
+            children: [],
+        };
+    }
+
+    function catalogNodesForOptionLookup() {
+        return getCatalogNodesForTemplate();
+    }
+
+    /** Compte directe — identique au badge de l’onglet Catalogue. */
+    function catalogNodeOptionCount(catalogNodeId) {
+        const nodes = catalogNodesForOptionLookup();
+        return CatalogState()?.getOptionsForNode?.(catalogNodeId, nodes)?.length ?? 0;
+    }
+
+    function catalogNodeRoleText(catalogNodeId) {
+        const nodes = catalogNodesForOptionLookup();
+        const optCount = catalogNodeOptionCount(catalogNodeId);
+        const childCount = NodesCore()?.getChildren?.(nodes, catalogNodeId)?.length || 0;
+        return NodesCore()?.nodeRoleLabel?.(optCount, childCount)?.text || '';
+    }
+
+    function catalogNodeOptionsLinkSummary(catalogNodeId) {
+        const nodes = catalogNodesForOptionLookup();
+        return CatalogState()?.getOptionsLinkSummaryForNode?.(catalogNodeId, nodes)
+            || { direct: [], onDescendants: [] };
+    }
+
+    function buildPreviewTreeFromDraft(draft) {
+        const d = draft || getTemplateBateauCreateDraft();
+        if (!Tree()?.buildCategoryTreeFromCatalog || !hasCatalogNodes()) return [];
+        ensureCatalogNodeOrderIfEmpty(d);
+        const catalogNodes = getCatalogNodesForTemplate();
+        const order = Tree().normalizeCatalogNodeOrder?.(d.catalogNodeOrder) || d.catalogNodeOrder;
+        return Tree().buildCategoryTreeFromCatalog(catalogNodes, order);
+    }
+
+    function buildTemplateContext() {
+        const categories = getCatalogueCategoriesForTemplate();
+        const catalogNodes = getCatalogNodesForTemplate();
+        const Cat = Catalog();
+        if (Cat?.buildContext) {
+            return Cat.buildContext(categories, catalogNodes);
+        }
+        return {
+            catalogueFamilies: [],
+            catalogNodes,
+            resolveCategoryById: (id) => categories.find((c) => String(c?.id || '').trim() === String(id || '').trim()) || null,
+            optionById: Tree()?.buildCatalogueOptionById?.(categories) || new Map(),
+        };
+    }
+
+    function resolveSnapshotCategoryTree(snap) {
+        const catalogue = getCatalogueCategoriesForTemplate();
+        const catalogNodes = getCatalogNodesForTemplate();
+        const byId = new Map(catalogue.map((c) => [String(c.id || '').trim(), c]));
+        const resolveCategoryById = (id) => byId.get(String(id || '').trim()) || null;
+        if (!Tree()) return Array.isArray(snap?.categoryTree) ? snap.categoryTree : [];
+        return Tree().normalizeBoatTemplateSnapshot(snap, {
+            resolveCategoryById,
+            catalogNodes,
+        }).categoryTree || [];
     }
 
     function getBoatTemplateSnapshotCategories(tpl) {
         const snap = tpl?.snapshot && typeof tpl.snapshot === 'object' ? tpl.snapshot : {};
         const catalogue = getCatalogueCategoriesForTemplate();
+        const catalogNodes = getCatalogNodesForTemplate();
         const byId = new Map(catalogue.map((c) => [String(c.id || '').trim(), c]));
 
-        if (Tree()) {
-            const normalized = Tree().normalizeBoatTemplateSnapshot(snap, {
-                resolveCategoryById: (id) => byId.get(String(id || '').trim()) || null
-            });
-            return (normalized.categoryTree || []).map((node) => {
-                const refId = String(node.categoryRefId || '').trim();
-                const cat = refId ? byId.get(refId) : null;
-                const families = cat ? resolveCategoryFamiliesWithGroups(cat) : [];
-                const name = String(node.label || cat?.objectName || cat?.name || refId).trim() || '—';
-                return {
-                    id: node.id,
-                    name,
-                    objectName: name,
-                    families,
-                    missing: refId && !cat
-                };
-            });
-        }
-
-        const ids = Array.isArray(snap.categoryIds) ? snap.categoryIds : [];
-        return ids.map((id) => {
-            const cat = byId.get(id);
-            const name = String(cat?.objectName || cat?.name || id).trim() || '—';
-            return {
-                id,
-                name,
-                objectName: name,
-                families: cat ? resolveCategoryFamiliesWithGroups(cat) : [],
-                missing: !cat
-            };
-        });
+        if (!Tree()) return [];
+        const optionById = Tree().buildCatalogueOptionById(catalogue);
+        const resolveCategoryById = (id) => byId.get(String(id || '').trim()) || null;
+        const flatNodes = Tree().flattenTemplateNodesForSnapshot(resolveSnapshotCategoryTree(snap));
+        return flatNodes
+            .map((node) => Tree().buildSnapshotCategoryFromNode(
+                node,
+                resolveCategoryById,
+                [],
+                optionById,
+                { catalogNodes }
+            ))
+            .filter((entry) => (Array.isArray(entry.families) ? entry.families : []).length > 0);
     }
 
     global.getBoatTemplateSnapshotCategories = getBoatTemplateSnapshotCategories;
 
     function getTemplateBateauCreateDraft() {
         if (!global.__templateBateauCreateDraft || typeof global.__templateBateauCreateDraft !== 'object') {
-            global.__templateBateauCreateDraft = { label: '', categoryTree: [] };
+            global.__templateBateauCreateDraft = { label: '', catalogNodeOrder: {}, categoryTree: [] };
+        }
+        if (!global.__templateBateauCreateDraft.catalogNodeOrder
+            || typeof global.__templateBateauCreateDraft.catalogNodeOrder !== 'object') {
+            global.__templateBateauCreateDraft.catalogNodeOrder = {};
         }
         if (!Array.isArray(global.__templateBateauCreateDraft.categoryTree)) {
             global.__templateBateauCreateDraft.categoryTree = [];
@@ -112,8 +275,12 @@
     }
 
     function resetTemplateBateauCreateDraft() {
-        global.__templateBateauCreateDraft = { label: '', categoryTree: [] };
+        global.__templateBateauCreateDraft = { label: '', catalogNodeOrder: {}, categoryTree: [] };
         global.__templateBateauEditIndex = null;
+        global.__templateBateauCollapseDefaultsDone = false;
+        if (global.__templateBateauCollapsedNodeIds instanceof Set) {
+            global.__templateBateauCollapsedNodeIds.clear();
+        }
     }
 
     function loadDraftFromTemplate(tpl) {
@@ -121,59 +288,54 @@
         draft.label = String(tpl?.label || '').trim();
         const snap = tpl?.snapshot && typeof tpl.snapshot === 'object' ? tpl.snapshot : {};
         const catalogue = getCatalogueCategoriesForTemplate();
+        const catalogNodes = getCatalogNodesForTemplate();
         const byId = new Map(catalogue.map((c) => [String(c.id || '').trim(), c]));
         if (Tree()) {
+            const resolveCategoryById = (id) => byId.get(String(id || '').trim()) || null;
             const normalized = Tree().normalizeBoatTemplateSnapshot(snap, {
-                resolveCategoryById: (id) => byId.get(String(id || '').trim()) || null
+                resolveCategoryById,
+                catalogNodes,
             });
-            draft.categoryTree = JSON.parse(JSON.stringify(normalized.categoryTree || []));
+            let order = Tree().normalizeCatalogNodeOrder?.(
+                snap.catalogNodeOrder || normalized.catalogNodeOrder
+            ) || {};
+            if (!Object.keys(order).length && (normalized.categoryTree || []).length) {
+                order = Tree().extractCatalogNodeOrderFromCategoryTree(
+                    normalized.categoryTree,
+                    catalogNodes
+                );
+            }
+            order = sanitizeCatalogNodeOrder(order, catalogNodes);
+            draft.catalogNodeOrder = catalogNodes.length
+                ? Tree().mergeCatalogNodeOrder(catalogNodes, order)
+                : {};
+            draft.categoryTree = [];
         } else {
+            draft.catalogNodeOrder = {};
             draft.categoryTree = [];
         }
     }
 
     function normalizeDraftTree(draft) {
-        if (!Tree()) return draft.categoryTree || [];
-        return Tree().normalizeCategoryTree(draft.categoryTree);
+        return buildPreviewTreeFromDraft(draft);
     }
 
     function buildSnapshotFromDraft(draft) {
-        const tree = normalizeDraftTree(draft);
         const catalogue = getCatalogueCategoriesForTemplate();
-        const byId = new Map(catalogue.map((c) => [String(c.id || '').trim(), c]));
-        if (Tree()) {
-            return Tree().normalizeBoatTemplateSnapshot(
-                { categoryTree: tree, baseOptionIds: [] },
-                { resolveCategoryById: (id) => byId.get(String(id || '').trim()) || null }
-            );
+        const catalogNodes = getCatalogNodesForTemplate();
+        const optionById = Tree()?.buildCatalogueOptionById?.(catalogue) || new Map();
+        if (!Tree()?.buildCategoryTreeFromCatalog) {
+            throw new Error('Module template indisponible — rechargez la page.');
         }
-        return { categoryTree: tree, categoryIds: [], baseOptionIds: [] };
-    }
-
-    function listAvailableGroupRefs() {
-        const refs = [];
-        getCatalogueCategoriesForTemplate().forEach((cat) => {
-            resolveCategoryFamiliesWithGroups(cat).forEach((fam) => {
-                (fam.decisionGroups || []).forEach((g) => {
-                    const groupId = String(g.id || '').trim();
-                    const familyLabel = String(fam.familyLabel || '').trim();
-                    if (!groupId || !familyLabel) return;
-                    refs.push({
-                        familyLabel,
-                        groupId,
-                        sourceIndex: fam.sourceIndex,
-                        label: String(g.label || groupId).trim(),
-                        decisionMode: g.decisionMode || 'single_choice',
-                        categoryName: String(cat.objectName || cat.name || '').trim()
-                    });
-                });
-            });
-        });
-        return refs;
-    }
-
-    function pathKeyToDomId(pathKey) {
-        return String(pathKey || '').replace(/\./g, '-');
+        if (!catalogNodes.length) {
+            throw new Error('Catalogue vide — créez des nœuds dans l’onglet Catalogue avant d’enregistrer le template.');
+        }
+        ensureCatalogNodeOrderIfEmpty(draft);
+        const catalogNodeOrder = Tree().normalizeCatalogNodeOrder(draft.catalogNodeOrder);
+        const tree = Tree().buildCategoryTreeFromCatalog(catalogNodes, catalogNodeOrder);
+        Tree().syncCatalogNodeLinkedRefs(tree, catalogNodes, [], optionById);
+        const snap = { categoryTree: tree, baseOptionIds: [], catalogNodeOrder };
+        return Tree().normalizeBoatTemplateSnapshot(snap, { catalogNodes });
     }
 
     function reorderArrayByIndex(list, fromIdx, toIdx, mode) {
@@ -191,342 +353,273 @@
         return arr;
     }
 
-    function walkTreePaths(nodes, prefix, cb) {
-        (Array.isArray(nodes) ? nodes : []).forEach((node, i) => {
-            const path = prefix === '' ? String(i) : `${prefix}.${i}`;
-            cb(path, node);
-            if (!String(node?.subCategoryRefId || '').trim() && Array.isArray(node?.children)) {
-                walkTreePaths(node.children, path, cb);
-            }
-        });
-    }
-
-    function reorderRootCategoryNodes(fromIdx, toIdx, mode) {
+    function reorderCatalogSiblings(parentId, fromKey, toKey, mode) {
         const draft = getTemplateBateauCreateDraft();
-        draft.categoryTree = reorderArrayByIndex(draft.categoryTree, fromIdx, toIdx, mode);
+        const catalogNodes = getCatalogNodesForTemplate();
+        const pid = String(parentId || '').trim();
+        if (!Array.isArray(draft.catalogNodeOrder[pid]) || !draft.catalogNodeOrder[pid].length) {
+            draft.catalogNodeOrder[pid] = getOrderedSiblingIds(pid, catalogNodes, draft.catalogNodeOrder);
+        }
+        const list = draft.catalogNodeOrder[pid].slice();
+        const fromIdx = list.findIndex((id) => String(id) === String(fromKey));
+        const toIdx = list.findIndex((id) => String(id) === String(toKey));
+        if (fromIdx < 0 || toIdx < 0 || fromIdx === toIdx) return;
+        draft.catalogNodeOrder[pid] = reorderArrayByIndex(list, fromIdx, toIdx, mode);
     }
 
-    function reorderGroupRefs(pathKey, fromIdx, toIdx, mode) {
-        const { node } = getNodeByPath(pathKey);
-        if (!node || !Array.isArray(node.decisionGroupRefs)) return;
-        node.decisionGroupRefs = reorderArrayByIndex(node.decisionGroupRefs, fromIdx, toIdx, mode);
+    const tplMirrorDndState = { fromId: '', parentId: '' };
+
+    function getTplCollapsedSet() {
+        if (!(global.__templateBateauCollapsedNodeIds instanceof Set)) {
+            global.__templateBateauCollapsedNodeIds = new Set();
+        }
+        return global.__templateBateauCollapsedNodeIds;
     }
 
-    function bindRootTreeDragDrop() {
+    function isTplNodeCollapsed(catalogNodeId) {
+        return getTplCollapsedSet().has(String(catalogNodeId || '').trim());
+    }
+
+    function initTplCollapseDefaults(catalogNodes, rootIds) {
+        if (global.__templateBateauCollapseDefaultsDone) return;
+        global.__templateBateauCollapseDefaultsDone = true;
+        const rootSet = new Set((Array.isArray(rootIds) ? rootIds : []).map((x) => String(x || '').trim()));
+        const set = getTplCollapsedSet();
+        (NodesCore()?.asNodeRows?.(catalogNodes) || []).forEach((row) => {
+            if (rootSet.has(row.id)) return;
+            const kids = NodesCore()?.getChildren?.(catalogNodes, row.id) || [];
+            if (kids.length) set.add(row.id);
+        });
+    }
+
+    function toggleTemplateBateauNodeCollapsed(catalogNodeId) {
+        const id = String(catalogNodeId || '').trim();
+        if (!id) return;
+        const set = getTplCollapsedSet();
+        if (set.has(id)) set.delete(id);
+        else set.add(id);
+        refreshTreeEditor();
+    }
+
+    function expandAllTemplateBateauTreeNodes() {
+        getTplCollapsedSet().clear();
+        refreshTreeEditor();
+    }
+
+    function collapseAllTemplateBateauTreeNodes() {
+        const catalogNodes = getCatalogNodesForTemplate();
+        const set = getTplCollapsedSet();
+        set.clear();
+        (NodesCore()?.asNodeRows?.(catalogNodes) || []).forEach((row) => {
+            const kids = NodesCore()?.getChildren?.(catalogNodes, row.id) || [];
+            if (kids.length) set.add(row.id);
+        });
+        refreshTreeEditor();
+    }
+
+    function resolveTplDropMode(event, itemEl) {
+        const rect = itemEl.getBoundingClientRect();
+        const y = event.clientY - rect.top;
+        const h = rect.height || 1;
+        return y > h * 0.55 ? 'after' : 'before';
+    }
+
+    function closestTplOrderItem(target, listEl) {
+        if (!target || !listEl) return null;
+        let el = target;
+        while (el && el !== listEl) {
+            if (el.parentElement === listEl && el.hasAttribute('data-ugap-dnd-item')) return el;
+            el = el.parentElement;
+        }
+        return null;
+    }
+
+    function bindCatalogMirrorDragDrop() {
         const mount = global.document.getElementById('template-bateau-tree-mount');
-        if (!mount || !global.UgapSortableDnd?.bindSortableDnd) return;
-        delete mount.dataset.ugapDndBound;
-        global.UgapSortableDnd.bindSortableDnd(mount, {
-            dataType: 'text/ugap-tpl-cat-node',
-            itemSelector: '[data-tpl-tree-root]',
-            handleSelector: '.ugap-dnd-handle-cat',
-            allowNest: false,
-            getItemId: (el) => el.getAttribute('data-tpl-tree-root'),
-            onDrop: (fromId, toId, mode) => {
-                reorderRootCategoryNodes(Number(fromId), Number(toId), mode);
-                refreshTreeEditor();
-            },
-        });
-    }
+        if (!mount || mount.dataset.tplMirrorDndBound === '1') return;
+        mount.dataset.tplMirrorDndBound = '1';
 
-    function bindGroupRefsDragDrop(pathKey) {
-        if (!global.UgapSortableDnd?.bindSortableDnd) return;
-        const domId = pathKeyToDomId(pathKey);
-        const listEl = global.document.getElementById(`template-bateau-grp-list-${domId}`);
-        if (!listEl) return;
-        delete listEl.dataset.ugapDndBound;
-        global.UgapSortableDnd.bindSortableDnd(listEl, {
-            dataType: `text/ugap-tpl-grp-${domId}`,
-            itemSelector: '[data-tpl-grp-ref]',
-            handleSelector: '.ugap-dnd-handle-group',
-            allowNest: false,
-            getItemId: (el) => el.getAttribute('data-tpl-grp-ref'),
-            onDrop: (fromId, toId, mode) => {
-                reorderGroupRefs(pathKey, Number(fromId), Number(toId), mode);
-                refreshTreeEditor();
-            },
-        });
+        mount.addEventListener('dragstart', (e) => {
+            const handle = e.target?.closest?.('.ugap-dnd-handle-cat');
+            if (!handle) return;
+            const listEl = handle.closest('[data-tpl-sibling-list]');
+            const item = closestTplOrderItem(handle, listEl);
+            if (!item || !listEl || !e.dataTransfer) return;
+            const fromId = String(item.getAttribute('data-ugap-dnd-item') || '').trim();
+            if (!fromId) return;
+            tplMirrorDndState.fromId = fromId;
+            tplMirrorDndState.parentId = String(listEl.getAttribute('data-order-parent') ?? '');
+            e.dataTransfer.effectAllowed = 'move';
+            e.dataTransfer.setData('text/plain', fromId);
+            e.dataTransfer.setData('application/x-ugap-tpl-node', fromId);
+            item.classList.add('ugap-dnd--dragging');
+        }, true);
+
+        mount.addEventListener('dragend', (e) => {
+            mount.querySelectorAll('.ugap-dnd--dragging').forEach((el) => el.classList.remove('ugap-dnd--dragging'));
+            mount.querySelectorAll('.ugap-dnd--drop-before, .ugap-dnd--drop-after').forEach((el) => {
+                el.classList.remove('ugap-dnd--drop-before', 'ugap-dnd--drop-after');
+            });
+            tplMirrorDndState.fromId = '';
+            tplMirrorDndState.parentId = '';
+        }, true);
+
+        mount.addEventListener('dragover', (e) => {
+            if (!tplMirrorDndState.fromId) return;
+            e.preventDefault();
+            if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+            const listEl = e.target?.closest?.('[data-tpl-sibling-list]');
+            if (!listEl || String(listEl.getAttribute('data-order-parent') ?? '') !== tplMirrorDndState.parentId) {
+                return;
+            }
+            const item = closestTplOrderItem(e.target, listEl);
+            mount.querySelectorAll('.ugap-dnd--drop-before, .ugap-dnd--drop-after').forEach((el) => {
+                el.classList.remove('ugap-dnd--drop-before', 'ugap-dnd--drop-after');
+            });
+            if (item) {
+                const toId = String(item.getAttribute('data-ugap-dnd-item') || '').trim();
+                if (toId && toId !== tplMirrorDndState.fromId) {
+                    item.classList.add(resolveTplDropMode(e, item) === 'after' ? 'ugap-dnd--drop-after' : 'ugap-dnd--drop-before');
+                }
+            }
+        }, true);
+
+        mount.addEventListener('drop', (e) => {
+            if (!tplMirrorDndState.fromId) return;
+            e.preventDefault();
+            e.stopPropagation();
+            const listEl = e.target?.closest?.('[data-tpl-sibling-list]');
+            if (!listEl || String(listEl.getAttribute('data-order-parent') ?? '') !== tplMirrorDndState.parentId) {
+                return;
+            }
+            const item = closestTplOrderItem(e.target, listEl);
+            if (!item) return;
+            const toId = String(item.getAttribute('data-ugap-dnd-item') || '').trim();
+            const mode = resolveTplDropMode(e, item);
+            mount.querySelectorAll('.ugap-dnd--drop-before, .ugap-dnd--drop-after').forEach((el) => {
+                el.classList.remove('ugap-dnd--drop-before', 'ugap-dnd--drop-after');
+            });
+            if (!toId || toId === tplMirrorDndState.fromId) return;
+            reorderCatalogSiblings(tplMirrorDndState.parentId, tplMirrorDndState.fromId, toId, mode);
+            refreshTreeEditor();
+        }, true);
     }
 
     function bindAllTreeDragDrop() {
-        bindRootTreeDragDrop();
-        const draft = getTemplateBateauCreateDraft();
-        walkTreePaths(normalizeDraftTree(draft), '', (pathKey, node) => {
-            if (String(node?.subCategoryRefId || '').trim()) return;
-            bindGroupRefsDragDrop(pathKey);
-        });
+        bindCatalogMirrorDragDrop();
     }
 
-    function renderGroupRefsHtml(node, pathKey) {
-        const refs = Array.isArray(node.decisionGroupRefs) ? node.decisionGroupRefs : [];
-        const domId = pathKeyToDomId(pathKey);
-        if (!refs.length) {
-            return '<p style="margin:4px 0 0;font-size:12px;color:#94a3b8;">Aucun groupe — l’ordre vient de la catégorie catalogue ou ajoutez via « + Groupe ».</p>';
+    function renderCatalogNodeOptionsHtml(node) {
+        const cnId = String(node?.catalogNodeRefId || '').trim();
+        if (!cnId) return '';
+        const cn = getCatalogNodeById(cnId);
+        const catalogNodes = catalogNodesForOptionLookup();
+        const { direct, onDescendants } = catalogNodeOptionsLinkSummary(cnId);
+        if (direct.length) {
+            const mode = String(cn?.decisionMode || 'single_choice') === 'multi_choice'
+                ? 'choix multiple'
+                : 'choix unique';
+            return `<p style="margin:4px 0 0;font-size:12px;color:#64748b;">${direct.length} option(s) · ${mode}</p>`;
         }
-        return `<ul id="template-bateau-grp-list-${domId}" data-ugap-dnd-root
-            style="margin:6px 0 0;padding:0;list-style:none;font-size:12px;color:#475569;display:flex;flex-direction:column;gap:4px;">
-            ${refs.map((r, ri) => {
-                const fl = escapeHtml(r.familyLabel);
-                const gid = escapeHtml(r.groupId);
-                const label = escapeHtml(String(r.label || r.groupId || '').trim() || r.groupId);
-                return `<li data-tpl-grp-ref="${ri}" style="margin:0;display:flex;align-items:center;gap:8px;padding:4px 6px;border:1px solid #e2e8f0;border-radius:6px;background:#fff;">
-                    <span class="ugap-dnd-handle ugap-dnd-handle-group" draggable="true" title="Glisser pour réordonner le groupe">⋮</span>
-                    <span style="flex:1;"><strong>${label}</strong> <span style="color:#64748b;">(${fl} · ${gid})</span></span>
-                    <button type="button" class="btn btn-outline" style="font-size:11px;padding:2px 6px;"
-                        onclick="removeTemplateBateauGroupRef('${pathKey}',${ri})">Retirer</button>
-                </li>`;
-            }).join('')}
-        </ul>`;
+        if (onDescendants.length) {
+            return `<p style="margin:4px 0 0;font-size:12px;color:#64748b;">${onDescendants.length} option(s) sur les sous-nœuds</p>`;
+        }
+        const childCount = NodesCore()?.getChildren?.(catalogNodes, cnId)?.length || 0;
+        if (childCount > 0) {
+            return '<p style="margin:4px 0 0;font-size:12px;color:#94a3b8;">Aucune option sur ce dossier — liez les options aux sous-nœuds (onglet Options).</p>';
+        }
+        return '<p style="margin:4px 0 0;font-size:12px;color:#94a3b8;">Aucune option liée — onglet Options, colonne « Nœud catalogue ».</p>';
     }
 
-    function renderTreeNodeHtml(node, pathKey, depth) {
-        const n = node && typeof node === 'object' ? node : {};
-        const label = escapeHtml(n.label || 'Catégorie');
-        const isSub = !!String(n.subCategoryRefId || '').trim();
-        const pad = Math.min(depth * 14, 56);
-        const children = isSub ? [] : (Array.isArray(n.children) ? n.children : []);
-        const rootDrag = depth === 0 && !isSub
-            ? `<span class="ugap-dnd-handle ugap-dnd-handle-cat" draggable="true" title="Glisser pour réordonner les catégories">⋮⋮</span>`
+    function renderCatalogMirrorNodeHtml(catalogNodeId, parentCatalogId, depth) {
+        const node = buildVirtualNodeFromCatalogId(catalogNodeId);
+        if (!node) return '';
+        const draft = getTemplateBateauCreateDraft();
+        const catalogNodes = getCatalogNodesForTemplate();
+        const childIds = getOrderedSiblingIds(catalogNodeId, catalogNodes, draft.catalogNodeOrder);
+        const cn = getCatalogNodeById(catalogNodeId);
+        const hasKids = childIds.length > 0;
+        const collapsed = hasKids && isTplNodeCollapsed(catalogNodeId);
+        const shortLabel = escapeHtml(String(cn?.label || node.label || catalogNodeId).trim());
+        const fullPath = escapeHtml(
+            NodesCore()?.nodeBreadcrumb?.(catalogNodes, catalogNodeId) || shortLabel
+        );
+        const role = escapeHtml(catalogNodeRoleText(catalogNodeId));
+        const foldBtn = hasKids
+            ? `<button type="button" class="ugap-tpl-fold-btn" aria-expanded="${collapsed ? 'false' : 'true'}"
+                title="${collapsed ? 'Déplier les sous-nœuds' : 'Replier les sous-nœuds'}"
+                onclick="event.stopPropagation();toggleTemplateBateauNodeCollapsed(decodeURIComponent('${encodeURIComponent(catalogNodeId)}'))">${collapsed ? '▶' : '▼'}</button>`
+            : '<span class="ugap-tpl-fold-spacer" aria-hidden="true"></span>';
+        const kidsHtml = hasKids && !collapsed
+            ? `<div class="ugap-tpl-sibling-list" data-tpl-sibling-list data-order-parent="${escapeHtml(catalogNodeId)}" style="margin-top:8px;padding-left:12px;border-left:2px solid #e2e8f0;">
+                ${childIds.map((cid) => renderCatalogMirrorNodeHtml(cid, catalogNodeId, depth + 1)).join('')}
+               </div>`
             : '';
-        const rootAttr = depth === 0 && !isSub ? ` data-tpl-tree-root="${escapeHtml(pathKey)}"` : '';
-        const actions = isSub
-            ? `<button type="button" class="btn btn-danger" style="font-size:12px;padding:4px 8px;"
-                    onclick="deleteTemplateBateauNode('${pathKey}')">Suppr.</button>`
-            : `<button type="button" class="btn btn-outline" style="font-size:12px;padding:4px 8px;"
-                    onclick="openTemplateBateauAddGroupRef('${pathKey}')">+ Groupe</button>
-                <button type="button" class="btn btn-danger" style="font-size:12px;padding:4px 8px;"
-                    onclick="deleteTemplateBateauNode('${pathKey}')">Suppr.</button>`;
+        const collapsedClass = collapsed ? ' is-collapsed' : '';
         return `
-            <div class="ugap-tpl-tree-node" data-path="${escapeHtml(pathKey)}"${rootAttr}
-                style="margin-left:${pad}px;padding:10px 12px;border:1px solid #e5e7eb;border-radius:8px;background:${isSub ? '#fff' : '#fafafa'};margin-bottom:8px;">
+            <div class="ugap-tpl-tree-node ugap-tpl-tree-node--mirror${collapsedClass}" data-ugap-dnd-item="${escapeHtml(catalogNodeId)}"
+                data-catalog-node-id="${escapeHtml(catalogNodeId)}"
+                style="margin-bottom:8px;padding:8px 10px;border:1px solid #e5e7eb;border-radius:8px;background:${depth ? '#fff' : '#fafafa'};">
                 <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;">
-                    ${rootDrag}
-                    <input type="text" value="${label}" style="flex:1;min-width:160px;padding:6px 8px;border:1px solid #ddd;border-radius:4px;font-weight:600;"
-                        onchange="updateTemplateBateauNodeLabel('${pathKey}', this.value)" ${isSub ? '' : ''}>
-                    ${actions}
+                    ${foldBtn}
+                    <span class="ugap-dnd-handle ugap-dnd-handle-cat" draggable="true" title="Glisser pour réordonner (même niveau)">⋮⋮</span>
+                    <span style="flex:1;font-weight:600;" title="${fullPath}">${shortLabel}</span>
+                    <span style="font-size:11px;color:#64748b;">${role}</span>
                 </div>
-                ${isSub ? '' : renderGroupRefsHtml(n, pathKey)}
-                ${children.map((child, ci) => renderTreeNodeHtml(child, `${pathKey}.${ci}`, depth + 1)).join('')}
-            </div>
-        `;
+                <div class="ugap-tpl-tree-node__body">
+                    ${renderCatalogNodeOptionsHtml(node)}
+                    ${kidsHtml}
+                </div>
+            </div>`;
+    }
+
+    function renderTemplateBateauTreeMountHtml() {
+        if (!hasCatalogNodes()) {
+            return '<p style="margin:0;color:#b45309;font-size:13px;">Aucun nœud catalogue — créez l’arborescence dans l’onglet <strong>Catalogue</strong>, puis revenez ici pour l’ordre du parcours.</p>';
+        }
+        const draft = getTemplateBateauCreateDraft();
+        const catalogNodes = getCatalogNodesForTemplate();
+        ensureCatalogNodeOrderIfEmpty(draft);
+        let rootIds = getOrderedSiblingIds('', catalogNodes, draft.catalogNodeOrder);
+        if (!rootIds.length) {
+            rootIds = (NodesCore()?.getRootNodes?.(catalogNodes) || [])
+                .map((n) => String(n.id || '').trim())
+                .filter(Boolean);
+        }
+        initTplCollapseDefaults(catalogNodes, rootIds);
+        return rootIds.length
+            ? `<div class="ugap-tpl-tree-toolbar">
+                <button type="button" class="btn btn-outline btn-sm" onclick="expandAllTemplateBateauTreeNodes()">Tout déplier</button>
+                <button type="button" class="btn btn-outline btn-sm" onclick="collapseAllTemplateBateauTreeNodes()">Tout replier</button>
+               </div>
+               <div class="ugap-tpl-sibling-list" data-tpl-sibling-list data-order-parent="">
+                ${rootIds.map((id) => renderCatalogMirrorNodeHtml(id, '', 0)).join('')}
+               </div>`
+            : '<p style="margin:0;color:#64748b;font-size:13px;">Impossible de construire l’arbre — ouvrez l’onglet Catalogue et vérifiez le champ « Parent » de chaque nœud.</p>';
     }
 
     function renderTemplateBateauTreeEditorHtml() {
-        const draft = getTemplateBateauCreateDraft();
-        const tree = normalizeDraftTree(draft);
-        const cats = getCatalogueCategoriesForTemplate();
-        const catOptions = cats.map((c) => {
-            const id = String(c.id || '').trim();
-            const name = escapeHtml(String(c.objectName || c.name || id));
-            return `<option value="${escapeHtml(id)}">${name}</option>`;
-        }).join('');
-
+        const intro = hasCatalogNodes()
+            ? 'Arborescence identique à l’onglet <strong>Catalogue</strong>. <strong>▼/▶</strong> pour replier, ⋮⋮ pour l’ordre du parcours. Options : onglet <strong>Options</strong> (colonne « Nœud catalogue »).'
+            : 'Créez d’abord des nœuds dans l’onglet <strong>Catalogue</strong>.';
         return `
             <div class="ugap-tpl-tree-editor" style="display:grid;gap:12px;">
-                <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:flex-end;">
-                    <div style="flex:1;min-width:200px;">
-                        <label style="display:block;font-size:12px;color:#555;margin-bottom:4px;">Ajouter depuis le catalogue</label>
-                        <select id="template-bateau-add-catalogue" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:4px;">
-                            <option value="">— Choisir une catégorie —</option>
-                            ${catOptions}
-                        </select>
-                    </div>
-                    <button type="button" class="btn btn-outline" onclick="addTemplateBateauRootFromCatalogue()">Ajouter catégorie</button>
-                </div>
-                <div id="template-bateau-tree-mount" data-ugap-dnd-root>
-                    ${tree.length
-                        ? tree.map((node, i) => renderTreeNodeHtml(node, String(i), 0)).join('')
-                        : '<p style="margin:0;color:#64748b;font-size:13px;">Arbre vide — ajoutez une catégorie racine.</p>'}
-                </div>
-                <p style="margin:0;font-size:12px;color:#64748b;">Ordre du parcours : ⋮⋮ sur une catégorie, ⋮ sur chaque groupe.</p>
-            </div>
-        `;
+                <p style="margin:0;font-size:13px;color:#475569;">${intro}</p>
+                <div id="template-bateau-tree-mount">${renderTemplateBateauTreeMountHtml()}</div>
+            </div>`;
     }
 
     function refreshTreeEditor() {
         const mount = global.document.getElementById('template-bateau-tree-mount');
-        const draft = getTemplateBateauCreateDraft();
-        const tree = normalizeDraftTree(draft);
         if (mount) {
-            mount.innerHTML = tree.length
-                ? tree.map((node, i) => renderTreeNodeHtml(node, String(i), 0)).join('')
-                : '<p style="margin:0;color:#64748b;font-size:13px;">Arbre vide — ajoutez une catégorie racine.</p>';
+            delete mount.dataset.tplMirrorDndBound;
+            mount.innerHTML = renderTemplateBateauTreeMountHtml();
         } else {
             const wrap = global.document.getElementById('template-bateau-tree-editor-wrap');
             if (wrap) wrap.innerHTML = renderTemplateBateauTreeEditorHtml();
         }
         bindAllTreeDragDrop();
         if (typeof global.scheduleParentEmbedResize === 'function') global.scheduleParentEmbedResize();
-    }
-
-    function getNodeByPath(pathKey) {
-        const draft = getTemplateBateauCreateDraft();
-        const parts = String(pathKey || '').split('.').map((x) => Number(x));
-        let list = draft.categoryTree;
-        let node = null;
-        parts.forEach((idx, i) => {
-            if (!Number.isInteger(idx) || idx < 0 || idx >= list.length) return;
-            node = list[idx];
-            if (i < parts.length - 1) list = Array.isArray(node.children) ? node.children : [];
-        });
-        return { node, list, index: parts[parts.length - 1] };
-    }
-
-    function addTemplateBateauRootFromCatalogue() {
-        const catId = String(global.document.getElementById('template-bateau-add-catalogue')?.value || '').trim();
-        if (!catId) {
-            global.showAlert?.('Choisissez une catégorie catalogue.', 'warning');
-            return;
-        }
-        const cat = getCatalogueCategoriesForTemplate().find((c) => String(c.id) === catId);
-        if (!cat) return;
-        const families = resolveCategoryFamiliesWithGroups(cat);
-        const children = Tree()?.buildTemplateChildNodesFromCategory
-            ? Tree().buildTemplateChildNodesFromCategory(cat)
-            : [];
-        const draft = getTemplateBateauCreateDraft();
-        const node = Tree()
-            ? Tree().normalizeTreeNode({
-                id: Tree().newNodeId('tplcat'),
-                label: String(cat.objectName || cat.name || '').trim() || catId,
-                categoryRefId: catId,
-                decisionGroupRefs: Tree().buildRefsFromCategoryFamilies(families),
-                children
-            })
-            : { id: `tplcat_${Date.now()}`, label: catId, categoryRefId: catId, decisionGroupRefs: [], children };
-        draft.categoryTree.push(node);
-        refreshTreeEditor();
-    }
-
-    function updateTemplateBateauNodeLabel(pathKey, value) {
-        const { node } = getNodeByPath(pathKey);
-        if (node) node.label = String(value || '').trim() || 'Catégorie';
-    }
-
-    function deleteTemplateBateauNode(pathKey) {
-        const parts = String(pathKey || '').split('.').map((x) => Number(x));
-        const draft = getTemplateBateauCreateDraft();
-        if (parts.length === 1) {
-            draft.categoryTree.splice(parts[0], 1);
-        } else {
-            const parentPath = parts.slice(0, -1).join('.');
-            const { node: parent } = getNodeByPath(parentPath);
-            if (parent && Array.isArray(parent.children)) {
-                parent.children.splice(parts[parts.length - 1], 1);
-            }
-        }
-        refreshTreeEditor();
-    }
-
-    function removeTemplateBateauGroupRef(pathKey, refIndex) {
-        const { node } = getNodeByPath(pathKey);
-        if (!node || !Array.isArray(node.decisionGroupRefs)) return;
-        node.decisionGroupRefs.splice(Number(refIndex), 1);
-        refreshTreeEditor();
-    }
-
-    function ensureTemplateBateauGroupPickerModal() {
-        let modal = global.document.getElementById('template-bateau-group-picker-modal');
-        if (modal) return modal;
-        const wrap = global.document.createElement('div');
-        wrap.innerHTML = `
-            <div id="template-bateau-group-picker-modal" hidden
-                style="display:none;position:fixed;inset:0;z-index:10050;background:rgba(0,0,0,.45);align-items:center;justify-content:center;padding:16px;">
-                <div style="background:#fff;border-radius:10px;padding:20px;max-width:520px;width:100%;max-height:80vh;overflow:auto;box-shadow:0 8px 32px rgba(0,0,0,.15);">
-                    <h3 style="margin:0 0 12px;font-size:16px;">Ajouter un groupe de décision</h3>
-                    <p style="margin:0 0 12px;font-size:13px;color:#64748b;">Une option côté configurateur = un groupe (choix unique ou multiple).</p>
-                    <div id="template-bateau-group-picker-list"></div>
-                    <div style="margin-top:14px;display:flex;gap:8px;justify-content:flex-end;">
-                        <button type="button" class="btn btn-outline" id="template-bateau-group-picker-cancel">Annuler</button>
-                        <button type="button" class="btn btn-success" id="template-bateau-group-picker-confirm">Ajouter</button>
-                    </div>
-                </div>
-            </div>
-        `;
-        modal = wrap.firstElementChild;
-        global.document.body.appendChild(modal);
-        global.document.getElementById('template-bateau-group-picker-cancel')?.addEventListener('click', closeTemplateBateauGroupPicker);
-        global.document.getElementById('template-bateau-group-picker-confirm')?.addEventListener('click', confirmTemplateBateauGroupPick);
-        return modal;
-    }
-
-    function openTemplateBateauAddGroupRef(pathKey) {
-        const { node } = getNodeByPath(pathKey);
-        if (!node) return;
-        const available = listAvailableGroupRefs();
-        if (!available.length) {
-            global.showAlert?.('Aucun groupe disponible : créez des familles (onglet Famille) puis rattachez-les via le catalogue / template.', 'warning');
-            return;
-        }
-        const existing = new Set(
-            (node.decisionGroupRefs || []).map((r) => `${r.familyLabel}:${r.groupId}`)
-        );
-        const choices = available.filter((a) => !existing.has(`${a.familyLabel}:${a.groupId}`));
-        if (!choices.length) {
-            global.showAlert?.('Tous les groupes catalogue sont déjà sur ce nœud.', 'info');
-            return;
-        }
-        global.__templateBateauGroupPickPath = pathKey;
-        const modal = ensureTemplateBateauGroupPickerModal();
-        const listEl = global.document.getElementById('template-bateau-group-picker-list');
-        if (!listEl || !modal) {
-            global.showAlert?.('Panneau groupe indisponible — rechargez la page.', 'warning');
-            return;
-        }
-        listEl.innerHTML = choices.map((a, i) => {
-            const mode = a.decisionMode === 'multi_choice' ? 'multiple' : 'unique';
-            return `<label style="display:flex;align-items:flex-start;gap:10px;padding:8px 10px;border:1px solid #e5e7eb;border-radius:6px;margin-bottom:6px;cursor:pointer;">
-                <input type="radio" name="tpl-group-pick" value="${i}" style="margin-top:3px;">
-                <span>
-                    <strong>${escapeHtml(a.label)}</strong>
-                    <span style="display:block;font-size:12px;color:#64748b;">
-                        ${escapeHtml(a.categoryName)} · ${escapeHtml(a.familyLabel)} · choix ${mode}
-                    </span>
-                </span>
-            </label>`;
-        }).join('');
-        modal.removeAttribute('hidden');
-        modal.style.display = 'flex';
-        if (typeof global.scheduleParentEmbedResize === 'function') global.scheduleParentEmbedResize();
-    }
-
-    function closeTemplateBateauGroupPicker() {
-        const modal = global.document.getElementById('template-bateau-group-picker-modal');
-        if (modal) {
-            modal.setAttribute('hidden', '');
-            modal.style.display = 'none';
-        }
-        global.__templateBateauGroupPickPath = null;
-    }
-
-    function confirmTemplateBateauGroupPick() {
-        const pathKey = global.__templateBateauGroupPickPath;
-        const { node } = getNodeByPath(pathKey);
-        if (!node) {
-            closeTemplateBateauGroupPicker();
-            return;
-        }
-        const available = listAvailableGroupRefs();
-        const existing = new Set(
-            (node.decisionGroupRefs || []).map((r) => `${r.familyLabel}:${r.groupId}`)
-        );
-        const choices = available.filter((a) => !existing.has(`${a.familyLabel}:${a.groupId}`));
-        const picked = global.document.querySelector('input[name="tpl-group-pick"]:checked');
-        const idx = Number(picked?.value);
-        if (!Number.isInteger(idx) || idx < 0 || idx >= choices.length) {
-            global.showAlert?.('Sélectionnez un groupe dans la liste.', 'warning');
-            return;
-        }
-        const chosen = choices[idx];
-        if (!Array.isArray(node.decisionGroupRefs)) node.decisionGroupRefs = [];
-        node.decisionGroupRefs.push({
-            familyLabel: chosen.familyLabel,
-            groupId: chosen.groupId,
-            sourceIndex: chosen.sourceIndex,
-            label: chosen.label,
-        });
-        closeTemplateBateauGroupPicker();
-        refreshTreeEditor();
     }
 
     function renderTemplateBateauCreationFormHtml() {
@@ -555,7 +648,9 @@
         `;
     }
 
-    function refreshTemplateBateauCreateDraftUi() {
+    async function refreshTemplateBateauCreateDraftUi() {
+        await ensureCatalogForTemplate();
+        CatalogState()?.syncOptionsIndexFromPayload?.(getUgapData());
         const wrap = global.document.getElementById('template-bateau-tree-editor-wrap');
         if (wrap) wrap.innerHTML = renderTemplateBateauTreeEditorHtml();
         const labelEl = global.document.getElementById('new-template-bateau-label');
@@ -563,6 +658,7 @@
             labelEl.value = getTemplateBateauCreateDraft().label || '';
         }
         wireTemplateBateauSubmitButton();
+        bindAllTreeDragDrop();
         if (typeof global.scheduleParentEmbedResize === 'function') global.scheduleParentEmbedResize();
     }
 
@@ -572,19 +668,6 @@
             return;
         }
         global.alert(String(message || ''));
-    }
-
-    function treeHasSubCategoryNodes(nodes) {
-        const walk = (list) => {
-            for (const n of Array.isArray(list) ? list : []) {
-                if (String(n?.subCategoryRefId || '').trim() && String(n?.categoryRefId || '').trim()) {
-                    return true;
-                }
-                if (walk(n.children)) return true;
-            }
-            return false;
-        };
-        return walk(nodes);
     }
 
     function setTemplateBateauFormFeedback(message, type) {
@@ -609,35 +692,30 @@
         el.scrollIntoView?.({ block: 'nearest', behavior: 'smooth' });
     }
 
-    function validateDraftTree(draft) {
-        const tree = normalizeDraftTree(draft);
-        if (!tree.length) {
-            const msg = 'Ajoutez au moins une catégorie racine à l’arbre.';
+    function validateDraftTree() {
+        const nodes = getCatalogNodesForTemplate();
+        if (!nodes.length) {
+            const msg = 'Catalogue vide — créez des nœuds dans l’onglet Catalogue.';
             setTemplateBateauFormFeedback(msg, 'warning');
             showTemplateBateauAlert(msg, 'warning');
             return false;
         }
-        const stats = Tree() ? Tree().countTreeStats(tree) : { groups: 0 };
-        if (stats.groups > 0) {
-            setTemplateBateauFormFeedback('', '');
-            return true;
+        const roots = NodesCore()?.getRootNodes?.(nodes)
+            || NodesCore()?.getChildren?.(nodes, '')
+            || [];
+        if (!roots.length) {
+            const msg = 'Aucun nœud racine — vérifiez le champ « Parent » dans l’onglet Catalogue.';
+            setTemplateBateauFormFeedback(msg, 'warning');
+            showTemplateBateauAlert(msg, 'warning');
+            return false;
         }
-        if (treeHasSubCategoryNodes(tree)) {
-            setTemplateBateauFormFeedback('', '');
-            return true;
-        }
-        if (tree.some((n) => String(n?.categoryRefId || '').trim())) {
-            setTemplateBateauFormFeedback('', '');
-            return true;
-        }
-        const msg = 'Rattachez des familles avec groupes cochés (catalogue) ou ajoutez des groupes (+ Groupe) sur un nœud du template.';
-        setTemplateBateauFormFeedback(msg, 'warning');
-        showTemplateBateauAlert(msg, 'warning');
-        return false;
+        setTemplateBateauFormFeedback('', '');
+        return true;
     }
 
     async function submitCreateTemplateBateau() {
         try {
+            await ensureCatalogForTemplate();
             const draft = getTemplateBateauCreateDraft();
             draft.label = String(global.document.getElementById('new-template-bateau-label')?.value || '').trim();
             const label = draft.label;
@@ -647,7 +725,7 @@
                 showTemplateBateauAlert(msg, 'warning');
                 return;
             }
-            if (!validateDraftTree(draft)) return;
+            if (!validateDraftTree()) return;
 
             const getSaved = typeof global.getSavedBoatTemplates === 'function' ? global.getSavedBoatTemplates : null;
             const setSaved = typeof global.setSavedBoatTemplates === 'function' ? global.setSavedBoatTemplates : null;
@@ -669,9 +747,21 @@
             }
 
             const snapshot = buildSnapshotFromDraft(draft);
+            const catalogue = getCatalogueCategoriesForTemplate();
+            const catalogNodes = getCatalogNodesForTemplate();
+            const byId = new Map(catalogue.map((c) => [String(c.id || '').trim(), c]));
+            const treeForStats = buildPreviewTreeFromDraft(draft);
             const stats = Tree()
-                ? Tree().countTreeStats(snapshot.categoryTree)
-                : { nodes: snapshot.categoryTree?.length || 0, groups: 0 };
+                ? Tree().countResolvedTreeStats(
+                    treeForStats.length ? treeForStats : (snapshot.categoryTree || []),
+                    (id) => byId.get(String(id || '').trim()) || null,
+                    [],
+                    { catalogNodes }
+                )
+                : {
+                    nodes: (treeForStats.length ? treeForStats : snapshot.categoryTree || []).length,
+                    groups: 0,
+                };
 
             if (isEdit) {
                 const prev = existing[editIdx];
@@ -707,7 +797,7 @@
             if (panel) panel.setAttribute('hidden', '');
             if (btn) btn.setAttribute('aria-expanded', 'false');
             refreshTemplateBateauVueLC();
-            const successMsg = `Template « ${label} » ${isEdit ? 'enregistré' : 'créé'} (${stats.nodes} nœud(s), ${stats.groups} groupe(s)).`;
+            const successMsg = `Template « ${label} » ${isEdit ? 'enregistré' : 'créé'} (${stats.nodes} nœud(s), ${stats.groups} choix catalogue).`;
             showTemplateBateauAlert(successMsg, 'success');
             try {
                 if (typeof global.triggerUiStatePersistenceNow === 'function') {
@@ -748,7 +838,7 @@
         wireTemplateBateauSubmitButton();
     }
 
-    function openTemplateBateauEditByIndex(index) {
+    async function openTemplateBateauEditByIndex(index) {
         const idx = Number(index);
         const list = typeof global.getSavedBoatTemplates === 'function' ? global.getSavedBoatTemplates() : [];
         const tpl = list[idx];
@@ -756,6 +846,7 @@
             global.showAlert?.('Template introuvable.', 'warning');
             return;
         }
+        await ensureCatalogForTemplate();
         global.__templateBateauEditIndex = idx;
         loadDraftFromTemplate(tpl);
         const panel = global.document.querySelector('[data-ugap-lc-create-panel="template-bateau"]');
@@ -764,6 +855,7 @@
             panel.innerHTML = renderTemplateBateauCreationFormHtml();
             panel.removeAttribute('hidden');
             wireTemplateBateauSubmitButton();
+            bindAllTreeDragDrop();
         }
         if (btn) btn.setAttribute('aria-expanded', 'true');
         if (typeof global.scheduleParentEmbedResize === 'function') global.scheduleParentEmbedResize();
@@ -804,10 +896,16 @@
 
     function getTemplateBateauRowsForLc() {
         const getSaved = typeof global.getSavedBoatTemplates === 'function' ? global.getSavedBoatTemplates : () => [];
+        const catalogue = getCatalogueCategoriesForTemplate();
+        const catalogNodes = getCatalogNodesForTemplate();
+        const byId = new Map(catalogue.map((c) => [String(c.id || '').trim(), c]));
+        const resolveCategoryById = (id) => byId.get(String(id || '').trim()) || null;
         return getSaved().map((tpl, idx) => {
             const snap = tpl?.snapshot || {};
-            const tree = Tree() ? Tree().normalizeCategoryTree(snap.categoryTree) : [];
-            const stats = Tree() ? Tree().countTreeStats(tree) : { nodes: 0, groups: 0 };
+            const tree = resolveSnapshotCategoryTree(snap);
+            const stats = Tree()
+                ? Tree().countResolvedTreeStats(tree, resolveCategoryById, [], { catalogNodes })
+                : { nodes: 0, groups: 0 };
             return {
                 __idx: idx,
                 label: String(tpl?.label || '').trim() || '—',
@@ -823,11 +921,15 @@
         });
     }
 
-    function refreshTemplateBateauVueLC() {
+    async function refreshTemplateBateauVueLC() {
         const mount = global.document.getElementById('ugap-template-bateau-lc-mount');
         if (!mount) return;
         if (mount.querySelector('[data-ugap-vue-lc="template-bateau"]') && global.UgapTemplates?.refreshVueLCList) {
             global.UgapTemplates.refreshVueLCList('template-bateau', mount);
+            if (global.document.getElementById('template-bateau-tree-mount')
+                || global.document.getElementById('template-bateau-tree-editor-wrap')) {
+                await refreshTemplateBateauCreateDraftUi();
+            }
             return;
         }
         mountTemplateBateauVueLC();
@@ -846,11 +948,11 @@
             elementKey: 'template-bateau',
             elementLabel: 'template bateau',
             title: 'Bateau de base',
-            description: 'Choisissez les catégories catalogue et ordonnez catégories (⋮⋮) et groupes (⋮) pour le parcours configurateur.',
+            description: 'Réordonnez le parcours configurateur (⋮⋮) — même arbre que l’onglet Catalogue.',
             columns: [
                 { key: 'label', label: 'Nom' },
                 { key: 'categoriesCount', label: 'Nœuds' },
-                { key: 'groupsCount', label: 'Groupes' },
+                { key: 'groupsCount', label: 'Choix catalogue' },
                 { key: 'baseOptionsCount', label: 'Options de base' },
                 { key: '_actionsHtml', label: 'Actions', type: 'html' }
             ],
@@ -866,12 +968,11 @@
             createFormHtml: renderTemplateBateauCreationFormHtml(),
             onCreatePanelOpen: () => {
                 if (!Number.isInteger(global.__templateBateauEditIndex)) resetTemplateBateauCreateDraft();
-                refreshTemplateBateauCreateDraftUi();
+                void refreshTemplateBateauCreateDraftUi();
             }
         };
         mount.innerHTML = global.UgapTemplates.renderVueLC(config);
         global.UgapTemplates.bindVueLC(mount, config);
-        ensureTemplateBateauGroupPickerModal();
         bindTemplateBateauCreateFormActions(mount);
         if (typeof global.scheduleParentEmbedResize === 'function') global.scheduleParentEmbedResize();
     }
@@ -883,14 +984,14 @@
     global.openTemplateBateauDetailByIndex = openTemplateBateauDetailByIndex;
     global.openTemplateBateauEditByIndex = openTemplateBateauEditByIndex;
     global.cancelTemplateBateauEdit = cancelTemplateBateauEdit;
-    global.addTemplateBateauRootFromCatalogue = addTemplateBateauRootFromCatalogue;
-    global.updateTemplateBateauNodeLabel = updateTemplateBateauNodeLabel;
-    global.deleteTemplateBateauNode = deleteTemplateBateauNode;
-    global.removeTemplateBateauGroupRef = removeTemplateBateauGroupRef;
-    global.openTemplateBateauAddGroupRef = openTemplateBateauAddGroupRef;
-    global.closeTemplateBateauGroupPicker = closeTemplateBateauGroupPicker;
-    global.confirmTemplateBateauGroupPick = confirmTemplateBateauGroupPick;
+    global.toggleTemplateBateauNodeCollapsed = toggleTemplateBateauNodeCollapsed;
+    global.expandAllTemplateBateauTreeNodes = expandAllTemplateBateauTreeNodes;
+    global.collapseAllTemplateBateauTreeNodes = collapseAllTemplateBateauTreeNodes;
     global.resetTemplateBateauCreateDraft = resetTemplateBateauCreateDraft;
 
-    global.UgapTemplateBateauTab = { mount: mountTemplateBateauVueLC, refresh: refreshTemplateBateauVueLC };
+    global.UgapTemplateBateauTab = {
+        mount: mountTemplateBateauVueLC,
+        refresh: refreshTemplateBateauVueLC,
+        refreshTree: refreshTemplateBateauCreateDraftUi,
+    };
 })(window);

@@ -4,6 +4,8 @@
 (function initUgapBateauBaseLcState(global) {
     'use strict';
 
+    /** @type {object|null} */
+    let currentData = null;
     /** @type {Array<object>} */
     let boatTemplates = [];
     /** @type {Record<string, Record<string, string>>} */
@@ -19,26 +21,23 @@
             .filter((t) => t && typeof t === 'object' && String(t.id || '').trim());
     }
 
-    function sanitizeFamiliesForServer(list) {
-        return (Array.isArray(list) ? list : []).map((f) => {
-            const row = f && typeof f === 'object' ? { ...f } : {};
-            delete row.__idx;
-            return row;
-        });
+    function setData(next) {
+        currentData = next && typeof next === 'object' ? next : { categories: [] };
+        if (!Array.isArray(currentData.categories)) currentData.categories = [];
+        patchCurrentDataUiState();
+    }
+
+    function getData() {
+        return currentData;
     }
 
     function patchCurrentDataUiState() {
-        if (typeof global.setUgapCurrentData !== 'function') return;
-        const data = typeof global.getUgapCurrentData === 'function'
-            ? global.getUgapCurrentData()
-            : null;
-        if (!data || typeof data !== 'object') return;
-        data.uiState = {
-            ...(data.uiState || {}),
+        if (!currentData || typeof currentData !== 'object') return;
+        currentData.uiState = {
+            ...(currentData.uiState || {}),
             boatTemplates: boatTemplates.slice(),
             modelBaseSlotPicks: { ...modelBaseSlotPicks },
         };
-        global.setUgapCurrentData(data);
     }
 
     function getSavedBoatTemplates() {
@@ -60,13 +59,9 @@
         }
         persistInFlight = true;
         try {
-            const families = global.UgapFamilleLcState?.getFamilies?.() || [];
-            const familyGroupTypes = global.UgapFamilleLcState?.getCustomGroupTypes?.() || [];
             await global.apiCall('/ui-state', {
                 method: 'PUT',
                 body: JSON.stringify({
-                    families: sanitizeFamiliesForServer(families),
-                    familyGroupTypes,
                     boatTemplates: boatTemplates.slice(),
                     modelBaseSlotPicks: { ...modelBaseSlotPicks },
                 }),
@@ -114,11 +109,7 @@
                         ? { ...data.uiState.modelBaseSlotPicks }
                         : {});
 
-                if (global.UgapCategorieLcState?.setData) {
-                    global.UgapCategorieLcState.setData(data);
-                } else if (typeof global.setUgapCurrentData === 'function') {
-                    global.setUgapCurrentData(data);
-                }
+                setData(data);
             } catch (error) {
                 global.showAlert?.(error?.message || 'Erreur chargement bateau de base', 'warning');
             } finally {
@@ -142,6 +133,8 @@
         global.setSavedBoatTemplates = setSavedBoatTemplates;
         global.syncImportBoatTemplatesFromSaved = () => {};
         global.triggerUiStatePersistenceNow = persistToServer;
+        global.getUgapCurrentData = getData;
+        global.setUgapCurrentData = setData;
     }
 
     installGlobals();
@@ -150,26 +143,66 @@
         return { ...modelBaseSlotPicks };
     }
 
-    function setModelBaseSlotPick(modelId, slotKey, optionId) {
+    function setSuppressPersist(value) {
+        suppressPersist = !!value;
+        if (suppressPersist && persistTimer) {
+            clearTimeout(persistTimer);
+            persistTimer = null;
+        }
+    }
+
+    function setModelBaseSlotPick(modelId, slotKey, optionIdOrIds) {
         const mid = String(modelId || '').trim();
         const key = String(slotKey || '').trim();
-        const oid = String(optionId || '').trim();
-        if (!mid || !key || !oid) return;
+        if (!mid || !key) return;
         const next = { ...modelBaseSlotPicks };
         if (!next[mid] || typeof next[mid] !== 'object') next[mid] = {};
-        next[mid] = { ...next[mid], [key]: oid };
+        const row = { ...next[mid] };
+        if (Array.isArray(optionIdOrIds)) {
+            const ids = optionIdOrIds.map((x) => String(x || '').trim()).filter(Boolean);
+            if (!ids.length) delete row[key];
+            else row[key] = ids.length === 1 ? ids[0] : ids;
+        } else {
+            const oid = String(optionIdOrIds || '').trim();
+            if (!oid) delete row[key];
+            else row[key] = oid;
+        }
+        next[mid] = row;
         modelBaseSlotPicks = next;
         patchCurrentDataUiState();
         if (!suppressPersist) schedulePersist();
     }
 
+    async function persistModelBaseSlotPicksOnly() {
+        if (suppressPersist || typeof global.apiCall !== 'function') return false;
+        try {
+            const result = await global.apiCall('/ui-state', {
+                method: 'PUT',
+                body: JSON.stringify({ modelBaseSlotPicks: { ...modelBaseSlotPicks } }),
+            });
+            const serverPicks = result?.data?.modelBaseSlotPicks;
+            if (serverPicks && typeof serverPicks === 'object' && !Array.isArray(serverPicks)) {
+                modelBaseSlotPicks = { ...serverPicks };
+                patchCurrentDataUiState();
+            }
+            return true;
+        } catch (error) {
+            global.showAlert?.(error?.message || 'Erreur sauvegarde des choix options de base', 'error');
+            return false;
+        }
+    }
+
     global.UgapBateauBaseLcState = {
         loadFromServer,
         reload,
+        getData,
+        setData,
         getSavedBoatTemplates,
         setSavedBoatTemplates,
         persistToServer,
         getModelBaseSlotPicks,
         setModelBaseSlotPick,
+        setSuppressPersist,
+        persistModelBaseSlotPicksOnly,
     };
 })(window);

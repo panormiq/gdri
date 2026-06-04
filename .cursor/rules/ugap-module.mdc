@@ -1,0 +1,28 @@
+---
+description: Module UGAP — conventions, découpage fichiers, anti-hallucination
+globs: modules/ugap/**
+alwaysApply: false
+---
+
+# Module UGAP
+
+**Avant toute modification** : `modules/ugap/CONVENTIONS.md` + `docs/onglet-parametrage/PLAN.md`.
+
+## Méthode (prioritaire)
+
+- **Paramétrage v2** uniquement sous `frontend/parametrage/` — **ne pas** étendre `_old/` ni `admin-legacy.js`.
+- **Un onglet à la fois** — Import v2 en premier.
+- **Extraire** depuis le legacy, **décrire** chaque fonction, **valider**, **puis** coder.
+- **Tester** : `ugap.php?tab=parametrage` ou `parametrage/index.php?embedded=1`.
+
+## Règles techniques
+
+1. ~200–500 lignes max par fichier.
+2. 1 fichier = 1 rôle clair + en-tête `RÔLE | ENTRÉES | SORTIES | DÉPEND DE | NE PAS | APPELÉ PAR`.
+3. Réutiliser services/backend existants — ne pas réinventer routes/Mongo.
+4. Anti-hallucination : lire `routes.js`, `UgapDataService.js` avant supposer un schéma.
+5. Ne pas toucher au legacy sauf correctif bloquant ; pas de nouveau code dans `_old/`.
+
+## Onglet Import
+
+Suivre `docs/onglet-import/PLAN.md` — statuts 📝 à valider → ✅ → 💻 → 🧪.

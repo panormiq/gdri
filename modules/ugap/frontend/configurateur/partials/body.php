@@ -28,7 +28,7 @@
                             <div class="ugap-entry-open-empty">Aucun devis sauvegardé</div>
                         </div>
                         <div class="ugap-entry-open-row">
-                            <button class="btn btn-secondary" type="button" onclick="openSavedDevis()">Ouvrir</button>
+                            <button class="btn btn-secondary" type="button" id="ugap-saved-devis-open-btn" onclick="openSavedDevis()">Ouvrir</button>
                         </div>
                     </div>
                 </div>
@@ -129,6 +129,13 @@
         </div>
     </div>
 
+    <div id="ugap-devis-open-overlay" class="ugap-devis-open-overlay hidden" aria-hidden="true" role="status">
+        <div class="ugap-devis-open-overlay__panel">
+            <div class="ugap-devis-open-hourglass" aria-hidden="true"></div>
+            <p class="ugap-devis-open-overlay__label">Ouverture du devis…</p>
+        </div>
+    </div>
+
     <!-- Modal option 5% par groupe (tableau catégorie) -->
     <div class="modal" id="five-percent-group-modal">
         <div class="modal-content" style="max-width:520px;">
@@ -142,7 +149,7 @@
 
     <!-- Modal pour afficher les options d'une sous-catégorie -->
     <div class="modal" id="subcategory-modal">
-        <div class="modal-content">
+        <div class="modal-content modal-picker">
             <div class="modal-header">
                 <h2 id="subcategory-modal-title">Options</h2>
                 <button class="modal-close" onclick="closeSubCategoryModal()">&times;</button>

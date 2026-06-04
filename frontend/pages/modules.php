@@ -148,6 +148,9 @@ $services = array_values(array_filter($services, function ($service) {
                         || (isset($service['slug']) && strtolower(trim((string) $service['slug'])) === 'ugap');
                     $isBanqueModule = (stripos($service['name'], 'banque') !== false)
                         || (isset($service['slug']) && strtolower(trim((string) $service['slug'])) === 'banque');
+                    $isDocHubModule = (stripos($service['name'], 'doc-hub') !== false)
+                        || (stripos($service['name'], 'dochub') !== false)
+                        || (isset($service['slug']) && strtolower(trim((string) $service['slug'])) === 'doc-hub');
                     ?>
                     <?php if ($isChatModule): ?>
                     <a href="<?= url('pages/modules/chat.php') ?>" class="module-card module-card--chat-link">
@@ -183,6 +186,24 @@ $services = array_values(array_filter($services, function ($service) {
                         </p>
                         <div class="module-actions module-actions--hint">
                             <span class="text-muted small">Cliquer pour ouvrir UGAP</span>
+                        </div>
+                    </a>
+                    <?php elseif ($isDocHubModule): ?>
+                    <a href="<?= url('pages/modules/doc-hub.php') ?>" class="module-card module-card--chat-link">
+                        <div class="module-icon-large">
+                            <?= htmlspecialchars($service['icon']) ?>
+                        </div>
+                        <div class="module-header">
+                            <h3><?= htmlspecialchars($service['name']) ?></h3>
+                            <span class="module-status <?= $service['status'] === 'active' ? 'active' : 'inactive' ?>">
+                                <?= $service['status'] === 'active' ? 'Actif' : 'Inactif' ?>
+                            </span>
+                        </div>
+                        <p class="module-description">
+                            <?= htmlspecialchars($service['description']) ?>
+                        </p>
+                        <div class="module-actions module-actions--hint">
+                            <span class="text-muted small">Cliquer pour ouvrir Doc-Hub</span>
                         </div>
                     </a>
                     <?php elseif ($isBanqueModule): ?>

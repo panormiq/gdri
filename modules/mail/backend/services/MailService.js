@@ -241,7 +241,7 @@ class MailService {
 
     const routing = routingEngine.route({ context, profile, to });
     if (!routing.profile) {
-      routing.profile = this.smtpManager.getPreferredProfile(['client', 'gdri']);
+      routing.profile = this.smtpManager.getPreferredProfile(['gdri_app', 'gdri', 'client']);
     }
 
     if (!routing.profile) {

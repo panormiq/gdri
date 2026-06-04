@@ -74,6 +74,34 @@ require_once '../../includes/header.php';
 </section>
 
 <style>
+/* Pied de page collé en bas lorsque le contenu UGAP est court */
+body:has(#ugap-gdri-host) {
+    display: flex;
+    flex-direction: column;
+    min-height: 100vh;
+}
+body:has(#ugap-gdri-host) > .header,
+body:has(#ugap-gdri-host) > .dev-banner {
+    flex-shrink: 0;
+}
+body:has(#ugap-gdri-host) > .section {
+    flex: 1 0 auto;
+    display: flex;
+    flex-direction: column;
+}
+body:has(#ugap-gdri-host) > .section > .container {
+    flex: 1 0 auto;
+    display: flex;
+    flex-direction: column;
+}
+body:has(#ugap-gdri-host) #ugap-gdri-host {
+    flex: 1 0 auto;
+}
+body:has(#ugap-gdri-host) > .footer {
+    flex-shrink: 0;
+    margin-top: auto;
+}
+
 .ugap-tabs {
     display: flex;
     gap: 8px;

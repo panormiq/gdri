@@ -11,6 +11,7 @@ $__ugapFrontendRoot = dirname(__DIR__);
 
 ugap_enqueue_style('/frontend/assets/css/variables.css');
 ugap_enqueue_style('/frontend/assets/css/main.css');
+ugap_enqueue_style('/modules/ugap/frontend/assets/css/ugap-layout.css');
 ugap_enqueue_style('/modules/ugap/frontend/assets/css/ugap-templates.css');
 ugap_enqueue_script('/modules/ugap/frontend/assets/js/shared/ugap-gdri-host.js');
 ugap_enqueue_script('/modules/ugap/frontend/assets/js/shared/ugap-api.js');

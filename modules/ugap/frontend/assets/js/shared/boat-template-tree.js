@@ -1,6 +1,6 @@
 /**
  * FICHIER : modules/ugap/frontend/assets/js/shared/boat-template-tree.js
- * RÔLE : Arbre categoryTree des templates bateau — normalisation, migration, résolution groupes.
+ * RÔLE : Arbre categoryTree des templates bateau — normalisation et migration (groupes → ugap-group-catalog.js).
  *
  * ENTRÉES : snapshot template, catalogue categories[], familles validées
  * SORTIES : snapshot normalisé, nœuds résolus pour configurateur / admin
@@ -28,15 +28,29 @@
 
     function normalizeDecisionGroupRef(raw) {
         const r = raw && typeof raw === 'object' ? raw : {};
+        const catalogNodeId = String(r.catalogNodeId || '').trim();
+        if (catalogNodeId) {
+            const label = String(r.label || r.familyLabel || '').trim();
+            return {
+                catalogNodeId,
+                familyLabel: label || catalogNodeId,
+                groupId: String(r.groupId || `cn_${catalogNodeId}`).trim(),
+                label,
+                decisionMode: String(r.decisionMode || '').trim() === 'multi_choice' ? 'multi_choice' : 'single_choice',
+            };
+        }
         const familyLabel = String(r.familyLabel || '').trim();
         const groupId = String(r.groupId || '').trim();
         if (!familyLabel || !groupId) return null;
         const sourceIndex = Number(r.sourceIndex);
-        return {
+        const componentId = String(r.componentId || '').trim();
+        const out = {
             familyLabel,
             groupId,
-            sourceIndex: Number.isInteger(sourceIndex) ? sourceIndex : undefined
+            sourceIndex: Number.isInteger(sourceIndex) ? sourceIndex : undefined,
         };
+        if (componentId) out.componentId = componentId;
+        return out;
     }
 
     function normalizeTreeNode(raw) {
@@ -44,6 +58,7 @@
         const id = String(n.id || '').trim() || newNodeId('tplcat');
         const label = String(n.label || '').trim() || 'Catégorie';
         const categoryRefId = String(n.categoryRefId || '').trim() || undefined;
+        const catalogNodeRefId = String(n.catalogNodeRefId || '').trim() || undefined;
         const subCategoryRefId = String(n.subCategoryRefId || '').trim() || undefined;
         const refs = (Array.isArray(n.decisionGroupRefs) ? n.decisionGroupRefs : [])
             .map(normalizeDecisionGroupRef)
@@ -56,8 +71,204 @@
         }
         const out = { id, label, decisionGroupRefs: refs, children };
         if (categoryRefId) out.categoryRefId = categoryRefId;
+        if (catalogNodeRefId) out.catalogNodeRefId = catalogNodeRefId;
         if (subCategoryRefId) out.subCategoryRefId = subCategoryRefId;
         return out;
+    }
+
+    /** Enfants template = sous-arbre complet du nœud catalogue (récursif). */
+    function buildTemplateChildNodesFromCatalogNode(catalogNodeId, catalogNodes) {
+        const Core = global.UgapCatalogueNodesCore;
+        const Catalog = global.UgapGroupCatalog;
+        const nid = String(catalogNodeId || '').trim();
+        const nodes = Array.isArray(catalogNodes) ? catalogNodes : [];
+        if (!nid || !Core?.getChildren) return [];
+
+        const buildRefs = (catalogNode) => {
+            if (typeof buildRefsFromCatalogNode === 'function') {
+                return buildRefsFromCatalogNode(catalogNode, nodes);
+            }
+            if (Catalog?.buildRefsFromCatalogNode) {
+                return Catalog.buildRefsFromCatalogNode(catalogNode, nodes);
+            }
+            return [];
+        };
+
+        const walk = (parentId) => Core.getChildren(nodes, parentId).map((child) => {
+            const childId = String(child?.id || '').trim();
+            if (!childId) return null;
+            const label = Core.nodeBreadcrumb?.(nodes, childId)
+                || String(child.label || childId).trim();
+            return normalizeTreeNode({
+                label,
+                catalogNodeRefId: childId,
+                decisionGroupRefs: buildRefs(child),
+                children: walk(childId),
+            });
+        }).filter(Boolean);
+
+        return walk(nid);
+    }
+
+    function normalizeCatalogNodeOrder(raw) {
+        const out = {};
+        const src = raw && typeof raw === 'object' ? raw : {};
+        Object.keys(src).forEach((key) => {
+            const pid = String(key === 'root' ? '' : key).trim();
+            const ids = (Array.isArray(src[key]) ? src[key] : [])
+                .map((x) => String(x || '').trim())
+                .filter(Boolean);
+            if (ids.length) out[pid] = ids;
+        });
+        return out;
+    }
+
+    function defaultCatalogNodeOrder(catalogNodes) {
+        const Core = global.UgapCatalogueNodesCore;
+        const nodes = Array.isArray(catalogNodes) ? catalogNodes : [];
+        if (!Core?.getChildren) return {};
+        const order = {};
+        const walk = (parentId) => {
+            const pid = String(parentId || '').trim();
+            const kids = Core.getChildren(nodes, pid);
+            if (!kids.length) return;
+            order[pid] = kids.map((n) => String(n.id || '').trim()).filter(Boolean);
+            kids.forEach((n) => walk(n.id));
+        };
+        walk('');
+        return order;
+    }
+
+    /** Fusionne l’ordre sauvegardé avec tous les nœuds catalogue actuels (nouveaux nœuds en fin de liste). */
+    function mergeCatalogNodeOrder(catalogNodes, orderMap) {
+        const Core = global.UgapCatalogueNodesCore;
+        const nodes = Array.isArray(catalogNodes) ? catalogNodes : [];
+        const stored = normalizeCatalogNodeOrder(orderMap);
+        const merged = { ...stored };
+        if (!Core?.getChildren) return merged;
+
+        const siblingIdsForParent = (parentId) => {
+            const pid = String(parentId || '').trim();
+            return Core.getChildren(nodes, pid)
+                .map((n) => String(n.id || '').trim())
+                .filter(Boolean);
+        };
+
+        const visit = (parentId) => {
+            const pid = String(parentId || '').trim();
+            let defaultIds = siblingIdsForParent(pid);
+            if (!defaultIds.length && !pid && nodes.length) {
+                defaultIds = nodes.map((n) => String(n.id || '').trim()).filter(Boolean);
+            }
+            const prev = Array.isArray(merged[pid]) ? merged[pid] : [];
+            if (!defaultIds.length) {
+                if (prev.length) merged[pid] = prev.slice();
+                return;
+            }
+            const valid = new Set(defaultIds);
+            const result = [];
+            prev.forEach((id) => {
+                if (valid.has(id)) {
+                    result.push(id);
+                    valid.delete(id);
+                }
+            });
+            defaultIds.forEach((id) => {
+                if (valid.has(id)) result.push(id);
+            });
+            merged[pid] = result;
+            defaultIds.forEach((id) => visit(id));
+        };
+        visit('');
+        return merged;
+    }
+
+    function orderedCatalogSiblingIds(parentId, catalogNodes, orderMap, premerged) {
+        const merged = premerged && typeof premerged === 'object'
+            ? premerged
+            : mergeCatalogNodeOrder(catalogNodes, orderMap);
+        const pid = String(parentId || '').trim();
+        if (Array.isArray(merged[pid]) && merged[pid].length) {
+            return merged[pid].slice();
+        }
+        const Core = global.UgapCatalogueNodesCore;
+        if (Core?.getChildren) {
+            return Core.getChildren(catalogNodes, pid)
+                .map((n) => String(n.id || '').trim())
+                .filter(Boolean);
+        }
+        return [];
+    }
+
+    function templateNodeIdForCatalog(catalogNodeId) {
+        const id = String(catalogNodeId || '').trim();
+        return id ? `tplcn_${id}` : newNodeId('tplcn');
+    }
+
+    /** Arbre categoryTree dérivé du catalogue + ordre d’affichage (parcours configurateur). */
+    function buildCategoryTreeFromCatalog(catalogNodes, orderMap) {
+        const Core = global.UgapCatalogueNodesCore;
+        const nodes = Array.isArray(catalogNodes) ? catalogNodes : [];
+        const merged = mergeCatalogNodeOrder(nodes, orderMap);
+        if (!Core?.getChildren || !nodes.length) return [];
+
+        const buildRefs = (catalogNode) => {
+            if (typeof buildRefsFromCatalogNode === 'function') {
+                return buildRefsFromCatalogNode(catalogNode, nodes);
+            }
+            const Catalog = global.UgapGroupCatalog;
+            if (Catalog?.buildRefsFromCatalogNode) {
+                return Catalog.buildRefsFromCatalogNode(catalogNode, nodes);
+            }
+            return [];
+        };
+
+        const buildNode = (catalogNodeId) => {
+            const nid = String(catalogNodeId || '').trim();
+            if (!nid) return null;
+            const cn = Core.getNodeById?.(nodes, nid) || { id: nid, label: nid };
+            const label = Core.nodeBreadcrumb?.(nodes, nid)
+                || String(cn.label || nid).trim();
+            const childIds = orderedCatalogSiblingIds(nid, nodes, orderMap, merged);
+            const children = childIds.map((cid) => buildNode(cid)).filter(Boolean);
+            return normalizeTreeNode({
+                id: templateNodeIdForCatalog(nid),
+                label,
+                catalogNodeRefId: nid,
+                decisionGroupRefs: buildRefs(cn),
+                children,
+            });
+        };
+
+        return orderedCatalogSiblingIds('', nodes, orderMap, merged)
+            .map((rootId) => buildNode(rootId))
+            .filter(Boolean);
+    }
+
+    /** Extrait catalogNodeOrder depuis un categoryTree legacy (nœuds catalogNodeRefId). */
+    function extractCatalogNodeOrderFromCategoryTree(tree, catalogNodes) {
+        const nodes = Array.isArray(catalogNodes) ? catalogNodes : [];
+        const catalogIds = new Set(nodes.map((n) => String(n?.id || '').trim()).filter(Boolean));
+        const order = {};
+
+        const siblingIds = (list) => (Array.isArray(list) ? list : [])
+            .map((n) => String(n?.catalogNodeRefId || '').trim())
+            .filter((id) => id && catalogIds.has(id));
+
+        const walk = (list, parentCatalogId) => {
+            const pid = String(parentCatalogId || '').trim();
+            const ids = siblingIds(list);
+            if (ids.length) order[pid] = ids;
+            (Array.isArray(list) ? list : []).forEach((raw) => {
+                const cnId = String(raw?.catalogNodeRefId || '').trim();
+                if (!cnId) return;
+                const kids = Array.isArray(raw?.children) ? raw.children : [];
+                if (kids.length) walk(kids, cnId);
+            });
+        };
+
+        walk(normalizeCategoryTree(tree), '');
+        return order;
     }
 
     /** Nœuds template = sous-catégories catalogue (2 niveaux max). */
@@ -169,348 +380,46 @@
         });
     }
 
-    function findCatalogueFamily(catalogue, entry) {
-        const catalogueList = Array.isArray(catalogue) ? catalogue : [];
-        const e = entry && typeof entry === 'object' ? entry : {};
-        const rawSourceIndex = e.sourceIndex;
-        const hasExplicitSourceIndex = rawSourceIndex !== null
-            && rawSourceIndex !== undefined
-            && String(rawSourceIndex).trim() !== '';
-        const sourceIndex = hasExplicitSourceIndex ? Number(rawSourceIndex) : NaN;
-        if (Number.isInteger(sourceIndex)) {
-            const hit = catalogueList.find((f) => Number(f.__idx) === sourceIndex);
-            if (hit) return hit;
-        }
-        const familyLabel = String(e.familyLabel || '').trim().toLowerCase();
-        if (!familyLabel) return null;
-        return catalogueList.find((f) =>
-            String(f?.familyLabel || '').trim().toLowerCase() === familyLabel
-        ) || null;
-    }
-
-    /**
-     * Résout familles + groupes cochés pour une catégorie catalogue (même logique que template-bateau-tab).
-     */
-    function resolveCategoryFamiliesWithGroups(category, catalogueFamilies) {
-        const cat = category && typeof category === 'object' ? category : {};
-        const catalogue = Array.isArray(catalogueFamilies) ? catalogueFamilies : [];
-        const entries = Array.isArray(cat.families) ? cat.families : [];
-        return entries.map((entry) => {
-            const e = entry && typeof entry === 'object'
-                ? entry
-                : { familyLabel: String(entry || '').trim() };
-            const src = findCatalogueFamily(catalogue, e);
-            const familyLabel = String(e.familyLabel || src?.familyLabel || '').trim();
-            if (!familyLabel) return null;
-            const srcSynced = src ? syncFamilyOptionsToDecisionGroups(src) : null;
-            const allGroups = normalizeGroups(srcSynced?.decisionGroups || src?.decisionGroups || e.decisionGroups);
-            const selectedIds = new Set(
-                (Array.isArray(e.selectedGroupIds) ? e.selectedGroupIds : (Array.isArray(e.groupIds) ? e.groupIds : []))
-                    .map((x) => String(x || '').trim())
-                    .filter(Boolean)
-            );
-            let decisionGroups = selectedIds.size
-                ? allGroups.filter((g) => selectedIds.has(String(g.id || '').trim()))
-                : allGroups;
-            const groupOrder = (Array.isArray(e.groupOrder) ? e.groupOrder : [])
-                .map((x) => String(x || '').trim())
-                .filter(Boolean);
-            if (groupOrder.length && decisionGroups.length > 1) {
-                const byId = new Map(decisionGroups.map((g) => [String(g.id || '').trim(), g]));
-                decisionGroups = groupOrder.map((gid) => byId.get(gid)).filter(Boolean);
+    function catalogFn(name) {
+        return function (...args) {
+            const Cat = global.UgapGroupCatalog;
+            const TreeApi = global.UgapBoatTemplateTree;
+            const fn = (Cat && Cat[name]) || (TreeApi && TreeApi[name]);
+            if (typeof fn !== 'function') {
+                throw new Error('UgapGroupCatalog.' + name + ' — charger ugap-group-catalog.js');
             }
-            if (!decisionGroups.length && allGroups.length) {
-                decisionGroups = allGroups;
-            }
-            if (!decisionGroups.length) return null;
-            return {
-                familyLabel,
-                objectName: String(e.objectName || src?.objectName || cat.objectName || '').trim(),
-                sourceIndex: hasExplicitSourceIndexValue(e.sourceIndex) ? Number(e.sourceIndex) : undefined,
-                decisionGroups
-            };
-        }).filter(Boolean);
-    }
-
-    function hasExplicitSourceIndexValue(value) {
-        if (value === null || value === undefined) return false;
-        const text = String(value).trim();
-        if (!text) return false;
-        return Number.isInteger(Number(text));
-    }
-
-    function buildRefsFromCategoryFamilies(families) {
-        const refs = [];
-        (Array.isArray(families) ? families : []).forEach((fam) => {
-            const familyLabel = String(fam?.familyLabel || '').trim();
-            const sourceIndex = Number(fam?.sourceIndex);
-            (Array.isArray(fam?.decisionGroups) ? fam.decisionGroups : []).forEach((g) => {
-                const groupId = String(g?.id || '').trim();
-                if (!familyLabel || !groupId) return;
-                refs.push({
-                    familyLabel,
-                    groupId,
-                    sourceIndex: Number.isInteger(sourceIndex) ? sourceIndex : undefined
-                });
-            });
-        });
-        return refs;
-    }
-
-    function migrateCategoryIdsToTree(snapshot, resolveCategoryById) {
-        const snap = snapshot && typeof snapshot === 'object' ? snapshot : {};
-        let tree = normalizeCategoryTree(snap.categoryTree);
-        if (tree.length) return tree;
-
-        const resolver = typeof resolveCategoryById === 'function' ? resolveCategoryById : () => null;
-        const categoryIds = Array.isArray(snap.categoryIds)
-            ? snap.categoryIds.map((x) => String(x || '').trim()).filter(Boolean)
-            : [];
-        if (!categoryIds.length && Array.isArray(snap.categories)) {
-            snap.categories.forEach((c) => {
-                const id = String(c?.id || '').trim();
-                if (id) categoryIds.push(id);
-            });
-        }
-        if (!categoryIds.length) return [];
-
-        return categoryIds.map((catId) => {
-            const cat = resolver(catId);
-            const label = String(cat?.objectName || cat?.name || catId).trim() || catId;
-            const families = cat ? resolveCategoryFamiliesWithGroups(cat, []) : [];
-            return {
-                id: newNodeId('tplcat'),
-                label,
-                categoryRefId: catId,
-                decisionGroupRefs: buildRefsFromCategoryFamilies(families),
-                children: []
-            };
-        });
-    }
-
-    function normalizeBoatTemplateSnapshot(snapshot, options) {
-        const snap = snapshot && typeof snapshot === 'object' ? snapshot : {};
-        const opts = options && typeof options === 'object' ? options : {};
-        const resolveCategoryById = opts.resolveCategoryById;
-
-        let categoryTree = migrateCategoryIdsToTree(snap, resolveCategoryById);
-        categoryTree = normalizeCategoryTree(categoryTree);
-
-        let categoryIds = Array.isArray(snap.categoryIds)
-            ? snap.categoryIds.map((x) => String(x || '').trim()).filter(Boolean)
-            : [];
-        const fromTree = flattenCategoryRefIds(categoryTree);
-        if (fromTree.length) categoryIds = fromTree;
-        else if (!categoryIds.length && categoryTree.length) {
-            categoryIds = categoryTree
-                .map((n) => String(n.categoryRefId || '').trim())
-                .filter(Boolean);
-        }
-
-        const baseOptionIds = Array.isArray(snap.baseOptionIds)
-            ? snap.baseOptionIds.map((x) => String(x || '').trim()).filter(Boolean)
-            : [];
-
-        return { categoryTree, categoryIds, baseOptionIds };
-    }
-
-    function findFamilyInCatalogue(familyLabel, sourceIndex, catalogueFamilies) {
-        const catalogue = Array.isArray(catalogueFamilies) ? catalogueFamilies : [];
-        const idx = Number(sourceIndex);
-        if (Number.isInteger(idx)) {
-            const hit = catalogue.find((f) => Number(f.__idx) === idx);
-            if (hit) return hit;
-        }
-        const label = String(familyLabel || '').trim().toLowerCase();
-        return catalogue.find((f) => String(f?.familyLabel || '').trim().toLowerCase() === label) || null;
-    }
-
-    function resolveGroupFromRef(ref, catalogueFamilies, optionById, isOptionSelectable) {
-        const r = normalizeDecisionGroupRef(ref);
-        if (!r) return null;
-        const fam = findFamilyInCatalogue(r.familyLabel, r.sourceIndex, catalogueFamilies);
-        const groups = normalizeGroups(fam?.decisionGroups);
-        const group = groups.find((g) => String(g.id) === r.groupId);
-        if (!group) {
-            return {
-                ...r,
-                label: r.groupId,
-                decisionMode: 'single_choice',
-                type: 'option',
-                options: [],
-                missing: true
-            };
-        }
-        const selectable = typeof isOptionSelectable === 'function'
-            ? isOptionSelectable
-            : () => true;
-        const map = optionById && typeof optionById.get === 'function' ? optionById : new Map();
-        const options = (Array.isArray(group.optionIds) ? group.optionIds : [])
-            .map((id) => map.get(String(id || '').trim()))
-            .filter((opt) => opt && selectable(opt));
-        const defaultOptionId = String(fam?.defaultOptionId || '').trim();
-        const priceMode = String(group.priceMode || group.pricingMode || 'option').trim().toLowerCase();
-        return {
-            ...r,
-            label: String(group.label || group.id).trim(),
-            decisionMode: group.decisionMode || 'single_choice',
-            type: group.type || 'option',
-            priceMode,
-            pricingMode: priceMode,
-            optionIds: group.optionIds || [],
-            options,
-            defaultOptionId: defaultOptionId || undefined,
-            missing: false
+            const ctx = (Cat && Cat[name]) ? Cat : TreeApi;
+            return fn.apply(ctx, args);
         };
     }
 
-    function getNodeAtPath(tree, pathIndices) {
-        const indices = Array.isArray(pathIndices) ? pathIndices : [];
-        let nodes = normalizeCategoryTree(tree);
-        let node = null;
-        indices.forEach((i) => {
-            const idx = Number(i);
-            if (!Number.isInteger(idx) || idx < 0 || idx >= nodes.length) return;
-            node = nodes[idx];
-            nodes = Array.isArray(node?.children) ? node.children : [];
-        });
-        return node;
-    }
-
-    function resolveNodeRefs(node, resolveCategoryById, catalogueFamilies) {
-        const n = normalizeTreeNode(node);
-        let refs = Array.isArray(n.decisionGroupRefs) ? n.decisionGroupRefs : [];
-        if (!refs.length && n.categoryRefId && typeof resolveCategoryById === 'function') {
-            const cat = resolveCategoryById(n.categoryRefId);
-            if (cat) {
-                refs = buildRefsFromCategoryFamilies(
-                    resolveCategoryFamiliesWithGroups(cat, catalogueFamilies)
-                );
-            }
-        }
-        return refs;
-    }
-
-    function resolveSubCategoryFamilies(node, catalogueFamilies, optionById, isOptionSelectable, resolveCategoryById) {
-        const n = normalizeTreeNode(node);
-        const subId = String(n.subCategoryRefId || '').trim();
-        const catId = String(n.categoryRefId || '').trim();
-        if (!subId || !catId || typeof resolveCategoryById !== 'function') return [];
-        const cat = resolveCategoryById(catId);
-        const sc = (Array.isArray(cat?.subCategories) ? cat.subCategories : [])
-            .find((s) => String(s?.id || '') === subId);
-        if (!sc) return [];
-        const pseudoCat = { ...cat, families: Array.isArray(sc.families) ? sc.families : [] };
-        const refs = buildRefsFromCategoryFamilies(
-            resolveCategoryFamiliesWithGroups(pseudoCat, catalogueFamilies)
-        );
-        return refs
-            .map((ref) => resolveGroupFromRef(ref, catalogueFamilies, optionById, isOptionSelectable))
-            .filter(Boolean);
-    }
-
-    function resolveNodeForConfigurator(node, catalogueFamilies, optionById, isOptionSelectable, resolveCategoryById) {
-        const n = normalizeTreeNode(node);
-        const subCategoryRefId = String(n.subCategoryRefId || '').trim();
-        if (subCategoryRefId) {
-            const decisionGroups = resolveSubCategoryFamilies(
-                n,
-                catalogueFamilies,
-                optionById,
-                isOptionSelectable,
-                resolveCategoryById
-            );
-            return {
-                id: n.id,
-                label: n.label,
-                categoryRefId: n.categoryRefId,
-                subCategoryRefId,
-                children: [],
-                decisionGroups,
-                catalogOptions: []
-            };
-        }
-        const refs = resolveNodeRefs(n, resolveCategoryById, catalogueFamilies);
-        const groups = refs
-            .map((ref) => resolveGroupFromRef(ref, catalogueFamilies, optionById, isOptionSelectable))
-            .filter(Boolean);
-        return {
-            id: n.id,
-            label: n.label,
-            categoryRefId: n.categoryRefId,
-            children: (n.children || []).map((child) =>
-                resolveNodeForConfigurator(
-                    child,
-                    catalogueFamilies,
-                    optionById,
-                    isOptionSelectable,
-                    resolveCategoryById
-                )
-            ),
-            decisionGroups: groups,
-            catalogOptions: []
-        };
-    }
-
-    function resolveTemplateTree(tpl, context) {
-        const snap = tpl?.snapshot && typeof tpl.snapshot === 'object' ? tpl.snapshot : {};
-        const ctx = context && typeof context === 'object' ? context : {};
-        const normalized = normalizeBoatTemplateSnapshot(snap, {
-            resolveCategoryById: ctx.resolveCategoryById
-        });
-        const tree = normalized.categoryTree;
-        const catalogueFamilies = Array.isArray(ctx.catalogueFamilies) ? ctx.catalogueFamilies : [];
-        const optionById = ctx.optionById instanceof Map ? ctx.optionById : new Map();
-        const isOptionSelectable = ctx.isOptionSelectable;
-        const resolveCategoryById = ctx.resolveCategoryById;
-        return {
-            categoryTree: tree,
-            categoryIds: normalized.categoryIds,
-            baseOptionIds: normalized.baseOptionIds,
-            resolvedRoots: tree.map((node) =>
-                resolveNodeForConfigurator(
-                    node,
-                    catalogueFamilies,
-                    optionById,
-                    isOptionSelectable,
-                    resolveCategoryById
-                )
-            )
-        };
-    }
-
-    function treeHasResolvableGroups(resolvedRoots) {
-        const walk = (nodes) => {
-            for (const n of Array.isArray(nodes) ? nodes : []) {
-                const groups = Array.isArray(n.decisionGroups) ? n.decisionGroups : [];
-                if (groups.some((g) => !g.missing && (g.options || []).length)) return true;
-                if (walk(n.children)) return true;
-            }
-            return false;
-        };
-        return walk(resolvedRoots);
-    }
-
-    function countTreeStats(tree) {
-        let nodes = 0;
-        let groups = 0;
-        const walk = (list) => {
-            (Array.isArray(list) ? list : []).forEach((n) => {
-                nodes += 1;
-                groups += (Array.isArray(n.decisionGroupRefs) ? n.decisionGroupRefs : []).length;
-                walk(n.children);
-            });
-        };
-        walk(normalizeCategoryTree(tree));
-        return { nodes, groups };
-    }
-
-    function hasTemplateTree(tpl) {
-        const snap = tpl?.snapshot && typeof tpl.snapshot === 'object' ? tpl.snapshot : {};
-        const tree = normalizeCategoryTree(snap.categoryTree);
-        if (tree.length) return true;
-        return Array.isArray(snap.categoryIds) && snap.categoryIds.length > 0;
-    }
+    const findCatalogueFamily = catalogFn('findCatalogueFamily');
+    const resolveCategoryFamiliesWithGroups = catalogFn('resolveCategoryFamiliesWithGroups');
+    const hasExplicitSourceIndexValue = catalogFn('hasExplicitSourceIndexValue');
+    const buildRefsFromCategoryFamilies = catalogFn('buildRefsFromCategoryFamilies');
+    const findFamilyInCatalogue = catalogFn('findFamilyInCatalogue');
+    const alignRefsToCatalogueFamilies = catalogFn('alignRefsToCatalogueFamilies');
+    const buildSnapshotFamiliesFromRefs = catalogFn('buildSnapshotFamiliesFromRefs');
+    const groupsForCatalogueFamily = catalogFn('groupsForCatalogueFamily');
+    const resolveGroupFromRef = catalogFn('resolveGroupFromRef');
+    const buildSnapshotFamiliesFromResolvedGroups = catalogFn('buildSnapshotFamiliesFromResolvedGroups');
+    const flattenTemplateNodesForSnapshot = catalogFn('flattenTemplateNodesForSnapshot');
+    const buildSnapshotCategoryFromNode = catalogFn('buildSnapshotCategoryFromNode');
+    const resolveNodeRefs = catalogFn('resolveNodeRefs');
+    const syncCategoryLinkedNodeRefs = catalogFn('syncCategoryLinkedNodeRefs');
+    const syncCatalogNodeLinkedRefs = catalogFn('syncCatalogNodeLinkedRefs');
+    const buildRefsFromCatalogNode = catalogFn('buildRefsFromCatalogNode');
+    const countResolvedTreeStats = catalogFn('countResolvedTreeStats');
+    const resolveSubCategoryFamilies = catalogFn('resolveSubCategoryFamilies');
+    const resolveNodeForConfigurator = catalogFn('resolveNodeForConfigurator');
+    const resolveTemplateTree = catalogFn('resolveTemplateTree');
+    const walkTemplateDecisionGroupRefs = catalogFn('walkTemplateDecisionGroupRefs');
+    const normalizeBoatTemplateSnapshot = catalogFn('normalizeBoatTemplateSnapshot');
+    const migrateCategoryIdsToTree = catalogFn('migrateCategoryIdsToTree');
+    const getNodeAtPath = catalogFn('getNodeAtPath');
+    const countTreeStats = catalogFn('countTreeStats');
+    const hasTemplateTree = catalogFn('hasTemplateTree');
+    const treeHasResolvableGroups = catalogFn('treeHasResolvableGroups');
 
     /** Index global des objets option (stock catalogue import, toutes catégories). */
     function buildCatalogueOptionById(categories) {
@@ -580,9 +489,25 @@
         resolveCategoryFamiliesWithGroups,
         buildRefsFromCategoryFamilies,
         buildTemplateChildNodesFromCategory,
+        buildTemplateChildNodesFromCatalogNode,
+        normalizeCatalogNodeOrder,
+        defaultCatalogNodeOrder,
+        mergeCatalogNodeOrder,
+        orderedCatalogSiblingIds,
+        buildCategoryTreeFromCatalog,
+        extractCatalogNodeOrderFromCategoryTree,
+        templateNodeIdForCatalog,
+        buildRefsFromCatalogNode,
         resolveGroupFromRef,
+        buildSnapshotFamiliesFromRefs,
+        buildSnapshotFamiliesFromResolvedGroups,
+        flattenTemplateNodesForSnapshot,
+        buildSnapshotCategoryFromNode,
         resolveSubCategoryFamilies,
         resolveNodeRefs,
+        syncCategoryLinkedNodeRefs,
+        syncCatalogNodeLinkedRefs,
+        countResolvedTreeStats,
         resolveNodeForConfigurator,
         resolveTemplateTree,
         getNodeAtPath,
@@ -594,6 +519,7 @@
         buildSubCategoryNameByOptionId,
         syncFamilyOptionsToDecisionGroups,
         prepareCatalogueFamiliesForConfigurator,
-        findCatalogueFamily
+        findCatalogueFamily,
+        walkTemplateDecisionGroupRefs,
     };
 })(typeof window !== 'undefined' ? window : global);

@@ -156,7 +156,7 @@
 
     function normalizeGroup(g, index) {
         const src = g && typeof g === 'object' ? g : {};
-        const id = String(src.id || `group_${(Number(index) || 0) + 1}`).trim();
+        const id = String(src.id || src.groupId || `group_${(Number(index) || 0) + 1}`).trim();
         const type = normalizeType(src.type);
         const label = String(src.label || id || '').trim();
         const decisionMode = normalizeDecisionMode(src.decisionMode);
@@ -173,8 +173,9 @@
             .filter(Boolean);
         const mergedOptionIds = Array.from(new Set([...(optionIds || []), ...fallbackOptionIds]));
         if (!id || !label) return null;
-        return {
+        const out = {
             id,
+            groupId: id,
             label,
             type,
             decisionMode,
@@ -183,6 +184,11 @@
             keywords,
             optionIds: mergedOptionIds
         };
+        const componentId = String(src.componentId || '').trim();
+        const componentLabel = String(src.componentLabel || '').trim();
+        if (componentId) out.componentId = componentId;
+        if (componentLabel) out.componentLabel = componentLabel;
+        return out;
     }
 
     function normalizeList(rawGroups) {

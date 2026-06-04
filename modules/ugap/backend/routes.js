@@ -222,6 +222,41 @@ router.post('/devis',
   ugapController.generateDevis
 );
 
+/**
+ * GET /api/ugap/saved-devis
+ * Liste les brouillons devis sauvegardés (configurateur)
+ */
+router.get('/saved-devis',
+  authenticateJWT,
+  useUgapEntrepriseDb,
+  requireUgapRole(['USER_ENTITY', 'ADMIN_ENTITY']),
+  ugapController.listSavedDevis
+);
+
+/**
+ * POST /api/ugap/saved-devis
+ * Enregistre une nouvelle version de brouillon devis
+ */
+router.post('/saved-devis',
+  express.json(),
+  authenticateJWT,
+  useUgapEntrepriseDb,
+  requireUgapRole(['USER_ENTITY', 'ADMIN_ENTITY']),
+  ugapController.createSavedDevis
+);
+
+/**
+ * POST /api/ugap/saved-devis/migrate-local
+ * Migration one-shot localStorage → Mongo
+ */
+router.post('/saved-devis/migrate-local',
+  express.json(),
+  authenticateJWT,
+  useUgapEntrepriseDb,
+  requireUgapRole(['USER_ENTITY', 'ADMIN_ENTITY']),
+  ugapController.migrateSavedDevisLocal
+);
+
 // ========================================
 // ROUTES ADMIN (écriture)
 // ========================================
@@ -597,6 +632,30 @@ router.post('/options/assign-families-bulk',
   useUgapEntrepriseDb,
   requireUgapRole(['ADMIN_ENTITY']),
   ugapController.assignOptionsFamiliesBulk
+);
+
+/**
+ * POST /api/ugap/options/assign-catalog-bulk
+ * Lie plusieurs options à des nœuds catalogue en une seule écriture
+ */
+router.post('/options/assign-catalog-bulk',
+  express.json(),
+  authenticateJWT,
+  useUgapEntrepriseDb,
+  requireUgapRole(['ADMIN_ENTITY']),
+  ugapController.assignOptionsCatalogBulk
+);
+
+/**
+ * POST /api/ugap/options/reset-family-assignments
+ * Réinitialise les assignations famille/groupe (catalogue + ui-state), sans supprimer les options.
+ */
+router.post('/options/reset-family-assignments',
+  express.json(),
+  authenticateJWT,
+  useUgapEntrepriseDb,
+  requireUgapRole(['ADMIN_ENTITY']),
+  ugapController.resetOptionsFamilyAssignments
 );
 
 /**

@@ -24,6 +24,171 @@ class UgapDataService {
     return [];
   }
 
+  static normalizeCatalogObject(raw, index) {
+    const o = raw && typeof raw === 'object' ? raw : {};
+    const id = String(o.id || `obj_${(Number(index) || 0) + 1}`).trim();
+    const label = String(o.label || id).trim();
+    const typeRaw = String(o.type || 'choice_set').trim().toLowerCase();
+    const allowedTypes = new Set(['choice_set', 'addon', 'model', 'garantie', 'static']);
+    const type = allowedTypes.has(typeRaw) ? typeRaw : 'choice_set';
+    const decisionMode = String(o.decisionMode || '').trim().toLowerCase() === 'multi_choice'
+      ? 'multi_choice'
+      : 'single_choice';
+    const tags = Array.isArray(o.tags)
+      ? o.tags.map((x) => String(x || '').trim()).filter(Boolean)
+      : [];
+    return {
+      id,
+      label,
+      type,
+      categoryId: String(o.categoryId || '').trim(),
+      subCategoryId: String(o.subCategoryId || '').trim(),
+      decisionMode,
+      tags,
+      keywords: String(o.keywords || '').trim()
+    };
+  }
+
+  static normalizeCatalogSubCategory(raw, index) {
+    const sc = raw && typeof raw === 'object' ? raw : {};
+    const id = String(sc.id || `sub_${(Number(index) || 0) + 1}`).trim();
+    const name = String(sc.name || 'Sous-catégorie').trim();
+    if (!id) return null;
+    return { id, name: name || 'Sous-catégorie' };
+  }
+
+  static normalizeCatalogCategory(raw, index) {
+    const c = raw && typeof raw === 'object' ? raw : {};
+    const id = String(c.id || `cat_${(Number(index) || 0) + 1}`).trim();
+    const name = String(c.name || 'Catégorie').trim();
+    if (!id) return null;
+    const subCategories = (Array.isArray(c.subCategories) ? c.subCategories : [])
+      .map((sc, i) => UgapDataService.normalizeCatalogSubCategory(sc, i))
+      .filter(Boolean);
+    return { id, name: name || 'Catégorie', subCategories };
+  }
+
+  static normalizeCatalogTag(raw) {
+    const t = raw && typeof raw === 'object' ? raw : {};
+    const id = String(t.id || t.value || '').trim().toLowerCase();
+    const label = String(t.label || t.title || id).trim();
+    if (!id) return null;
+    return { id, label: label || id };
+  }
+
+  static defaultCatalogTagRegistry() {
+    return [
+      { id: 'design', label: 'Design' },
+      { id: 'garantie', label: 'Garantie' },
+      { id: 'equipement', label: 'Équipement' },
+      { id: 'motorisation', label: 'Motorisation' },
+      { id: 'securite', label: 'Sécurité' },
+      { id: 'divers', label: 'Divers' }
+    ];
+  }
+
+  static normalizeCatalogNode(raw, index) {
+    const n = raw && typeof raw === 'object' ? raw : {};
+    const id = String(n.id || `node_${(Number(index) || 0) + 1}`).trim();
+    const decisionMode = String(n.decisionMode || '').trim().toLowerCase() === 'multi_choice'
+      ? 'multi_choice'
+      : 'single_choice';
+    const tags = Array.isArray(n.tags)
+      ? n.tags.map((x) => String(x || '').trim()).filter(Boolean)
+      : [];
+    return {
+      id,
+      parentId: String(n.parentId || '').trim(),
+      label: String(n.label || n.name || 'Nœud').trim(),
+      decisionMode,
+      keywords: String(n.keywords || '').trim(),
+      tags,
+      sortOrder: Number.isFinite(Number(n.sortOrder)) ? Number(n.sortOrder) : (Number(index) || 0) * 10,
+    };
+  }
+
+  /** Ancien modèle categories + objects → nodes[] (une seule fois au chargement). */
+  static migrateLegacyCatalogToNodes(source) {
+    const src = source && typeof source === 'object' ? source : {};
+    if (Array.isArray(src.nodes) && src.nodes.length) {
+      return src.nodes.map((n, i) => UgapDataService.normalizeCatalogNode(n, i));
+    }
+    const nodes = [];
+    let order = 0;
+    const nextOrder = () => {
+      order += 10;
+      return order;
+    };
+    (Array.isArray(src.categories) ? src.categories : []).forEach((cat) => {
+      const c = cat && typeof cat === 'object' ? cat : {};
+      const catId = String(c.id || `cat_${nextOrder()}`).trim();
+      nodes.push({
+        id: catId,
+        parentId: '',
+        label: String(c.name || 'Catégorie').trim(),
+        decisionMode: 'single_choice',
+        keywords: '',
+        tags: [],
+        sortOrder: nextOrder(),
+      });
+      (Array.isArray(c.subCategories) ? c.subCategories : []).forEach((sc) => {
+        const s = sc && typeof sc === 'object' ? sc : {};
+        const subId = String(s.id || `sub_${nextOrder()}`).trim();
+        nodes.push({
+          id: subId,
+          parentId: catId,
+          label: String(s.name || 'Sous-catégorie').trim(),
+          decisionMode: 'single_choice',
+          keywords: '',
+          tags: [],
+          sortOrder: nextOrder(),
+        });
+      });
+    });
+    (Array.isArray(src.objects) ? src.objects : []).forEach((o) => {
+      const obj = o && typeof o === 'object' ? o : {};
+      const objId = String(obj.id || `node_${nextOrder()}`).trim();
+      const parentId = String(obj.subCategoryId || obj.categoryId || '').trim();
+      const decisionMode = String(obj.decisionMode || '').trim().toLowerCase() === 'multi_choice'
+        ? 'multi_choice'
+        : 'single_choice';
+      const tags = Array.isArray(obj.tags)
+        ? obj.tags.map((x) => String(x || '').trim()).filter(Boolean)
+        : [];
+      nodes.push({
+        id: objId,
+        parentId,
+        label: String(obj.label || 'Choix').trim(),
+        decisionMode,
+        keywords: String(obj.keywords || '').trim(),
+        tags,
+        sortOrder: nextOrder(),
+      });
+    });
+    const byId = new Map();
+    nodes.forEach((node) => {
+      if (!byId.has(node.id)) byId.set(node.id, node);
+    });
+    return Array.from(byId.values()).sort(
+      (a, b) => a.sortOrder - b.sortOrder || a.label.localeCompare(b.label, 'fr')
+    );
+  }
+
+  static normalizeCatalog(raw) {
+    const source = raw && typeof raw === 'object' ? raw : {};
+    let nodes = (Array.isArray(source.nodes) ? source.nodes : [])
+      .map((n, i) => UgapDataService.normalizeCatalogNode(n, i))
+      .filter((n) => n && n.id);
+    if (!nodes.length) {
+      nodes = UgapDataService.migrateLegacyCatalogToNodes(source);
+    }
+    const tagRegistryRaw = Array.isArray(source.tagRegistry) ? source.tagRegistry : [];
+    const tagRegistry = tagRegistryRaw.length
+      ? tagRegistryRaw.map((t) => UgapDataService.normalizeCatalogTag(t)).filter(Boolean)
+      : UgapDataService.defaultCatalogTagRegistry();
+    return { nodes, tagRegistry };
+  }
+
   static normalizeUiState(uiState) {
     const source = uiState && typeof uiState === 'object' ? uiState : {};
     const families = this.resolveUiStateFamilies(source);
@@ -116,8 +281,10 @@ class UgapDataService {
       : [];
     const boatTemplates = UgapDataService.normalizeBoatTemplates(source.boatTemplates);
     const modelBaseSlotPicks = UgapDataService.normalizeModelBaseSlotPicks(source.modelBaseSlotPicks);
+    const catalog = UgapDataService.normalizeCatalog(source.catalog);
     return {
       families,
+      catalog,
       businessViews,
       baseModelTemplateFamilies,
       viewPresets,
@@ -310,7 +477,19 @@ class UgapDataService {
     const baseOptionIds = Array.isArray(snap.baseOptionIds)
       ? snap.baseOptionIds.map((x) => String(x || '').trim()).filter(Boolean)
       : [];
-    return { categoryTree, categoryIds, baseOptionIds };
+
+    let catalogNodeOrder = {};
+    if (snap.catalogNodeOrder && typeof snap.catalogNodeOrder === 'object' && !Array.isArray(snap.catalogNodeOrder)) {
+      Object.keys(snap.catalogNodeOrder).forEach((key) => {
+        const pid = String(key === 'root' ? '' : key).trim();
+        const ids = (Array.isArray(snap.catalogNodeOrder[key]) ? snap.catalogNodeOrder[key] : [])
+          .map((x) => String(x || '').trim())
+          .filter(Boolean);
+        if (ids.length) catalogNodeOrder[pid] = ids;
+      });
+    }
+
+    return { categoryTree, categoryIds, baseOptionIds, catalogNodeOrder };
   }
 
   static normalizeBoatTemplate(tpl) {
@@ -339,6 +518,18 @@ class UgapDataService {
     };
   }
 
+  /** Anciennes clés composant (ex. principal::model) → id groupe catalogue. */
+  static stripLegacyGroupSelectionKey(key) {
+    const raw = String(key || '').trim();
+    if (!raw.includes('::')) return raw;
+    const idx = raw.indexOf('::');
+    const prefix = raw.slice(0, idx).toLowerCase();
+    if (prefix === 'principal' || prefix === 'composant' || prefix === 'default' || prefix === 'main') {
+      return raw.slice(idx + 2).trim();
+    }
+    return raw;
+  }
+
     static normalizeCategoryFamilyEntry(entry) {
     const e = entry && typeof entry === 'object' ? entry : {};
     const rawSourceIndex = e.sourceIndex;
@@ -348,10 +539,10 @@ class UgapDataService {
     const sourceIndex = hasExplicitSourceIndex ? Number(rawSourceIndex) : NaN;
     const familyLabel = String(e.familyLabel || '').trim();
     const selectedGroupIds = Array.isArray(e.selectedGroupIds)
-      ? e.selectedGroupIds.map((x) => String(x || '').trim()).filter(Boolean)
+      ? e.selectedGroupIds.map((x) => UgapDataService.stripLegacyGroupSelectionKey(x)).filter(Boolean)
       : [];
     const groupOrder = Array.isArray(e.groupOrder)
-      ? e.groupOrder.map((x) => String(x || '').trim()).filter(Boolean)
+      ? e.groupOrder.map((x) => UgapDataService.stripLegacyGroupSelectionKey(x)).filter(Boolean)
       : [];
     if (!familyLabel) return null;
     const row = {
@@ -728,6 +919,9 @@ class UgapDataService {
     const inclusionKind = this.normalizeInclusionKind(source);
     const normalizedName = String(source.name || '').trim();
     const normalizedDetails = String(source.details || '').trim();
+    const tags = Array.isArray(source.tags)
+      ? source.tags.map((x) => String(x || '').trim()).filter(Boolean)
+      : [];
     const out = this.applyBaseOptionTag({
       ...source,
       id: String(source.id || ''),
@@ -736,6 +930,8 @@ class UgapDataService {
       details: normalizedDetails,
       inclusionKind,
       compatibleModels,
+      catalogObjectId: String(source.catalogObjectId || '').trim(),
+      tags,
       // Persistance explicite "Divers" (fallback historique: pas de croix => divers)
       isDivers: hasExplicitDivers ? !!source.isDivers : compatibleModels.length === 0,
       isSparePart: !!source.isSparePart,
@@ -1122,6 +1318,9 @@ class UgapDataService {
       next.families = Array.isArray(patch.families) ? patch.families : [];
       delete next.validatedFamilies;
     }
+    if (Object.prototype.hasOwnProperty.call(patch, 'catalog')) {
+      next.catalog = this.normalizeCatalog(patch.catalog);
+    }
     assignArrayIfNonEmpty('businessViews');
     assignIfPresent('baseModelTemplateFamilies');
     assignArrayIfNonEmpty('viewPresets');
@@ -1295,9 +1494,25 @@ class UgapDataService {
    */
   static async updateOption(db, entrepriseId, optionId, updates) {
     const collection = db.collection('ugap_data');
-    const merged = this.normalizeOption({ ...updates, id: optionId });
+    const targetId = String(optionId || '').trim();
+    if (!targetId) return false;
+    const patch = updates && typeof updates === 'object' ? updates : {};
+    const document = await collection.findOne({ entrepriseId });
+    if (!document) {
+      throw new Error('Données non trouvées');
+    }
+    let existing = null;
+    (Array.isArray(document.categories) ? document.categories : []).some((cat) =>
+      (Array.isArray(cat?.options) ? cat.options : []).some((opt) => {
+        if (String(opt?.id || '').trim() !== targetId) return false;
+        existing = opt;
+        return true;
+      })
+    );
+    if (!existing) return false;
+    const merged = this.normalizeOption({ ...existing, ...patch, id: targetId });
     const result = await collection.updateOne(
-      { entrepriseId, 'categories.options.id': optionId },
+      { entrepriseId, 'categories.options.id': targetId },
       { 
         $set: { 
           'categories.$[cat].options.$[opt]': merged,
@@ -1306,8 +1521,8 @@ class UgapDataService {
       },
       { 
         arrayFilters: [
-          { 'cat.options.id': optionId },
-          { 'opt.id': optionId }
+          { 'cat.options.id': targetId },
+          { 'opt.id': targetId }
         ]
       }
     );
@@ -1358,6 +1573,125 @@ class UgapDataService {
       { $set: { categories, updatedAt: new Date() } }
     );
     return { updatedCount, updatedOptionIds };
+  }
+
+  /** Retire les optionIds d’une famille (groupes, composants) sans toucher à la structure. */
+  /**
+   * Assigne des nœuds catalogue (catalogObjectId) à un lot d'options en une seule écriture.
+   * @param {Object} db
+   * @param {string} entrepriseId
+   * @param {Array<{optionId:string,catalogObjectId?:string}>} assignments
+   * @returns {Promise<{updatedCount:number,updatedOptionIds:string[]}>}
+   */
+  static async assignOptionsCatalogBulk(db, entrepriseId, assignments) {
+    const collection = db.collection('ugap_data');
+    const document = await collection.findOne({ entrepriseId });
+    if (!document) {
+      throw new Error('Données non trouvées');
+    }
+
+    const updatesMap = new Map();
+    (Array.isArray(assignments) ? assignments : []).forEach((item) => {
+      const optionId = String(item?.optionId || '').trim();
+      if (!optionId || !Object.prototype.hasOwnProperty.call(item, 'catalogObjectId')) return;
+      updatesMap.set(optionId, String(item.catalogObjectId || '').trim());
+    });
+    if (!updatesMap.size) return { updatedCount: 0, updatedOptionIds: [] };
+
+    let updatedCount = 0;
+    const updatedOptionIds = [];
+    const categories = (document.categories || []).map((cat) => {
+      const options = (cat.options || []).map((opt) => {
+        const optionId = String(opt?.id || '').trim();
+        if (!optionId || !updatesMap.has(optionId)) return opt;
+        updatedCount += 1;
+        updatedOptionIds.push(optionId);
+        const catalogObjectId = updatesMap.get(optionId);
+        const next = { ...opt };
+        if (catalogObjectId) {
+          next.catalogObjectId = catalogObjectId;
+        } else {
+          delete next.catalogObjectId;
+        }
+        return next;
+      });
+      return { ...cat, options };
+    });
+
+    await collection.updateOne(
+      { entrepriseId },
+      { $set: { categories, updatedAt: new Date() } }
+    );
+    return { updatedCount, updatedOptionIds };
+  }
+
+  static stripFamilyOptionAssignments(family) {
+    const f = family && typeof family === 'object' ? { ...family } : {};
+    f.optionIds = [];
+    const clearGroups = (groups) => (Array.isArray(groups) ? groups : []).map((g) => {
+      const grp = g && typeof g === 'object' ? { ...g } : {};
+      grp.optionIds = [];
+      return grp;
+    });
+    if (Array.isArray(f.decisionGroups)) f.decisionGroups = clearGroups(f.decisionGroups);
+    if (Array.isArray(f.groups)) f.groups = clearGroups(f.groups);
+    if (Array.isArray(f.components)) {
+      f.components = f.components.map((comp) => {
+        const c = comp && typeof comp === 'object' ? { ...comp } : {};
+        c.optionIds = [];
+        if (Array.isArray(c.groups)) c.groups = clearGroups(c.groups);
+        if (Array.isArray(c.decisionGroups)) c.decisionGroups = clearGroups(c.decisionGroups);
+        return c;
+      });
+    }
+    return f;
+  }
+
+  /**
+   * Réinitialise les assignations options ↔ familles/groupes (legacy) et catalogObjectId (nœuds catalogue).
+   * Conserve les familles, l’arbre catalogue et les options catalogue.
+   */
+  static async resetAllOptionsFamilyAssignments(db, entrepriseId) {
+    const collection = db.collection('ugap_data');
+    const document = await collection.findOne({ entrepriseId });
+    if (!document) {
+      throw new Error('Données non trouvées');
+    }
+
+    let catalogClearedCount = 0;
+    const categories = (document.categories || []).map((cat) => {
+      const options = (cat.options || []).map((opt) => {
+        const familyLabel = String(opt?.familyLabel || '').trim();
+        const catalogObjectId = String(opt?.catalogObjectId || '').trim();
+        if (!familyLabel && !catalogObjectId) return opt;
+        catalogClearedCount += 1;
+        const next = { ...opt };
+        if (familyLabel) delete next.familyLabel;
+        if (catalogObjectId) delete next.catalogObjectId;
+        return next;
+      });
+      return { ...cat, options };
+    });
+
+    const ui = this.normalizeUiState(document.uiState);
+    const families = this.resolveUiStateFamilies(ui).map((f) => this.stripFamilyOptionAssignments(f));
+    const nextUi = this.normalizeUiState({
+      ...ui,
+      families,
+      optionFamilyStatuses: {},
+      updatedAt: new Date()
+    });
+
+    await collection.updateOne(
+      { entrepriseId },
+      { $set: { categories, uiState: nextUi, updatedAt: new Date() } }
+    );
+
+    return {
+      catalogClearedCount,
+      familiesCount: families.length,
+      uiState: nextUi
+    };
   }
 
   /** IDs d'options déjà présents dans le catalogue (options + sous-catégories). */
@@ -1424,25 +1758,31 @@ class UgapDataService {
       ? this.allocateNextOptionId(categories)
       : requestedId;
 
-    const toCreate = {
+    const refUgap = String(option?.refUgap || '').trim();
+    const baseRefUgap = String(option?.baseRefUgap || refUgap).trim();
+    const toCreate = this.normalizeOption({
       ...option,
       id: optionId,
       name: String(option?.name || '').trim(),
-      refUgap: String(option?.refUgap || '').trim(),
-      baseRefUgap: String(option?.baseRefUgap || '').trim(),
+      refUgap,
+      baseRefUgap,
+      details: String(option?.details || '').trim(),
+      importExcelLabel: String(option?.importExcelLabel || option?.details || '').trim(),
       familyLabel: String(option?.familyLabel || '').trim(),
       subFamily: String(option?.subFamily || '').trim(),
-      priceClient: 0,
+      priceClient: Number.isFinite(Number(option?.priceClient)) ? Number(option.priceClient) : 0,
       priceUgap: Number.isFinite(Number(option?.priceUgap)) ? Number(option.priceUgap) : 0,
-      baseIncluded: true,
-      isBaseOption: true,
+      baseIncluded: option?.baseIncluded !== false,
       manualBaseOption: option?.manualBaseOption !== false,
       baseIncludedPrice: Number.isFinite(Number(option?.baseIncludedPrice)) ? Number(option.baseIncludedPrice) : 0,
       compatibleModels: Array.isArray(option?.compatibleModels)
         ? option.compatibleModels.map((x) => String(x)).filter(Boolean)
         : [],
-      isDivers: option?.isDivers !== undefined ? !!option.isDivers : false
-    };
+      catalogObjectId: String(option?.catalogObjectId || '').trim(),
+      tags: Array.isArray(option?.tags) ? option.tags : [],
+      isDivers: option?.isDivers !== undefined ? !!option.isDivers : false,
+      importOptionLineKind: String(option?.importOptionLineKind || 'option').trim() || 'option',
+    });
 
     const result = await collection.updateOne(
       { entrepriseId, 'categories.id': targetCategory.id },
@@ -3820,14 +4160,15 @@ Exemple de forme (ids fictifs) :
     const parsed = UgapExcelService.parseBaseReplacementProducts(opt?.name);
     const finalP = String(parsed?.finalProduct || '').trim();
     const initialP = String(parsed?.initialProduct || '').trim();
-    if (finalP && !this.isGenericBasePlaceholderLabel(finalP)) return finalP;
+    // initial = équipement de base remplacé ; final = nouveau (ligne « en remplacement de »).
     if (initialP && !this.isGenericBasePlaceholderLabel(initialP)) return initialP;
+    if (finalP && !this.isGenericBasePlaceholderLabel(finalP)) return finalP;
 
     const rep = parseReplacementFromLabel(opt?.name);
     const newO = String(rep?.newObject || '').trim();
     const repO = String(rep?.replacedObject || '').trim();
-    if (newO && !this.isGenericBasePlaceholderLabel(newO)) return newO;
     if (repO && !this.isGenericBasePlaceholderLabel(repO)) return repO;
+    if (newO && !this.isGenericBasePlaceholderLabel(newO)) return newO;
 
     const name = String(opt?.name || '')
       .replace(/^\d{5,}\s*/, '')
@@ -4020,9 +4361,11 @@ Exemple de forme (ids fictifs) :
   static isReusableCatalogueLineForBaseProduct(opt) {
     if (!opt || typeof opt !== 'object') return false;
     if (opt.importGeneratedFromBaseProduct === true) return false;
+    const name = String(opt?.name || '').replace(/\s+/g, ' ').trim();
+    if (/\ben\s+remplacement\b/i.test(name) || /\blieu\s+et\s+place\b/i.test(name)) return false;
     const kind = String(opt.importOptionLineKind || '').trim().toLowerCase();
     if (kind === 'minoration' || kind === 'majoration' || kind === 'pr') return false;
-    if (this.isCatalogMotorTarifOptionName(opt?.name)) return false;
+    if (this.isCatalogMotorTarifOptionName(name)) return false;
     return true;
   }
 
@@ -4035,17 +4378,28 @@ Exemple de forme (ids fictifs) :
     return optionById;
   }
 
-  static findCatalogueOptionIdForBaseProduct(bp, optionById) {
+  static findCatalogueOptionIdForBaseProduct(bp, optionById, sourceOpt = null) {
     const presetId = String(bp?.catalogOptionId || '').trim();
     if (presetId) {
       const preset = optionById.get(presetId);
       if (preset && this.isReusableCatalogueLineForBaseProduct(preset)) return presetId;
     }
-    const labelKey = this.normalizeImportBaseProductKey(bp?.label);
-    if (!labelKey) return '';
-    for (const [id, opt] of optionById.entries()) {
-      if (!this.isReusableCatalogueLineForBaseProduct(opt)) continue;
-      if (this.normalizeImportBaseProductKey(opt?.name) === labelKey) return id;
+    const keys = new Set();
+    const addKey = (label) => {
+      const k = this.normalizeImportBaseProductKey(label);
+      if (k && !this.isGenericBasePlaceholderLabel(label)) keys.add(k);
+    };
+    addKey(bp?.label);
+    addKey(bp?.baseOptionName);
+    if (sourceOpt && typeof sourceOpt === 'object') {
+      const parsed = UgapExcelService.parseBaseReplacementProducts(sourceOpt.name);
+      addKey(parsed?.initialProduct);
+    }
+    for (const labelKey of keys) {
+      for (const [id, opt] of optionById.entries()) {
+        if (!this.isReusableCatalogueLineForBaseProduct(opt)) continue;
+        if (this.normalizeImportBaseProductKey(opt?.name) === labelKey) return id;
+      }
     }
     return '';
   }
@@ -4075,7 +4429,9 @@ Exemple de forme (ids fictifs) :
       return catalogId;
     }
 
-    const byLabel = this.findCatalogueOptionIdForBaseProduct(products, optionById);
+    const srcOid = String((products.optionIds || [])[0] || '').trim();
+    const sourceOpt = srcOid ? optionById.get(srcOid) : null;
+    const byLabel = this.findCatalogueOptionIdForBaseProduct(products, optionById, sourceOpt);
     if (byLabel) {
       allIds.add(byLabel);
       return byLabel;

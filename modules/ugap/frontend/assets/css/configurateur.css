@@ -1,5 +1,5 @@
         body { background-color: #f5f7fa; }
-        .ugap-container { max-width: 1400px; margin: 0 auto; padding: 20px; }
+        .ugap-container { max-width: var(--ugap-container-max-width, 1680px); margin: 0 auto; padding: 20px; }
         
         .card { background: white; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); padding: 20px; margin-bottom: 20px; }
         
@@ -42,18 +42,75 @@
         .subcategory-card h3 { margin: 0 0 10px 0; font-size: 16px; }
         .subcategory-card .count { color: #666; font-size: 14px; }
         .subcategory-card .mode-badge { display: inline-block; margin-top: 6px; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; background: #eef2ff; color: #3730a3; }
-        .modal-content.modal-wide { max-width: 960px; }
+        .modal-content.modal-wide,
+        .modal-content.modal-picker { width: min(920px, 96vw); max-width: min(920px, 96vw); }
         .modal-back-row { margin-bottom: 12px; }
         .modal-back-btn { padding: 6px 12px; border: 1px solid #ddd; background: #fff; border-radius: 6px; cursor: pointer; font-size: 13px; font-weight: 600; color: #555; }
         .modal-back-btn:hover { background: #f3f4f6; }
-        
-        .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000; box-sizing: border-box; }
-        .modal.active { display: flex; align-items: flex-start; justify-content: center; padding: 16px; overflow-y: auto; }
-        .modal-content { background: white; border-radius: 8px; padding: 30px; max-width: 600px; width: 90%; max-height: 90vh; overflow-y: auto; }
-        .modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
-        .modal-header h2 { margin: 0; }
+
+        .modal {
+            display: none;
+            position: fixed;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(15, 23, 42, 0.45);
+            z-index: 10050;
+            box-sizing: border-box;
+        }
+        .modal.active {
+            display: flex !important;
+            align-items: flex-start;
+            justify-content: center;
+            padding: 20px 16px;
+            overflow-y: auto;
+            -webkit-overflow-scrolling: touch;
+        }
+        .modal-content {
+            background: #fff;
+            border-radius: 12px;
+            padding: 24px 28px 28px;
+            width: min(920px, 96vw);
+            max-width: min(920px, 96vw);
+            max-height: min(88vh, calc(100vh - 40px));
+            margin: 0;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            box-shadow: 0 12px 40px rgba(0, 0, 0, 0.18);
+        }
+        .modal-content.modal-picker #subcategory-options-list,
+        #subcategory-modal #subcategory-options-list {
+            flex: 1 1 auto;
+            min-height: 0;
+            overflow-y: auto;
+            max-height: min(65vh, calc(88vh - 140px));
+        }
+        #five-percent-group-modal .modal-content {
+            width: min(560px, 96vw);
+            max-width: min(560px, 96vw);
+        }
+        #five-percent-group-modal-body {
+            flex: 1 1 auto;
+            min-height: 0;
+            overflow-y: auto;
+            max-height: min(60vh, calc(88vh - 140px));
+        }
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 16px;
+            flex-shrink: 0;
+        }
+        .modal-header h2 { margin: 0; font-size: 18px; }
         .modal-close { background: none; border: none; font-size: 24px; cursor: pointer; color: #666; }
         .modal-close:hover { color: #000; }
+
+        html.ugap-modal-open,
+        html.ugap-modal-open body {
+            overflow: hidden;
+        }
         
         .actions { display: flex; justify-content: space-between; align-items: center; margin-top: 30px; padding-top: 20px; border-top: 1px solid #eee; }
         .btn { padding: 12px 24px; border: none; border-radius: 6px; cursor: pointer; font-weight: 600; transition: all 0.2s; }
@@ -75,6 +132,75 @@
         
         .loader { border: 4px solid #f3f3f3; border-top: 4px solid #3498db; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; margin: 20px auto; }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
+        .ugap-devis-open-overlay {
+            position: fixed;
+            inset: 0;
+            z-index: 10040;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: rgba(15, 23, 42, 0.35);
+            box-sizing: border-box;
+        }
+        .ugap-devis-open-overlay.hidden {
+            display: none !important;
+        }
+        .ugap-devis-open-overlay__panel {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 14px;
+            padding: 28px 36px;
+            background: #fff;
+            border-radius: 12px;
+            box-shadow: 0 12px 40px rgba(0, 0, 0, 0.18);
+            min-width: 220px;
+        }
+        .ugap-devis-open-overlay__label {
+            margin: 0;
+            font-size: 15px;
+            font-weight: 600;
+            color: #334155;
+        }
+        .ugap-devis-open-hourglass {
+            width: 36px;
+            height: 48px;
+            position: relative;
+            animation: ugap-hourglass-flip 2s ease-in-out infinite;
+        }
+        .ugap-devis-open-hourglass::before,
+        .ugap-devis-open-hourglass::after {
+            content: '';
+            position: absolute;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 0;
+            height: 0;
+            border-left: 18px solid transparent;
+            border-right: 18px solid transparent;
+        }
+        .ugap-devis-open-hourglass::before {
+            top: 0;
+            border-bottom: 22px solid #f59e0b;
+        }
+        .ugap-devis-open-hourglass::after {
+            bottom: 0;
+            border-top: 22px solid #d97706;
+            opacity: 0.55;
+            animation: ugap-hourglass-sand 2s ease-in-out infinite;
+        }
+        @keyframes ugap-hourglass-flip {
+            0%, 44% { transform: rotate(0deg); }
+            50%, 94% { transform: rotate(180deg); }
+            100% { transform: rotate(360deg); }
+        }
+        @keyframes ugap-hourglass-sand {
+            0%, 44% { opacity: 0.55; transform: translateX(-50%) scaleY(1); }
+            50% { opacity: 0.15; transform: translateX(-50%) scaleY(0.2); }
+            94% { opacity: 0.55; transform: translateX(-50%) scaleY(1); }
+            100% { opacity: 0.55; transform: translateX(-50%) scaleY(1); }
+        }
         
         .hidden { display: none !important; }
 
@@ -125,6 +251,447 @@
         .tpl-config-table tbody tr.tpl-config-row-category--current td { background: #f8fafc; }
         .tpl-config-table tbody tr.tpl-config-row-group:hover { background: #f9fafb; }
 
+        /* —— Parcours devis (étape 3) : tableau Famille | Poste | Option | Prix —— */
+        .ugap-devis-parcours {
+            margin-top: 4px;
+        }
+        .ugap-devis-parcours__model-line {
+            margin: 0 0 12px;
+            font-size: 15px;
+            font-weight: 600;
+            color: #0f172a;
+        }
+        .ugap-devis-parcours__boat-inline {
+            font-weight: 500;
+            color: #475569;
+        }
+        .ugap-devis-table-wrap {
+            margin-top: 4px;
+        }
+        .ugap-devis-options-table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        .ugap-devis-options-table thead th {
+            position: sticky;
+            top: 0;
+            z-index: 1;
+            background: #f1f5f9;
+            font-size: 12px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            color: #475569;
+            padding: 10px 12px;
+            border-bottom: 2px solid #cbd5e1;
+            text-align: left;
+        }
+        .ugap-devis-th-price {
+            text-align: right !important;
+            width: 110px;
+        }
+        .ugap-devis-th-categorie {
+            width: 22%;
+            min-width: 140px;
+        }
+        .ugap-devis-th-sous-noeud {
+            width: 18%;
+            min-width: 120px;
+        }
+        .ugap-devis-options-table tbody td {
+            padding: 10px 12px;
+            border-bottom: 1px solid #e2e8f0;
+            vertical-align: middle;
+            font-size: 14px;
+        }
+        .ugap-devis-options-table tbody tr:hover {
+            background: #f8fafc;
+        }
+        .ugap-devis-row--single,
+        .ugap-devis-row--multi,
+        .ugap-devis-row--multi-line {
+            cursor: pointer;
+        }
+        .ugap-devis-categorie,
+        .ugap-devis-noeud {
+            font-weight: 700;
+            color: #0f172a;
+        }
+        .ugap-devis-sous-noeud {
+            font-weight: 600;
+            color: #334155;
+        }
+        .ugap-devis-td-option .tpl-config-single-pick,
+        .ugap-devis-pick-btn {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+            width: 100%;
+            max-width: 100%;
+            padding: 8px 10px;
+            border: 1px solid #cbd5e1;
+            border-radius: 6px;
+            background: #fff;
+            cursor: pointer;
+            font-size: 14px;
+            text-align: left;
+        }
+        .ugap-devis-row--single:has(.ugap-devis-pick-placeholder) .tpl-config-single-pick {
+            border-color: #fcd34d;
+            background: #fffbeb;
+        }
+        .ugap-devis-pick-label {
+            flex: 1;
+            min-width: 0;
+            min-height: 1.25em;
+        }
+        .ugap-devis-pick-placeholder {
+            font-weight: 600;
+            font-style: italic;
+            color: #b45309;
+        }
+        .ugap-devis-pick-action {
+            font-weight: 600;
+            color: var(--primary-color, #007bff);
+            flex-shrink: 0;
+        }
+        .ugap-devis-pick-current {
+            font-weight: 600;
+            color: #0f172a;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .ugap-devis-row--multi-line {
+            cursor: default;
+        }
+        .ugap-devis-row--multi-pick {
+            cursor: pointer;
+        }
+        .ugap-devis-opt-name {
+            font-weight: 600;
+            color: #0f172a;
+        }
+        .ugap-devis-pick-chevron {
+            color: #94a3b8;
+            font-size: 18px;
+            flex-shrink: 0;
+        }
+        .ugap-devis-pick-btn.tpl-config-multi-add {
+            width: auto;
+            max-width: 280px;
+            justify-content: center;
+            font-weight: 600;
+            color: var(--primary-color, #007bff);
+            border-style: dashed;
+        }
+        .ugap-devis-td-price {
+            text-align: right;
+            white-space: nowrap;
+        }
+        .ugap-devis-price {
+            font-weight: 700;
+            color: #0f172a;
+        }
+        .ugap-devis-price.is-included {
+            color: #166534;
+            font-size: 13px;
+        }
+        .ugap-devis-price--muted {
+            color: #94a3b8;
+            font-weight: 500;
+        }
+        .ugap-devis-progress {
+            margin-bottom: 18px;
+            padding: 12px 14px;
+            background: #fff;
+            border: 1px solid #e2e8f0;
+            border-radius: 10px;
+        }
+        .ugap-devis-progress__top {
+            display: flex;
+            justify-content: space-between;
+            align-items: baseline;
+            gap: 12px;
+            margin-bottom: 8px;
+            flex-wrap: wrap;
+        }
+        .ugap-devis-progress__label {
+            font-size: 14px;
+            color: #334155;
+        }
+        .ugap-devis-progress__sub {
+            font-size: 12px;
+            color: #64748b;
+        }
+        .ugap-devis-progress__track {
+            height: 8px;
+            border-radius: 999px;
+            background: #e2e8f0;
+            overflow: hidden;
+        }
+        .ugap-devis-progress__bar {
+            height: 100%;
+            border-radius: 999px;
+            background: linear-gradient(90deg, #3b82f6, #2563eb);
+            transition: width 0.25s ease;
+        }
+        .ugap-devis-excel-fold {
+            margin-bottom: 16px;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            background: #f8fafc;
+        }
+        .ugap-devis-excel-fold__summary {
+            padding: 10px 14px;
+            font-size: 13px;
+            font-weight: 600;
+            color: #475569;
+            cursor: pointer;
+            list-style: none;
+        }
+        .ugap-devis-excel-fold__summary::-webkit-details-marker { display: none; }
+        .ugap-devis-excel-fold__body {
+            padding: 0 12px 12px;
+        }
+        .ugap-devis-parcours__body {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        .ugap-devis-tree {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        .ugap-devis-node {
+            border: 1px solid #e2e8f0;
+            border-radius: 10px;
+            background: #fff;
+            overflow: hidden;
+        }
+        .ugap-devis-node__head {
+            display: flex;
+            align-items: center;
+            gap: 8px 10px;
+            padding: 12px 14px;
+            cursor: pointer;
+            list-style: none;
+            font-weight: 600;
+            color: #0f172a;
+            background: #f8fafc;
+        }
+        .ugap-devis-node__head::-webkit-details-marker { display: none; }
+        .ugap-devis-node__head--static {
+            cursor: default;
+            border-bottom: 1px solid #e2e8f0;
+        }
+        .ugap-devis-node__chevron {
+            width: 8px;
+            height: 8px;
+            border-right: 2px solid #64748b;
+            border-bottom: 2px solid #64748b;
+            transform: rotate(-45deg);
+            transition: transform 0.2s;
+            flex-shrink: 0;
+        }
+        .ugap-devis-node[open] > .ugap-devis-node__head .ugap-devis-node__chevron {
+            transform: rotate(45deg);
+        }
+        .ugap-devis-node__label {
+            flex: 1;
+            font-size: 15px;
+        }
+        .ugap-devis-node__status {
+            font-size: 11px;
+            font-weight: 700;
+            padding: 3px 10px;
+            border-radius: 999px;
+            white-space: nowrap;
+        }
+        .ugap-devis-node__status--done {
+            background: #dcfce7;
+            color: #166534;
+        }
+        .ugap-devis-node__status--partial {
+            background: #fef3c7;
+            color: #92400e;
+        }
+        .ugap-devis-node__status--pending {
+            background: #f1f5f9;
+            color: #64748b;
+        }
+        .ugap-devis-node__choices {
+            padding: 12px 14px 14px;
+            display: flex;
+            flex-direction: column;
+            gap: 14px;
+        }
+        .ugap-devis-node__children {
+            padding: 0 10px 10px 14px;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            border-top: 1px dashed #e2e8f0;
+        }
+        .ugap-devis-slot__title {
+            font-size: 12px;
+            font-weight: 700;
+            color: #64748b;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            margin-bottom: 6px;
+        }
+        .ugap-devis-slot__hint {
+            margin: 0 0 8px;
+            font-size: 12px;
+            color: #64748b;
+        }
+        .ugap-devis-slot__pending {
+            margin: 8px 0 0;
+            font-size: 12px;
+            color: #b45309;
+            font-weight: 600;
+        }
+        .ugap-devis-slot__total {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-top: 10px;
+            padding-top: 10px;
+            border-top: 1px solid #e2e8f0;
+            font-size: 13px;
+            color: #64748b;
+        }
+        .ugap-devis-slot__total strong {
+            font-size: 15px;
+            color: #0f172a;
+        }
+        .ugap-devis-opt-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+            gap: 8px;
+        }
+        .ugap-devis-opt-grid--multi {
+            grid-template-columns: 1fr;
+        }
+        .ugap-devis-opt-card {
+            display: flex;
+            align-items: flex-start;
+            gap: 10px;
+            padding: 12px 14px;
+            border: 2px solid #e2e8f0;
+            border-radius: 8px;
+            background: #fff;
+            cursor: pointer;
+            transition: border-color 0.15s, background 0.15s, box-shadow 0.15s;
+        }
+        .ugap-devis-opt-card:hover {
+            border-color: #93c5fd;
+            background: #f8fafc;
+        }
+        .ugap-devis-opt-card.is-selected {
+            border-color: var(--primary-color, #007bff);
+            background: #f0f7ff;
+            box-shadow: 0 0 0 1px rgba(0, 123, 255, 0.15);
+        }
+        .ugap-devis-opt-card input {
+            margin-top: 3px;
+            width: 18px;
+            height: 18px;
+            flex-shrink: 0;
+            cursor: pointer;
+        }
+        .ugap-devis-opt-card__main {
+            flex: 1;
+            min-width: 0;
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+        }
+        .ugap-devis-opt-card__name {
+            font-size: 14px;
+            font-weight: 600;
+            color: #0f172a;
+            line-height: 1.35;
+        }
+        .ugap-devis-opt-card__meta {
+            font-size: 12px;
+            color: #64748b;
+            line-height: 1.3;
+        }
+        .ugap-devis-opt-card__price {
+            font-size: 14px;
+            font-weight: 700;
+            color: #0f172a;
+            white-space: nowrap;
+            flex-shrink: 0;
+        }
+        .ugap-devis-opt-card__price.is-included {
+            color: #166534;
+            font-size: 12px;
+            font-weight: 700;
+        }
+        .ugap-devis-pick-row {
+            display: flex;
+            gap: 12px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+        .ugap-devis-pick-row .ugap-config-pick {
+            flex: 1;
+            min-width: 220px;
+            padding: 10px 12px;
+            border: 1px solid #cbd5e1;
+            border-radius: 8px;
+            font-size: 14px;
+            background: #fff;
+        }
+        .ugap-devis-pick-row__price {
+            font-size: 15px;
+            font-weight: 700;
+            color: #0f172a;
+            min-width: 72px;
+            text-align: right;
+        }
+        .ugap-devis-pick-row__price.is-included {
+            color: #166534;
+            font-size: 13px;
+        }
+        .ugap-devis-orphans {
+            margin-top: 8px;
+            padding-top: 16px;
+            border-top: 2px solid #e2e8f0;
+        }
+        .ugap-devis-orphans__title {
+            margin: 0 0 12px;
+            font-size: 14px;
+            font-weight: 700;
+            color: #475569;
+        }
+        .ugap-devis-orphans__list {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+        .ugap-devis-empty {
+            padding: 20px;
+            text-align: center;
+            color: #64748b;
+            font-size: 14px;
+            border: 1px dashed #cbd5e1;
+            border-radius: 10px;
+            background: #f8fafc;
+        }
+        #step-3 #category-tabs:empty,
+        #step-3 #subcategories-container:empty {
+            display: none;
+        }
+        #step-3 .ugap-devis-parcours + #category-tabs {
+            display: none;
+        }
+
         /* Mode iframe (Paramétrage GDRI → onglet Configurateur) */
         body.ugap-embedded-mode {
             margin: 0;
@@ -132,7 +699,7 @@
             overflow-x: hidden;
         }
         body.ugap-embedded-mode .ugap-container {
-            max-width: 1400px;
+            max-width: var(--ugap-container-max-width, 1680px);
             margin: 0 auto;
             padding: 12px 16px 40px;
             box-sizing: border-box;
@@ -161,7 +728,7 @@
     background: transparent;
 }
 .ugap-gdri-embed.ugap-configurateur-embed .ugap-container {
-    max-width: 1400px;
+    max-width: var(--ugap-container-max-width, 1680px);
     margin: 0 auto;
     padding: 16px 20px 32px;
     box-sizing: border-box;

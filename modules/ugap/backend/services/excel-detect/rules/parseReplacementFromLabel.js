@@ -24,14 +24,30 @@ function stripMvPvPrefix(text) {
     .trim();
 }
 
+function inferReplacedBaseFromNewObject(beforeNoPrefix, replacedSegment) {
+  let initial = String(replacedSegment || '').trim();
+  if (!/^cel(le|ui|les)?\s+de\s+base$/i.test(initial) && !/^ceux\s+de\s+base$/i.test(initial)) {
+    return initial;
+  }
+  const before = String(beforeNoPrefix || '').trim();
+  const head = before.match(/\b(flotteur|moteur|combin[ée]|sondeur|sonde|module|coque|console)\b/i);
+  if (!head) return 'produit de base';
+  let term = head[1].toLowerCase();
+  if (term === 'sonde') term = 'sondeur';
+  return `${term} de base`;
+}
+
 function cleanReplacedSegment(text) {
-  return stripPostesSuffix(
+  const raw = stripPostesSuffix(
     String(text || '')
       .replace(/^(?:de\s+)?(?:l['']|la\s+|le\s+|les\s+)/i, '')
       .replace(/\s+fourni\s+de\s+base\s*$/i, '')
-      .replace(/^ceux?\s+de\s+base\s*$/i, 'produit de base')
       .trim()
   );
+  if (/^cel(le|ui|les)?\s+de\s+base$/i.test(raw) || /^ceux\s+de\s+base$/i.test(raw)) {
+    return raw;
+  }
+  return raw;
 }
 
 function parseReplacementFromLabel(label) {
@@ -48,12 +64,13 @@ function parseReplacementFromLabel(label) {
 
     const before = cleaned.slice(0, match.index).trim();
     const afterStart = match.index + match[0].length;
-    const after = cleanReplacedSegment(cleaned.slice(afterStart));
+    const afterRaw = cleanReplacedSegment(cleaned.slice(afterStart));
+    const newObject = stripMvPvPrefix(before);
 
     return {
       keyword: kw.name,
-      newObject: stripMvPvPrefix(before),
-      replacedObject: after
+      newObject,
+      replacedObject: inferReplacedBaseFromNewObject(newObject, afterRaw)
     };
   }
 

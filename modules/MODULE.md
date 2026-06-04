@@ -98,6 +98,7 @@ Un module peut utiliser un autre module situé sous `modules/` :
 | Service Mail        | `mail/`                | `/api/mail`      | Envoi / réception d’emails           |
 | UGAP                | `ugap/`                | `/api/ugap`      | Configurateur bateaux (devis, fiche) |
 | Workflow Builder    | `workflow/`            | `/api/workflow`  | Gestion des workflows                |
+| **Doc-Hub**         | `doc-hub/`             | `/api/doc-hub`   | GED par projet, diffusion par liens   |
 
 **Architecture IA** : voir `modules/ARCHITECTURE-IA-INTENTION.md` (module `ia` = point d’accès unique ; priorité backendIA, fallback Ollama).
 

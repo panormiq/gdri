@@ -54,6 +54,23 @@ if (!function_exists('ugap_is_gdri_embed')) {
         $GLOBALS['__ugapEnqueuedScripts'][$src] = $src;
     }
 
+    /**
+     * URL publique des assets UGAP.
+     * /modules/ugap/… et /frontend/… = chemins absolus depuis la racine du site (Apache).
+     * Ne pas préfixer avec BASE_URL (/frontend/) : sinon /frontend/modules/… → 404 en prod.
+     */
+    function ugap_public_asset_href(string $href): string
+    {
+        $path = '/' . ltrim($href, '/');
+        if (str_starts_with($path, '/modules/') || str_starts_with($path, '/frontend/')) {
+            return $path;
+        }
+        if (function_exists('url') && defined('BASE_URL')) {
+            return url(ltrim($path, '/'));
+        }
+        return $path;
+    }
+
     function ugap_print_enqueued_styles(): void
     {
         if (empty($GLOBALS['__ugapEnqueuedStyles'])) {
@@ -62,7 +79,8 @@ if (!function_exists('ugap_is_gdri_embed')) {
         foreach ($GLOBALS['__ugapEnqueuedStyles'] as $href) {
             $sep = str_contains($href, '?') ? '&' : '?';
             $v = ugap_asset_version($href);
-            echo '<link rel="stylesheet" href="' . htmlspecialchars($href, ENT_QUOTES, 'UTF-8') . $sep . 'v=' . $v . '">' . "\n";
+            $out = ugap_public_asset_href($href);
+            echo '<link rel="stylesheet" href="' . htmlspecialchars($out, ENT_QUOTES, 'UTF-8') . $sep . 'v=' . $v . '">' . "\n";
         }
     }
 
@@ -74,7 +92,8 @@ if (!function_exists('ugap_is_gdri_embed')) {
         foreach ($GLOBALS['__ugapEnqueuedScripts'] as $src) {
             $sep = str_contains($src, '?') ? '&' : '?';
             $v = ugap_asset_version($src);
-            echo '<script src="' . htmlspecialchars($src, ENT_QUOTES, 'UTF-8') . $sep . 'v=' . $v . '"></script>' . "\n";
+            $out = ugap_public_asset_href($src);
+            echo '<script src="' . htmlspecialchars($out, ENT_QUOTES, 'UTF-8') . $sep . 'v=' . $v . '"></script>' . "\n";
         }
     }
 }

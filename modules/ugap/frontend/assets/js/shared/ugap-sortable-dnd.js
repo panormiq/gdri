@@ -47,6 +47,19 @@
         else itemEl.classList.add('ugap-dnd--drop-nest');
     }
 
+    /** Cible DnD limitée au conteneur (évite les listes imbriquées). */
+    function closestItemInScope(scope, target, itemSelector, onlyDirectChildren) {
+        if (!scope || !target || !itemSelector) return null;
+        let el = target;
+        while (el && el !== scope) {
+            if (el.matches?.(itemSelector)) {
+                if (!onlyDirectChildren || el.parentElement === scope) return el;
+            }
+            el = el.parentElement;
+        }
+        return null;
+    }
+
     /**
      * @param {HTMLElement} root
      * @param {object} options
@@ -68,6 +81,7 @@
         const itemSelector = String(opts.itemSelector || '[data-ugap-dnd-item]').trim();
         const handleSelector = opts.handleSelector ? String(opts.handleSelector).trim() : '';
         const allowNest = !!opts.allowNest;
+        const onlyDirectChildren = !!opts.onlyDirectChildren;
         const getItemId = typeof opts.getItemId === 'function' ? opts.getItemId : (el) => el.getAttribute('data-ugap-dnd-item');
         const onDrop = typeof opts.onDrop === 'function' ? opts.onDrop : null;
         if (!onDrop) return;
@@ -76,11 +90,9 @@
 
         scope.addEventListener('dragstart', (e) => {
             const handle = handleSelector ? e.target?.closest?.(handleSelector) : null;
-            const item = handle
-                ? e.target?.closest?.(itemSelector)
-                : e.target?.closest?.(itemSelector);
-            if (!item || !e.dataTransfer) return;
             if (handleSelector && !handle) return;
+            const item = closestItemInScope(scope, e.target, itemSelector, onlyDirectChildren);
+            if (!item || !e.dataTransfer) return;
             const id = String(getItemId(item) || '').trim();
             if (!id) return;
             draggingId = id;
@@ -90,14 +102,14 @@
         }, true);
 
         scope.addEventListener('dragend', (e) => {
-            const item = e.target?.closest?.(itemSelector);
+            const item = closestItemInScope(scope, e.target, itemSelector, onlyDirectChildren);
             if (item) item.classList.remove('ugap-dnd--dragging');
             draggingId = '';
             clearDropIndicators(scope);
         }, true);
 
         scope.addEventListener('dragover', (e) => {
-            const item = e.target?.closest?.(itemSelector);
+            const item = closestItemInScope(scope, e.target, itemSelector, onlyDirectChildren);
             if (!item) return;
             const targetId = String(getItemId(item) || '').trim();
             if (!targetId || targetId === draggingId) return;
@@ -108,7 +120,7 @@
         }, true);
 
         scope.addEventListener('dragleave', (e) => {
-            const item = e.target?.closest?.(itemSelector);
+            const item = closestItemInScope(scope, e.target, itemSelector, onlyDirectChildren);
             if (!item) return;
             const related = e.relatedTarget;
             if (related && item.contains(related)) return;
@@ -116,9 +128,10 @@
         }, true);
 
         scope.addEventListener('drop', async (e) => {
-            const item = e.target?.closest?.(itemSelector);
+            const item = closestItemInScope(scope, e.target, itemSelector, onlyDirectChildren);
             if (!item) return;
             e.preventDefault();
+            e.stopPropagation();
             const fromId = String(e.dataTransfer?.getData(dataType) || draggingId || '').trim();
             const toId = String(getItemId(item) || '').trim();
             const mode = resolveDropMode(e, item, allowNest);
