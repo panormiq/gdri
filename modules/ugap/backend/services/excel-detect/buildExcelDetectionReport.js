@@ -10,6 +10,7 @@ const resolveImportLineKind = require('./resolveImportLineKind');
 const enrichMinorationLines = require('./enrichMinorationLines');
 const buildBaseOptions = require('./buildBaseOptions');
 const parseReplacementFromLabel = require('./rules/parseReplacementFromLabel');
+const resolveAdjOptionNameFromLabel = require('./rules/resolveAdjOptionNameFromLabel');
 const isCrossMarker = require('./isCrossMarker');
 const extractModelRecapRow = require('./extractModelRecapRow');
 
@@ -43,9 +44,11 @@ function isBaseModelRowLabel(labelStr) {
 function enrichMajorationLines(lines, models) {
   return (lines || []).map((line) => {
     const replacement = parseReplacementFromLabel(line.label);
+    const optionName = resolveAdjOptionNameFromLabel(line, { forMinoration: false });
     return {
       ...line,
       ...replacement,
+      optionName,
       displayPostes: postesFromModelIds(line.compatibleModelIds, models)
     };
   });

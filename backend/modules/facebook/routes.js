@@ -1305,8 +1305,8 @@ router.post('/pages/:pageId/messages/analyzed/:messageId/rerun-analysis', authen
       ? (aiConfig.config.basePrompt || aiConfig.config.base_prompt || null)
       : null;
     const customIntentions = aiConfig && aiConfig.config
-      ? (aiConfig.config.customIntentions || aiConfig.config.intentions || [])
-      : [];
+      ? intentionService.buildActiveIntentionsFromConfig(aiConfig.config)
+      : intentionService.buildActiveIntentionsFromConfig(null);
 
     const rerunMessages = [{
       message: analyzedMessage.message || '',
@@ -1708,8 +1708,8 @@ router.post('/pages/:pageId/messages/analyzed/:messageId/email', authenticateJWT
           ? (agentCfg.basePrompt || agentCfg.base_prompt || null)
           : null;
         const customIntentions = agentCfg
-          ? (agentCfg.customIntentions || agentCfg.intentions || [])
-          : [];
+          ? intentionService.buildActiveIntentionsFromConfig(agentCfg)
+          : intentionService.buildActiveIntentionsFromConfig(null);
 
         const rerunResult = await intentionService.analyzeIntentions(rerunMessages, basePrompt, customIntentions);
         if (rerunResult && rerunResult.success) {

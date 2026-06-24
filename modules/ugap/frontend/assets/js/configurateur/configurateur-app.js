@@ -662,7 +662,7 @@
         }
 
         function syncFamilyOptionsToDecisionGroups(family) {
-            const FCmp = global.UgapFamilyComponents;
+            const FCmp = window.UgapFamilyComponents;
             if (FCmp?.syncOptionsToComponents) return FCmp.syncOptionsToComponents(family);
             return family;
         }
@@ -791,7 +791,7 @@
         }
 
         function catalogUgapPrice(opt) {
-            const ODN = global.UgapOptionDisplayName;
+            const ODN = window.UgapOptionDisplayName;
             if (ODN?.resolveCatalogOptionUgapPrice) return ODN.resolveCatalogOptionUgapPrice(opt);
             if (!opt) return 0;
             const ugap = Number(opt.priceUgap);
@@ -1088,7 +1088,7 @@
             const familyLabel = getValidatedFamilyRootLabel(fam);
             if (!familyLabel) return null;
             const synced = syncFamilyOptionsToDecisionGroups(fam);
-            const FCmp = global.UgapFamilyComponents;
+            const FCmp = window.UgapFamilyComponents;
             let groups = FCmp?.flattenDecisionGroups
                 ? FCmp.flattenDecisionGroups(synced)
                 : normalizeFamilyDecisionGroups(synced.decisionGroups);
@@ -3658,7 +3658,7 @@
             return ids;
         }
 
-        /** Mino/majo (ex. non fourniture moteur) si le groupe n’a pas le produit de base par défaut. */
+        /** Mino/majo liée auto si remplacement moteur de base (pas console / autres IBP). */
         function isAdjLinkedToReplacedIbp(adjOptionId) {
             const aid = String(adjOptionId || '').trim();
             if (!aid) return false;
@@ -3676,6 +3676,7 @@
             const addForGroup = (group) => {
                 if (!group || group.decisionMode === 'multi_choice') return;
                 if (!isReplaced(state, group, hooks)) return;
+                if (BAL?.isMotorLinkedAdjGroup?.(group) !== true) return;
                 const defaultBaseId = String(Tpl.getGroupBaseOptionId(state, group, hooks) || '').trim();
                 if (!defaultBaseId) return;
                 BAL.resolveSourceAdjOptionIdsForBase(defaultBaseId, categories, importBaseProducts)

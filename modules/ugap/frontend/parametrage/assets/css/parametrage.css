@@ -1335,6 +1335,20 @@ body.ugap-embedded-mode .ugap-param-banner,
     border-radius: 8px;
 }
 
+.ugap-detect-table-wrap[data-detect-kind="base_option"] {
+    overflow: visible;
+    max-height: none;
+    border: none;
+}
+
+.ugap-bp-editor-table-scroll {
+    overflow-x: auto;
+    max-height: min(70vh, 800px);
+    overflow-y: auto;
+    border: 1px solid #e9ecef;
+    border-radius: 8px;
+}
+
 .ugap-detect-table {
     width: 100%;
     border-collapse: collapse;
@@ -1364,6 +1378,218 @@ body.ugap-embedded-mode .ugap-param-banner,
 
 .ugap-detect-table tbody tr:hover {
     background: #f9fafb;
+}
+
+.ugap-detect-table .ugap-detect-option-name {
+    font-weight: 600;
+    color: #0f172a;
+    min-width: 9rem;
+    white-space: nowrap;
+}
+
+.ugap-detect-table .ugap-detect-excel-label {
+    min-width: 14rem;
+    color: #334155;
+    font-size: 12px;
+    line-height: 1.35;
+}
+
+.ugap-bp-merge-hint--0 { background: #fff7ed !important; }
+.ugap-bp-merge-hint--1 { background: #eff6ff !important; }
+.ugap-bp-merge-hint--2 { background: #f0fdf4 !important; }
+.ugap-bp-merge-hint--3 { background: #fdf4ff !important; }
+.ugap-bp-merge-hint--4 { background: #fefce8 !important; }
+.ugap-bp-merge-hint--5 { background: #f0f9ff !important; }
+
+.ugap-bp-merge-hint:hover {
+    filter: brightness(0.98);
+}
+
+.ugap-bp-editor-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 16px;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 10px;
+    padding: 8px 10px;
+    background: #eff6ff;
+    border: 1px solid #bfdbfe;
+    border-radius: 8px;
+    font-size: 12px;
+}
+
+.ugap-bp-editor-toolbar__actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.ugap-bp-editor-selection-bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px 16px;
+    margin-bottom: 10px;
+    padding: 10px 12px;
+    background: #1e40af;
+    color: #eff6ff;
+    border-radius: 8px;
+    box-shadow: 0 2px 8px rgba(30, 64, 175, 0.25);
+}
+
+.ugap-bp-editor-selection-bar[hidden] {
+    display: none !important;
+}
+
+.ugap-bp-editor-selection-bar__count {
+    font-size: 13px;
+    font-weight: 600;
+}
+
+.ugap-bp-editor-selection-bar__actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.ugap-bp-name-cell {
+    cursor: pointer;
+    min-width: 10rem;
+}
+
+.ugap-bp-name-cell__row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.ugap-bp-name-cell__text {
+    display: block;
+    flex: 1;
+    min-width: 0;
+    font-weight: 600;
+    color: #0f172a;
+}
+
+.ugap-bp-name-edit-btn {
+    flex-shrink: 0;
+    padding: 2px 6px !important;
+    font-size: 11px !important;
+    line-height: 1.2;
+}
+
+.ugap-bp-name-cell__hint {
+    display: block;
+    font-size: 10px;
+    color: #64748b;
+    margin-top: 2px;
+}
+
+.ugap-bp-name-cell:hover {
+    background: #e0f2fe;
+}
+
+.ugap-bp-th-sort {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    font: inherit;
+    font-weight: 600;
+    color: inherit;
+    cursor: pointer;
+    text-align: left;
+}
+
+.ugap-bp-th-sort:hover {
+    color: #1d4ed8;
+}
+
+.ugap-bp-th-sort.is-active {
+    color: #1d4ed8;
+}
+
+.ugap-bp-th-sort-icon {
+    font-size: 10px;
+    opacity: 0.55;
+}
+
+.ugap-bp-th-sort.is-active .ugap-bp-th-sort-icon {
+    opacity: 1;
+}
+
+.ugap-import-bp-modal {
+    position: fixed;
+    inset: 0;
+    z-index: 10050;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+}
+
+.ugap-import-bp-modal[hidden] {
+    display: none !important;
+}
+
+.ugap-import-bp-modal__backdrop {
+    position: absolute;
+    inset: 0;
+    background: rgba(15, 23, 42, 0.45);
+}
+
+.ugap-import-bp-modal__panel {
+    position: relative;
+    z-index: 1;
+    width: min(480px, 96vw);
+    background: #fff;
+    border-radius: 10px;
+    padding: 18px 20px;
+    box-shadow: 0 12px 40px rgba(15, 23, 42, 0.2);
+}
+
+.ugap-import-bp-modal__title {
+    margin: 0 0 10px;
+    font-size: 16px;
+}
+
+.ugap-import-bp-modal__excel {
+    margin: 0 0 12px;
+    font-size: 12px;
+    color: #64748b;
+    line-height: 1.4;
+}
+
+.ugap-import-bp-modal__label {
+    display: block;
+    font-size: 12px;
+    font-weight: 600;
+    color: #475569;
+    margin-bottom: 6px;
+}
+
+.ugap-import-bp-modal__input {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 8px 10px;
+    border: 1px solid #cbd5e1;
+    border-radius: 6px;
+    font-size: 14px;
+}
+
+.ugap-import-bp-modal__actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    margin-top: 16px;
+}
+
+body.ugap-import-bp-modal-open {
+    overflow: hidden;
 }
 
 body.ugap-embedded-mode .ugap-param-container {

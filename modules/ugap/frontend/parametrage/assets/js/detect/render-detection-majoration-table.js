@@ -1,5 +1,5 @@
 /**
- * Tableau majorations — libellé + postes (détail remplacement visible au catalogue).
+ * Tableau majorations — nom option cible + libellé Excel + postes.
  */
 (function (global) {
     'use strict';
@@ -8,6 +8,13 @@
         return typeof global.escapeHtml === 'function'
             ? global.escapeHtml(s)
             : String(s ?? '');
+    }
+
+    function optionNameForLine(line) {
+        if (global.UgapOptionDisplayName?.resolveDetectionAdjOptionName) {
+            return global.UgapOptionDisplayName.resolveDetectionAdjOptionName(line, 'majoration');
+        }
+        return String(line?.replacedObject || line?.newObject || line?.optionName || '').trim();
     }
 
     function renderDetectionMajorationTable(mount, lines) {
@@ -20,7 +27,8 @@
         const body = rows.map((line) => `
             <tr>
                 <td>${esc(line.rowIndex)}</td>
-                <td>${esc(line.label)}</td>
+                <td class="ugap-detect-option-name">${esc(optionNameForLine(line) || '—')}</td>
+                <td class="ugap-detect-excel-label">${esc(line.label)}</td>
                 <td>${esc(line.refUgap)}</td>
                 <td class="num">${esc(global.UgapDetectFormat.formatPriceEur(line.priceClient))}</td>
                 <td class="num">${esc(global.UgapDetectFormat.formatPriceEur(line.priceUgap))}</td>
@@ -34,7 +42,8 @@
                 <thead>
                     <tr>
                         <th>Ligne</th>
-                        <th>Libellé</th>
+                        <th>Nom de l'option</th>
+                        <th>Libellé Excel</th>
                         <th>Réf. UGAP</th>
                         <th class="num">Prix client</th>
                         <th class="num">Prix UGAP</th>

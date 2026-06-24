@@ -261,8 +261,8 @@
     function purgeMotorTarifFromGroupSelection() {}
 
     /**
-     * On ne fournit pas le moteur / produit de base du groupe (choix ≠ base assignée).
-     * → minoration « non fourniture du moteur de base » si groupe en prix minoration.
+     * Choix unique ≠ option de base du groupe (remplacement).
+     * La minoration liée auto ne s’applique que si le groupe est motorisation (voir isMotorLinkedAdjGroup).
      */
     function isBaseReplacedInGroup(state, group, hooks) {
         if (!group || group.decisionMode === 'multi_choice') return false;
@@ -588,13 +588,6 @@
         return { text: formatPrice(opt, hooks), included: false };
     }
 
-    function parcoursProgress(state, hooks) {
-        const tree = getModelBaseEditorTree(state);
-        const slots = collectParcoursSlots(tree).filter((s) => parcoursSlotChoiceCount(state, s) > 0);
-        const done = slots.filter((s) => parcoursSelectedIds(state, s).length > 0).length;
-        return { total: slots.length, done };
-    }
-
     function collectParcoursSlots(tree) {
         const list = [];
         const walk = (node) => {
@@ -782,6 +775,7 @@
 
     function getLinkedAdjIdsForReplacedBaseInGroup(state, group, hooks) {
         if (!isBaseReplacedInGroup(state, group, hooks)) return [];
+        if (global.UgapBaseAdjLinks?.isMotorLinkedAdjGroup?.(group) !== true) return [];
         const baseId = String(getGroupBaseOptionId(state, group, hooks) || '').trim();
         if (!baseId) return [];
         const BAL = global.UgapBaseAdjLinks;
@@ -914,7 +908,6 @@
         const rowDefs = collectDevisTableRowDefs(state, hooks, tree, catalogNodes);
         tbody.innerHTML = rowDefs.map((r) => buildDevisTableRowHtml(state, hooks, r)).join('');
         bindDevisTableEvents(state, hooks, root);
-        refreshParcoursProgressUi(root, state, hooks);
     }
 
     function buildDevisTableRowHtml(state, hooks, rowDef) {
@@ -1047,37 +1040,6 @@
             </div>`;
     }
 
-    function renderParcoursProgressHtml(state, hooks) {
-        const { total, done } = parcoursProgress(state, hooks);
-        if (!total) return '';
-        const pct = Math.round((done / total) * 100);
-        const pending = total - done;
-        const sub = pending
-            ? `${pending} équipement${pending > 1 ? 's' : ''} restant${pending > 1 ? 's' : ''}`
-            : 'Tous les équipements sont renseignés — vous pouvez encore modifier vos choix';
-        return `
-            <div class="ugap-devis-progress" role="status" aria-live="polite">
-                <div class="ugap-devis-progress__top">
-                    <span class="ugap-devis-progress__label"><strong>${done}</strong> / ${total} équipements</span>
-                    <span class="ugap-devis-progress__sub">${escapeHtml(sub)}</span>
-                </div>
-                <div class="ugap-devis-progress__track" aria-hidden="true">
-                    <div class="ugap-devis-progress__bar" style="width:${pct}%"></div>
-                </div>
-            </div>`;
-    }
-
-    function refreshParcoursProgressUi(rootEl, state, hooks) {
-        if (!rootEl) return;
-        const host = rootEl.querySelector('.ugap-devis-progress');
-        const html = renderParcoursProgressHtml(state, hooks);
-        if (!host || !html) return;
-        const wrap = document.createElement('div');
-        wrap.innerHTML = html.trim();
-        const next = wrap.firstElementChild;
-        if (next) host.replaceWith(next);
-    }
-
     function renderCatalogParcoursPanel(state, hooks, container) {
         const tplLabel = String(
             getBoatTemplateForModel(state)?.label || hooks.getBoatTemplateLabel?.() || ''
@@ -1102,12 +1064,10 @@
             : '';
 
         const bodyHtml = renderDevisOptionsTableHtml(state, hooks);
-        const progressHtml = renderParcoursProgressHtml(state, hooks);
 
         container.innerHTML = `
             <div class="ugap-config-parcours ugap-devis-parcours" id="ugap-config-parcours-root">
                 <p class="ugap-devis-parcours__model-line">${modelLine}${tplLabel ? ` — <span class="ugap-devis-parcours__boat-inline">${escapeHtml(tplLabel)}</span>` : ''}</p>
-                ${progressHtml}
                 ${excelBlock}
                 <div class="ugap-devis-parcours__body">${bodyHtml}</div>
             </div>`;
@@ -1354,7 +1314,8 @@
         clearGroupSelection(state, group, oid);
         state.selectedOptions.add(oid);
         const addedAdjIds = [];
-        if (isBaseReplacedInGroup(state, groupForAdj, hooks)) {
+        const motorAdjGroup = BAL?.isMotorLinkedAdjGroup?.(groupForAdj) === true;
+        if (isBaseReplacedInGroup(state, groupForAdj, hooks) && motorAdjGroup) {
             const defaultBaseId = getGroupBaseOptionId(state, groupForAdj, hooks);
             if (defaultBaseId) {
                 const adjGroup = BAL?.isAdjPricingGroup?.(groupForAdj)
@@ -1374,8 +1335,10 @@
         }
         try {
             const selectedNow = Array.from(state.selectedOptions || []).map((x) => String(x || '').trim());
-            console.log('[UGAP][moteur-change] added', {
-                selectedMotorId: String(oid || '').trim(),
+            console.log('[UGAP][group-change] linked-adj', {
+                motorAdjGroup,
+                groupLabel: String(group?.label || '').trim(),
+                selectedOptionId: String(oid || '').trim(),
                 addedMinorationIds: addedAdjIds,
                 selectedOptionsNow: selectedNow
             });

@@ -31,10 +31,10 @@
         <?php require __DIR__ . '/panels/panel-models.php'; ?>
         <?php
         $linePanels = [
-            ['kind' => 'minoration', 'title' => 'Minorations', 'hint' => 'Réf. UGAP contenant MINO (ou libellé moins-value).'],
-            ['kind' => 'majoration', 'title' => 'Majorations', 'hint' => 'En remplacement, en lieu et place, plus-value, motorisation catalogue…'],
+            ['kind' => 'minoration', 'title' => 'Minorations', 'hint' => 'Nom de l\'option = produit de base ciblé (moteur : motorisation du poste). Libellé Excel = texte complet. Postes = croix ou libellé uniquement.'],
+            ['kind' => 'majoration', 'title' => 'Majorations', 'hint' => 'Nom de l\'option = produit remplacé détecté (ex. HDS PRO 12, flotteur de base). Libellé Excel = texte complet de la ligne.'],
             ['kind' => 'catalogue', 'title' => 'Options catalogue', 'hint' => 'Lignes tarif avec croix modèles, hors PR / MINO / majo.'],
-            ['kind' => 'base_option', 'title' => 'Options de base', 'hint' => 'Aperçu (nom, libellé Excel, prix, postes). Même contenu que l’étape import 4 — publié 1:1 en opt_ibp_*.'],
+            ['kind' => 'base_option', 'title' => 'Options de base', 'hint' => 'Poste obligatoire pour publication. Même nom d\'option = fond coloré → cochez et fusionnez manuellement (pas le libellé Excel).'],
             ['kind' => 'pr', 'title' => 'PR (pièces rechange)', 'hint' => 'Libellé commençant par PR — sans croix modèles automatiques.'],
         ];
         foreach ($linePanels as $p) {

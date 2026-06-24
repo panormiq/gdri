@@ -4124,19 +4124,19 @@ Exemple de forme (ids fictifs) :
 
   static resolveImportMinorationPosteModelIdsForOpt(opt, models) {
     const list = Array.isArray(models) ? models : [];
+    const allIds = list.map((m) => String(m?.id || '').trim()).filter(Boolean);
+    const fromLabel = UgapImportAssignmentService.modelIdsFromExplicitLabelPostes(opt?.name, list);
     const cm = (Array.isArray(opt?.compatibleModels) ? opt.compatibleModels : [])
       .map((x) => String(x || '').trim())
       .filter(Boolean);
+    const hasLabelPostes = UgapImportAssignmentService.getExplicitPosteSetFromLabel(opt?.name) !== null;
+
+    if (cm.length && allIds.length > 1 && cm.length >= allIds.length) {
+      if (!hasLabelPostes) return fromLabel;
+      if (fromLabel.length && fromLabel.length < cm.length) return fromLabel;
+    }
     if (cm.length) return cm;
-    const explicit = UgapImportAssignmentService.getExplicitPosteSetFromLabel(opt?.name);
-    if (!explicit || !explicit.size) return [];
-    return list
-      .filter((m) => {
-        const pn = Number(m?.posteNumber);
-        return Number.isFinite(pn) && explicit.has(pn);
-      })
-      .map((m) => String(m?.id || '').trim())
-      .filter(Boolean);
+    return fromLabel;
   }
 
   /**
@@ -4189,8 +4189,11 @@ Exemple de forme (ids fictifs) :
 
   static enrichImportBaseProductRowFromSourceOption(bp, sourceOpt, models = []) {
     if (!bp || !sourceOpt) return bp;
+    if (bp.labelCustomized === true) return bp;
     const display = this.resolveImportBaseProductDisplayName(sourceOpt, models);
-    if (display && !this.isGenericBasePlaceholderLabel(display)) {
+    const current = String(bp.label || bp.baseOptionName || '').trim();
+    const hasCustomLabel = current && !this.isGenericBasePlaceholderLabel(current);
+    if (!hasCustomLabel && display && !this.isGenericBasePlaceholderLabel(display)) {
       bp.label = display;
       bp.baseOptionName = display;
     }
@@ -4282,8 +4285,11 @@ Exemple de forme (ids fictifs) :
       }
 
       bp.key = key;
-      bp.label = motor;
-      bp.baseOptionName = motor;
+      const currentLabel = String(bp.label || bp.baseOptionName || '').trim();
+      if (bp.labelCustomized !== true && (!currentLabel || this.isGenericBasePlaceholderLabel(currentLabel))) {
+        bp.label = motor;
+        bp.baseOptionName = motor;
+      }
       if (!bp.modelIds.includes(mid)) bp.modelIds.push(mid);
 
       const boatBase = Number(model?.basePrice);
@@ -4335,15 +4341,23 @@ Exemple de forme (ids fictifs) :
       if (!keeper.catalogOptionId && bp.catalogOptionId) keeper.catalogOptionId = bp.catalogOptionId;
       const keeperLabel = String(keeper.label || keeper.baseOptionName || '').trim();
       const bpLabel = String(bp.label || bp.baseOptionName || '').trim();
-      if (bpLabel && this.isImportMotorBaseProductLabel(bpLabel) && !this.isImportMotorBaseProductLabel(keeperLabel)) {
+      const keeperCustom = keeper.labelCustomized === true;
+      const bpCustom = bp.labelCustomized === true;
+      if (bpCustom && !keeperCustom) {
         keeper.label = bpLabel;
         keeper.baseOptionName = bpLabel;
-      } else if (bpLabel && (!keeperLabel || this.isGenericBasePlaceholderLabel(keeperLabel))) {
-        keeper.label = bpLabel;
-        keeper.baseOptionName = bpLabel;
-      } else if (bpLabel && (!keeperLabel || keeperLabel.length < bpLabel.length)) {
-        keeper.label = bpLabel;
-        keeper.baseOptionName = bpLabel;
+        keeper.labelCustomized = true;
+      } else if (!keeperCustom && !bpCustom) {
+        if (bpLabel && this.isImportMotorBaseProductLabel(bpLabel) && !this.isImportMotorBaseProductLabel(keeperLabel)) {
+          keeper.label = bpLabel;
+          keeper.baseOptionName = bpLabel;
+        } else if (bpLabel && (!keeperLabel || this.isGenericBasePlaceholderLabel(keeperLabel))) {
+          keeper.label = bpLabel;
+          keeper.baseOptionName = bpLabel;
+        } else if (bpLabel && (!keeperLabel || keeperLabel.length < bpLabel.length)) {
+          keeper.label = bpLabel;
+          keeper.baseOptionName = bpLabel;
+        }
       }
       if (bp.key) keeper.key = bp.key;
     });
@@ -4546,6 +4560,7 @@ Exemple de forme (ids fictifs) :
         key: String(row?.key || '').trim(),
         label: String(row?.label || baseOptionName).trim() || 'de base',
         baseOptionName,
+        labelCustomized: row?.labelCustomized === true,
         excelLabel,
         priceClient: Number.isFinite(priceClient) ? priceClient : null,
         priceUgap: Number.isFinite(priceUgap) ? priceUgap : null,
@@ -4599,7 +4614,7 @@ Exemple de forme (ids fictifs) :
       }
     }
 
-    return allIds.slice();
+    return [];
   }
 
   /**
@@ -4634,7 +4649,9 @@ Exemple de forme (ids fictifs) :
         const next = { ...bp };
         const srcOid = String((next.optionIds || [])[0] || '').trim();
         const srcOpt = srcOid ? stagingMap.get(srcOid) : null;
-        if (srcOpt) this.enrichImportBaseProductRowFromSourceOption(next, srcOpt, list);
+        if (srcOpt && next.labelCustomized !== true) {
+          this.enrichImportBaseProductRowFromSourceOption(next, srcOpt, list);
+        }
         next.modelIds = this.resolveImportBaseProductModelIds(next, list, stagingMap);
         if (!String(next.label || '').trim()) next.label = 'de base';
         if (!String(next.baseOptionName || '').trim()) next.baseOptionName = next.label;

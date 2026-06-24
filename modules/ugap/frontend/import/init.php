@@ -21,6 +21,8 @@ $ugapImportEnqueueAssets = static function (): void {
     ugap_enqueue_script('/modules/ugap/frontend/assets/js/shared/ugap-api.js');
     ugap_enqueue_script('/modules/ugap/frontend/assets/js/shared/ugap-embed-layout.js');
 
+    ugap_enqueue_script('/modules/ugap/frontend/assets/js/shared/ugap-poste-from-label.js');
+    ugap_enqueue_script('/modules/ugap/frontend/assets/js/shared/ugap-import-base-option-modal.js');
     ugap_enqueue_script('/modules/ugap/frontend/assets/js/import/import-models-step.js');
     ugap_enqueue_script('/modules/ugap/frontend/assets/js/import/import-workflow-steps.js');
     ugap_enqueue_script('/modules/ugap/frontend/assets/js/import/import-minorations-step.js');

@@ -4,23 +4,11 @@
  */
 
 const parseReplacementFromLabel = require('./rules/parseReplacementFromLabel');
-const isMotorBaseNonSupplyMinoration = require('./rules/isMotorBaseNonSupplyMinoration');
+const resolveAdjOptionNameFromLabel = require('./rules/resolveAdjOptionNameFromLabel');
 
 function buildBaseOptionFromMinoration(line) {
-  const motorName = String(line?.motorName || '').trim();
-
-  if (isMotorBaseNonSupplyMinoration(line?.label) && motorName) {
-    return {
-      keyword: '',
-      newObject: '',
-      replacedObject: '',
-      baseOptionName: motorName
-    };
-  }
-
   const replacement = parseReplacementFromLabel(line?.label || '');
-  const baseOptionName =
-    replacement.replacedObject || replacement.newObject || '';
+  const baseOptionName = resolveAdjOptionNameFromLabel(line, { forMinoration: true });
 
   return {
     ...replacement,

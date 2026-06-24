@@ -16,7 +16,8 @@
         if (minoWrap && global.UgapDetectRenderMinoration) {
             global.UgapDetectRenderMinoration.renderDetectionMinorationTable(
                 minoWrap,
-                report?.linesByKind?.minoration
+                report?.linesByKind?.minoration,
+                report?.models
             );
         }
 
@@ -32,7 +33,8 @@
         if (baseWrap && global.UgapDetectRenderBaseOption) {
             global.UgapDetectRenderBaseOption.renderDetectionBaseOptionTable(
                 baseWrap,
-                report?.linesByKind?.base_option
+                report?.linesByKind?.base_option,
+                report?.models
             );
         }
 

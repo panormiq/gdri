@@ -10,7 +10,7 @@
     const state = {
         loading: false,
         staging: null,
-        assignAllPostes: true,
+        assignAllPostes: false,
     };
 
     function escapeHtml(value) {
@@ -86,7 +86,7 @@
             </div>
             <label style="display:flex;align-items:flex-start;gap:8px;margin-bottom:12px;font-size:13px;color:#374151;cursor:pointer;">
                 <input type="checkbox" id="ugap-valider-assign-all" ${state.assignAllPostes ? 'checked' : ''} style="margin-top:2px;">
-                <span>Assigner tous les postes aux options sans poste</span>
+                <span>Assigner tous les postes aux options catalogue sans poste (pas les mino/majo)</span>
             </label>
             <div style="display:flex;gap:10px;flex-wrap:wrap;">
                 <button type="button" class="btn btn-outline" id="ugap-valider-options-btn">Sauvegarder brouillon</button>

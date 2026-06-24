@@ -9,9 +9,14 @@ const path = require('path');
 const database = require(path.join(__dirname, '../../../backend/config/database'));
 const { authenticateJWT } = require(path.join(__dirname, '../../../backend/config/jwt'));
 const IntentionService = require('./services/IntentionService');
+const DatasetTestService = require('./services/DatasetTestService');
+const FacebookIntentionService = require(path.join(__dirname, '../../../backend/modules/analyse-intention/services/IntentionService'));
+const FacebookAIService = require(path.join(__dirname, '../../../backend/modules/analyse-intention/services/AIService'));
 const iaModule = require(path.join(__dirname, '../../ia/backend'));
 
 let intentionService = null;
+let facebookIntentionService = null;
+let datasetTestService = null;
 
 function getIAClient() {
   return iaModule.getIAClient();
@@ -23,6 +28,25 @@ function getIntentionService() {
     intentionService.setAIService(getIAClient());
   }
   return intentionService;
+}
+
+function getFacebookIntentionService() {
+  if (!facebookIntentionService) {
+    const aiService = new FacebookAIService({
+      ollamaUrl: process.env.OLLAMA_URL || 'http://localhost:11434',
+      model: process.env.OLLAMA_MODEL || 'mistral:latest'
+    });
+    facebookIntentionService = new FacebookIntentionService(database);
+    facebookIntentionService.setAIService(aiService);
+  }
+  return facebookIntentionService;
+}
+
+function getDatasetTestService() {
+  if (!datasetTestService) {
+    datasetTestService = new DatasetTestService(getFacebookIntentionService(), database);
+  }
+  return datasetTestService;
 }
 
 /**
@@ -318,6 +342,41 @@ router.post('/agent-config', authenticateJWT, async (req, res) => {
       success: false,
       message: error.message
     });
+  }
+});
+
+/**
+ * GET /api/analyse/test-dataset - Infos sur le dataset de test (1000 emails)
+ */
+router.get('/test-dataset', authenticateJWT, (req, res) => {
+  try {
+    const service = getDatasetTestService();
+    const info = service.getDatasetInfo();
+    res.json({ success: true, data: info });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+/**
+ * POST /api/analyse/test-dataset - Analyser un lot du dataset (sans envoi de mail)
+ */
+router.post('/test-dataset', authenticateJWT, async (req, res) => {
+  try {
+    const entrepriseId = req.user.entrepriseId;
+    const { offset = 0, limit = 1, pageId = null } = req.body || {};
+    console.log(`🧪 test-dataset batch offset=${offset} limit=${limit} entreprise=${entrepriseId || 'N/A'}`);
+    const service = getDatasetTestService();
+    const result = await service.analyzeBatch({
+      offset,
+      limit,
+      entrepriseId,
+      pageId: pageId != null && pageId !== '' ? String(pageId) : null
+    });
+    res.json(result);
+  } catch (error) {
+    console.error('Erreur test-dataset:', error);
+    res.status(500).json({ success: false, message: error.message });
   }
 });
 

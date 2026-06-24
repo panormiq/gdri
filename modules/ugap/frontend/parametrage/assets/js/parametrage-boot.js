@@ -100,6 +100,12 @@
         if (section === 'importation' && activeTab === 'valider' && window.UgapImportValiderTab?.refreshStaging) {
             window.UgapImportValiderTab.refreshStaging();
         }
+        if (section === 'importation' && activeTab === 'base_option' && window.UgapBaseOptionEditor?.refreshFromStaging) {
+            void window.UgapBaseOptionEditor.refreshFromStaging();
+        }
+        if (section === 'importation' && activeTab === 'minoration' && window.__ugapDetectionReport && window.UgapDetectPaint?.paintDetectionReport) {
+            window.UgapDetectPaint.paintDetectionReport(window.__ugapDetectionReport);
+        }
         if (section === 'catalogue' && typeof window.mountUgapCatalogue === 'function') {
             window.mountUgapCatalogue();
         }

@@ -139,11 +139,28 @@
 .ugap-adj-field-label { font-size: 11px; font-weight: 600; color: #64748b; line-height: 1.2; }
 .ugap-bp-name-type-row .ugap-bp-name-input { flex: 1 1 auto; min-width: 120px; width: auto; }
 .ugap-bp-name-type-row .ugap-import-bp-select { min-width: 200px; max-width: 280px; }
+.ugap-bp-name-cell {
+    cursor: pointer; padding: 6px 8px; border: 1px dashed #cbd5e1; border-radius: 6px;
+    background: #f8fafc;
+}
+.ugap-bp-name-cell:hover { background: #e0f2fe; border-color: #7dd3fc; }
+.ugap-bp-name-cell__text { display: block; font-weight: 600; font-size: 12px; color: #0f172a; }
+.ugap-bp-name-cell__hint { display: block; font-size: 10px; color: #64748b; margin-top: 2px; }
 .ugap-bp-name-input,
 .ugap-mino-option-name-input {
     width: 100%; max-width: 100%; box-sizing: border-box; padding: 6px 8px;
     border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12px; font-weight: 600;
 }
+.ugap-import-bp-modal { position: fixed; inset: 0; z-index: 10050; display: flex; align-items: center; justify-content: center; padding: 16px; }
+.ugap-import-bp-modal[hidden] { display: none !important; }
+.ugap-import-bp-modal__backdrop { position: absolute; inset: 0; background: rgba(15, 23, 42, 0.45); }
+.ugap-import-bp-modal__panel { position: relative; z-index: 1; width: min(480px, 96vw); background: #fff; border-radius: 10px; padding: 18px 20px; box-shadow: 0 12px 40px rgba(15, 23, 42, 0.2); }
+.ugap-import-bp-modal__title { margin: 0 0 10px; font-size: 16px; }
+.ugap-import-bp-modal__excel { margin: 0 0 12px; font-size: 12px; color: #64748b; line-height: 1.4; }
+.ugap-import-bp-modal__label { display: block; font-size: 12px; font-weight: 600; color: #475569; margin-bottom: 6px; }
+.ugap-import-bp-modal__input { width: 100%; box-sizing: border-box; padding: 8px 10px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 14px; }
+.ugap-import-bp-modal__actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 16px; }
+body.ugap-import-bp-modal-open { overflow: hidden; }
 .ugap-mino-option-name-input {
     margin-top: 0; font-weight: 500; resize: vertical; min-height: 2.65em; max-height: 5.5em;
     line-height: 1.35; white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word;
@@ -976,98 +993,97 @@
         return map[String(source || '')] || String(source || '');
     }
 
-    /** Modèles validés dont la colonne Excel a une croix pour cette ligne MINO. */
-    function getImportMinorationModelsWithCross(opt, models) {
-        const cm = new Set(
-            (Array.isArray(opt?.compatibleModels) ? opt.compatibleModels : [])
-                .map((id) => String(id || '').trim())
-                .filter(Boolean)
-        );
-        if (!cm.size) return [];
-        return (Array.isArray(models) ? models : []).filter((m) => cm.has(String(m?.id || '').trim()));
+    function minorationLabelHasExplicitPostes(opt) {
+        if (window.UgapPosteFromLabel?.getSortedExplicitPosteNumbersFromLabel) {
+            return window.UgapPosteFromLabel.getSortedExplicitPosteNumbersFromLabel(opt?.name).length > 0;
+        }
+        if (typeof getExplicitPosteSetFromLabel === 'function') {
+            const set = getExplicitPosteSetFromLabel(opt?.name);
+            return !!(set && set.size);
+        }
+        return false;
     }
 
-    /** Postes ciblés : croix Excel, sinon numéros de poste dans le libellé MINO. */
-    function getImportMinorationTargetModelsForMotor(opt, models) {
+    /** Ancien import : tous les postes cochés sans croix ni libellé explicite → ignorer. */
+    function isSpuriousAllModelMinorationAssignment(storedIds, models, opt) {
         const list = Array.isArray(models) ? models : getImportStagingModelsForAssignment();
-        const crossed = getImportMinorationModelsWithCross(opt, list);
-        if (crossed.length) return crossed;
+        const allIds = list.map((m) => String(m?.id || '').trim()).filter(Boolean);
+        if (!storedIds.length || allIds.length <= 1) return false;
+        if (storedIds.length < allIds.length) return false;
+        if (minorationLabelHasExplicitPostes(opt)) return false;
+        return true;
+    }
 
-        const cm = (Array.isArray(opt?.compatibleModels) ? opt.compatibleModels : [])
+    /** Postes issus de l’assignation staging (croix Excel à l’import), hors faux « tous les postes ». */
+    function getImportMinorationStoredCrossModels(opt, models) {
+        const list = Array.isArray(models) ? models : getImportStagingModelsForAssignment();
+        const stored = (Array.isArray(opt?.compatibleModels) ? opt.compatibleModels : [])
             .map((id) => String(id || '').trim())
             .filter(Boolean);
-        if (cm.length) {
-            const fromStored = list.filter((m) => cm.includes(String(m?.id || '').trim()));
-            if (fromStored.length) return fromStored;
-        }
-
-        if (typeof getExplicitPosteSetFromLabel === 'function') {
-            const posteSet = getExplicitPosteSetFromLabel(opt?.name);
-            if (posteSet && posteSet.size > 0) {
-                const byPoste = list.filter((m) => {
-                    const pn = Number(m?.posteNumber);
-                    return Number.isFinite(pn) && posteSet.has(pn);
-                });
-                if (byPoste.length) return byPoste;
-            }
-        }
-
-        const single = String(opt?.name || '').match(/\bposte\s+(\d+)\b/i);
-        if (single) {
-            const pn = parseInt(single[1], 10);
-            const found = list.filter((m) => Number(m?.posteNumber) === pn);
-            if (found.length) return found;
-        }
-
-        const refFs = String(opt?.refFournisseur || '').trim();
-        if (refFs) {
-            const byRef = list.filter((m) => findCatalogMotorOptionByRef(refFs, m?.id));
-            if (byRef.length) return byRef;
-        }
-
-        if (isImportMotorMinoration(opt)) {
-            const withMotor = list.filter((m) => {
-                const motor = getMotorLabelForPosteModel(m);
-                return !!String(motor || '').trim();
-            });
-            if (withMotor.length === 1) return withMotor;
-        }
-
-        return [];
+        if (!stored.length) return [];
+        if (isSpuriousAllModelMinorationAssignment(stored, list, opt)) return [];
+        const cm = new Set(stored);
+        return list.filter((m) => cm.has(String(m?.id || '').trim()));
     }
 
-    /** IDs modèles (postes) à cocher pour une minoration — croix Excel, libellé, moteur. */
-    function resolveImportMinorationPosteModelIds(opt, models) {
-        const modelList = Array.isArray(models) ? models : getImportStagingModelsForAssignment();
+    /** Postes explicites dans le libellé MINO (listes, plages, poste N). */
+    function getImportMinorationModelsFromLabel(opt, models) {
+        const list = Array.isArray(models) ? models : getImportStagingModelsForAssignment();
+        if (window.UgapPosteFromLabel?.modelIdsFromExplicitLabelPostes) {
+            const mids = window.UgapPosteFromLabel.modelIdsFromExplicitLabelPostes(opt?.name, list);
+            const set = new Set(mids.map(String));
+            return list.filter((m) => set.has(String(m?.id || '').trim()));
+        }
         const ids = new Set();
-
         const pushModel = (m) => {
             const s = String(m?.id || m || '').trim();
             if (s) ids.add(s);
         };
-
-        if (isImportMotorMinoration(opt)) {
-            getImportMinorationTargetModelsForMotor(opt, modelList).forEach(pushModel);
-        } else if (typeof getExplicitPosteSetFromLabel === 'function') {
-            const explicit = getExplicitPosteSetFromLabel(opt?.name);
-            if (explicit && explicit.size > 0) {
-                modelList.forEach((m) => {
+        if (typeof getExplicitPosteSetFromLabel === 'function') {
+            const posteSet = getExplicitPosteSetFromLabel(opt?.name);
+            if (posteSet && posteSet.size > 0) {
+                list.forEach((m) => {
                     const pn = Number(m?.posteNumber);
-                    if (Number.isFinite(pn) && explicit.has(pn)) pushModel(m);
+                    if (Number.isFinite(pn) && posteSet.has(pn)) pushModel(m);
                 });
             }
         }
-
         if (!ids.size) {
-            (Array.isArray(opt?.compatibleModels) ? opt.compatibleModels : []).forEach((mid) => {
-                const s = String(mid || '').trim();
-                if (!s) return;
-                const hit = modelList.find((m) => String(m?.id || '').trim() === s);
-                if (hit) pushModel(hit);
-            });
+            const single = String(opt?.name || '').match(/\bposte\s+(\d+)\b/i);
+            if (single) {
+                const pn = parseInt(single[1], 10);
+                list.filter((m) => Number(m?.posteNumber) === pn).forEach(pushModel);
+            }
         }
+        return list.filter((m) => ids.has(String(m?.id || '').trim()));
+    }
 
-        return Array.from(ids).filter(Boolean);
+    /** Postes ciblés moteur : croix Excel ou postes dans le libellé uniquement. */
+    function getImportMinorationTargetModelsForMotor(opt, models) {
+        const list = Array.isArray(models) ? models : getImportStagingModelsForAssignment();
+        const crossed = getImportMinorationStoredCrossModels(opt, list);
+        if (crossed.length) return crossed;
+        return getImportMinorationModelsFromLabel(opt, list);
+    }
+
+    /** IDs modèles (postes) à cocher pour une minoration — croix Excel ou libellé explicite seulement. */
+    function resolveImportMinorationPosteModelIds(opt, models) {
+        const modelList = Array.isArray(models) ? models : getImportStagingModelsForAssignment();
+        const fromLabel = getImportMinorationModelsFromLabel(opt, modelList)
+            .map((m) => String(m?.id || '').trim())
+            .filter(Boolean);
+        const stored = (Array.isArray(opt?.compatibleModels) ? opt.compatibleModels : [])
+            .map((id) => String(id || '').trim())
+            .filter(Boolean);
+
+        if (isSpuriousAllModelMinorationAssignment(stored, modelList, opt)) {
+            return fromLabel;
+        }
+        if (stored.length && fromLabel.length && stored.length > fromLabel.length && minorationLabelHasExplicitPostes(opt)) {
+            return fromLabel;
+        }
+        if (stored.length) return stored;
+        return fromLabel;
     }
 
     function isGenericMotorPlaceholder(text) {
@@ -1081,6 +1097,54 @@
     }
 
     /** Placeholders génériques : une ligne par occurrence (pas de fusion auto). */
+    function isImportBaseProductLabelCustomized(bp) {
+        return !!(bp && bp.labelCustomized === true);
+    }
+
+    function markImportBaseProductLabelCustomized(bp, label) {
+        if (!bp) return;
+        const lab = String(label ?? bp.label ?? '').trim() || 'de base';
+        bp.label = lab;
+        bp.baseOptionName = lab;
+        bp.labelCustomized = true;
+    }
+
+    /** Lit les noms saisis (modale / store) avant enregistrement. */
+    function flushImportBaseProductsLabelsFromDom() {
+        document.querySelectorAll('.ugap-bp-name-input[data-bp-field="label"]').forEach((el) => {
+            const bpId = String(el.getAttribute('data-bp-id') || '').trim();
+            if (!bpId) return;
+            const bp = getImportBaseProductsStore().find((x) => String(x.id) === bpId);
+            if (!bp) return;
+            markImportBaseProductLabelCustomized(bp, el.value);
+            bp.key = buildBaseProductRegistryKey(bp.label, bp);
+        });
+    }
+
+    async function openImportBaseProductNameModal(bpId) {
+        const id = String(bpId || '').trim();
+        const bp = getImportBaseProductsStore().find((x) => String(x.id) === id);
+        if (!bp) return;
+        const Modal = global.UgapImportBaseOptionModal;
+        if (!Modal?.open) {
+            if (typeof showAlert === 'function') {
+                showAlert('Modale de renommage indisponible (rechargez la page).', 'warning');
+            }
+            return;
+        }
+        const newName = await Modal.open({
+            title: 'Modifier le nom de l\'option de base',
+            name: bp.label || bp.baseOptionName,
+            excelLabel: bp.excelLabel
+        });
+        if (newName == null) return;
+        updateImportBaseProductLocal(id, {
+            label: newName,
+            key: buildBaseProductRegistryKey(newName, bp)
+        });
+        if (typeof renderImportWorkflow === 'function') renderImportWorkflow();
+    }
+
     function isImportGenericBasePlaceholderLabel(label) {
         const n = normalizeBaseProductKey(label);
         if (!n) return true;
@@ -1849,6 +1913,7 @@
     }
 
     function refreshImportBaseProductLabelFromLinkedOptions(bp, models) {
+        if (isImportBaseProductLabelCustomized(bp)) return;
         if (isImportMotorBaseProduct(bp)) {
             const fromModel = resolveMotorBaseProductLabelFromModels(bp, models);
             if (fromModel) {
@@ -2013,7 +2078,16 @@
             }
 
             bp.key = key;
-            if (entry.label) bp.label = entry.label;
+            const preserveLabel = !!options?.skipLabelRefresh;
+            const prevLabel = String(bp.label || bp.baseOptionName || '').trim();
+            if (entry.label && !isImportBaseProductLabelCustomized(bp)) {
+                if (!preserveLabel || !prevLabel) {
+                    bp.label = entry.label;
+                    if (!preserveLabel || !String(bp.baseOptionName || '').trim()) {
+                        bp.baseOptionName = entry.label;
+                    }
+                }
+            }
 
             const entryOptIds = filterImportBaseProductAdjOptionIds(entry.optionIds, modelList);
             bp.optionIds = [...new Set([
@@ -2026,11 +2100,11 @@
             );
 
             const entryLabel = String(entry.label || '').trim();
-            const prevLabel = String(bp.label || '').trim();
-            if (entryLabel && prevLabel && entryLabel.toLowerCase() !== prevLabel.toLowerCase()) {
+            const prevLabelForAlias = String(bp.label || '').trim();
+            if (entryLabel && prevLabelForAlias && entryLabel.toLowerCase() !== prevLabelForAlias.toLowerCase()) {
                 if (!Array.isArray(bp.aliases)) bp.aliases = [];
-                if (!bp.aliases.some((a) => String(a).toLowerCase() === prevLabel.toLowerCase())) {
-                    bp.aliases.push(prevLabel);
+                if (!bp.aliases.some((a) => String(a).toLowerCase() === prevLabelForAlias.toLowerCase())) {
+                    bp.aliases.push(prevLabelForAlias);
                 }
             }
 
@@ -2385,19 +2459,21 @@
     }
 
     function getImportBaseProductsForSave() {
+        flushImportBaseProductsLabelsFromDom();
         syncImportBaseProductsFromAdjRows({ force: true, skipLabelRefresh: true });
         const models = getImportStagingModelsForAssignment();
         return getImportBaseProductsStore().map((bp) => {
             applyImportBaseProductPostesFromLabels(bp, models);
-            const baseOptionName = String(bp.baseOptionName || bp.label || '').trim() || 'de base';
+            const label = String(bp.label || bp.baseOptionName || '').trim() || 'de base';
             const excelLabel = String(bp.excelLabel || '').trim();
             const priceClient = bp.priceClient == null || bp.priceClient === '' ? null : Number(bp.priceClient);
             const priceUgap = bp.priceUgap == null || bp.priceUgap === '' ? null : Number(bp.priceUgap);
             return {
                 id: bp.id,
                 key: bp.key,
-                label: String(bp.label || baseOptionName).trim() || 'de base',
-                baseOptionName,
+                label,
+                baseOptionName: label,
+                labelCustomized: bp.labelCustomized === true,
                 excelLabel,
                 priceClient: Number.isFinite(priceClient) ? priceClient : null,
                 priceUgap: Number.isFinite(priceUgap) ? priceUgap : null,
@@ -2494,16 +2570,23 @@
                 return;
             }
             const prefer = String(model?.motorizationBase || '').trim();
-            if (prefer) {
+            if (prefer && !isImportBaseProductLabelCustomized(keeper) && !isImportBaseProductLabelCustomized(bp)) {
                 const keeperOk = normalizeMotorLabelKey(keeper.label) === normalizeMotorLabelKey(prefer);
                 const bpOk = normalizeMotorLabelKey(bp.label) === normalizeMotorLabelKey(prefer);
                 if (!keeperOk && bpOk) {
                     keeper.label = bp.label;
+                    keeper.baseOptionName = bp.label;
                     keeper.key = buildMotorBaseProductRegistryKey(bp.label, model);
                 } else if (keeperOk || !bpOk) {
                     keeper.label = prefer;
+                    keeper.baseOptionName = prefer;
                     keeper.key = buildMotorBaseProductRegistryKey(prefer, model);
                 }
+            } else if (isImportBaseProductLabelCustomized(bp) && !isImportBaseProductLabelCustomized(keeper)) {
+                keeper.label = bp.label;
+                keeper.baseOptionName = bp.baseOptionName || bp.label;
+                keeper.labelCustomized = true;
+                keeper.key = buildMotorBaseProductRegistryKey(keeper.label, model);
             }
             mergeImportBaseProductRowData(keeper, bp, modelList);
         });
@@ -2584,6 +2667,13 @@
     function updateImportBaseProductLocal(bpId, patch) {
         const bp = getImportBaseProductsStore().find((x) => x.id === bpId);
         if (!bp) return;
+        if (patch && Object.prototype.hasOwnProperty.call(patch, 'label')) {
+            markImportBaseProductLabelCustomized(bp, patch.label);
+            const rest = { ...patch };
+            delete rest.label;
+            Object.assign(bp, rest);
+            return;
+        }
         Object.assign(bp, patch);
     }
 
@@ -2828,10 +2918,13 @@
         const excelLine = excelLabel
             ? `<div class="ugap-import-mino-label-raw"><strong>Libellé Excel :</strong> ${escapeHtml(excelLabel)}</div>`
             : '';
+        const displayName = String(bp.label || bp.baseOptionName || '').trim() || 'de base';
         return `<div class="ugap-bp-name-type-row">
             <div class="ugap-bp-name-field"><strong>Nom option de base :</strong>
-                <input type="text" class="ugap-bp-name-input" data-bp-id="${encId}" data-bp-field="label"
-                    value="${escapeHtml(String(bp.label || bp.baseOptionName || ''))}" placeholder="de base">
+                <div class="ugap-bp-name-cell" data-bp-id="${encId}" data-bp-field="label" title="Double-cliquer pour modifier">
+                    <span class="ugap-bp-name-cell__text">${escapeHtml(displayName)}</span>
+                    <span class="ugap-bp-name-cell__hint">Double-clic pour modifier</span>
+                </div>
             </div>
             <div class="ugap-bp-type-field"><strong>Type :</strong>
                 <select class="ugap-import-bp-select" data-bp-id="${encId}" data-bp-field="pricingMode">
@@ -2888,24 +2981,23 @@
     }
 
     function bindImportBaseProductsEditor() {
-        const root = document.querySelector('.ugap-import-bp-table-wrap');
-        if (!root || root.dataset.bound === '1') return;
-        root.dataset.bound = '1';
+        if (window.__ugapImportBpEditorBound) return;
+        window.__ugapImportBpEditorBound = true;
 
-        root.addEventListener('change', (e) => {
+        const inBpTable = (el) => el && typeof el.closest === 'function' && el.closest('.ugap-import-bp-table-wrap');
+
+        document.addEventListener('dblclick', (e) => {
+            const cell = e.target.closest('.ugap-import-bp-table-wrap .ugap-bp-name-cell[data-bp-id]');
+            if (!cell) return;
+            void openImportBaseProductNameModal(cell.getAttribute('data-bp-id'));
+        });
+
+        document.addEventListener('change', (e) => {
             const el = e.target;
+            if (!inBpTable(el)) return;
             const bpId = el.getAttribute('data-bp-id');
             if (!bpId) return;
             const field = el.getAttribute('data-bp-field');
-            if (field === 'label') {
-                const label = String(el.value || '').trim();
-                const bp = getImportBaseProductsStore().find((x) => String(x.id) === String(bpId));
-                updateImportBaseProductLocal(bpId, {
-                    label,
-                    key: buildBaseProductRegistryKey(label, bp || { id: bpId })
-                });
-                return;
-            }
             if (field === 'pricingMode') {
                 const id = String(bpId || '').trim();
                 const bp = getImportBaseProductsStore().find((x) => String(x.id) === id);
@@ -2915,8 +3007,9 @@
             }
         });
 
-        root.addEventListener('input', (e) => {
+        document.addEventListener('input', (e) => {
             const el = e.target;
+            if (!inBpTable(el)) return;
             const bpId = String(el.getAttribute('data-bp-id') || '').trim();
             if (!bpId) return;
             const field = el.getAttribute('data-bp-field');
@@ -2974,7 +3067,7 @@
         renderImportWorkflow();
     }
 
-    /** Options sans aucun poste coché → tous les modèles validés (étape Valider). */
+    /** Options catalogue sans poste → tous les modèles validés (étape Valider). Pas les mino/majo. */
     function assignAllPostesToUnassignedImportOptions() {
         const models = getImportStagingModelsForAssignment();
         if (!models.length) return 0;
@@ -2982,6 +3075,7 @@
         let touched = 0;
         getImportStagingOptionsFlat().forEach((opt) => {
             if (!isImportTriEligibleOption(opt)) return;
+            if (isImportMinorationOption(opt) || isImportMajorationOption(opt)) return;
             const cm = Array.isArray(opt?.compatibleModels) ? opt.compatibleModels : [];
             if (cm.length > 0) return;
             opt.compatibleModels = allModelIds.slice();
@@ -3053,7 +3147,7 @@
             return bp;
         }
 
-        bp.modelIds = sortModelIdsByPosteNumber(allModelIds.slice(), buildImportModelByIdMap(modelList));
+        bp.modelIds = [];
         return bp;
     }
 
@@ -3092,9 +3186,15 @@
     function enrichImportBaseProductRowFromRegistry(bp, entry, models) {
         if (!bp) return bp;
         const modelList = Array.isArray(models) ? models : getImportStagingModelsForAssignment();
-        const baseName = String(entry?.label || bp.label || '').trim() || 'de base';
-        bp.baseOptionName = String(bp.baseOptionName || baseName).trim() || 'de base';
-        bp.label = String(bp.label || bp.baseOptionName).trim() || 'de base';
+        if (isImportBaseProductLabelCustomized(bp)) {
+            const userLabel = String(bp.label || bp.baseOptionName || '').trim() || 'de base';
+            bp.label = userLabel;
+            bp.baseOptionName = userLabel;
+        } else {
+            const baseName = String(entry?.label || bp.baseOptionName || '').trim() || 'de base';
+            bp.baseOptionName = String(bp.baseOptionName || baseName).trim() || 'de base';
+            bp.label = String(bp.label || bp.baseOptionName).trim() || 'de base';
+        }
 
         const oids = filterImportBaseProductAdjOptionIds(entry?.optionIds || bp.optionIds, modelList);
         bp.optionIds = [...new Set([...(bp.optionIds || []), ...oids])];
@@ -3482,7 +3582,7 @@
         const modelList = filterImportModelsByPosteFilter(allModels, posteFilter);
         let products = getImportBaseProductsStore();
         if (!products.length) {
-            products = syncImportBaseProductsFromAdjRows({ force: true });
+            products = syncImportBaseProductsFromAdjRows({ force: true, skipLabelRefresh: true });
         }
         if (posteFilter) {
             products = products.filter((bp) => importBaseProductMatchesPosteFilter(bp, posteFilter, allModels));
@@ -3508,9 +3608,8 @@
         return `<div class="ugap-import-mino-registry">
             <strong>Options de base</strong>
             <div class="ugap-import-mino-hint" style="display:block;margin-top:4px;">
-                Nom, type de prix et montants dans la colonne Détail — cochez les postes concernés.
-                Une ligne = une option de base publiée. Vérifiez nom, libellé Excel, prix et postes, puis enregistrez avant de publier.
-                Cochez les postes concernés. « Fixe » : un prix pour tous les postes. « Par poste » : prix par P1, P2…
+                <strong>Double-cliquez</strong> sur le nom pour le modifier (modale).
+                Type de prix et montants dans la colonne Détail — cochez les postes concernés, puis enregistrez.
             </div>
             <div class="ugap-import-mino-registry-stack">
                 <div class="ugap-import-mino-table-scroll ugap-import-bp-table-wrap">
@@ -4477,6 +4576,7 @@
 
     window.toggleImportBaseProductModelAssignment = toggleImportBaseProductModelAssignment;
     window.runMergeImportBaseProduct = runMergeImportBaseProduct;
+    window.openImportBaseProductNameModal = openImportBaseProductNameModal;
     window.__ugapRenderImportAssignStep = renderImportAssignStepHtml;
     window.renderImportBaseOptionsStepHtml = renderImportBaseOptionsStepHtml;
     window.renderImportMajorationsStepHtml = renderImportMajorationsStepHtml;
@@ -4487,6 +4587,7 @@
     window.syncImportMinorationRecapDock = syncImportMinorationRecapDock;
     window.syncImportActionsDock = syncImportActionsDock;
     bindImportActionsDockInvokeListener();
+    bindImportBaseProductsEditor();
     window.runSeedImportMajorationPostes = runSeedImportMajorationPostes;
     window.runSeedImportOptionsTriPostes = runSeedImportOptionsTriPostes;
     window.assignAllPostesToUnassignedImportOptions = assignAllPostesToUnassignedImportOptions;

@@ -237,11 +237,62 @@
         return Number.isFinite(client) ? client : 0;
     }
 
+    function isSuppressionLabel(label) {
+        return /^sup+p?ress/i.test(String(label || '').replace(/\s+/g, ' ').trim());
+    }
+
+    function isNonFournitureLabel(label) {
+        return /\bnon\s+fourniture\b/i.test(String(label || ''));
+    }
+
+    function excelLabelAsOptionName(label) {
+        return stripPostesSuffix(String(label || '').replace(/\s+/g, ' ').trim());
+    }
+
+    /**
+     * Nom d'option cible — détection paramétrage (mino/majo), aligné resolveAdjOptionNameFromLabel (backend).
+     * @param {object} line — ligne detect-excel
+     * @param {'minoration'|'majoration'} kind
+     */
+    function resolveDetectionAdjOptionName(line, kind) {
+        if (!line || typeof line !== 'object') return '';
+        const fromApi = String(line.optionName || '').trim();
+        if (fromApi) return fromApi;
+
+        const label = String(line.label || '').replace(/\s+/g, ' ').trim();
+        const lineKind = String(kind || '').toLowerCase();
+
+        if (lineKind === 'minoration' && isMotorBaseNonSupplyLabel(label)) {
+            const motor = String(line.motorName || '').trim();
+            if (motor && !isGenericBasePlaceholderLabel(motor)) return motor;
+        }
+
+        const repObj = String(line.replacedObject || '').trim();
+        const newObj = String(line.newObject || '').trim();
+        if (repObj && !isGenericBasePlaceholderLabel(repObj)) return repObj;
+        if (newObj && !isGenericBasePlaceholderLabel(newObj)) return newObj;
+
+        const rep = parseReplacementFromLabel(label);
+        const parsed = String(rep.replacedObject || rep.newObject || '').trim();
+        if (parsed && !isGenericBasePlaceholderLabel(parsed)) return parsed;
+
+        const fromExcel = excelLabelAsOptionName(label);
+        if (!fromExcel) return '';
+
+        if (isSuppressionLabel(label) || isNonFournitureLabel(label)) {
+            return fromExcel;
+        }
+
+        return fromExcel;
+    }
+
     global.UgapOptionDisplayName = {
         resolveOptionDisplayName,
         resolveOptionDisplayDetails,
+        resolveDetectionAdjOptionName,
         resolveCatalogOptionUgapPrice,
         isGenericBasePlaceholderLabel,
+        isMotorBaseNonSupplyLabel,
         parseReplacementFromLabel,
         parseBaseReplacementProducts,
     };

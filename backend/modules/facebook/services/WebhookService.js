@@ -300,8 +300,8 @@ class WebhookService {
         if (entityId) {
           const cfg = await this.loadAnalyseIntentionConfig(entityId, facebookPageId);
           basePrompt = cfg && (cfg.basePrompt || cfg.base_prompt) ? (cfg.basePrompt || cfg.base_prompt) : null;
-          customIntentions = cfg && (cfg.customIntentions || cfg.intentions)
-            ? (cfg.customIntentions || cfg.intentions)
+          customIntentions = cfg
+            ? this.intentionService.buildActiveIntentionsFromConfig(cfg)
             : this.getDefaultIntentionsPreset();
           console.log(
             `  📋 Configuration agent IA (${facebookPageId ? `page ${facebookPageId}` : 'défaut entreprise'}): ` +

@@ -590,7 +590,19 @@ class UgapExcelService {
         });
       }
 
-      const finalCompatibleModels = compatibleModels;
+      let finalCompatibleModels = compatibleModels;
+      if (isMinorationRow && !finalCompatibleModels.length) {
+        const explicit = UgapImportAssignmentService.getExplicitPosteSetFromLabel(labelStr);
+        if (explicit && explicit.size) {
+          finalCompatibleModels = models
+            .filter((m) => {
+              const pn = Number(m?.posteNumber);
+              return Number.isFinite(pn) && explicit.has(pn);
+            })
+            .map((m) => m.id)
+            .filter(Boolean);
+        }
+      }
 
       const baseReplacement = this.parseBaseReplacementProducts(labelStr);
 

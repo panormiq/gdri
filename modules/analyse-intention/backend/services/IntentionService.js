@@ -51,7 +51,8 @@ RÈGLES OBLIGATOIRES POUR DÉTERMINER SI UNE RÉPONSE EST REQUISE :
 
 `;
       finalPrompt = reponseRequiseRules + finalPrompt;
-      finalPrompt += `\n\n${messagesSection}`;
+      finalPrompt += this.getRequiredJsonOutputSchema();
+      finalPrompt += `\n\nMESSAGES À ANALYSER :\n${messagesSection}`;
       return finalPrompt;
     }
 
@@ -114,7 +115,162 @@ Réponds au format JSON pour chaque message :
 }`;
   }
 
-  async analyzeIntentions(messages, basePrompt = null, customIntentions = [], customRules = null) {
+  getRequiredJsonOutputSchema() {
+    return `
+
+FORMAT DE RÉPONSE OBLIGATOIRE — réponds UNIQUEMENT avec ce JSON valide, sans texte avant ni après :
+{
+  "analyses": [
+    {
+      "message": "texte du message",
+      "etape1_generique": {
+        "reponse_requise": true,
+        "certitude": 85,
+        "raison": "explication"
+      },
+      "etape2_multi_intentions": {
+        "intentions_detectees": [
+          {
+            "categorie": "commercial",
+            "certitude": 90,
+            "raison": "explication de cette intention"
+          }
+        ],
+        "intention_principale": "commercial",
+        "certitude_totale": 85,
+        "raison_globale": "explication globale"
+      }
+    }
+  ]
+}`;
+  }
+
+  normalizeAnalysisItem(item) {
+    if (!item || typeof item !== 'object') {
+      return {
+        etape1_generique: { reponse_requise: null, certitude: null },
+        etape2_multi_intentions: { intentions_detectees: [], intention_principale: null, certitude_totale: null }
+      };
+    }
+
+    if (item.etape1_generique && item.etape2_multi_intentions) {
+      return item;
+    }
+
+    const etape1 = item.etape1_generique || {};
+    const etape2 = item.etape2_multi_intentions || item.etape2 || {};
+
+    const reponse_requise = etape1.reponse_requise
+      ?? item.reponse_requise
+      ?? item.reponse_rapide_requise
+      ?? null;
+    const certitude1 = etape1.certitude ?? item.certitude ?? null;
+
+    let intentions_detectees = etape2.intentions_detectees
+      || item.intentions_detectees
+      || item.intentions
+      || item.intentions_probables
+      || [];
+
+    if (!Array.isArray(intentions_detectees) && typeof intentions_detectees === 'object') {
+      intentions_detectees = Object.entries(intentions_detectees).map(([key, value]) => {
+        if (value && typeof value === 'object') {
+          return {
+            categorie: value.categorie || value.category || value.name || key,
+            certitude: value.certitude ?? value.certainty ?? value.probabilite ?? value.score ?? null
+          };
+        }
+        return { categorie: key, certitude: value };
+      });
+    }
+
+    if (Array.isArray(intentions_detectees)) {
+      intentions_detectees = intentions_detectees.map((intention) => {
+        if (!intention || typeof intention !== 'object') {
+          return { categorie: String(intention), certitude: null };
+        }
+        return {
+          categorie: intention.categorie || intention.category || intention.name || intention.intention || 'generic',
+          certitude: intention.certitude ?? intention.certainty ?? intention.probabilite
+            ?? intention.probability ?? intention.confidence ?? intention.score ?? null,
+          raison: intention.raison || intention.reason || intention.explication || null,
+          priorite: intention.priorite || intention.priority || null
+        };
+      });
+    } else {
+      intentions_detectees = [];
+    }
+
+    const intention_principale = etape2.intention_principale
+      || item.intention_principale
+      || item.intention_principale_detectee
+      || intentions_detectees[0]?.categorie
+      || null;
+    const certitude_totale = etape2.certitude_totale
+      ?? item.certitude_totale
+      ?? item.certitude_globale
+      ?? item.niveau_certitude
+      ?? item.certitude
+      ?? null;
+
+    return {
+      message: item.message || null,
+      etape1_generique: {
+        reponse_requise,
+        certitude: certitude1,
+        raison: etape1.raison || item.raison || null
+      },
+      etape2_multi_intentions: {
+        intentions_detectees,
+        intention_principale,
+        certitude_totale,
+        raison_globale: etape2.raison_globale || item.raison_globale || null
+      }
+    };
+  }
+
+  normalizeAIResponse(response) {
+    if (!response) {
+      return { analyses: [] };
+    }
+
+    if (Array.isArray(response.analyses)) {
+      return { analyses: response.analyses.map((item) => this.normalizeAnalysisItem(item)) };
+    }
+
+    if (Array.isArray(response)) {
+      return { analyses: response.map((item) => this.normalizeAnalysisItem(item)) };
+    }
+
+    if (typeof response === 'object') {
+      if (response.result) {
+        return this.normalizeAIResponse(response.result);
+      }
+      if (response.data) {
+        return this.normalizeAIResponse(response.data);
+      }
+      if (response.analysis) {
+        return this.normalizeAIResponse(response.analysis);
+      }
+
+      const looksLikeSingleAnalysis = Boolean(
+        response.etape1_generique
+        || response.etape2_multi_intentions
+        || response.intentions
+        || response.intentions_detectees
+        || response.reponse_requise !== undefined
+        || response.intention_principale
+      );
+
+      if (looksLikeSingleAnalysis) {
+        return { analyses: [this.normalizeAnalysisItem(response)] };
+      }
+    }
+
+    return { analyses: [] };
+  }
+
+  async analyzeIntentions(messages, basePrompt = null, customIntentions = [], customRules = null, options = {}) {
     try {
       const messagesArray = Array.isArray(messages) ? messages : [messages];
 
@@ -133,10 +289,13 @@ Réponds au format JSON pour chaque message :
       }
 
       const responseText = aiResponse.data.response;
-      const parsedResponse = this.parseAIResponse(responseText);
+      const parsedResponse = this.normalizeAIResponse(this.parseAIResponse(responseText));
       const validation = this.validateMultiIntentionResponse(parsedResponse);
       if (!validation.valid) {
         console.warn('⚠️  Réponse IA invalide:', validation.errors);
+        if (options.debugRawResponse) {
+          console.warn('⚠️  Réponse IA brute (extrait):', String(responseText).slice(0, 500));
+        }
       }
 
       const analysisRecord = {
@@ -148,11 +307,13 @@ Réponds au format JSON pour chaque message :
         model: aiResponse.data.model || 'unknown'
       };
 
-      try {
-        const collection = this.database.getCollection('intentions_analyses');
-        await collection.insertOne(analysisRecord);
-      } catch (dbError) {
-        console.error('Erreur lors de la sauvegarde:', dbError);
+      if (!options.skipSave) {
+        try {
+          const collection = this.database.getCollection('intentions_analyses');
+          await collection.insertOne(analysisRecord);
+        } catch (dbError) {
+          console.error('Erreur lors de la sauvegarde:', dbError);
+        }
       }
 
       return {

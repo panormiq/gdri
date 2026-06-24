@@ -252,9 +252,29 @@
         return mode === 'minoration' || mode === 'majoration';
     }
 
+    /**
+     * Liaison mino/majo auto : uniquement motorisation / moteur (ex. « non fourniture moteur de base »).
+     * Pas pour console, guindeau, etc. même si le choix remplace l’option de base du groupe.
+     */
+    function isMotorLinkedAdjGroup(group) {
+        if (!group || typeof group !== 'object') return false;
+        const hay = [
+            group.label,
+            group.groupLabel,
+            group.groupId,
+            group.familyLabel,
+            group.categoryName,
+            group.componentLabel,
+        ].map((x) => String(x || '').trim().toLowerCase()).join(' ');
+        if (!hay) return false;
+        if (/\b(motorisation|moteurs?)\b/i.test(hay)) return true;
+        return false;
+    }
+
     function shouldAutoApplyLinkedAdj(group) {
         if (!group || typeof group !== 'object') return false;
-        return isAdjPricingGroup(group);
+        if (!isAdjPricingGroup(group)) return false;
+        return isMotorLinkedAdjGroup(group);
     }
 
     function isOptionSelectableForModel(opt, model, isSelectable) {
@@ -325,8 +345,8 @@
     }
 
     /**
-     * Retire toutes les mino/majo liées aux options de base du groupe (changement de moteur).
-     * Les lignes liées ne sont pas dans group.options mais restent dans selectedOptions.
+     * Retire les mino/majo liées aux options de base du groupe (changement de moteur).
+     * Uniquement groupes motorisation — pas console / autres IBP.
      */
     function clearLinkedAdjForGroup(state, group) {
         if (!state?.selectedOptions || !group || !shouldAutoApplyLinkedAdj(group)) return;
@@ -393,6 +413,8 @@
                 : '';
             if (!defaultBaseId) return;
 
+            if (!isMotorLinkedAdjGroup(group)) return;
+
             const groupForApply = isAdjPricingGroup(group)
                 ? group
                 : { ...group, priceMode: 'minoration', pricingMode: 'minoration' };
@@ -407,6 +429,7 @@
         isManualBaseCatalogOption,
         normalizeGroupPriceMode,
         isAdjPricingGroup,
+        isMotorLinkedAdjGroup,
         isMotorBaseNonSupplyLabel,
         shouldAutoApplyLinkedAdj,
         flattenCatalogOptions,

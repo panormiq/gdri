@@ -135,8 +135,48 @@ class UgapImportAssignmentService {
       const nums = chunk.match(/\d+/g);
       if (nums) nums.forEach((x) => set.add(parseInt(x, 10)));
     }
+    const suffixRe = /(?:-|–|—)\s*postes?\s+([\d,\setàa\-–—\s]+)$/i;
+    const suffix = raw.match(suffixRe);
+    if (suffix) {
+      const tail = String(suffix[1] || '').trim();
+      const rangeInTail = tail.match(/^(\d+)\s*(?:à|a|-|–|—)\s*(\d+)$/i);
+      if (rangeInTail) {
+        found = true;
+        let a = parseInt(rangeInTail[1], 10);
+        let b = parseInt(rangeInTail[2], 10);
+        if (Number.isFinite(a) && Number.isFinite(b)) {
+          if (b < a) [a, b] = [b, a];
+          for (let i = a; i <= b; i += 1) set.add(i);
+        }
+      } else {
+        const nums = tail.match(/\d+/g);
+        if (nums && nums.length) {
+          found = true;
+          nums.forEach((x) => set.add(parseInt(x, 10)));
+        }
+      }
+    }
     if (!found) return null;
     return set;
+  }
+
+  static getSortedExplicitPosteNumbersFromLabel(label) {
+    const set = this.getExplicitPosteSetFromLabel(label);
+    if (!set || !set.size) return [];
+    return [...set].filter(Number.isFinite).sort((a, b) => a - b);
+  }
+
+  static modelIdsFromExplicitLabelPostes(label, models) {
+    const nums = this.getSortedExplicitPosteNumbersFromLabel(label);
+    if (!nums.length) return [];
+    const numSet = new Set(nums);
+    return (Array.isArray(models) ? models : [])
+      .filter((m) => {
+        const pn = Number(m?.posteNumber);
+        return Number.isFinite(pn) && numSet.has(pn);
+      })
+      .map((m) => String(m?.id || '').trim())
+      .filter(Boolean);
   }
 
   static labelHasPosteNumberingContext(label) {

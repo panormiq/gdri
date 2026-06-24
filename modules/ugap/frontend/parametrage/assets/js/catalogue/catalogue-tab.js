@@ -227,6 +227,7 @@
         const msg = global.document.getElementById('ugap-catalogue-confirm-msg');
         if (!modal || !msg) return;
         msg.textContent = message;
+        msg.style.whiteSpace = 'pre-line';
         confirmCallback = onOk;
         modal.hidden = false;
     }
@@ -313,7 +314,7 @@
         }
         ui.nodeId = row.id;
         closeCreateNodeModal();
-        render();
+        renderStructurePanels({ tree: true, detail: true, preserveTreeScroll: true });
         toast('Nœud créé.', 'success');
     }
 
@@ -350,8 +351,84 @@
         }
     }
 
-    function render() {
+    function captureTreeScroll() {
+        const el = mountEl?.querySelector('.ugap-catalogue-col__body--tree');
+        return el ? el.scrollTop : 0;
+    }
+
+    function restoreTreeScroll(scrollTop) {
+        const el = mountEl?.querySelector('.ugap-catalogue-col__body--tree');
+        if (el && Number.isFinite(scrollTop)) el.scrollTop = scrollTop;
+    }
+
+    function updateTreeActiveState() {
+        const root = mountEl?.querySelector('[data-ugap-catalogue-root]');
+        if (!root) return;
+        const activeId = String(ui.nodeId || '').trim();
+        root.querySelectorAll('.ugap-catalogue-tree__row').forEach((row) => {
+            const id = String(row.getAttribute('data-pick-node') || '').trim();
+            row.classList.toggle('is-active', id === activeId && !!activeId);
+        });
+    }
+
+    function scrollTreeToActiveNode() {
+        const root = mountEl?.querySelector('[data-ugap-catalogue-root]');
+        const treeBody = root?.querySelector('.ugap-catalogue-col__body--tree');
+        const active = root?.querySelector('.ugap-catalogue-tree__row.is-active');
+        if (!treeBody || !active) return;
+        const bodyRect = treeBody.getBoundingClientRect();
+        const rowRect = active.getBoundingClientRect();
+        if (rowRect.top < bodyRect.top || rowRect.bottom > bodyRect.bottom) {
+            active.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+        }
+    }
+
+    function renderDetailPanel() {
+        const panel = mountEl?.querySelector('.ugap-catalogue-col__body--detail');
+        if (!panel) return false;
+        const catalog = State().getCatalog();
+        panel.innerHTML = renderDetailHtml(catalog);
+        return true;
+    }
+
+    function renderTreePanel(preserveScroll = true) {
+        const treeBody = mountEl?.querySelector('.ugap-catalogue-col__body--tree');
+        if (!treeBody) return false;
+        const scrollTop = preserveScroll ? treeBody.scrollTop : 0;
+        const catalog = State().getCatalog();
+        treeBody.innerHTML = renderTreeNodes(catalog.nodes, '');
+        if (preserveScroll) treeBody.scrollTop = scrollTop;
+        updateTreeActiveState();
+        return true;
+    }
+
+    /** Mise à jour partielle structure : évite de reconstruire tout l’écran au clic arbre. */
+    function renderStructurePanels(options = {}) {
+        const { tree = true, detail = true, preserveTreeScroll = true } = options;
+        const root = mountEl?.querySelector('[data-ugap-catalogue-root]');
+        if (!root || ui.view !== 'structure') {
+            render({ preserveTreeScroll });
+            return;
+        }
+        if (tree) renderTreePanel(preserveTreeScroll);
+        else updateTreeActiveState();
+        if (detail) renderDetailPanel();
+    }
+
+    function selectNode(nodeId) {
+        ui.nodeId = String(nodeId || '').trim();
+        if (!renderDetailPanel()) {
+            render({ preserveTreeScroll: true });
+            return;
+        }
+        updateTreeActiveState();
+        scrollTreeToActiveNode();
+    }
+
+    function render(options = {}) {
         if (!mountEl) return;
+        const preserveTreeScroll = options.preserveTreeScroll !== false;
+        const scrollTop = preserveTreeScroll ? captureTreeScroll() : 0;
         const catalog = State().getCatalog();
         const structureView = ui.view === 'structure';
 
@@ -360,9 +437,14 @@
                 <header class="ugap-catalogue-header">
                     <div>
                         <h2 class="ugap-catalogue-title">Catalogue</h2>
-                        <p class="ugap-catalogue-desc">Un seul arbre : dossier ou ligne de choix dès qu’une option est liée (catalogObjectId = id du nœud).</p>
+                        <p class="ugap-catalogue-desc">Arbre catalogue + liaison des options (catalogObjectId).
+                            Mots-clés sur chaque nœud ; « Associer options aux nœuds » traite l’arbre nœud par nœud.</p>
                     </div>
                     <div class="ugap-catalogue-header__actions">
+                        <button type="button" class="btn btn-primary btn-sm" data-bulk-associate-options
+                            title="Parcourt chaque nœud (mots-clés) et lie les options correspondantes">
+                            Associer options aux nœuds
+                        </button>
                         <button type="button" class="btn btn-outline${structureView ? ' is-active' : ''}" data-view="structure">Structure</button>
                         <button type="button" class="btn btn-outline${!structureView ? ' is-active' : ''}" data-view="tags">Vue tags</button>
                         <button type="button" class="btn btn-outline btn-sm" data-refresh-catalogue title="Recharger">↻</button>
@@ -385,6 +467,13 @@
                     </section>
                 </div>` : `<div class="ugap-catalogue-grid ugap-catalogue-grid--single">${renderTagViewHtml(catalog)}</div>`}
             </div>`;
+
+        if (structureView && preserveTreeScroll) {
+            global.requestAnimationFrame(() => {
+                restoreTreeScroll(scrollTop);
+                updateTreeActiveState();
+            });
+        }
     }
 
     async function saveNodeDetail(root) {
@@ -415,7 +504,7 @@
             return;
         }
         toast('Nœud enregistré.', 'success');
-        render();
+        renderStructurePanels({ tree: true, detail: true, preserveTreeScroll: true });
     }
 
     function onMountClick(ev) {
@@ -432,6 +521,18 @@
             void State()?.reload?.().then(render);
             return;
         }
+        if (ev.target.closest('[data-bulk-associate-options]')) {
+            if (!global.UgapCatalogueBulkLink?.runWithConfirm) {
+                toast('Module d’association catalogue indisponible — rechargez la page (Ctrl+F5).', 'error');
+                return;
+            }
+            void global.UgapCatalogueBulkLink.runWithConfirm({ confirm: openConfirm })
+                .then((result) => {
+                    if (result?.saved) renderStructurePanels({ tree: true, detail: true, preserveTreeScroll: true });
+                })
+                .catch(() => { /* alerté dans bulk-link */ });
+            return;
+        }
         const tagTab = ev.target.closest('[data-tag-filter]');
         if (tagTab) {
             ui.tagFilter = tagTab.getAttribute('data-tag-filter') || '';
@@ -441,8 +542,7 @@
 
         const pick = ev.target.closest('[data-pick-node]');
         if (pick) {
-            ui.nodeId = pick.getAttribute('data-pick-node') || '';
-            render();
+            selectNode(pick.getAttribute('data-pick-node') || '');
             return;
         }
 
@@ -467,7 +567,7 @@
                 State().deleteNode(node.id);
                 ui.nodeId = '';
                 await State()?.persistNow?.();
-                render();
+                renderStructurePanels({ tree: true, detail: true, preserveTreeScroll: true });
                 toast('Supprimé.', 'success');
             });
             return;
@@ -485,7 +585,7 @@
             };
             void global.UgapCatalogueLinkModal?.open({
                 catalogObject: draft,
-                onApplied: () => render(),
+                onApplied: () => renderStructurePanels({ tree: true, detail: true, preserveTreeScroll: true }),
             });
             return;
         }
@@ -498,7 +598,7 @@
             }
             global.UgapCatalogueCreateOptionModal?.open({
                 catalogObject: node,
-                onCreated: () => render(),
+                onCreated: () => renderStructurePanels({ tree: true, detail: true, preserveTreeScroll: true }),
             });
         }
     }
@@ -531,6 +631,6 @@
         render();
     }
 
-    global.UgapCatalogueTab = { mount, refresh };
+    global.UgapCatalogueTab = { mount, refresh, openConfirm };
     global.mountUgapCatalogue = mount;
 })(window);

@@ -3,6 +3,7 @@
  */
 
 const parseReplacementFromLabel = require('./rules/parseReplacementFromLabel');
+const resolveAdjOptionNameFromLabel = require('./rules/resolveAdjOptionNameFromLabel');
 const isHorsBordMotorLine = require('./rules/isHorsBordMotorLine');
 const buildBaseOptionFromMinoration = require('./buildBaseOptionFromMinoration');
 
@@ -39,8 +40,7 @@ function buildBaseOptions(minorations, majorations, models) {
   (majorations || []).forEach((line) => {
     if (isHorsBordMotorLine(line.label)) return;
     const replacement = parseReplacementFromLabel(line.label);
-    const baseOptionName =
-      replacement.replacedObject || replacement.newObject || '';
+    const baseOptionName = resolveAdjOptionNameFromLabel(line, { forMinoration: false });
     seq += 1;
     options.push({
       id: `base_majo_${seq}`,

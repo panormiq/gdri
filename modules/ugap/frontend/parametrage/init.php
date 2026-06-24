@@ -86,6 +86,8 @@ $ugapParamEnqueueAssets = static function () use ($__ugapFrontendRoot): void {
 
     ugap_enqueue_script('/modules/ugap/frontend/assets/js/shared/ugap-option-line-kind.js');
 
+    ugap_enqueue_script('/modules/ugap/frontend/assets/js/shared/ugap-poste-from-label.js');
+
     ugap_enqueue_script('/modules/ugap/frontend/assets/js/shared/ugap-option-display-name.js');
 
     ugap_enqueue_script('/modules/ugap/frontend/assets/js/shared/ugap-option-text-match.js');
@@ -105,6 +107,10 @@ $ugapParamEnqueueAssets = static function () use ($__ugapFrontendRoot): void {
     ugap_enqueue_script('/modules/ugap/frontend/parametrage/assets/js/detect/render-detection-minoration-table.js');
 
     ugap_enqueue_script('/modules/ugap/frontend/parametrage/assets/js/detect/render-detection-majoration-table.js');
+
+    ugap_enqueue_script('/modules/ugap/frontend/assets/js/shared/ugap-import-base-option-modal.js');
+
+    ugap_enqueue_script('/modules/ugap/frontend/parametrage/assets/js/detect/base-option-editor.js');
 
     ugap_enqueue_script('/modules/ugap/frontend/parametrage/assets/js/detect/render-detection-base-option-table.js');
 
@@ -131,6 +137,8 @@ $ugapParamEnqueueAssets = static function () use ($__ugapFrontendRoot): void {
     ugap_enqueue_script('/modules/ugap/frontend/parametrage/assets/js/catalogue/catalogue-option-link-heuristic.js');
 
     ugap_enqueue_script('/modules/ugap/frontend/parametrage/assets/js/catalogue/catalogue-option-link-modal.js');
+
+    ugap_enqueue_script('/modules/ugap/frontend/parametrage/assets/js/catalogue/catalogue-bulk-link.js');
 
     ugap_enqueue_script('/modules/ugap/frontend/parametrage/assets/js/catalogue/catalogue-option-create-modal.js');
 
