@@ -15,6 +15,10 @@
     'http-generic': 'emit.http'
   };
 
+  var NODE_WIDTH = 200;
+  var PORT_STEM = 18;
+  var ROUTE_GAP = 22;
+
   var state = {
     flowId: flowId,
     name: 'Nouvel agent',
@@ -23,7 +27,10 @@
     bricks: [],
     bricksById: {},
     nodes: [],
-    selectedNodeId: null
+    selectedNodeId: null,
+    linking: null,
+    paletteDragActive: false,
+    suppressAutoConnectUntil: 0
   };
 
   function headers() {
@@ -70,7 +77,6 @@
       nextId: null
     };
     state.nodes.push(node);
-    chainNodesLinear();
     if (!state.selectedNodeId) state.selectedNodeId = node.id;
     render();
     return node;
@@ -104,16 +110,38 @@
     return {};
   }
 
-  function chainNodesLinear() {
-    var trigger = state.nodes.find(function(n) { return n.kind === 'trigger'; });
-    var actions = state.nodes.filter(function(n) { return n.kind !== 'trigger'; })
-      .sort(function(a, b) { return a.y - b.y; });
-    state.nodes.forEach(function(n) { n.nextId = null; });
-    var prev = trigger || null;
-    actions.forEach(function(action) {
-      if (prev) prev.nextId = action.id;
+  /** Migration anciens flows sans canvas.nextId — enchaîne trigger → steps dans l'ordre */
+  function chainLegacySteps(triggerNode, actionNodes) {
+    if (!triggerNode) return;
+    var prev = triggerNode;
+    actionNodes.forEach(function(action) {
+      prev.nextId = action.id;
       prev = action;
     });
+  }
+
+  function getIncomingNode(targetId) {
+    return state.nodes.find(function(n) { return n.nextId === targetId; }) || null;
+  }
+
+  function connectNodes(sourceId, targetId) {
+    if (Date.now() < state.suppressAutoConnectUntil) return false;
+    if (!sourceId || !targetId || sourceId === targetId) return false;
+    var source = state.nodes.find(function(n) { return n.id === sourceId; });
+    var target = state.nodes.find(function(n) { return n.id === targetId; });
+    if (!source || !target) return false;
+    if (target.kind === 'trigger') return false;
+
+    state.nodes.forEach(function(n) {
+      if (n.nextId === targetId) n.nextId = null;
+    });
+    source.nextId = targetId;
+    return true;
+  }
+
+  function disconnectOutgoing(nodeId) {
+    var node = state.nodes.find(function(n) { return n.id === nodeId; });
+    if (node) node.nextId = null;
   }
 
   function buildPayload() {
@@ -216,7 +244,9 @@
         });
         y += 120;
       });
-      chainNodesLinear();
+      var triggerNode = state.nodes.find(function(n) { return n.kind === 'trigger'; });
+      var actionNodes = state.nodes.filter(function(n) { return n.kind !== 'trigger'; });
+      chainLegacySteps(triggerNode, actionNodes);
     }
     state.selectedNodeId = state.nodes[0] ? state.nodes[0].id : null;
     render();
@@ -245,32 +275,215 @@
 
     host.querySelectorAll('.agent-brick-item').forEach(function(el) {
       el.addEventListener('dragstart', function(e) {
+        state.paletteDragActive = true;
+        cancelLinkDrag();
         e.dataTransfer.setData('text/brick-id', el.getAttribute('data-brick-id'));
       });
+      el.addEventListener('dragend', function() {
+        state.paletteDragActive = false;
+        state.suppressAutoConnectUntil = Date.now() + 300;
+      });
       el.addEventListener('click', function() {
+        if (state.paletteDragActive) return;
         var brick = getBrick(el.getAttribute('data-brick-id'));
         if (brick) addNodeFromBrick(brick);
       });
     });
   }
 
-  function renderConnections(svg) {
+  function getNodeRect(nodeId, canvas) {
+    var node = state.nodes.find(function(n) { return n.id === nodeId; });
+    if (!node) return null;
+    var el = canvas.querySelector('.agent-node[data-id="' + nodeId + '"]');
+    var h = el ? el.offsetHeight : 72;
+    var w = NODE_WIDTH;
+    var cx = node.x + w / 2;
+    var cy = node.y + h / 2;
+    return {
+      top: { x: cx, y: node.y, side: 'top' },
+      bottom: { x: cx, y: node.y + h, side: 'bottom' },
+      left: { x: node.x, y: cy, side: 'left' },
+      right: { x: node.x + w, y: cy, side: 'right' },
+      center: { x: cx, y: cy }
+    };
+  }
+
+  /** Choisit les ports selon la position relative (haut/bas ou gauche/droite) */
+  function pickConnectionPorts(sourceId, targetId, canvas) {
+    var s = getNodeRect(sourceId, canvas);
+    var t = getNodeRect(targetId, canvas);
+    if (!s || !t) return null;
+
+    var dx = t.center.x - s.center.x;
+    var dy = t.center.y - s.center.y;
+
+    if (Math.abs(dy) >= Math.abs(dx)) {
+      if (dy >= 0) return { out: s.bottom, in: t.top };
+      return { out: s.top, in: t.bottom };
+    }
+    if (dx >= 0) return { out: s.right, in: t.left };
+    return { out: s.left, in: t.right };
+  }
+
+  function getNodeBounds(nodeId, canvas) {
+    var node = state.nodes.find(function(n) { return n.id === nodeId; });
+    if (!node) return null;
+    var el = canvas.querySelector('.agent-node[data-id="' + nodeId + '"]');
+    var h = el ? el.offsetHeight : 72;
+    return {
+      left: node.x,
+      right: node.x + NODE_WIDTH,
+      top: node.y,
+      bottom: node.y + h
+    };
+  }
+
+  function rectsOverlap(a, b) {
+    return a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
+  }
+
+  /** Blocs traversés par le corridor source → cible (hors extrémités) */
+  function getObstaclesBetween(sourceId, targetId, canvas) {
+    var srcB = getNodeBounds(sourceId, canvas);
+    var tgtB = getNodeBounds(targetId, canvas);
+    if (!srcB || !tgtB) return [];
+
+    var pad = 6;
+    var corridor = {
+      left: Math.min(srcB.left, tgtB.left) - pad,
+      right: Math.max(srcB.right, tgtB.right) + pad,
+      top: Math.min(srcB.top, tgtB.top) - pad,
+      bottom: Math.max(srcB.bottom, tgtB.bottom) + pad
+    };
+
+    return state.nodes
+      .filter(function(n) { return n.id !== sourceId && n.id !== targetId; })
+      .map(function(n) { return getNodeBounds(n.id, canvas); })
+      .filter(function(b) { return b && rectsOverlap(corridor, b); });
+  }
+
+  /** Passe sous (ou au-dessus) les obstacles pour ne traverser aucun bloc */
+  function computeRouteChannel(obstacles, srcB, tgtB, from, to) {
+    var outSide = from.side;
+    var inSide = to.side;
+
+    if (outSide === 'top' && inSide === 'bottom') {
+      var above = Math.min(srcB.top, tgtB.top);
+      obstacles.forEach(function(o) { above = Math.min(above, o.top); });
+      return above - ROUTE_GAP;
+    }
+
+    var below = Math.max(srcB.bottom, tgtB.bottom);
+    obstacles.forEach(function(o) { below = Math.max(below, o.bottom); });
+    return below + ROUTE_GAP;
+  }
+
+  /**
+   * Courbe de Bézier — tangente perpendiculaire au bord du port
+   * (vertical pour haut/bas, horizontal pour gauche/droite)
+   */
+  function buildCurvePath(from, to) {
+    var x1 = from.x;
+    var y1 = from.y;
+    var x2 = to.x;
+    var y2 = to.y;
+    var outSide = from.side || 'bottom';
+    var inSide = to.side || 'top';
+
+    if (outSide === 'bottom' || outSide === 'top') {
+      var midY = y1 + (y2 - y1) / 2;
+      if (outSide === 'bottom' && inSide === 'top') {
+        midY = Math.max(y1 + PORT_STEM, Math.min(y2 - PORT_STEM, midY));
+      } else {
+        midY = Math.min(y1 - PORT_STEM, Math.max(y2 + PORT_STEM, midY));
+      }
+      return 'M' + x1 + ' ' + y1 + ' C ' + x1 + ' ' + midY + ', ' + x2 + ' ' + midY + ', ' + x2 + ' ' + y2;
+    }
+
+    var midX = x1 + (x2 - x1) / 2;
+    if (outSide === 'right' && inSide === 'left') {
+      midX = Math.max(x1 + PORT_STEM, Math.min(x2 - PORT_STEM, midX));
+    } else {
+      midX = Math.min(x1 - PORT_STEM, Math.max(x2 + PORT_STEM, midX));
+    }
+    return 'M' + x1 + ' ' + y1 + ' C ' + midX + ' ' + y1 + ', ' + midX + ' ' + y2 + ', ' + x2 + ' ' + y2;
+  }
+
+  /**
+   * Contourne les obstacles via un couloir horizontal sous les blocs
+   * (tiges perpendiculaires + tronçon courbe le long du couloir)
+   */
+  function buildChannelPath(from, to, channelY) {
+    var x1 = from.x;
+    var y1 = from.y;
+    var x2 = to.x;
+    var y2 = to.y;
+    var outSide = from.side;
+    var inSide = to.side;
+    var s = PORT_STEM;
+    var midX = (x1 + x2) / 2;
+
+    if (outSide === 'bottom' && inSide === 'top') {
+      return 'M' + x1 + ' ' + y1
+        + ' C ' + x1 + ' ' + (y1 + s) + ', ' + x1 + ' ' + (channelY - s) + ', ' + x1 + ' ' + channelY
+        + ' C ' + midX + ' ' + channelY + ', ' + midX + ' ' + channelY + ', ' + x2 + ' ' + channelY
+        + ' C ' + x2 + ' ' + (channelY + s) + ', ' + x2 + ' ' + (y2 - s) + ', ' + x2 + ' ' + y2;
+    }
+
+    if (outSide === 'top' && inSide === 'bottom') {
+      return 'M' + x1 + ' ' + y1
+        + ' C ' + x1 + ' ' + (y1 - s) + ', ' + x1 + ' ' + (channelY + s) + ', ' + x1 + ' ' + channelY
+        + ' C ' + midX + ' ' + channelY + ', ' + midX + ' ' + channelY + ', ' + x2 + ' ' + channelY
+        + ' C ' + x2 + ' ' + (channelY - s) + ', ' + x2 + ' ' + (y2 + s) + ', ' + x2 + ' ' + y2;
+    }
+
+    if (outSide === 'right' && inSide === 'left') {
+      return 'M' + x1 + ' ' + y1
+        + ' C ' + (x1 + s) + ' ' + y1 + ', ' + (x1 + s) + ' ' + (y1 + s) + ', ' + (x1 + s) + ' ' + channelY
+        + ' C ' + midX + ' ' + channelY + ', ' + midX + ' ' + channelY + ', ' + (x2 - s) + ' ' + channelY
+        + ' C ' + (x2 - s) + ' ' + channelY + ', ' + (x2 - s) + ' ' + y2 + ', ' + x2 + ' ' + y2;
+    }
+
+    if (outSide === 'left' && inSide === 'right') {
+      return 'M' + x1 + ' ' + y1
+        + ' C ' + (x1 - s) + ' ' + y1 + ', ' + (x1 - s) + ' ' + (y1 + s) + ', ' + (x1 - s) + ' ' + channelY
+        + ' C ' + midX + ' ' + channelY + ', ' + midX + ' ' + channelY + ', ' + (x2 + s) + ' ' + channelY
+        + ' C ' + (x2 + s) + ' ' + channelY + ', ' + (x2 + s) + ' ' + y2 + ', ' + x2 + ' ' + y2;
+    }
+
+    return buildCurvePath(from, to);
+  }
+
+  function buildConnectionPath(sourceId, targetId, canvas) {
+    var ports = pickConnectionPorts(sourceId, targetId, canvas);
+    if (!ports) return null;
+
+    var obstacles = getObstaclesBetween(sourceId, targetId, canvas);
+    if (!obstacles.length) {
+      return { d: buildCurvePath(ports.out, ports.in), routed: false };
+    }
+
+    var srcB = getNodeBounds(sourceId, canvas);
+    var tgtB = getNodeBounds(targetId, canvas);
+    var channelY = computeRouteChannel(obstacles, srcB, tgtB, ports.out, ports.in);
+    return { d: buildChannelPath(ports.out, ports.in, channelY), routed: true, channelY: channelY };
+  }
+
+  function renderConnections(svg, canvas) {
     svg.innerHTML = '';
     state.nodes.forEach(function(node) {
       if (!node.nextId) return;
       var target = state.nodes.find(function(n) { return n.id === node.nextId; });
       if (!target) return;
-      var x1 = node.x + 100;
-      var y1 = node.y + 72;
-      var x2 = target.x + 100;
-      var y2 = target.y;
+      var ports = pickConnectionPorts(node.id, target.id, canvas);
+      if (!ports) return;
+
+      var route = buildConnectionPath(node.id, target.id, canvas);
+      if (!route) return;
+
       var path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-      var midY = (y1 + y2) / 2;
-      path.setAttribute('d', 'M' + x1 + ' ' + y1 + ' C ' + x1 + ' ' + midY + ', ' + x2 + ' ' + midY + ', ' + x2 + ' ' + y2);
-      path.setAttribute('stroke', '#0e9cef');
-      path.setAttribute('stroke-width', '2');
-      path.setAttribute('fill', 'none');
-      path.setAttribute('opacity', '0.8');
+      path.setAttribute('d', route.d);
+      path.setAttribute('class', route.routed ? 'connection-routed' : 'connection-direct');
       svg.appendChild(path);
     });
   }
@@ -285,6 +498,18 @@
       canvas.appendChild(svg);
     }
     canvas.querySelectorAll('.agent-node').forEach(function(n) { n.remove(); });
+    var emptyHint = canvas.querySelector('.agent-canvas-empty');
+    if (!state.nodes.length) {
+      if (!emptyHint) {
+        emptyHint = document.createElement('div');
+        emptyHint.className = 'agent-canvas-empty';
+        emptyHint.textContent = 'Glissez des blocs depuis la palette. Aucun lien automatique.';
+        canvas.appendChild(emptyHint);
+      }
+      svg.innerHTML = '';
+      return;
+    }
+    if (emptyHint) emptyHint.remove();
 
     state.nodes.forEach(function(node) {
       var brick = getBrick(node.brickId) || {};
@@ -300,9 +525,13 @@
         ? '<img src="' + url + '" alt="">'
         : '<span class="emoji">' + ((brick.canvas && brick.canvas.iconEmoji) || '🔧') + '</span>';
 
-      el.innerHTML = '<div class="agent-node-head">' + icon
+      el.innerHTML = '<span class="agent-node-port agent-node-port--top agent-node-port--in" data-port="top" aria-hidden="true"></span>'
+        + '<span class="agent-node-port agent-node-port--left agent-node-port--in" data-port="left" aria-hidden="true"></span>'
+        + '<div class="agent-node-head">' + icon
         + '<div><div class="agent-node-title">' + (node.name || brick.name || node.brickId) + '</div>'
-        + '<div class="agent-node-kind">' + (node.kind === 'trigger' ? 'Déclencheur' : 'Action') + '</div></div></div>';
+        + '<div class="agent-node-kind">' + (node.kind === 'trigger' ? 'Déclencheur' : 'Action') + '</div></div></div>'
+        + '<span class="agent-node-port agent-node-port--right agent-node-port--out" data-port="right" aria-hidden="true"></span>'
+        + '<span class="agent-node-port agent-node-port--bottom agent-node-port--out" data-port="bottom" aria-hidden="true"></span>';
 
       el.addEventListener('click', function(e) {
         e.stopPropagation();
@@ -311,8 +540,19 @@
         renderCanvas();
       });
 
+      el.querySelectorAll('.agent-node-port--out').forEach(function(port) {
+        port.addEventListener('pointerdown', function(e) {
+          if (e.button !== 0) return;
+          if (state.paletteDragActive) return;
+          e.stopPropagation();
+          e.preventDefault();
+          startLinkDrag(e, node.id, port.getAttribute('data-port'), canvas, svg);
+        });
+      });
+
       el.addEventListener('pointerdown', function(e) {
         if (e.button !== 0) return;
+        if (e.target.closest('.agent-node-port')) return;
         e.preventDefault();
         var startX = e.clientX;
         var startY = e.clientY;
@@ -324,13 +564,12 @@
           node.y = oy + (ev.clientY - startY);
           el.style.left = node.x + 'px';
           el.style.top = node.y + 'px';
-          renderConnections(svg);
+          renderConnections(svg, canvas);
         }
         function onUp() {
           el.removeEventListener('pointermove', onMove);
           el.removeEventListener('pointerup', onUp);
-          chainNodesLinear();
-          renderConnections(svg);
+          renderConnections(svg, canvas);
         }
         el.addEventListener('pointermove', onMove);
         el.addEventListener('pointerup', onUp);
@@ -339,7 +578,85 @@
       canvas.appendChild(el);
     });
 
-    renderConnections(svg);
+    renderConnections(svg, canvas);
+  }
+
+  function cancelLinkDrag() {
+    if (!state.linking) return;
+    if (state.linking.preview && state.linking.preview.parentNode) {
+      state.linking.preview.parentNode.removeChild(state.linking.preview);
+    }
+    if (state.linking.canvas) {
+      state.linking.canvas.classList.remove('is-linking');
+    }
+    document.removeEventListener('pointermove', state.linking.onMove);
+    document.removeEventListener('pointerup', state.linking.onFinish);
+    document.removeEventListener('pointercancel', state.linking.onFinish);
+    state.linking = null;
+  }
+
+  function startLinkDrag(e, sourceId, side, canvas, svg) {
+    cancelLinkDrag();
+
+    var rect = canvas.getBoundingClientRect();
+    var preview = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    preview.setAttribute('class', 'connection-preview');
+    svg.appendChild(preview);
+    canvas.classList.add('is-linking');
+
+    var startClientX = e.clientX;
+    var startClientY = e.clientY;
+    var moved = false;
+
+    function portPoint() {
+      var nr = getNodeRect(sourceId, canvas);
+      return nr ? nr[side] : null;
+    }
+
+    function updatePreview(ev) {
+      if (Math.abs(ev.clientX - startClientX) > 4 || Math.abs(ev.clientY - startClientY) > 4) {
+        moved = true;
+      }
+      var from = portPoint();
+      if (!from) return;
+      var to = {
+        x: ev.clientX - rect.left,
+        y: ev.clientY - rect.top,
+        side: side === 'bottom' ? 'top' : 'left'
+      };
+      preview.setAttribute('d', buildCurvePath(from, to));
+    }
+
+    function finishLink(ev) {
+      cancelLinkDrag();
+
+      if (!moved) return;
+
+      var targetEl = document.elementFromPoint(ev.clientX, ev.clientY);
+      var targetNodeEl = targetEl && targetEl.closest('.agent-node');
+      if (targetNodeEl && targetNodeEl.dataset.id !== sourceId) {
+        connectNodes(sourceId, targetNodeEl.dataset.id);
+        render();
+        return;
+      }
+      renderConnections(svg, canvas);
+    }
+
+    function onMove(ev) { updatePreview(ev); }
+
+    state.linking = {
+      sourceId: sourceId,
+      side: side,
+      canvas: canvas,
+      preview: preview,
+      onMove: onMove,
+      onFinish: finishLink
+    };
+
+    updatePreview(e);
+    document.addEventListener('pointermove', onMove);
+    document.addEventListener('pointerup', finishLink);
+    document.addEventListener('pointercancel', finishLink);
   }
 
   function fieldHtml(key, schema, value) {
@@ -385,6 +702,18 @@
     var html = '<h3>' + (node.name || brick.name) + '</h3>';
     html += '<p class="empty" style="margin-bottom:12px;">' + (brick.description || '') + '</p>';
 
+    var incoming = getIncomingNode(node.id);
+    var outgoing = node.nextId ? state.nodes.find(function(n) { return n.id === node.nextId; }) : null;
+    html += '<div class="agent-conn-panel">';
+    html += '<div class="agent-conn-row"><span>Entrée</span><strong>' + (incoming ? (incoming.name || incoming.brickId) : '—') + '</strong></div>';
+    html += '<div class="agent-conn-row"><span>Sortie</span><strong>' + (outgoing ? (outgoing.name || outgoing.brickId) : '—') + '</strong></div>';
+    if (node.nextId) {
+      html += '<button type="button" class="btn-agent-ghost" id="btnDisconnectNode" style="margin-top:8px;">Déconnecter la sortie</button>';
+    } else {
+      html += '<p class="empty" style="margin-top:8px;">Glissez depuis un port bas/droite vers un autre bloc.</p>';
+    }
+    html += '</div>';
+
     if (schema && schema.properties) {
       Object.keys(schema.properties).forEach(function(key) {
         var prop = schema.properties[key];
@@ -417,8 +746,15 @@
       del.addEventListener('click', function() {
         state.nodes = state.nodes.filter(function(n) { return n.id !== node.id; });
         state.nodes.forEach(function(n) { if (n.nextId === node.id) n.nextId = null; });
-        chainNodesLinear();
         state.selectedNodeId = state.nodes[0] ? state.nodes[0].id : null;
+        render();
+      });
+    }
+
+    var disconnect = document.getElementById('btnDisconnectNode');
+    if (disconnect) {
+      disconnect.addEventListener('click', function() {
+        disconnectOutgoing(node.id);
         render();
       });
     }
@@ -468,9 +804,16 @@
   function initCanvasDnD() {
     var canvas = document.getElementById('agentCanvas');
     if (!canvas) return;
-    canvas.addEventListener('dragover', function(e) { e.preventDefault(); });
+    canvas.addEventListener('dragover', function(e) {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'copy';
+    });
     canvas.addEventListener('drop', function(e) {
       e.preventDefault();
+      e.stopPropagation();
+      cancelLinkDrag();
+      state.suppressAutoConnectUntil = Date.now() + 400;
+
       var brickId = e.dataTransfer.getData('text/brick-id');
       var brick = getBrick(brickId);
       if (!brick) return;
@@ -502,8 +845,6 @@
             });
         }
 
-        addNodeFromBrick(getBrick('cron-trigger') || state.bricks.find(function(b) { return b.kind === 'trigger'; }));
-        addNodeFromBrick(getBrick('data-backup') || state.bricks.find(function(b) { return b.kind === 'action'; }), 120, 220);
         render();
       })
       .catch(function(e) {

@@ -31,7 +31,7 @@
         const catalogNodes = resolveCatalogNodes();
         const BTree = Tree();
         const included = BTree?.resolveIncludedCatalogNodeIds?.(snap, catalogNodes, snap.catalogNodeOrder) || [];
-        const storedOrder = BTree?.applyStoredCatalogNodeOrder?.(catalogNodes, order, included) || order;
+        const storedOrder = order;
         let categoryTree = [];
         if (BTree?.buildCategoryTreeFromIncludedCatalog) {
             categoryTree = BTree.buildCategoryTreeFromIncludedCatalog(catalogNodes, storedOrder, included);

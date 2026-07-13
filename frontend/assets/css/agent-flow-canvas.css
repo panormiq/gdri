@@ -134,6 +134,18 @@
   background-size: 24px 24px;
 }
 
+.agent-canvas-empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #64748b;
+  font-size: 0.9rem;
+  pointer-events: none;
+  z-index: 0;
+}
+
 .agent-canvas svg.connections {
   position: absolute;
   inset: 0;
@@ -141,6 +153,19 @@
   height: 100%;
   pointer-events: none;
   overflow: visible;
+  z-index: 1;
+}
+
+.agent-canvas svg.connections .connection-direct,
+.agent-canvas svg.connections .connection-routed {
+  stroke: #0e9cef;
+  stroke-width: 2;
+  fill: none;
+  opacity: 0.8;
+}
+
+.agent-canvas svg.connections .connection-routed {
+  opacity: 0.9;
 }
 
 .agent-node {
@@ -154,6 +179,113 @@
   cursor: grab;
   box-shadow: 0 12px 28px rgba(0, 0, 0, 0.35);
   user-select: none;
+  z-index: 2;
+}
+
+/* Points d'attache — ports de connexion manuelle */
+.agent-node-port {
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid #0b1120;
+  opacity: 0;
+  z-index: 3;
+  transition: opacity 0.15s, transform 0.15s;
+}
+
+.agent-node-port--in {
+  pointer-events: none;
+  background: #64748b;
+}
+
+.agent-node-port--out {
+  pointer-events: auto;
+  cursor: crosshair;
+  background: #0e9cef;
+}
+
+.agent-node:hover .agent-node-port--out,
+.agent-node.selected .agent-node-port--out {
+  opacity: 1;
+}
+
+.agent-node-port--out:hover {
+  background: #38bdf8;
+}
+
+.agent-node-port--top.agent-node-port--out:hover,
+.agent-node-port--bottom.agent-node-port--out:hover {
+  transform: translateX(-50%) scale(1.15);
+}
+
+.agent-node-port--left.agent-node-port--out:hover,
+.agent-node-port--right.agent-node-port--out:hover {
+  transform: translateY(-50%) scale(1.15);
+}
+
+.agent-canvas.is-linking .agent-node:not(.kind-trigger) {
+  outline: 1px dashed rgba(14, 156, 239, 0.35);
+  outline-offset: 4px;
+}
+
+.agent-canvas svg.connections .connection-preview {
+  stroke: #38bdf8;
+  stroke-width: 2;
+  stroke-dasharray: 6 4;
+  fill: none;
+  opacity: 0.9;
+  pointer-events: none;
+}
+
+.agent-conn-panel {
+  margin-bottom: 14px;
+  padding: 10px 12px;
+  background: #111827;
+  border: 1px solid #1f2937;
+  border-radius: 10px;
+}
+
+.agent-conn-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 0.8rem;
+  margin-bottom: 6px;
+}
+
+.agent-conn-row span {
+  color: #94a3b8;
+}
+
+.agent-conn-row strong {
+  color: #e2e8f0;
+  font-weight: 600;
+  text-align: right;
+}
+
+.agent-node-port--top {
+  top: -6px;
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.agent-node-port--bottom {
+  bottom: -6px;
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.agent-node-port--left {
+  left: -6px;
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+.agent-node-port--right {
+  right: -6px;
+  top: 50%;
+  transform: translateY(-50%);
 }
 
 .agent-node.selected {

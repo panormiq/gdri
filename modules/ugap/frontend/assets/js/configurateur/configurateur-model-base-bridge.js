@@ -34,6 +34,7 @@
             getData: () => ({
                 models: Array.isArray(state.models) ? state.models : [],
                 categories: Array.isArray(state.categories) ? state.categories : [],
+                importBaseProducts: Array.isArray(state.importBaseProducts) ? state.importBaseProducts : [],
                 uiState: state.uiState && typeof state.uiState === 'object' ? state.uiState : {},
             }),
             getFamilies: () => {

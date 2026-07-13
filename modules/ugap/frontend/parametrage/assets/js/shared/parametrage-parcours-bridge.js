@@ -370,6 +370,11 @@
             getBoatTemplateLabel: () => String(label || '').trim(),
             resolveBoatTemplate: (st) => st._previewTemplate || null,
             resolveCatalogNodes: resolveParametrageCatalogNodes,
+            resolveCatalogNodeOrder: (_st, tpl) => {
+                const snap = tpl?.snapshot && typeof tpl.snapshot === 'object' ? tpl.snapshot : {};
+                const BTree = global.UgapBoatTemplateTree;
+                return BTree?.normalizeCatalogNodeOrder?.(snap.catalogNodeOrder) || snap.catalogNodeOrder || {};
+            },
             onReorderCatalogNode: (parentId, fromId, toId, mode) => {
                 if (typeof callbacks?.onReorder === 'function') {
                     callbacks.onReorder(parentId, fromId, toId, mode);

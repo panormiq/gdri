@@ -11,7 +11,11 @@
  * APPELÉ PAR : buildDevisVariables.js
  */
 
-const { resolveModelUgapPrice } = require('./devisBillablePrice');
+const {
+  resolveModelUgapPrice,
+  getOptionBillablePrice,
+  buildBillableAdjIdSet
+} = require('./devisBillablePrice');
 const { resolveDevisRefUgap, resolveDevisUgapLabel, resolveDevisAppLabel } = require('./resolveDevisLabels');
 const UgapDataService = require('../UgapDataService');
 const { resolveDevisOptionCategory } = require('./resolveDevisCatalogCategory');
@@ -99,21 +103,21 @@ function optionToLine(option, categoryName) {
   };
 }
 
-function buildModelBaseLine(model, configName, modelCategory = '') {
+function buildModelBaseLine(model, _configName, modelCategory = '') {
   const m = model && typeof model === 'object' ? model : {};
   const basePrice = resolveModelUgapPrice(m);
   const poste = m.posteNumber;
   const refUgap = String(m.refUgap || m.ref || '').trim()
     || (poste != null && poste !== '' && Number.isFinite(Number(poste)) ? `P${poste}` : '');
-  const name = String(m.name || 'Modèle').trim();
-  const config = String(configName || '').trim();
-  const label = config ? `${name} — ${config}` : name;
+  const modelName = String(m.name || 'Modèle').trim();
+  const excelDesignation = String(m.baseLabel || '').trim();
   const categorie = String(modelCategory || '').trim() || 'Modèle';
   return {
     refUgap,
-    name: label,
-    libelle: label,
-    libelleApp: config || name,
+    name: modelName,
+    importExcelLabel: excelDesignation || modelName,
+    libelle: excelDesignation || modelName,
+    libelleApp: modelName,
     category: categorie,
     billablePrice: basePrice,
     isModelBaseLine: true
@@ -149,6 +153,18 @@ function buildDevisDisplayTableLines(data, pricingData, displayOptionIds = [], d
       .map((opt) => [String(opt?.id || '').trim(), opt])
       .filter(([id]) => id)
   );
+  const selectedSet = new Set(
+    [
+      ...(Array.isArray(pricing.requestedOptionIds) ? pricing.requestedOptionIds : []),
+      ...(Array.isArray(displayOptionIds) ? displayOptionIds : []),
+      ...(Array.isArray(pricing.selectedOptions)
+        ? pricing.selectedOptions.map((opt) => String(opt?.id || '').trim())
+        : [])
+    ]
+      .map((id) => String(id || '').trim())
+      .filter(Boolean)
+  );
+  const billableAdjIds = buildBillableAdjIdSet(selectedSet, categories);
   const lines = [];
   if (pricing.model) {
     lines.push(buildModelBaseLine(pricing.model, pricing.configName, pricing.modelCategory));
@@ -173,7 +189,11 @@ function buildDevisDisplayTableLines(data, pricingData, displayOptionIds = [], d
       ...hit.option,
       category: categoryLabels.categorie || hit.category,
       devisSousNoeud: categoryLabels.sousNoeud || '',
-      billablePrice: 0
+      billablePrice: getOptionBillablePrice(hit.option, {
+        selectedSet,
+        categories,
+        billableAdjIds
+      })
     });
   });
   return lines;

@@ -728,6 +728,45 @@ body.ugap-embedded-mode .ugap-param-banner,
     background: #fff;
 }
 
+.ugap-modeles-config-variant-wrap {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    flex: 1 1 180px;
+    min-width: 0;
+}
+
+.ugap-modeles-config-variant-label {
+    font-size: 11px;
+    font-weight: 600;
+    color: #64748b;
+    white-space: nowrap;
+}
+
+.ugap-modeles-config-view-wrap {
+    flex: 0 1 160px;
+}
+
+.ugap-modeles-config-view-mode {
+    flex: 1 1 100px;
+    min-width: 0;
+    padding: 6px 8px;
+    border: 1px solid #cbd5e1;
+    border-radius: 6px;
+    font-size: 12px;
+    background: #fff;
+}
+
+.ugap-modeles-config-variant {
+    flex: 1 1 120px;
+    min-width: 0;
+    padding: 6px 8px;
+    border: 1px solid #cbd5e1;
+    border-radius: 6px;
+    font-size: 12px;
+    background: #fff;
+}
+
 .ugap-modeles-config-status {
     font-size: 11px;
     font-weight: 600;
@@ -769,22 +808,36 @@ body.ugap-embedded-mode .ugap-param-banner,
     padding-top: 4px;
 }
 
-.ugap-modeles-editor-panel {
-    width: min(1100px, 96vw);
-    max-height: 92vh;
-    overflow: auto;
+.ugap-modeles-editor-modal {
+    padding: 12px;
+    align-items: center;
+}
+
+.ugap-modeles-editor-modal .ugap-model-base-modal__panel.ugap-modeles-editor-panel {
+    width: min(1520px, calc(100vw - 24px));
+    max-height: calc(100vh - 24px);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
 }
 
 .ugap-modeles-editor-modal__hint {
-    padding: 0 16px 8px;
+    padding: 0 20px 8px;
     font-size: 13px;
     color: #475569;
+    flex-shrink: 0;
 }
 
 .ugap-modeles-editor-modal__body {
-    padding: 0 16px 12px;
-    max-height: min(68vh, 720px);
+    padding: 0 20px 16px;
+    flex: 1 1 auto;
+    min-height: 0;
+    max-height: none;
     overflow: auto;
+}
+
+.ugap-modeles-editor-modal__head {
+    flex-shrink: 0;
 }
 
 .ugap-modeles-editor-modal__foot {
@@ -793,8 +846,9 @@ body.ugap-embedded-mode .ugap-param-banner,
     align-items: center;
     justify-content: space-between;
     gap: 10px;
-    padding: 12px 16px;
+    padding: 12px 20px;
     border-top: 1px solid #e5e7eb;
+    flex-shrink: 0;
 }
 
 .ugap-modeles-editor-save-hint {
@@ -810,6 +864,28 @@ body.ugap-embedded-mode .ugap-param-banner,
 
 body.ugap-modeles-editor-open {
     overflow: hidden;
+}
+
+body.ugap-modeles-editor-open .modal-content.modal-picker {
+    width: min(1200px, calc(100vw - 48px));
+    max-width: min(1200px, calc(100vw - 48px));
+}
+
+body.ugap-modeles-editor-open #subcategory-modal #subcategory-options-list {
+    max-height: min(72vh, calc(100vh - 180px));
+}
+
+body.ugap-modeles-editor-open .excel-options-scroll {
+    max-height: min(72vh, calc(100vh - 200px));
+}
+
+#ugap-modeles-parcours-mount .excel-options-scroll {
+    max-height: none;
+    overflow: visible;
+}
+
+#ugap-modeles-parcours-mount .ugap-devis-parcours {
+    margin-top: 0;
 }
 
 .ugap-model-base-tree {

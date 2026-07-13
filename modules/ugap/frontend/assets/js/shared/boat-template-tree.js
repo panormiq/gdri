@@ -285,9 +285,15 @@
         Object.keys(src).forEach((pid) => {
             const parentId = String(pid || '').trim();
             if (parentId && !included.has(parentId)) return;
-            const ids = (Array.isArray(src[parentId]) ? src[parentId] : [])
+            const raw = Array.isArray(src[parentId]) ? src[parentId] : [];
+            const keepImplicitSelf = parentId && raw.some((x) => String(x || '').trim() === parentId);
+            const ids = raw
                 .map((x) => String(x || '').trim())
-                .filter((id) => byId.has(id) && included.has(id) && id !== parentId);
+                .filter((id) => {
+                    if (!byId.has(id) || !included.has(id)) return false;
+                    if (id === parentId) return keepImplicitSelf;
+                    return true;
+                });
             if (ids.length) out[parentId] = ids;
         });
         if (!Object.keys(out).length && included.size && Core?.getChildren) {

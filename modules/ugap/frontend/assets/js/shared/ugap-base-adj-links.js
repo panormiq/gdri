@@ -455,6 +455,7 @@
         findAdjByExcelLabel,
         resolveSourceAdjOptionIdsForBase,
         getSourceAdjCandidatesForBase,
+        filterAdjIdsForGroupPriceMode,
         applyLinkedAdjToConfiguratorSelection,
         removeLinkedAdjFromConfiguratorSelection,
         clearLinkedAdjForGroup,

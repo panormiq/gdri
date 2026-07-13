@@ -15,6 +15,7 @@
             const payload = {
                 models: Array.isArray(state.models) ? state.models : [],
                 categories: Array.isArray(state.categories) ? state.categories : [],
+                importBaseProducts: Array.isArray(state.importBaseProducts) ? state.importBaseProducts : [],
                 uiState: state.uiState && typeof state.uiState === 'object' ? state.uiState : {},
             };
             if (typeof window.setUgapCurrentData === 'function') {
@@ -108,6 +109,80 @@
 
         function templateShowsIncludedLines(template) {
             return template?.showIncludedLines === true;
+        }
+
+        /** Lignes incluses : préférence du modèle PDF, puis snapshot devis, puis état courant. */
+        function resolvePrintShowIncludedLines(templateNamespace, savedDisplayOptions = null) {
+            const tpl = getDevisTemplateByNamespace(templateNamespace);
+            if (templateShowsIncludedLines(tpl)) return true;
+            const saved = savedDisplayOptions && typeof savedDisplayOptions === 'object'
+                ? savedDisplayOptions
+                : null;
+            if (saved?.showIncludedLines === true) return true;
+            return getDevisDisplayOptions().showIncludedLines === true;
+        }
+
+        /** Complète billableOptionIds à partir des lignes affichées (ex. moteur dans le parcours). */
+        function supplementBillableOptionIdsFromDisplay(billableOptionIds, displayOptionIds) {
+            return appendConfiguratorPrintOptionIds(billableOptionIds, displayOptionIds, { includeInclus: false });
+        }
+
+        function getSelectedOptionsForPrint() {
+            return Array.from(state.selectedOptions || [])
+                .map((id) => String(id || '').trim())
+                .filter(Boolean);
+        }
+
+        /** Fusionne des ids supplémentaires (selectedOptions, display…) en conservant l'ordre. */
+        function appendConfiguratorPrintOptionIds(primaryIds, extraIds, { includeInclus = false } = {}) {
+            const out = [];
+            const seen = new Set();
+            const push = (rawId) => {
+                const id = String(rawId || '').trim();
+                if (!id || seen.has(id)) return;
+                seen.add(id);
+                out.push(id);
+            };
+            (Array.isArray(primaryIds) ? primaryIds : []).forEach(push);
+            (Array.isArray(extraIds) ? extraIds : []).forEach((rawId) => {
+                const id = String(rawId || '').trim();
+                if (!id || seen.has(id)) return;
+                if (state.fivePercentOptions.has(id)) return;
+                const opt = getCatalogOptionById(id);
+                if (!opt) return;
+                if (!includeInclus) {
+                    if (isBaseCatalogOption(opt)) return;
+                    if (getOptionInclusionKind(opt) === 'inclus') return;
+                    if (isAdjOptionForConfigurator(opt) && !isAdjLinkedToReplacedIbp(id)) return;
+                } else if (isAdjOptionForConfigurator(opt) && !isAdjLinkedToReplacedIbp(id)) {
+                    return;
+                }
+                push(id);
+            });
+            return out;
+        }
+
+        function mergeBillableOptionIdsForPrint(primaryIds) {
+            return appendConfiguratorPrintOptionIds(primaryIds, getSelectedOptionsForPrint(), { includeInclus: false });
+        }
+
+        function mergeSelectedOptionsForPrint(selectedOptions, billableOptionIds, fivePercentOptions) {
+            const merged = Array.from(new Set([
+                ...(Array.isArray(selectedOptions) ? selectedOptions : []),
+                ...(Array.isArray(billableOptionIds) ? billableOptionIds : [])
+            ]));
+            if (fivePercentOptions instanceof Set) {
+                fivePercentOptions.forEach((id) => {
+                    const oid = String(id || '').trim();
+                    if (oid && !merged.includes(oid)) merged.push(oid);
+                });
+            } else if (Array.isArray(fivePercentOptions)) {
+                fivePercentOptions.forEach((id) => {
+                    const oid = String(id || '').trim();
+                    if (oid && !merged.includes(oid)) merged.push(oid);
+                });
+            }
+            return merged;
         }
 
         // API helper
@@ -3795,14 +3870,18 @@
             const addForGroup = (group) => {
                 if (!group || group.decisionMode === 'multi_choice') return;
                 if (!isReplaced(state, group, hooks)) return;
-                if (BAL?.isMotorLinkedAdjGroup?.(group) !== true) return;
+                if (BAL?.shouldAutoApplyLinkedAdj?.(group) !== true) return;
                 const defaultBaseId = String(Tpl.getGroupBaseOptionId(state, group, hooks) || '').trim();
                 if (!defaultBaseId) return;
-                BAL.resolveSourceAdjOptionIdsForBase(defaultBaseId, categories, importBaseProducts)
-                    .forEach((adjId) => {
-                        const aid = String(adjId || '').trim();
-                        if (aid) ids.add(aid);
-                    });
+                const adjGroup = BAL.effectiveAdjGroupForLinks?.(group) || group;
+                let linked = BAL.resolveSourceAdjOptionIdsForBase(defaultBaseId, categories, importBaseProducts);
+                if (BAL.filterAdjIdsForGroupPriceMode) {
+                    linked = BAL.filterAdjIdsForGroupPriceMode(linked, categories, adjGroup);
+                }
+                linked.forEach((adjId) => {
+                    const aid = String(adjId || '').trim();
+                    if (aid) ids.add(aid);
+                });
             };
             forEachResolvedTemplateGroup(addForGroup);
             getCategoryTableCatalogueCategories().forEach((category) => {
@@ -3839,6 +3918,19 @@
         /** Options facturables au récap (IBP à 0 € ; mino/majo liée seulement si remplacement IBP). */
         function collectConfiguratorBillableOptionIds() {
             const ids = new Set();
+            const Tpl = window.UgapConfiguratorTemplateTree;
+            const hooks = getTemplateTreeHooks();
+
+            if (Tpl?.shouldUseTemplateTree?.(state)
+                && typeof Tpl.collectParcoursOrderedBillableOptionIds === 'function') {
+                Tpl.collectParcoursOrderedBillableOptionIds(state, hooks).forEach((id) => {
+                    const oid = String(id || '').trim();
+                    if (oid) ids.add(oid);
+                });
+                collectEffectiveChoiceIdsFromFamilyGroups(ids);
+                return mergeBillableOptionIdsForPrint(Array.from(ids));
+            }
+
             state.selectedOptions.forEach((id) => {
                 const oid = String(id || '').trim();
                 if (!oid) return;
@@ -3849,8 +3941,6 @@
                 ids.add(oid);
             });
 
-            const Tpl = window.UgapConfiguratorTemplateTree;
-            const hooks = getTemplateTreeHooks();
             if (Tpl?.getSingleChoiceDisplay) {
                 forEachResolvedTemplateGroup((group) => {
                     if (group.decisionMode === 'multi_choice') return;
@@ -3863,17 +3953,20 @@
             collectEffectiveChoiceIdsFromFamilyGroups(ids);
             appendLinkedAdjForReplacedIbps(ids);
 
-            return ids;
+            return mergeBillableOptionIdsForPrint(Array.from(ids));
         }
 
         /** Toutes les lignes parcours (incluses + facturables) pour l'affichage / PDF détaillé. */
         function collectConfiguratorDisplayOptionIds() {
             const Tpl = window.UgapConfiguratorTemplateTree;
             const hooks = getTemplateTreeHooks();
+            let base = [];
             if (typeof Tpl?.collectParcoursOrderedDisplayOptionIds === 'function') {
-                return Tpl.collectParcoursOrderedDisplayOptionIds(state, hooks);
+                base = Tpl.collectParcoursOrderedDisplayOptionIds(state, hooks);
+            } else {
+                base = Array.from(collectConfiguratorBillableOptionIds());
             }
-            return Array.from(collectConfiguratorBillableOptionIds());
+            return appendConfiguratorPrintOptionIds(base, getSelectedOptionsForPrint(), { includeInclus: true });
         }
 
         /** Sous-total récap : prix bateau + options devis + mino/majo si remplacement IBP (IBP = 0 €). */
@@ -4128,34 +4221,146 @@
             return (state.devisPrintTemplates || []).filter((t) => t.quickPrint === true);
         }
 
-        function buildRenderPayloadFromSavedEntry(entry, templateNamespace) {
-            const payload = entry?.payload && typeof entry.payload === 'object' ? entry.payload : {};
-            const tpl = getDevisTemplateByNamespace(templateNamespace);
-            const showIncludedLines = templateShowsIncludedLines(tpl)
-                || payload.devisDisplayOptions?.showIncludedLines === true;
+        function cloneOptionIdSet(source) {
+            return new Set(Array.from(source || []).map((id) => String(id || '').trim()).filter(Boolean));
+        }
+
+        function captureDevisRuntimeState() {
             return {
-                modelId: payload.modelId,
-                configId: payload.configId,
-                selectedOptions: Array.isArray(payload.selectedOptions) ? payload.selectedOptions : [],
-                fivePercentOptions: Array.isArray(payload.fivePercentOptions) ? payload.fivePercentOptions : [],
-                fivePercentCustomOptions: Array.isArray(payload.fivePercentCustomOptions)
-                    ? payload.fivePercentCustomOptions
+                step: state.step,
+                showEntryScreen: state.showEntryScreen,
+                openedSavedDevisId: state.openedSavedDevisId,
+                selectedModel: state.selectedModel,
+                selectedConfig: state.selectedConfig,
+                selectedOptions: cloneOptionIdSet(state.selectedOptions),
+                fivePercentOptions: cloneOptionIdSet(state.fivePercentOptions),
+                fivePercentCustomOptions: Array.isArray(state.fivePercentCustomOptions)
+                    ? state.fivePercentCustomOptions.map((row) => ({ ...row }))
                     : [],
-                use5Percent: payload.use5Percent !== false,
-                devisName: String(payload.devisName || entry?.name || '').trim(),
-                configName: String(payload.devisName || entry?.name || '').trim(),
-                clientId: payload.clientId || null,
-                clientInfo: payload.clientInfo || null,
-                commercialId: payload.commercialId || null,
-                templateNamespace: String(templateNamespace || '').trim() || undefined,
-                showIncludedLines,
-                displayOptionIds: showIncludedLines && Array.isArray(payload.displayOptionIds)
-                    ? payload.displayOptionIds
-                    : [],
-                billableOptionIds: Array.isArray(payload.billableOptionIds) ? payload.billableOptionIds : undefined,
-                devisOptionCategories: payload.devisOptionCategories || undefined,
-                devisModelCategory: payload.devisModelCategory || undefined
+                use5Percent: state.use5Percent,
+                devisName: state.devisName,
+                devisDisplayOptions: normalizeDevisDisplayOptions(state.devisDisplayOptions),
+                selectedClientId: state.selectedClientId,
+                clientInfo: state.clientInfo && typeof state.clientInfo === 'object'
+                    ? { ...state.clientInfo }
+                    : state.clientInfo,
+                commercialId: state.commercialId,
+                templateTreeRootIndex: state.templateTreeRootIndex,
+                templateTreePath: Array.isArray(state.templateTreePath) ? [...state.templateTreePath] : [],
+                _boatTemplateResolved: state._boatTemplateResolved,
+                _replacedIbpLinkedAdjIds: state._replacedIbpLinkedAdjIds,
+                _categoryTableRowsCache: state._categoryTableRowsCache,
+                _categoryTableRowsCacheKey: state._categoryTableRowsCacheKey
             };
+        }
+
+        function restoreDevisRuntimeState(snapshot) {
+            const snap = snapshot && typeof snapshot === 'object' ? snapshot : {};
+            state.step = snap.step;
+            state.showEntryScreen = snap.showEntryScreen;
+            state.openedSavedDevisId = snap.openedSavedDevisId;
+            state.selectedModel = snap.selectedModel || null;
+            state.selectedConfig = snap.selectedConfig || null;
+            state.selectedOptions = cloneOptionIdSet(snap.selectedOptions);
+            state.fivePercentOptions = cloneOptionIdSet(snap.fivePercentOptions);
+            state.fivePercentCustomOptions = Array.isArray(snap.fivePercentCustomOptions)
+                ? snap.fivePercentCustomOptions.map((row) => ({ ...row }))
+                : [];
+            state.use5Percent = snap.use5Percent;
+            state.devisName = snap.devisName;
+            state.devisDisplayOptions = normalizeDevisDisplayOptions(snap.devisDisplayOptions);
+            state.selectedClientId = snap.selectedClientId || null;
+            state.clientInfo = snap.clientInfo && typeof snap.clientInfo === 'object'
+                ? { ...snap.clientInfo }
+                : snap.clientInfo || null;
+            state.commercialId = snap.commercialId || null;
+            state.templateTreeRootIndex = snap.templateTreeRootIndex;
+            state.templateTreePath = Array.isArray(snap.templateTreePath) ? [...snap.templateTreePath] : [];
+            state._boatTemplateResolved = snap._boatTemplateResolved || null;
+            state._replacedIbpLinkedAdjIds = snap._replacedIbpLinkedAdjIds || null;
+            state._categoryTableRowsCache = snap._categoryTableRowsCache || null;
+            state._categoryTableRowsCacheKey = snap._categoryTableRowsCacheKey || '';
+            invalidateBillableDerivationCache();
+        }
+
+        function applySavedPayloadToRuntime(payload, entry) {
+            const data = payload && typeof payload === 'object' ? payload : {};
+            const model = (state.models || []).find((item) => String(item?.id || '') === String(data.modelId || ''));
+            if (!model) {
+                throw new Error('Le modèle de ce devis sauvegardé n\'existe plus dans les données actuelles.');
+            }
+            state.selectedModel = model;
+            state.selectedConfig = resolveSavedConfig(model, data.configId);
+            state.selectedOptions = cloneOptionIdSet(data.selectedOptions);
+            state.fivePercentOptions = cloneOptionIdSet(data.fivePercentOptions);
+            state.fivePercentCustomOptions = Array.isArray(data.fivePercentCustomOptions)
+                ? data.fivePercentCustomOptions.map((row) => ({ ...row }))
+                : [];
+            state.use5Percent = data.use5Percent !== false;
+            state.devisName = String(data.devisName || entry?.name || '').trim();
+            state.devisDisplayOptions = normalizeDevisDisplayOptions(data.devisDisplayOptions);
+            if (window.UgapConfiguratorClientStep?.applyPayload) {
+                window.UgapConfiguratorClientStep.applyPayload(state, data);
+            } else {
+                state.selectedClientId = data.clientId || null;
+                state.clientInfo = data.clientInfo && typeof data.clientInfo === 'object'
+                    ? { ...data.clientInfo }
+                    : data.clientInfo || null;
+                state.commercialId = data.commercialId || null;
+            }
+            state.templateTreePath = [];
+            state._boatTemplateResolved = null;
+            state.templateTreeRootIndex = -1;
+            state._categoryTableRowsCache = null;
+            state._categoryTableRowsCacheKey = '';
+            invalidateBillableDerivationCache();
+            syncConfiguratorModelBaseContext();
+            if (typeof window.UgapConfiguratorTemplateTree?.onModelSelected === 'function') {
+                window.UgapConfiguratorTemplateTree.onModelSelected(state);
+            }
+        }
+
+        function shouldUseLiveConfiguratorForPrint(entry) {
+            if (Number(state.step) !== 4 || !state.selectedModel || !state.selectedConfig) {
+                return false;
+            }
+            if (!entry?.payload) return true;
+            const sameModel = String(state.selectedModel?.id || '') === String(entry.payload.modelId || '');
+            const sameConfig = String(state.selectedConfig?.id || '') === String(entry.payload.configId || '');
+            return sameModel && sameConfig;
+        }
+
+        /** Payload PDF unique : impression rapide et impression depuis le devis. */
+        function buildDevisPrintPayload(templateNamespace, entry = null, opts = {}) {
+            const ns = String(templateNamespace || '').trim();
+            const tpl = getDevisTemplateByNamespace(ns);
+            const forceLive = opts?.forceLive === true;
+            const attachClientFields = (payload, source) => {
+                const snap = source && typeof source === 'object' ? source : {};
+                const clientSnap = window.UgapConfiguratorClientStep?.buildSnapshot
+                    ? window.UgapConfiguratorClientStep.buildSnapshot(state)
+                    : {};
+                return {
+                    ...payload,
+                    clientId: snap.clientId ?? clientSnap.clientId ?? null,
+                    clientInfo: snap.clientInfo ?? clientSnap.clientInfo ?? null,
+                    commercialId: snap.commercialId ?? clientSnap.commercialId ?? null,
+                    templateNamespace: ns || undefined,
+                    devisShortName: String(tpl?.shortName || '').trim() || undefined
+                };
+            };
+
+            if (forceLive || shouldUseLiveConfiguratorForPrint(entry)) {
+                return attachClientFields(buildDevisGenerationPayload(ns), entry?.payload || {});
+            }
+
+            const backup = captureDevisRuntimeState();
+            try {
+                applySavedPayloadToRuntime(entry.payload, entry);
+                return attachClientFields(buildDevisGenerationPayload(ns), entry.payload);
+            } finally {
+                restoreDevisRuntimeState(backup);
+            }
         }
 
         async function downloadDevisPdf(payload) {
@@ -4321,8 +4526,7 @@
                 btn.innerHTML = 'Génération…';
             }
             try {
-                const payload = buildRenderPayloadFromSavedEntry(entry, ns);
-                await downloadDevisPdf(payload);
+                await downloadDevisPdf(buildDevisPrintPayload(ns, entry));
             } catch (error) {
                 alert(`Erreur impression : ${error.message || 'Erreur inconnue'}`);
             } finally {
@@ -4333,9 +4537,10 @@
             }
         }
 
-        function buildDevisGenerationPayload() {
+        function buildDevisGenerationPayload(templateNamespace) {
+            const ns = String(templateNamespace || '').trim();
+            const showIncludedLines = resolvePrintShowIncludedLines(ns, getDevisDisplayOptions());
             const billableOptionIds = Array.from(collectConfiguratorBillableOptionIds());
-            const displayOptions = getDevisDisplayOptions();
             const Tpl = window.UgapConfiguratorTemplateTree;
             const hooks = getTemplateTreeHooks();
             const devisOptionCategories = typeof Tpl?.collectDevisOptionCategoryMap === 'function'
@@ -4345,16 +4550,12 @@
                 ? Tpl.collectDevisModelCategory(state, hooks)
                 : '';
 
-            const selectedOptionsArray = Array.from(new Set([
-                ...Array.from(state.selectedOptions || []),
-                ...billableOptionIds
-            ]));
-            if (state.use5Percent) {
-                Array.from(state.fivePercentOptions || []).forEach((id) => {
-                    if (!selectedOptionsArray.includes(id)) selectedOptionsArray.push(id);
-                });
-            }
-            const displayOptionIds = displayOptions.showIncludedLines
+            const selectedOptionsArray = mergeSelectedOptionsForPrint(
+                Array.from(state.selectedOptions || []),
+                billableOptionIds,
+                state.use5Percent !== false ? state.fivePercentOptions : []
+            );
+            const displayOptionIds = showIncludedLines
                 ? collectConfiguratorDisplayOptionIds()
                 : [];
 
@@ -4365,8 +4566,8 @@
                 selectedOptions: selectedOptionsArray,
                 billableOptionIds,
                 displayOptionIds,
-                showIncludedLines: displayOptions.showIncludedLines === true,
-                devisDisplayOptions: { ...displayOptions },
+                showIncludedLines,
+                devisDisplayOptions: { showIncludedLines },
                 devisOptionCategories,
                 devisModelCategory,
                 fivePercentOptions: Array.from(state.fivePercentOptions || []),
@@ -4424,17 +4625,7 @@
             if (!picked?.namespace) return;
             await maybeSaveDefaultPrintTemplate(picked.namespace, picked.saveAsDefault);
 
-            const clientSnap = window.UgapConfiguratorClientStep?.buildSnapshot
-                ? window.UgapConfiguratorClientStep.buildSnapshot(state)
-                : {};
-
-            const payload = {
-                ...buildDevisGenerationPayload(),
-                clientId: clientSnap.clientId || null,
-                clientInfo: clientSnap.clientInfo || null,
-                commercialId: clientSnap.commercialId || null,
-                templateNamespace: picked.namespace
-            };
+            const payload = buildDevisPrintPayload(picked.namespace, null, { forceLive: true });
 
             try {
                 await apiCall('/devis', {
@@ -4444,6 +4635,8 @@
                         configId: payload.configId,
                         selectedOptions: payload.selectedOptions,
                         billableOptionIds: payload.billableOptionIds,
+                        displayOptionIds: payload.displayOptionIds,
+                        showIncludedLines: payload.showIncludedLines,
                         devisOptionCategories: payload.devisOptionCategories,
                         devisModelCategory: payload.devisModelCategory,
                         fivePercentOptions: payload.fivePercentOptions,
@@ -4535,12 +4728,14 @@
             const selectedOptions = Array.from(state.selectedOptions || []);
             const fivePercentOptions = Array.from(state.fivePercentOptions || []);
             const displayOptions = getDevisDisplayOptions();
+            const billableOptionIds = Array.from(collectConfiguratorBillableOptionIds());
             const clientSnap = window.UgapConfiguratorClientStep?.buildSnapshot
                 ? window.UgapConfiguratorClientStep.buildSnapshot(state)
                 : {};
             return {
                 modelId: state.selectedModel?.id || null,
                 configId: state.selectedConfig?.id || null,
+                configName: String(state.selectedConfig?.name || '').trim(),
                 selectedOptions,
                 fivePercentOptions,
                 fivePercentCustomOptions: Array.isArray(state.fivePercentCustomOptions)
@@ -4549,10 +4744,8 @@
                 use5Percent: !!state.use5Percent,
                 devisName: state.devisName || '',
                 devisDisplayOptions: { ...displayOptions },
-                displayOptionIds: displayOptions.showIncludedLines
-                    ? collectConfiguratorDisplayOptionIds()
-                    : [],
-                billableOptionIds: Array.from(collectConfiguratorBillableOptionIds()),
+                displayOptionIds: collectConfiguratorDisplayOptionIds(),
+                billableOptionIds,
                 devisOptionCategories: typeof window.UgapConfiguratorTemplateTree?.collectDevisOptionCategoryMap === 'function'
                     ? window.UgapConfiguratorTemplateTree.collectDevisOptionCategoryMap(state, getTemplateTreeHooks())
                     : {},

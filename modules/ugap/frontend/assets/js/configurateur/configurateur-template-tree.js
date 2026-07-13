@@ -139,11 +139,16 @@
             if (!opt) return false;
             if (isFivePercentCatalogOption(hooks, opt)) return false;
             if (motorPicker) {
+                if (row?.isBaseOption) return true;
                 if (MBO?.isOptionOnSiblingMotorisationNode?.(opt, slot)) return false;
                 const isBase = MBO?.isMotorBaseCatalogOption?.(opt);
                 const isTarif = MBO?.isMotorTarifCatalogOption?.(opt);
-                if (!isBase && !isTarif) return false;
-                if (isTarif && MBO?.isOptionOnMotorChoiceSlotNode?.(opt, slot) === false) return false;
+                if (isBase) return true;
+                if (isTarif) {
+                    return MBO?.isOptionOnMotorChoiceSlotNode?.(opt, slot) !== false;
+                }
+                if (MBO?.isImportGeneratedBaseOption?.(opt)) return true;
+                return false;
             }
             if (hideMinoration) {
                 if (MBO?.isMotorBaseCatalogOption?.(opt)) return true;
@@ -947,11 +952,45 @@
         });
     }
 
-    /** Ordre parcours : choix moteur puis minoration liée juste en dessous. */
+    /** Ordre parcours : choix puis mino/majo liée juste en dessous. */
     function collectParcoursOrderedBillableOptionIds(state, hooks) {
         const out = [];
         const seen = new Set();
         visitParcoursBillableOptionIds(state, hooks, (id) => {
+            if (!id || seen.has(id)) return;
+            seen.add(id);
+            out.push(id);
+        });
+        return out;
+    }
+
+    function visitParcoursDisplayOptionIds(state, hooks, visitor) {
+        if (!shouldUseTemplateTree(state) || typeof visitor !== 'function') return;
+        syncModelBaseBridge(state);
+        const tree = getModelBaseEditorTree(state);
+        collectParcoursSlots(tree).forEach((slot) => {
+            const group = hydrateGroupOptions(state, slotToGroup(slot));
+            const isMulti = getModelBaseOptions()?.isMultiChoiceSlot?.(slot) === true
+                || group.decisionMode === 'multi_choice';
+            const visitId = (rawId) => {
+                const id = String(rawId || '').trim();
+                if (id) visitor(id);
+            };
+            if (isMulti) {
+                parcoursSelectedIds(state, slot, hooks).forEach(visitId);
+                return;
+            }
+            const display = getSingleChoiceDisplay(state, group, hooks);
+            visitId(display?.option?.id);
+            getLinkedAdjIdsForReplacedBaseInGroup(state, group, hooks).forEach(visitId);
+        });
+    }
+
+    /** Ordre PDF / devis détaillé : option puis lignes liées (mino/majo) du même groupe. */
+    function collectParcoursOrderedDisplayOptionIds(state, hooks) {
+        const out = [];
+        const seen = new Set();
+        visitParcoursDisplayOptionIds(state, hooks, (id) => {
             if (!id || seen.has(id)) return;
             seen.add(id);
             out.push(id);
@@ -1167,7 +1206,7 @@
             childIds.forEach((cid) => {
                 if (!out.includes(cid)) out.push(cid);
             });
-            if (!out.includes(id)) out.unshift(id);
+            if (!out.includes(id)) out.push(id);
             return out;
         }
         out.push(id);
@@ -1175,6 +1214,61 @@
             if (!out.includes(cid)) out.push(cid);
         });
         return out;
+    }
+
+    /**
+     * Frères réordonnables sous un parent P.
+     * P === '' → catégories racines ; sinon → [P implicite, enfant1, enfant2…]
+     */
+    function getParcoursOrderedSiblings(parentCatalogNodeId, catalogNodes, orderMap) {
+        const pid = String(parentCatalogNodeId ?? '').trim();
+        if (!pid) {
+            return orderedCatalogSiblingIdsForReorder('', catalogNodes, orderMap);
+        }
+        return getParcoursMixedSiblingIds(pid, catalogNodes, orderMap);
+    }
+
+    /** @deprecated alias */
+    function getReorderSiblingList(groupParentId, catalogNodes, orderMap) {
+        return getParcoursOrderedSiblings(groupParentId, catalogNodes, orderMap);
+    }
+
+    function makeReorderHandle(parentId, siblingId, catalogNodes, orderMap, extra) {
+        const pid = String(parentId ?? '');
+        const sid = String(siblingId || '').trim();
+        const list = getParcoursOrderedSiblings(pid, catalogNodes, orderMap);
+        const base = extra && typeof extra === 'object' ? extra : {};
+        return {
+            ...base,
+            catalogNodeId: sid,
+            parentCatalogNodeId: pid,
+            hasReorderSiblings: list.length > 1 && list.includes(sid),
+        };
+    }
+
+    function resolveReorderDragMeta(rowDef, column, catalogNodes, orderMap) {
+        const base = {
+            reorderDirectOptionCount: Number(rowDef?.reorderDirectOptionCount) || 0,
+            reorderHasChildren: rowDef?.reorderHasChildren === true,
+            reorderSubtreeSize: Number(rowDef?.reorderSubtreeSize) || 0,
+        };
+        const slot = rowDef?.reorderHandles?.[column];
+        if (!slot) {
+            return { ...base, catalogNodeId: '', parentCatalogNodeId: '', hasReorderSiblings: false };
+        }
+        return makeReorderHandle(slot.parentId, slot.siblingId, catalogNodes, orderMap, base);
+    }
+
+    function getReorderContextFromHooks(state, hooks) {
+        const MBO = getModelBaseOptions();
+        const model = state?.selectedModel;
+        const templateId = String(model?.boatTemplateId || '').trim();
+        const tpl = typeof hooks?.resolveBoatTemplate === 'function'
+            ? hooks.resolveBoatTemplate(state)
+            : MBO?.getTemplateById?.(templateId);
+        const catalogNodes = getCatalogNodesForParcours(hooks);
+        const order = tpl ? (MBO?.getTemplateCatalogParcours?.(tpl) || {}).order || {} : {};
+        return { catalogNodes, orderMap: order };
     }
 
     function countCatalogDescendants(catalogNodeId, catalogNodes, orderMap) {
@@ -1228,21 +1322,8 @@
     }
 
     /** Sous-arbre d’un nœud catalogue (y compris L1 sans ligne propre). */
-    function getReorderSubtreeRowsForNodeId(mountEl, nodeId) {
-        const id = String(nodeId || '').trim();
-        if (!id || !mountEl) return [];
-        const amongRow = Array.from(mountEl.querySelectorAll('tr[data-tpl-reorder-among-children="1"]'))
-            .find((row) => String(row.getAttribute('data-tpl-reorder-item') || '').trim() === id);
-        if (amongRow) return [amongRow];
-
-        const directRow = findReorderRowByCatalogId(mountEl, id);
-        if (directRow) return getReorderSubtreeRows(mountEl, directRow);
-
-        const allRows = Array.from(mountEl.querySelectorAll('tr[data-tpl-reorder-item]'));
-        const byL1 = allRows.filter((row) => String(row.getAttribute('data-tpl-reorder-l1-id') || '').trim() === id);
-        if (byL1.length) return byL1;
-
-        return allRows.filter((row) => String(row.getAttribute('data-tpl-reorder-parent') || '').trim() === id);
+    function getReorderSubtreeRowsForNodeId(mountEl, nodeId, groupParentId, catalogNodes, orderMap) {
+        return findReorderBlockRows(mountEl, nodeId, groupParentId, catalogNodes, orderMap);
     }
 
     function resolveReorderParentIdForNode(mountEl, nodeId) {
@@ -1286,21 +1367,65 @@
         return findReorderSiblingRow(mountEl, row, pid);
     }
 
-    function isReorderSiblingTargetRow(fromId, parentId, row, fromDepth) {
+    function isReorderSiblingTargetRow(fromId, groupParentId, row, catalogNodes, orderMap) {
         const fid = String(fromId || '').trim();
-        const pid = String(parentId ?? '');
-        const rowItemId = String(row.getAttribute('data-tpl-reorder-item') || '').trim();
-        const l1Id = String(row.getAttribute('data-tpl-reorder-l1-id') || '').trim();
-        const l1Parent = String(row.getAttribute('data-tpl-reorder-l1-parent') ?? '');
-        if (!rowItemId || rowItemId === fid) return false;
-        if (String(row.getAttribute('data-tpl-reorder-parent') ?? '') === pid) return true;
-        if (l1Parent === pid && l1Id && l1Id !== fid) return true;
-        if (row.getAttribute('data-tpl-reorder-among-children') === '1' && rowItemId === pid && rowItemId !== fid) {
-            // Ancre mixte (catégorie / sous-catégorie) : cible valide pour le réordre mixte col.2,
-            // pas pour les sous-nœuds col.3 (depth ≥ 2) qui ne doivent pas déplacer l’ancre.
-            return Number(fromDepth) <= 1;
+        if (!fid || !row) return false;
+        const list = getParcoursOrderedSiblings(groupParentId, catalogNodes, orderMap);
+        if (!list.includes(fid)) return false;
+        const dropId = resolveReorderDropTargetId(row, groupParentId, catalogNodes, orderMap);
+        return !!(dropId && dropId !== fid && list.includes(dropId));
+    }
+
+    function resolveReorderDropTargetId(row, groupParentId, catalogNodes, orderMap) {
+        const pid = String(groupParentId ?? '').trim();
+        const list = getParcoursOrderedSiblings(pid, catalogNodes, orderMap);
+        const listSet = new Set(list);
+        if (!pid) {
+            const root = String(row?.getAttribute?.('data-tpl-reorder-root-cat') || '').trim();
+            return root && listSet.has(root) ? root : '';
         }
-        return false;
+        const rowId = String(row?.getAttribute?.('data-tpl-reorder-item') || '').trim();
+        if (!rowId) return '';
+        if (listSet.has(rowId)) return rowId;
+        let cur = rowId;
+        let guard = 0;
+        while (cur && guard < 64) {
+            if (listSet.has(cur)) return cur;
+            const parent = catalogNodeParentId(catalogNodes, cur);
+            if (!parent || parent === pid) break;
+            cur = parent;
+            guard += 1;
+        }
+        return '';
+    }
+
+    function findReorderBlockRows(mountEl, fromId, groupParentId, catalogNodes, orderMap) {
+        const id = String(fromId || '').trim();
+        const pid = String(groupParentId ?? '').trim();
+        if (!id || !mountEl) return [];
+        const rows = Array.from(mountEl.querySelectorAll('tr[data-tpl-reorder-item]'));
+        if (!pid) {
+            return rows.filter((row) => String(row.getAttribute('data-tpl-reorder-root-cat') || '').trim() === id);
+        }
+        const blocks = [];
+        let block = [];
+        rows.forEach((row) => {
+            const dropKey = resolveReorderDropTargetId(row, pid, catalogNodes, orderMap);
+            if (dropKey === id) {
+                block.push(row);
+            } else if (block.length) {
+                blocks.push(block);
+                block = [];
+            }
+        });
+        if (block.length) blocks.push(block);
+        const directRow = rows.find((row) => String(row.getAttribute('data-tpl-reorder-item') || '').trim() === id);
+        for (let i = 0; i < blocks.length; i += 1) {
+            if (directRow && blocks[i].includes(directRow)) return blocks[i];
+        }
+        if (blocks.length === 1) return blocks[0];
+        if (directRow) return [directRow];
+        return [];
     }
 
     /** Id du nœud catalogue à profondeur `targetDepth` (0 = racine affichée). */
@@ -1315,76 +1440,83 @@
         return depth === targetDepth ? cur : '';
     }
 
-    /** Une ligne par nœud catalogue — réordonnancement strict entre frères (même parent). */
+    /** Lignes du tableau réordonnancement — une boucle récursive, même règle à tous les niveaux. */
     function collectParcoursReorderNodeRows(catalogNodes, orderMap) {
         const rows = [];
         let prevParent = null;
         let prevDepth = -1;
 
-        const pushReorderRow = (cnId, depth, opts) => {
-            const id = String(cnId || '').trim();
+        const catalogChildren = (cnId) => orderedCatalogSiblingIdsForReorder(cnId, catalogNodes, orderMap);
+
+        const buildReorderHandles = (entryId, listParentId, rootCatId, opts) => {
+            const id = String(entryId || '').trim();
+            const root = String(rootCatId || '').trim();
+            const listPid = String(listParentId ?? '').trim();
+            const handles = {};
+            if (root) {
+                handles.cat = { parentId: '', siblingId: root };
+            }
+            const mixedUnderRoot = root && getParcoursOrderedSiblings(root, catalogNodes, orderMap);
+            if (mixedUnderRoot && mixedUnderRoot.includes(id)) {
+                handles.n2 = { parentId: root, siblingId: id };
+            }
+            if (listPid && listPid !== root && getParcoursOrderedSiblings(listPid, catalogNodes, orderMap).includes(id)) {
+                handles.leaf = { parentId: listPid, siblingId: id };
+            }
+            if (opts?.implicitSelf === true && listPid === id) {
+                if (root && root !== id && mixedUnderRoot && mixedUnderRoot.includes(id)) {
+                    handles.n2 = { parentId: root, siblingId: id };
+                }
+                handles.leaf = { parentId: listPid, siblingId: id };
+            }
+            if (opts?.implicitSelf === true && listPid === root && id === root) {
+                handles.n2 = { parentId: root, siblingId: id };
+                delete handles.leaf;
+            }
+            return handles;
+        };
+
+        const pushReorderRow = (entryId, depth, listParentId, rootCatId, opts) => {
+            const id = String(entryId || '').trim();
             if (!id) return;
-            const amongChildren = opts?.amongChildren === true;
-            const parcoursGroupId = String(opts?.parcoursGroupId || '').trim();
-            const mixedIds = Array.isArray(opts?.mixedIds) ? opts.mixedIds : [];
             const parentId = catalogNodeParentId(catalogNodes, id);
-            const siblingIds = orderedCatalogSiblingIdsForReorder(parentId, catalogNodes, orderMap);
-            const childIds = orderedCatalogSiblingIdsForReorder(id, catalogNodes, orderMap);
+            const childIds = catalogChildren(id);
             const Core = global.UgapCatalogueNodesCore;
             const cn = Core?.getNodeById?.(catalogNodes, id);
             const nodeLabel = String(cn?.label || id).trim();
             const { nodePath } = catalogNodePathLabels(catalogNodes, id, {});
             const categorie = nodePath[0] || '—';
-            const groupStart = prevParent !== null
-                && (parentId !== prevParent || depth < prevDepth);
+            const root = String(rootCatId || (depth === 0 ? id : catalogAncestorIdAtDepth(catalogNodes, id, 0)) || '').trim();
+            const groupStart = opts?.groupStart === true
+                || (prevParent !== null && (parentId !== prevParent || depth < prevDepth));
             prevParent = parentId;
             prevDepth = depth;
 
-            let reorderDragParentId = parentId;
-            let hasReorderSiblings = siblingIds.length > 1;
-            if (amongChildren) {
-                reorderDragParentId = id;
-                hasReorderSiblings = mixedIds.length > 1;
-            } else if (parcoursGroupId && depth <= 1) {
-                const mixed = getParcoursMixedSiblingIds(parcoursGroupId, catalogNodes, orderMap);
-                reorderDragParentId = parcoursGroupId;
-                hasReorderSiblings = mixed.length > 1;
-            }
-
-            const l1Id = depth >= 1 ? (depth === 1 ? id : catalogAncestorIdAtDepth(catalogNodes, id, 1)) : '';
-            const l1ParentId = l1Id ? catalogNodeParentId(catalogNodes, l1Id) : '';
-            const l1SiblingIds = l1Id
-                ? orderedCatalogSiblingIdsForReorder(l1ParentId, catalogNodes, orderMap)
-                : [];
-            const l1ChildIds = l1Id ? orderedCatalogSiblingIdsForReorder(l1Id, catalogNodes, orderMap) : [];
+            const implicitSelf = opts?.implicitSelf === true;
+            const amongInCol2 = implicitSelf && String(listParentId ?? '') === root;
+            const amongInCol3 = implicitSelf && String(listParentId ?? '') !== root;
 
             rows.push({
                 catalogNodeId: id,
                 parentCatalogNodeId: parentId,
-                reorderDragParentId,
-                reorderAmongChildren: amongChildren,
-                reorderAmongInCol3: opts?.amongInCol3 === true,
-                reorderAmongInCol2: opts?.amongInCol2 === true || (amongChildren && opts?.amongInCol3 !== true),
+                reorderListParentId: String(listParentId ?? '').trim(),
+                reorderRootCatId: root,
+                reorderHandles: buildReorderHandles(id, listParentId, root, opts),
+                reorderAmongChildren: implicitSelf,
+                reorderAmongInCol3: amongInCol3,
+                reorderAmongInCol2: amongInCol2,
                 reorderSubcategoryCol2Anchor: opts?.subcategoryCol2Anchor === true,
                 reorderSubcategoryBlockId: String(
                     opts?.subcategoryBlockId
-                    || (depth >= 2 ? (parcoursGroupId || '') : '')
+                    || (depth >= 2 ? catalogAncestorIdAtDepth(catalogNodes, id, 1) : (depth === 1 ? id : ''))
                     || ''
                 ).trim(),
-                reorderSkipCatCell: opts?.reorderSkipCatCell === true,
-                reorderParcoursGroupId: amongChildren ? id : parcoursGroupId,
                 reorderDepth: depth,
                 catalogDepth: depth,
                 reorderAnchor: true,
                 reorderGroupStart: groupStart,
                 reorderHasChildren: childIds.length > 0,
                 reorderSubtreeSize: countCatalogDescendants(id, catalogNodes, orderMap),
-                hasReorderSiblings,
-                reorderL1CatalogId: l1Id,
-                reorderL1ParentId: l1ParentId,
-                reorderL1HasSiblings: l1SiblingIds.length > 1,
-                reorderL1HasChildren: l1ChildIds.length > 0,
-                reorderL1SubtreeSize: l1Id ? countCatalogDescendants(l1Id, catalogNodes, orderMap) : 0,
                 reorderNodeLabel: nodeLabel,
                 reorderDirectOptionCount: countCatalogNodeDirectOptions(id, catalogNodes),
                 categorie,
@@ -1394,65 +1526,594 @@
             });
         };
 
-        const visit = (cnId, depth, parcoursGroupRootId) => {
-            const id = String(cnId || '').trim();
-            if (!id) return;
-            const childIds = orderedCatalogSiblingIdsForReorder(id, catalogNodes, orderMap);
-
-            if (depth === 0 && childIds.length > 0) {
-                const mixed = getParcoursMixedSiblingIds(id, catalogNodes, orderMap);
-                mixed.forEach((entryId) => {
-                    if (entryId === id) {
-                        pushReorderRow(id, 0, {
-                            amongChildren: true,
-                            amongInCol2: true,
-                            mixedIds: mixed,
-                            parcoursGroupId: id,
-                        });
-                    } else {
-                        visit(entryId, 1, id);
-                    }
-                });
-                return;
-            }
-
-            if (depth === 1 && childIds.length > 0) {
-                const mixed = getParcoursMixedSiblingIds(id, catalogNodes, orderMap);
-                mixed.forEach((entryId) => {
-                    if (entryId === id) {
-                        pushReorderRow(id, 1, {
-                            amongChildren: true,
-                            amongInCol3: true,
-                            subcategoryCol2Anchor: true,
-                            subcategoryBlockId: id,
-                            mixedIds: mixed,
-                            parcoursGroupId: id,
-                        });
-                    } else {
-                        visit(entryId, 2, id);
-                    }
-                });
-                return;
-            }
-
-            pushReorderRow(id, depth, {
-                parcoursGroupId: parcoursGroupRootId || '',
-                subcategoryBlockId: depth >= 2 ? (parcoursGroupRootId || '') : '',
+        const visitContainer = (containerId, depth, listParentId, rootCatId, opts) => {
+            const cid = String(containerId || '').trim();
+            if (!cid) return;
+            const root = String(rootCatId || (depth === 0 ? cid : catalogAncestorIdAtDepth(catalogNodes, cid, 0)) || '').trim();
+            const siblings = getParcoursOrderedSiblings(cid, catalogNodes, orderMap);
+            let firstEntry = true;
+            siblings.forEach((entryId) => {
+                const eid = String(entryId || '').trim();
+                if (!eid) return;
+                const entryOpts = { ...(opts || {}), groupStart: firstEntry === true };
+                firstEntry = false;
+                if (eid === cid) {
+                    if (!catalogChildren(cid).length) return;
+                    pushReorderRow(eid, depth, cid, root, {
+                        ...entryOpts,
+                        implicitSelf: true,
+                        subcategoryCol2Anchor: depth === 1,
+                        subcategoryBlockId: depth >= 1
+                            ? catalogAncestorIdAtDepth(catalogNodes, eid, 1)
+                            : '',
+                    });
+                    return;
+                }
+                const kids = catalogChildren(eid);
+                if (kids.length > 0) {
+                    visitContainer(eid, depth + 1, eid, root, { groupStart: false });
+                } else {
+                    pushReorderRow(eid, depth + 1, cid, root, {
+                        ...entryOpts,
+                        subcategoryBlockId: depth >= 1
+                            ? catalogAncestorIdAtDepth(catalogNodes, eid, 1)
+                            : eid,
+                    });
+                }
             });
-            childIds.forEach((cid) => visit(cid, depth + 1, parcoursGroupRootId));
         };
 
-        const rootIds = orderedCatalogSiblingIdsForReorder('', catalogNodes, orderMap);
+        const rootIds = getParcoursOrderedSiblings('', catalogNodes, orderMap);
         if (!rootIds.length) {
             const Core = global.UgapCatalogueNodesCore;
             (Core?.getRootNodes?.(catalogNodes) || [])
                 .map((n) => String(n.id || '').trim())
                 .filter(Boolean)
-                .forEach((id) => visit(id, 0));
+                .forEach((id) => {
+                    if (catalogChildren(id).length > 0) {
+                        visitContainer(id, 0, id, id, { groupStart: true });
+                    } else {
+                        pushReorderRow(id, 0, '', id, { groupStart: true });
+                    }
+                });
         } else {
-            rootIds.forEach((id) => visit(id, 0));
+            rootIds.forEach((rootId) => {
+                const id = String(rootId || '').trim();
+                if (!id) return;
+                if (catalogChildren(id).length > 0) {
+                    visitContainer(id, 0, id, id, { groupStart: true });
+                } else {
+                    pushReorderRow(id, 0, '', id, { groupStart: true });
+                }
+            });
         }
         return applyReorderParcoursTableRowspans(filterReorderDisplayRows(rows));
+    }
+
+    function getCatalogNodeLabelForReorder(catalogNodes, catalogNodeId) {
+        const id = String(catalogNodeId || '').trim();
+        if (!id) return '';
+        const Core = global.UgapCatalogueNodesCore;
+        return String(Core?.getNodeById?.(catalogNodes, id)?.label || id).trim();
+    }
+
+    function reorderTreeHasSiblings(parentId, siblingId, catalogNodes, orderMap) {
+        const list = getParcoursOrderedSiblings(parentId, catalogNodes, orderMap);
+        const sid = resolveReorderItemId(siblingId);
+        return list.length > 1 && list.includes(sid);
+    }
+
+    function buildReorderTreeHandleHtml(parentId, fromId, catalogNodes, orderMap, dragTitle) {
+        const sid = String(fromId || '').trim();
+        if (!sid || !reorderTreeHasSiblings(parentId, sid, catalogNodes, orderMap)) {
+            return '<span class="ugap-tpl-reorder-spacer" aria-hidden="true"></span>';
+        }
+        const title = String(dragTitle || 'Glisser pour réordonner').trim();
+        return `<span class="ugap-reorder-dnd-handle" draggable="true" title="${escapeHtml(title)}">⋮⋮</span>`;
+    }
+
+    const IMPLICIT_REORDER_PREFIX = '__implicit__:';
+
+    function implicitReorderItemId(catalogNodeId) {
+        const id = String(catalogNodeId || '').trim();
+        return id ? `${IMPLICIT_REORDER_PREFIX}${id}` : '';
+    }
+
+    function resolveReorderItemId(raw) {
+        const id = String(raw || '').trim();
+        if (id.startsWith(IMPLICIT_REORDER_PREFIX)) {
+            return id.slice(IMPLICIT_REORDER_PREFIX.length);
+        }
+        return id;
+    }
+
+    function buildReorderTreeImplicitSlotHtml(parentId, catalogNodes, orderMap) {
+        const pid = String(parentId || '').trim();
+        if (!pid) return '';
+        const itemKey = implicitReorderItemId(pid);
+        const optCount = countCatalogNodeDirectOptions(pid, catalogNodes);
+        const badge = optCount > 0
+            ? `<span class="ugap-tpl-reorder-group-badge ugap-tpl-reorder-group-badge--options">${optCount} option${optCount > 1 ? 's' : ''}</span>`
+            : '<span class="ugap-tpl-reorder-group-badge ugap-tpl-reorder-group-badge--options">0 option</span>';
+        const handle = buildReorderTreeHandleHtml(
+            pid,
+            itemKey,
+            catalogNodes,
+            orderMap,
+            getReorderLabel('implicitSlotDragTitle', 'Réordonner parmi les éléments de ce niveau')
+        );
+        const hint = getReorderLabel('implicitDirectOptionsHint', '');
+        const hintAttr = hint ? ` title="${escapeHtml(hint)}"` : '';
+        return `
+        <div class="ugap-reorder-slot ugap-reorder-slot--implicit" data-reorder-item="${escapeHtml(itemKey)}" data-reorder-implicit-for="${escapeHtml(pid)}">
+            <div class="ugap-reorder-slot__body"${hintAttr}>
+                ${handle}
+                <span class="ugap-reorder-slot__label">${escapeHtml(getReorderImplicitSlotLabel())}</span>
+                ${badge}
+            </div>
+        </div>`;
+    }
+
+    function buildReorderTreeZoneHtml(parentId, parentDepth, rootCatId, catalogNodes, orderMap) {
+        const pid = String(parentId || '').trim();
+        if (!pid) return '';
+        const siblings = getParcoursOrderedSiblings(pid, catalogNodes, orderMap);
+        const catalogChildrenFn = (cnId) => orderedCatalogSiblingIdsForReorder(cnId, catalogNodes, orderMap);
+        const childDepth = parentDepth + 1;
+        const root = String(rootCatId || '').trim();
+        let html = '';
+        siblings.forEach((entryId) => {
+            const eid = String(entryId || '').trim();
+            if (!eid) return;
+            if (eid === pid) {
+                if (!catalogChildrenFn(pid).length) return;
+                html += buildReorderTreeImplicitSlotHtml(pid, catalogNodes, orderMap);
+                return;
+            }
+            const kids = catalogChildrenFn(eid);
+            if (kids.length > 0) {
+                html += buildReorderTreeContainerNodeHtml(eid, pid, childDepth, root, catalogNodes, orderMap);
+            } else {
+                html += buildReorderTreeLeafNodeHtml(eid, pid, childDepth, catalogNodes, orderMap);
+            }
+        });
+        if (!html) return '';
+        const zoneClass = parentDepth <= 0
+            ? 'ugap-reorder-zone ugap-reorder-zone--subcategory'
+            : 'ugap-reorder-zone ugap-reorder-zone--subnode';
+        const listAttr = ` data-reorder-list data-reorder-parent-id="${escapeHtml(pid)}"`;
+        return `<div class="${zoneClass}"${listAttr}>${html}</div>`;
+    }
+
+    function buildReorderTreeLeafNodeHtml(nodeId, siblingParentId, depth, catalogNodes, orderMap) {
+        const id = String(nodeId || '').trim();
+        const pid = String(siblingParentId ?? '').trim();
+        if (!id) return '';
+        const label = getCatalogNodeLabelForReorder(catalogNodes, id);
+        const optCount = countCatalogNodeDirectOptions(id, catalogNodes);
+        const badge = optCount > 0
+            ? `<span class="ugap-tpl-reorder-group-badge ugap-tpl-reorder-group-badge--options">${optCount} option${optCount !== 1 ? 's' : ''}</span>`
+            : '';
+        const isSubnode = depth >= 2;
+        const nodeKindClass = isSubnode ? ' ugap-reorder-node--subnode' : ' ugap-reorder-node--subcategory-leaf';
+        const dragTitle = isSubnode
+            ? getReorderLabel('subnodeDragTitle', 'Réordonner les sous-nœuds')
+            : getReorderLabel('subcategoryDragTitle', 'Réordonner les sous-catégories');
+        const handle = buildReorderTreeHandleHtml(pid, id, catalogNodes, orderMap, dragTitle);
+        return `
+        <div class="ugap-reorder-node ugap-reorder-node--leaf${nodeKindClass} ugap-reorder-node--depth-${Math.min(depth, 6)}" data-reorder-item="${escapeHtml(id)}">
+            <div class="ugap-reorder-node__head">
+                <div class="ugap-reorder-node__info">
+                    ${handle}
+                    <span class="ugap-reorder-node__label">${escapeHtml(label)}</span>
+                    ${badge}
+                </div>
+            </div>
+        </div>`;
+    }
+
+    function buildReorderTreeContainerNodeHtml(nodeId, siblingParentId, depth, rootCatId, catalogNodes, orderMap) {
+        const id = String(nodeId || '').trim();
+        if (!id) return '';
+        const root = depth === 0 ? id : String(rootCatId || '').trim();
+        const label = getCatalogNodeLabelForReorder(catalogNodes, id);
+        const subtree = countCatalogDescendants(id, catalogNodes, orderMap);
+        const depthClass = `ugap-reorder-node--depth-${Math.min(depth, 6)}`;
+        const catClass = depth === 0
+            ? ' ugap-reorder-node--category'
+            : (depth === 1 ? ' ugap-reorder-node--subcategory' : ' ugap-reorder-node--subnode-group');
+        const dragTitle = depth === 0
+            ? getReorderLabel('categoryDragTitle', 'Réordonner les catégories entre elles')
+            : (depth === 1
+                ? getReorderLabel('subcategoryDragTitle', 'Réordonner les sous-catégories')
+                : getReorderLabel('subnodeDragTitle', 'Réordonner les sous-nœuds'));
+        const levelTag = depth === 0
+            ? `<span class="ugap-tpl-reorder-level-tag">${escapeHtml(getReorderLabel('categoryLevelTag', 'Catégorie'))}</span>`
+            : '';
+        const subtreeBadge = subtree > 0
+            ? `<span class="ugap-tpl-reorder-group-badge">${subtree} sous-nœud${subtree > 1 ? 's' : ''}</span>`
+            : '';
+        const pid = String(siblingParentId ?? '').trim();
+        const handle = buildReorderTreeHandleHtml(pid, id, catalogNodes, orderMap, dragTitle);
+        const zone = buildReorderTreeZoneHtml(id, depth, root, catalogNodes, orderMap);
+        return `
+        <div class="ugap-reorder-node${catClass} ${depthClass} ugap-reorder-table-block" data-reorder-item="${escapeHtml(id)}">
+            <div class="ugap-reorder-node__head">
+                <div class="ugap-reorder-node__info">
+                    ${handle}
+                    ${levelTag}
+                    <span class="ugap-reorder-node__label">${escapeHtml(label)}</span>
+                    ${subtreeBadge}
+                </div>
+            </div>
+            ${zone}
+        </div>`;
+    }
+
+    function buildReorderTreeRootLeafHtml(nodeId, catalogNodes, orderMap) {
+        const id = String(nodeId || '').trim();
+        if (!id) return '';
+        const label = getCatalogNodeLabelForReorder(catalogNodes, id);
+        const optCount = countCatalogNodeDirectOptions(id, catalogNodes);
+        const badge = optCount > 0
+            ? `<span class="ugap-tpl-reorder-group-badge ugap-tpl-reorder-group-badge--options">${optCount} option${optCount !== 1 ? 's' : ''}</span>`
+            : '';
+        const handle = buildReorderTreeHandleHtml(
+            '',
+            id,
+            catalogNodes,
+            orderMap,
+            getReorderLabel('categoryDragTitle', 'Réordonner les catégories entre elles')
+        );
+        return `
+        <div class="ugap-reorder-node ugap-reorder-node--category ugap-reorder-node--leaf-root ugap-reorder-node--depth-0 ugap-reorder-table-block" data-reorder-item="${escapeHtml(id)}">
+            <div class="ugap-reorder-node__head">
+                <div class="ugap-reorder-node__info">
+                    ${handle}
+                    <span class="ugap-tpl-reorder-level-tag">${escapeHtml(getReorderLabel('categoryLevelTag', 'Catégorie'))}</span>
+                    <span class="ugap-reorder-node__label">${escapeHtml(label)}</span>
+                    ${badge}
+                </div>
+            </div>
+        </div>`;
+    }
+
+    function renderParcoursReorderTreeInnerHtml(catalogNodes, orderMap) {
+        let forest = '';
+        const catalogChildrenFn = (cnId) => orderedCatalogSiblingIdsForReorder(cnId, catalogNodes, orderMap);
+        const rootIds = getParcoursOrderedSiblings('', catalogNodes, orderMap);
+        const roots = rootIds.length
+            ? rootIds
+            : (global.UgapCatalogueNodesCore?.getRootNodes?.(catalogNodes) || [])
+                .map((n) => String(n.id || '').trim())
+                .filter(Boolean);
+        roots.forEach((rootId) => {
+            const id = String(rootId || '').trim();
+            if (!id) return;
+            if (catalogChildrenFn(id).length > 0) {
+                forest += buildReorderTreeContainerNodeHtml(id, '', 0, id, catalogNodes, orderMap);
+            } else {
+                forest += buildReorderTreeRootLeafHtml(id, catalogNodes, orderMap);
+            }
+        });
+        return forest;
+    }
+
+    function renderParcoursReorderTreeHtml(catalogNodes, orderMap, hooks) {
+        const inner = renderParcoursReorderTreeInnerHtml(catalogNodes, orderMap);
+        if (!inner) {
+            return '<p class="ugap-devis-empty">Aucun nœud catalogue — créez l’arborescence dans l’onglet <strong>Catalogue</strong>.</p>';
+        }
+        const hint = getReorderLabel(
+            'treeHint',
+            'Affichage <strong>tableau</strong> (3 colonnes) avec structure imbriquée : réordonnez uniquement dans la même zone (sous-catégories ou sous-nœuds).'
+        );
+        return `
+        <div class="excel-options-wrap ugap-devis-table-wrap ugap-devis-table-wrap--reorder-tree">
+            <p class="ugap-tpl-reorder-hint">${hint}</p>
+            <div class="excel-options-scroll">
+                <div class="ugap-reorder-table-shell">
+                    <div class="ugap-reorder-thead" aria-hidden="true">
+                        <div class="ugap-reorder-th ugap-reorder-th--cat">Catégorie</div>
+                        <div class="ugap-reorder-th ugap-reorder-th--n2">Sous-catégorie</div>
+                        <div class="ugap-reorder-th ugap-reorder-th--n3">Sous-nœud</div>
+                    </div>
+                    <div id="ugap-devis-reorder-tree" class="ugap-reorder-forest" data-reorder-list data-reorder-parent-id="">
+                        ${inner}
+                    </div>
+                </div>
+            </div>
+        </div>`;
+    }
+
+    function renderParcoursReorderTableHtml(state, hooks, catalogNodes, orderMap) {
+        const rowDefs = collectParcoursReorderNodeRows(catalogNodes, orderMap);
+        if (!rowDefs.length) {
+            return '<p class="ugap-devis-empty">Aucun nœud catalogue — créez l’arborescence dans l’onglet <strong>Catalogue</strong>.</p>';
+        }
+        const reorderCtx = { catalogNodes, orderMap };
+        const bodyHtml = rowDefs.map((r) => buildDevisTableRowHtml(state, hooks, r, reorderCtx)).join('');
+        const hint = getReorderLabel(
+            'tableHint',
+            'Col. 1 <strong>Catégorie</strong> : réordonner les catégories entre elles. Col. 2 / 3 : sous-nœuds du parcours ; la ligne <strong>Options directes</strong> n’apparaît que lorsqu’un nœud a des sous-nœuds catalogue rattachés.'
+        );
+        return `
+        <div class="excel-options-wrap ugap-devis-table-wrap ugap-devis-table-wrap--reorder">
+            <p class="ugap-tpl-reorder-hint">${hint}</p>
+            <div class="excel-options-scroll">
+                <table class="excel-options-table ugap-devis-options-table tpl-config-table ugap-devis-options-table--reorder">
+                    <thead>
+                        <tr>
+                            <th class="ugap-devis-th-categorie">Catégorie</th>
+                            <th class="ugap-devis-th-sous-categorie">Sous-catégorie</th>
+                            <th class="ugap-devis-th-sous-feuille">Sous-nœud</th>
+                        </tr>
+                    </thead>
+                    <tbody id="ugap-devis-options-tbody">${bodyHtml}</tbody>
+                </table>
+            </div>
+        </div>`;
+    }
+
+    /** DnD arbre parcours — catégories racine = liste plate ; enfants = listes imbriquées. */
+    function bindParcoursTreeReorderEvents(mountEl, hooks) {
+        if (!mountEl || !hooks?.parcoursReorderMode || isParcoursStructureMode(hooks)) return;
+        mountEl._parcoursReorderHooks = hooks;
+
+        const tree = mountEl.querySelector('#ugap-devis-reorder-tree');
+        if (!tree) return;
+        if (tree.dataset.parcoursTreeReorderBound === '1') return;
+        tree.dataset.parcoursTreeReorderBound = '1';
+
+        const drag = { parentId: null, fromId: null, domFromId: null, el: null };
+
+        const normPid = (v) => String(v ?? '');
+
+        const getDomItemId = (el) => String(el?.getAttribute('data-reorder-item') || '').trim();
+
+        const getRootCategories = () => Array.from(
+            tree.querySelectorAll(':scope > .ugap-reorder-node--category[data-reorder-item]')
+        );
+
+        /** Liste enfants la plus proche (jamais la forêt racine). */
+        const findInnerListFromHandle = (handle) => {
+            let el = handle;
+            while (el && el !== tree) {
+                if (el.matches?.('[data-reorder-list]') && el !== tree) {
+                    return el;
+                }
+                el = el.parentElement;
+            }
+            return null;
+        };
+
+        /** Cible réelle sous le curseur (e.target pointe souvent vers l’élément qu’on traîne). */
+        const hitUnderPointer = (event) => {
+            const x = event.clientX;
+            const y = event.clientY;
+            if (!Number.isFinite(x) || !Number.isFinite(y)) return event.target;
+            const stack = document.elementsFromPoint(x, y);
+            for (let i = 0; i < stack.length; i += 1) {
+                const el = stack[i];
+                if (!el || !tree.contains(el)) continue;
+                if (drag.el && (el === drag.el || drag.el.contains(el))) continue;
+                return el;
+            }
+            return event.target;
+        };
+
+        const findRootCategoryFromTarget = (target) => {
+            if (!target) return null;
+            let el = target;
+            while (el && el !== tree) {
+                if (el.matches?.('.ugap-reorder-node--category[data-reorder-item]')
+                    && el.parentElement === tree) {
+                    return el;
+                }
+                el = el.parentElement;
+            }
+            return null;
+        };
+
+        const findRootCategoryFromPointer = (event) => {
+            const cat = findRootCategoryFromTarget(hitUnderPointer(event));
+            if (!cat) return null;
+            const id = getDomItemId(cat);
+            if (!id || id === drag.domFromId) return null;
+            return cat;
+        };
+
+        const findNestedItemFromPointer = (event, parentId) => {
+            const under = hitUnderPointer(event);
+            const list = findNestedList(under, parentId);
+            if (!list) return null;
+            const item = findDirectItemInList(list, under);
+            if (!item) return null;
+            if (getDomItemId(item) === drag.domFromId) return null;
+            return item;
+        };
+
+        const findNestedList = (target, parentId) => {
+            const want = normPid(parentId);
+            let el = target;
+            while (el && el !== tree) {
+                if (el.matches?.('[data-reorder-list]')
+                    && normPid(el.getAttribute('data-reorder-parent-id')) === want) {
+                    return el;
+                }
+                el = el.parentElement;
+            }
+            return null;
+        };
+
+        const findDirectItemInList = (list, target) => {
+            if (!list || !target || !list.contains(target)) return null;
+            let el = target;
+            while (el && el !== list) {
+                if (el.matches?.('[data-reorder-item]') && el.parentElement === list) {
+                    return el;
+                }
+                el = el.parentElement;
+            }
+            return null;
+        };
+
+        const isRootCategoryHandle = (handle) => {
+            if (!handle) return false;
+            const cat = handle.closest('.ugap-reorder-node--category');
+            if (!cat || cat.parentElement !== tree) return false;
+            const head = cat.querySelector(':scope > .ugap-reorder-node__head');
+            return !!(head && head.contains(handle));
+        };
+
+        const dropMode = (event, el) => {
+            const rect = el.getBoundingClientRect();
+            return event.clientY - rect.top > rect.height * 0.55 ? 'after' : 'before';
+        };
+
+        const clearMarks = () => {
+            tree.querySelectorAll('[data-reorder-item]').forEach((el) => {
+                el.classList.remove(
+                    'ugap-dnd--drop-before',
+                    'ugap-dnd--drop-after',
+                    'ugap-dnd--dragging'
+                );
+                el.style.pointerEvents = '';
+            });
+            drag.el = null;
+        };
+
+        const clearDropMarks = () => {
+            tree.querySelectorAll('.ugap-dnd--drop-before, .ugap-dnd--drop-after').forEach((el) => {
+                el.classList.remove('ugap-dnd--drop-before', 'ugap-dnd--drop-after');
+            });
+        };
+
+        const fireReorder = (parentId, fromId, toId, mode) => {
+            const h = mountEl._parcoursReorderHooks || hooks;
+            if (typeof h?.onReorderCatalogNode === 'function') {
+                h.onReorderCatalogNode(parentId, fromId, toId, mode);
+            }
+        };
+
+        tree.addEventListener('dragstart', (e) => {
+            const handle = e.target?.closest?.('.ugap-reorder-dnd-handle');
+            if (!handle || !e.dataTransfer) return;
+
+            if (isRootCategoryHandle(handle)) {
+                const cat = handle.closest('.ugap-reorder-node--category');
+                const domFromId = getDomItemId(cat);
+                const fromId = resolveReorderItemId(domFromId);
+                if (!fromId) {
+                    e.preventDefault();
+                    return;
+                }
+                drag.parentId = '';
+                drag.domFromId = domFromId;
+                drag.fromId = fromId;
+                drag.el = cat;
+                e.dataTransfer.effectAllowed = 'move';
+                e.dataTransfer.setData('text/plain', domFromId);
+                cat.classList.add('ugap-dnd--dragging');
+                global.requestAnimationFrame?.(() => {
+                    if (drag.el) drag.el.style.pointerEvents = 'none';
+                });
+                return;
+            }
+
+            const implicitSlot = handle.closest('.ugap-reorder-slot--implicit');
+            let list = null;
+            let item = null;
+            if (implicitSlot) {
+                list = implicitSlot.parentElement;
+                if (!list?.matches?.('[data-reorder-list]') || list === tree) {
+                    e.preventDefault();
+                    return;
+                }
+                item = implicitSlot;
+            } else {
+                list = findInnerListFromHandle(handle);
+                item = list ? findDirectItemInList(list, handle) : null;
+                if (!list || !item || list === tree) {
+                    e.preventDefault();
+                    return;
+                }
+            }
+            const domFromId = getDomItemId(item);
+            const fromId = resolveReorderItemId(domFromId);
+            if (!fromId) {
+                e.preventDefault();
+                return;
+            }
+            drag.parentId = normPid(list.getAttribute('data-reorder-parent-id'));
+            drag.domFromId = domFromId;
+            drag.fromId = fromId;
+            drag.el = item;
+            e.dataTransfer.effectAllowed = 'move';
+            e.dataTransfer.setData('text/plain', domFromId);
+            item.classList.add('ugap-dnd--dragging');
+            global.requestAnimationFrame?.(() => {
+                if (drag.el) drag.el.style.pointerEvents = 'none';
+            });
+        });
+
+        tree.addEventListener('dragend', () => {
+            clearMarks();
+            drag.parentId = null;
+            drag.fromId = null;
+            drag.domFromId = null;
+        });
+
+        tree.addEventListener('dragenter', (e) => {
+            if (!drag.fromId) return;
+            e.preventDefault();
+        });
+
+        tree.addEventListener('dragover', (e) => {
+            if (!drag.fromId) return;
+            e.preventDefault();
+            if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+
+            let targetEl = null;
+            if (drag.parentId === '') {
+                targetEl = findRootCategoryFromPointer(e);
+            } else {
+                targetEl = findNestedItemFromPointer(e, drag.parentId);
+            }
+
+            clearDropMarks();
+            if (!targetEl) return;
+
+            const mode = dropMode(e, targetEl);
+            targetEl.classList.add(mode === 'after' ? 'ugap-dnd--drop-after' : 'ugap-dnd--drop-before');
+        });
+
+        tree.addEventListener('drop', (e) => {
+            if (!drag.fromId) return;
+            e.preventDefault();
+            e.stopPropagation();
+
+            let targetEl = null;
+            if (drag.parentId === '') {
+                targetEl = findRootCategoryFromPointer(e);
+            } else {
+                targetEl = findNestedItemFromPointer(e, drag.parentId);
+            }
+
+            if (!targetEl) return;
+
+            const toId = resolveReorderItemId(getDomItemId(targetEl));
+            const mode = dropMode(e, targetEl);
+            const fromId = drag.fromId;
+            const parentId = drag.parentId;
+            clearMarks();
+            drag.parentId = null;
+            drag.fromId = null;
+            drag.domFromId = null;
+
+            if (!toId || toId === fromId) return;
+            fireReorder(parentId, fromId, toId, mode);
+        });
     }
 
     /** Masque les lignes « conteneur » L1+ sans ligne ancre col.2/col.3. */
@@ -1518,8 +2179,8 @@
         return true;
     }
 
-    /** Minos liées déjà affichées sous la ligne moteur (remplacement IBP moteur). */
-    function collectMotorInlineLinkedAdjIds(state, hooks, tree) {
+    /** Minos/majos liées déjà affichées sous la ligne parente (remplacement option de base). */
+    function collectInlineLinkedAdjIds(state, hooks, tree) {
         const ids = new Set();
         const visitSlot = (slot) => {
             const group = hydrateGroupOptions(state, slotToGroup(slot));
@@ -1534,15 +2195,15 @@
         return ids;
     }
 
-    /** Masque une ligne catalogue si la mino moteur est déjà affichée sous le choix moteur. */
-    function shouldHideInlineMotorAdjSlot(state, hooks, slot, group, inlineMotorAdjIds) {
-        if (isParametrageBaseMode(hooks) || !inlineMotorAdjIds?.size) return false;
-        if (global.UgapBaseAdjLinks?.isMotorLinkedAdjGroup?.(group) === true) return false;
+    /** Masque une ligne catalogue si la mino/majo liée est déjà affichée sous le choix parent. */
+    function shouldHideInlineLinkedAdjSlot(state, hooks, slot, group, inlineLinkedAdjIds) {
+        if (isParametrageBaseMode(hooks) || !inlineLinkedAdjIds?.size) return false;
+        if (global.UgapBaseAdjLinks?.shouldAutoApplyLinkedAdj?.(group) === true) return false;
 
         const selectedIds = parcoursSelectedIds(state, slot, hooks)
             .map((id) => String(id || '').trim())
             .filter(Boolean);
-        if (selectedIds.some((id) => inlineMotorAdjIds.has(id))) return true;
+        if (selectedIds.some((id) => inlineLinkedAdjIds.has(id))) return true;
 
         const BAL = global.UgapBaseAdjLinks;
         if (BAL?.isAdjPricingGroup?.(group) !== true) return false;
@@ -1550,7 +2211,15 @@
         const choiceIds = parcoursChoiceRows(state, slot, hooks)
             .map((row) => String(row?.id || '').trim())
             .filter(Boolean);
-        return choiceIds.some((id) => inlineMotorAdjIds.has(id));
+        return choiceIds.some((id) => inlineLinkedAdjIds.has(id));
+    }
+
+    function collectMotorInlineLinkedAdjIds(state, hooks, tree) {
+        return collectInlineLinkedAdjIds(state, hooks, tree);
+    }
+
+    function shouldHideInlineMotorAdjSlot(state, hooks, slot, group, inlineMotorAdjIds) {
+        return shouldHideInlineLinkedAdjSlot(state, hooks, slot, group, inlineMotorAdjIds);
     }
 
     function collectDevisTableRowDefs(state, hooks, tree, catalogNodes) {
@@ -1559,7 +2228,7 @@
         /** Catégorie à afficher sur la prochaine ligne réellement émise (pas seulement slotIdx 0). */
         let pendingCategorieCell = false;
         const reorderAnchorSeen = new Set();
-        const inlineMotorAdjIds = collectMotorInlineLinkedAdjIds(state, hooks, tree);
+        const inlineLinkedAdjIds = collectInlineLinkedAdjIds(state, hooks, tree);
 
         const takeShowCategorie = () => {
             if (!pendingCategorieCell) return false;
@@ -1578,7 +2247,7 @@
             if (!shouldShowParcoursSlot(state, hooks, slot)) return;
             if (shouldSkipEmptyParentCatalogSlot(state, hooks, slot, tree)) return;
             const group = hydrateGroupOptions(state, slotToGroup(slot));
-            if (shouldHideInlineMotorAdjSlot(state, hooks, slot, group, inlineMotorAdjIds)) return;
+            if (shouldHideInlineLinkedAdjSlot(state, hooks, slot, group, inlineLinkedAdjIds)) return;
             const isMulti = getModelBaseOptions()?.isMultiChoiceSlot?.(slot) === true
                 || group.decisionMode === 'multi_choice';
             const cnId = String(catalogNodeId || catalogNodeIdFromSlot(slot) || '').trim();
@@ -1604,7 +2273,7 @@
             if (isMulti) {
                 const ids = parcoursSelectedIds(state, slot, hooks)
                     .map((id) => String(id || '').trim())
-                    .filter((id) => id && !inlineMotorAdjIds.has(id));
+                    .filter((id) => id && !inlineLinkedAdjIds.has(id));
                 if (!ids.length) {
                     rows.push({
                         group,
@@ -1705,6 +2374,14 @@
     /**
      * Col.1 = catégorie (1× fusionnée), col.2 = sous-catégories, col.3 = sous-nœuds d'une sous-catégorie.
      */
+    function getReorderImplicitSlotLabel() {
+        return String(global.UgapParcoursLabels?.reorder?.implicitDirectOptions || 'Options directes').trim();
+    }
+
+    function getReorderLabel(key, fallback) {
+        return String(global.UgapParcoursLabels?.reorder?.[key] || fallback || '').trim();
+    }
+
     function prepareReorderParcoursRowLabels(row) {
         const path = (Array.isArray(row.nodePath) ? row.nodePath : [])
             .map((x) => String(x || '').trim())
@@ -1723,19 +2400,20 @@
         row.sousNoeudFeuille = '';
 
         if (row.reorderAmongChildren === true && row.reorderAmongInCol2 === true && depth <= 0) {
-            const label = String(path[0] || row.reorderNodeLabel || '').trim();
-            row.noeudN2 = label;
-            row.sousNoeudFeuille = label;
+            row.noeudN2 = getReorderImplicitSlotLabel();
+            row.n2ImplicitSlot = true;
             return;
         }
         if (row.reorderAmongInCol3 === true && row.reorderSubcategoryCol2Anchor === true) {
             const label = String(path[1] || path[path.length - 1] || row.reorderNodeLabel || '').trim();
             row.noeudN2 = label;
-            row.sousNoeudFeuille = label;
+            row.sousNoeudFeuille = getReorderImplicitSlotLabel();
+            row.leafImplicitSlot = true;
             return;
         }
         if (row.reorderAmongInCol3 === true) {
-            row.sousNoeudFeuille = String(row.reorderNodeLabel || path[1] || path[path.length - 1] || '').trim();
+            row.sousNoeudFeuille = getReorderImplicitSlotLabel();
+            row.leafImplicitSlot = true;
             return;
         }
         if (row.reorderSubcategoryCol2Anchor === true) {
@@ -1743,8 +2421,8 @@
             return;
         }
         if (depth <= 0) {
-            const nodeLabel = String(path[0] || '').trim();
-            row.noeudN2 = nodeLabel;
+            row.noeudN2 = '';
+            row.sousNoeudFeuille = '';
             return;
         }
         if (depth === 1) {
@@ -1848,7 +2526,7 @@
         return '';
     }
 
-    function buildReorderCategoryCellContent(rowDef) {
+    function buildReorderCategoryCellContent(rowDef, hooks, reorderCtx) {
         const label = String(rowDef?.catCell?.label || rowDef?.categorie || '').trim();
         if (!label) return '';
         const depth = Number(rowDef?.catalogDepth ?? rowDef?.reorderDepth ?? 0);
@@ -1856,75 +2534,132 @@
             ? buildReorderBadgeHtml('subtree', rowDef)
             : '';
         const labelHtml = `<span class="ugap-devis-categorie">${escapeHtml(label)}</span>`;
-        if (!badge) return labelHtml;
-        return `<span class="ugap-tpl-reorder-line ugap-tpl-reorder-line--category">${labelHtml}${badge}</span>`;
+        const categoryTag = depth <= 0 && hooks?.parcoursReorderMode
+            ? `<span class="ugap-tpl-reorder-level-tag">${escapeHtml(getReorderLabel('categoryLevelTag', 'Catégorie'))}</span>`
+            : '';
+        const body = !badge
+            ? `<span class="ugap-tpl-reorder-line ugap-tpl-reorder-line--category">${categoryTag}${labelHtml}</span>`
+            : `<span class="ugap-tpl-reorder-line ugap-tpl-reorder-line--category">${categoryTag}${labelHtml}${badge}</span>`;
+        const showCatDrag = hooks?.parcoursReorderMode
+            && !rowDef.catCell?.skip
+            && reorderCtx
+            && rowDef?.reorderHandles?.cat
+            && !isParcoursStructureMode(hooks);
+        if (!showCatDrag) return body;
+        const meta = resolveReorderDragMeta(rowDef, 'cat', reorderCtx.catalogNodes, reorderCtx.orderMap);
+        const handle = buildReorderDragHandle(
+            meta,
+            hooks,
+            getReorderLabel('categoryDragTitle', 'Réordonner les catégories entre elles')
+        );
+        return `<span class="ugap-tpl-reorder-line">${handle}${body}</span>`;
+    }
+
+    function buildReorderDragHandle(meta, hooks, dragTitle) {
+        const dragId = String(meta?.catalogNodeId || '').trim();
+        const dragParent = String(meta?.parentCatalogNodeId ?? '');
+        const canReorder = !!(meta?.hasReorderSiblings && dragId);
+        if (isParcoursStructureMode(hooks) || !canReorder) {
+            return '<span class="ugap-tpl-reorder-spacer" aria-hidden="true"></span>';
+        }
+        const title = String(
+            dragTitle || 'Glisser pour réordonner entre éléments du même niveau'
+        ).trim();
+        return `<span class="ugap-dnd-handle ugap-dnd-handle-cat" draggable="true" data-reorder-from-id="${escapeHtml(dragId)}" data-reorder-parent-id="${escapeHtml(dragParent)}" title="${escapeHtml(title)}">⋮⋮</span>`;
     }
 
     function buildReorderNodeLineInner(label, dragMeta, lineOpts, hooks) {
         const meta = dragMeta && typeof dragMeta === 'object' ? dragMeta : {};
         const opts = lineOpts && typeof lineOpts === 'object' ? lineOpts : {};
         const badgeMode = String(opts.badgeMode || meta.badgeMode || 'none').trim();
-        const dragId = String(meta.catalogNodeId || '').trim();
-        const dragParent = String(meta.parentCatalogNodeId ?? '');
-        const canReorder = !!(meta.hasReorderSiblings && dragId);
-        const structureMode = isParcoursStructureMode(hooks);
-        const handleHtml = structureMode
-            ? '<span class="ugap-tpl-reorder-spacer" aria-hidden="true"></span>'
-            : (canReorder
-                ? `<span class="ugap-dnd-handle ugap-dnd-handle-cat" draggable="true" data-reorder-from-id="${escapeHtml(dragId)}" data-reorder-parent-id="${escapeHtml(dragParent)}" title="Glisser pour déplacer ce nœud et tous ses sous-nœuds">⋮⋮</span>`
-                : '<span class="ugap-tpl-reorder-spacer" aria-hidden="true"></span>');
+        const showDragHandle = opts.showDragHandle !== false;
+        const handleHtml = showDragHandle
+            ? buildReorderDragHandle(meta, hooks, opts.dragTitle)
+            : '<span class="ugap-tpl-reorder-spacer" aria-hidden="true"></span>';
         const groupBadge = buildReorderBadgeHtml(badgeMode, meta);
-        const labelHtml = label
-            ? `<span class="ugap-tpl-reorder-node-label">${escapeHtml(label)}</span>`
+        const implicitClass = opts.implicitSlot === true ? ' ugap-tpl-reorder-line--implicit-slot' : '';
+        const implicitHint = opts.implicitSlot === true
+            ? getReorderLabel('implicitDirectOptionsHint', '')
             : '';
-        return `<span class="ugap-tpl-reorder-line">${handleHtml}${labelHtml}${groupBadge}</span>`;
+        const hintAttr = implicitHint ? ` title="${escapeHtml(implicitHint)}"` : '';
+        const labelHtml = label
+            ? `<span class="ugap-tpl-reorder-node-label${opts.implicitSlot ? ' ugap-tpl-reorder-node-label--implicit' : ''}"${hintAttr}>${escapeHtml(label)}</span>`
+            : '';
+        return `<span class="ugap-tpl-reorder-line${implicitClass}">${handleHtml}${labelHtml}${groupBadge}</span>`;
     }
 
-    function reorderDragMetaFromRow(rowDef, level) {
-        if (!rowDef) return {};
-        if (level === 'l1') {
-            const l1Id = String(rowDef.reorderL1CatalogId || rowDef.parentCatalogNodeId || '').trim();
-            return {
-                catalogNodeId: l1Id,
-                parentCatalogNodeId: String(rowDef.reorderL1ParentId ?? ''),
-                hasReorderSiblings: rowDef.reorderL1HasSiblings === true,
-                reorderHasChildren: rowDef.reorderL1HasChildren === true,
-                reorderSubtreeSize: Number(rowDef.reorderL1SubtreeSize) || 0,
-                reorderDirectOptionCount: Number(rowDef.reorderDirectOptionCount) || 0,
-            };
-        }
-        return {
-            catalogNodeId: String(rowDef.catalogNodeId || '').trim(),
-            parentCatalogNodeId: String(rowDef.reorderDragParentId ?? rowDef.parentCatalogNodeId ?? ''),
-            hasReorderSiblings: rowDef.hasReorderSiblings === true,
-            reorderHasChildren: rowDef.reorderHasChildren === true,
-            reorderSubtreeSize: Number(rowDef.reorderSubtreeSize) || 0,
-            reorderDirectOptionCount: Number(rowDef.reorderDirectOptionCount) || 0,
-        };
-    }
-
-    function buildReorderCatalogColumnCells(rowDef, hooks) {
+    function buildReorderCatalogColumnCells(rowDef, hooks, reorderCtx) {
         const depth = Number.isFinite(Number(rowDef?.catalogDepth))
             ? Number(rowDef.catalogDepth)
             : Number(rowDef?.reorderDepth) || 0;
         const nodeLabel = String(rowDef?.reorderNodeLabel || '').trim();
         const leaf = String(rowDef?.sousNoeudFeuille || '').trim();
         const n2Label = String(rowDef.n2Cell?.label || rowDef.noeudN2 || (depth === 1 ? nodeLabel : '') || '').trim();
+        const ctx = reorderCtx || null;
+
+        let n2BadgeMode = 'none';
+        let showLeaf = false;
+        let leafLabel = leaf;
+        let leafBadgeMode = 'none';
+
+        if (depth <= 0) {
+            if (rowDef?.n2ImplicitSlot === true || rowDef?.reorderAmongChildren === true) {
+                if (leaf && leaf !== n2Label) {
+                    showLeaf = true;
+                    leafBadgeMode = 'options';
+                } else if (n2Label) {
+                    n2BadgeMode = 'options';
+                }
+            }
+        } else if (depth === 1) {
+            if (rowDef?.reorderAmongChildren === true && rowDef?.reorderSubcategoryCol2Anchor === true) {
+                n2BadgeMode = 'options';
+                showLeaf = true;
+                leafLabel = String(rowDef.sousNoeudFeuille || rowDef.noeudN2 || nodeLabel || n2Label || '').trim();
+                leafBadgeMode = 'options';
+            } else if (leaf && leaf !== n2Label) {
+                showLeaf = true;
+                leafBadgeMode = 'options';
+            } else {
+                showLeaf = true;
+                leafLabel = nodeLabel || n2Label;
+                leafBadgeMode = 'options';
+            }
+        } else if (rowDef?.reorderAmongChildren === true && rowDef?.reorderAmongInCol3 === true) {
+            showLeaf = true;
+            leafLabel = String(leaf || nodeLabel || '').trim();
+            leafBadgeMode = 'options';
+        } else if (leaf) {
+            showLeaf = true;
+            leafBadgeMode = 'options';
+        }
 
         let html = '';
 
         if (!rowDef.catCell?.skip) {
-            const catContent = buildReorderCategoryCellContent(rowDef);
+            const catContent = buildReorderCategoryCellContent(rowDef, hooks, ctx);
             html += buildMergedCatalogTdContent('ugap-devis-td-categorie', rowDef.catCell, catContent);
         }
 
         if (!rowDef.n2Cell?.skip) {
             if (n2Label) {
-                const useSelfDrag = depth <= 0 || depth === 1 || rowDef.reorderSubcategoryCol2Anchor === true;
+                const hasN2 = !!(rowDef?.reorderHandles?.n2);
+                const n2Meta = ctx && hasN2
+                    ? resolveReorderDragMeta(rowDef, 'n2', ctx.catalogNodes, ctx.orderMap)
+                    : {};
+                const n2Implicit = rowDef?.n2ImplicitSlot === true;
+                const n2DragTitle = n2Implicit
+                    ? getReorderLabel('implicitSlotDragTitle', 'Réordonner l’emplacement des options directes')
+                    : getReorderLabel('subcategoryDragTitle', 'Réordonner les sous-catégories');
                 const n2Content = buildReorderNodeLineInner(
                     n2Label,
-                    reorderDragMetaFromRow(rowDef, useSelfDrag ? 'self' : 'l1'),
-                    { badgeMode: 'none' },
+                    n2Meta,
+                    {
+                        badgeMode: n2BadgeMode,
+                        showDragHandle: !!(ctx && hasN2 && n2Meta.hasReorderSiblings),
+                        implicitSlot: n2Implicit,
+                        dragTitle: n2DragTitle,
+                    },
                     hooks
                 );
                 html += buildMergedCatalogTdContent('ugap-devis-td-sous-noeud', rowDef.n2Cell, n2Content);
@@ -1933,11 +2668,24 @@
             }
         }
 
-        if (leaf) {
+        if (showLeaf && leafLabel) {
+            const hasLeaf = !!(rowDef?.reorderHandles?.leaf);
+            const leafMeta = ctx && hasLeaf
+                ? resolveReorderDragMeta(rowDef, 'leaf', ctx.catalogNodes, ctx.orderMap)
+                : {};
+            const leafImplicit = rowDef?.leafImplicitSlot === true;
+            const leafDragTitle = leafImplicit
+                ? getReorderLabel('implicitSlotDragTitle', 'Réordonner l’emplacement des options directes')
+                : getReorderLabel('subnodeDragTitle', 'Réordonner les sous-nœuds');
             const leafContent = buildReorderNodeLineInner(
-                leaf,
-                reorderDragMetaFromRow(rowDef, 'self'),
-                { badgeMode: 'options' },
+                leafLabel,
+                leafMeta,
+                {
+                    badgeMode: leafBadgeMode,
+                    showDragHandle: !!(ctx && hasLeaf && leafMeta.hasReorderSiblings),
+                    implicitSlot: leafImplicit,
+                    dragTitle: leafDragTitle,
+                },
                 hooks
             );
             html += `<td class="ugap-devis-td-sous-feuille">${leafContent}</td>`;
@@ -2002,23 +2750,40 @@
         let i = 0;
         while (i < list.length) {
             const blockId = String(list[i]?.reorderSubcategoryBlockId || '').trim();
-            const label = String(list[i]?.noeudN2 || '').trim();
 
-            if (blockId && label) {
+            if (blockId) {
                 let j = i + 1;
                 while (j < list.length
                     && String(list[j]?.reorderSubcategoryBlockId || '').trim() === blockId) {
                     j += 1;
                 }
                 const span = j - i;
-                list[i].n2Cell = { show: true, skip: false, rowspan: span, label };
-                for (let k = i + 1; k < j; k += 1) {
-                    list[k].n2Cell = { skip: true };
+                let anchor = i;
+                let label = String(list[i]?.noeudN2 || '').trim();
+                for (let k = i; k < j; k += 1) {
+                    if (list[k]?.reorderSubcategoryCol2Anchor === true) {
+                        anchor = k;
+                        label = String(list[k]?.noeudN2 || list[k]?.reorderNodeLabel || '').trim();
+                        break;
+                    }
+                    const rowLabel = String(list[k]?.noeudN2 || '').trim();
+                    if (!label && rowLabel) {
+                        label = rowLabel;
+                        anchor = k;
+                    }
+                }
+                if (!label) {
+                    label = String(list[anchor]?.reorderNodeLabel || '').trim();
+                }
+                list[anchor].n2Cell = { show: true, skip: false, rowspan: span, label };
+                for (let k = i; k < j; k += 1) {
+                    if (k !== anchor) list[k].n2Cell = { skip: true };
                 }
                 i = j;
                 continue;
             }
 
+            const label = String(list[i]?.noeudN2 || '').trim();
             if (label) {
                 list[i].n2Cell = { show: true, skip: false, rowspan: 1, label };
             } else if (!list[i].n2Cell?.skip) {
@@ -2232,25 +2997,42 @@
     }
 
     function getLinkedAdjIdsForReplacedBaseInGroup(state, group, hooks) {
-        if (!isBaseReplacedInGroup(state, group, hooks)) return [];
-        if (global.UgapBaseAdjLinks?.isMotorLinkedAdjGroup?.(group) !== true) return [];
+        const BAL = global.UgapBaseAdjLinks;
+        if (!group || BAL?.shouldAutoApplyLinkedAdj?.(group) !== true) return [];
+        if (!BAL?.resolveSourceAdjOptionIdsForBase) return [];
+
         const baseId = String(getGroupBaseOptionId(state, group, hooks) || '').trim();
         if (!baseId) return [];
-        const BAL = global.UgapBaseAdjLinks;
-        if (!BAL?.resolveSourceAdjOptionIdsForBase) return [];
+
         const categories = Array.isArray(state?.categories) ? state.categories : [];
         const importBaseProducts = Array.isArray(state?.importBaseProducts) ? state.importBaseProducts : [];
-        const OLK = global.UgapOptionLineKind;
-        return BAL.resolveSourceAdjOptionIdsForBase(baseId, categories, importBaseProducts)
+        const adjGroup = BAL.effectiveAdjGroupForLinks?.(group) || group;
+
+        let linked = BAL.resolveSourceAdjOptionIdsForBase(baseId, categories, importBaseProducts);
+        if (BAL.filterAdjIdsForGroupPriceMode) {
+            linked = BAL.filterAdjIdsForGroupPriceMode(linked, categories, adjGroup);
+        }
+        linked = linked
             .map((x) => String(x || '').trim())
             .filter(Boolean)
-            .filter((adjId) => {
-                const adj = findCatalogOption(state, hooks, adjId);
-                if (!adj) return false;
-                const kind = String(OLK?.inferOptionLineKind?.(adj) || '').trim().toLowerCase();
-                if (kind === 'minoration' || adj?.isMinoration === true) return true;
-                return /\bMINO\b/i.test(String(adj?.refUgap || ''));
-            });
+            .filter((adjId) => !!findCatalogOption(state, hooks, adjId));
+
+        if (!linked.length) return [];
+        if (isBaseReplacedInGroup(state, group, hooks)) return linked;
+
+        const selected = new Set();
+        (state.selectedOptions || []).forEach((id) => selected.add(String(id || '').trim()));
+        (state.fivePercentOptions || []).forEach((id) => selected.add(String(id || '').trim()));
+        return linked.filter((id) => selected.has(id));
+    }
+
+    function buildLinkedAdjKindBadge(adj) {
+        const OLK = global.UgapOptionLineKind;
+        const kind = String(OLK?.inferOptionLineKind?.(adj) || '').trim().toLowerCase();
+        if (kind === 'majoration') {
+            return { label: 'MAJO', className: 'majoration' };
+        }
+        return { label: 'MINO', className: 'minoration' };
     }
 
     function buildLinkedAdjSupplementHtml(state, group, hooks) {
@@ -2259,6 +3041,7 @@
         return ids.map((adjId) => {
             const adj = findCatalogOption(state, hooks, adjId);
             if (!adj) return '';
+            const badge = buildLinkedAdjKindBadge(adj);
             const name = resolveOptionDisplayName(state, adj, hooks);
             const adjRef = resolveLinkedAdjRefUgap(adj);
             const refHtml = adjRef
@@ -2267,7 +3050,7 @@
             const price = formatLinkedMotorAdjDevisPrice(state, hooks, adj);
             const priceHtml = `<span style="margin-left:8px;font-weight:600;color:#334155;">${escapeHtml(price.text)}</span>`;
             return `<div class="ugap-devis-linked-adj" style="margin-top:6px;padding:6px 10px;background:#f5f0ff;border:1px solid #d8b4fe;border-radius:6px;font-size:12px;color:#5b21b6;line-height:1.35;">
-                <span class="excel-line-badge minoration" style="margin-right:6px;vertical-align:middle;">MINO</span>
+                <span class="excel-line-badge ${badge.className}" style="margin-right:6px;vertical-align:middle;">${escapeHtml(badge.label)}</span>
                 <span style="vertical-align:middle;">${escapeHtml(name)}${refHtml}${priceHtml}</span>
             </div>`;
         }).filter(Boolean).join('');
@@ -2519,6 +3302,12 @@
     function refreshDevisTableBody(state, hooks) {
         const root = global.document.getElementById('ugap-config-parcours-root');
         if (!root) return false;
+
+        if (isParcoursReorderTableMode(hooks) && !isParcoursStructureMode(hooks)) {
+            refreshDevisTableChoiceCells(state, hooks);
+            return true;
+        }
+
         const tbody = root.querySelector('#ugap-devis-options-tbody');
         if (!tbody) return false;
 
@@ -2532,17 +3321,33 @@
         const catalogNodes = getCatalogNodesForParcours(hooks);
 
         let rowDefs;
+        let reorderCtx = null;
         if (isParcoursReorderTableMode(hooks) && tpl) {
-            const { order } = MBO?.getTemplateCatalogParcours?.(tpl) || { order: {} };
+            const order = typeof hooks?.resolveCatalogNodeOrder === 'function'
+                ? (hooks.resolveCatalogNodeOrder(state, tpl) || {})
+                : (MBO?.getTemplateCatalogParcours?.(tpl) || {}).order || {};
+            hooks._reorderCatalogNodes = catalogNodes;
+            hooks._reorderOrderMap = order;
+            if (!isParcoursStructureMode(hooks)) {
+                const body = root.querySelector('.ugap-devis-parcours__body');
+                if (body) {
+                    body.innerHTML = renderParcoursReorderTreeHtml(catalogNodes, order, hooks);
+                    const bindMount = root.parentElement || root;
+                    bindDevisTableEvents(state, hooks, bindMount);
+                    return true;
+                }
+            }
             rowDefs = collectParcoursReorderNodeRows(catalogNodes, order);
+            reorderCtx = null;
         } else {
             const tree = getModelBaseEditorTree(state);
             rowDefs = collectDevisTableRowDefs(state, hooks, tree, catalogNodes);
         }
         if (!rowDefs.length) return false;
 
-        tbody.innerHTML = rowDefs.map((r) => buildDevisTableRowHtml(state, hooks, r)).join('');
-        bindDevisTableEvents(state, hooks, root);
+        tbody.innerHTML = rowDefs.map((r) => buildDevisTableRowHtml(state, hooks, r, reorderCtx)).join('');
+        const bindMount = isParcoursReorderTableMode(hooks) ? (root.parentElement || root) : root;
+        bindDevisTableEvents(state, hooks, bindMount);
         return true;
     }
 
@@ -2556,15 +3361,11 @@
     function refreshDevisTableChoiceCells(state, hooks) {
         const root = global.document.getElementById('ugap-config-parcours-root');
         if (!root) return;
-        const tbody = root.querySelector('#ugap-devis-options-tbody');
-        if (!tbody) return;
 
         const scrollWrap = root.querySelector('.excel-options-scroll');
         const scrollSaved = scrollWrap
             ? { top: scrollWrap.scrollTop, left: scrollWrap.scrollLeft }
             : null;
-
-        ensureDevisTablePriceHeader(root, hooks);
 
         syncModelBaseBridge(state);
         const model = state.selectedModel;
@@ -2578,18 +3379,45 @@
         if (!tpl) return;
 
         const catalogNodes = getCatalogNodesForParcours(hooks);
-        let rowDefs;
-        if (isParcoursReorderTableMode(hooks)) {
-            const { order } = MBO?.getTemplateCatalogParcours?.(tpl) || { order: {} };
-            rowDefs = collectParcoursReorderNodeRows(catalogNodes, order);
-        } else {
-            const tree = MBO.buildModelBaseEditorTree(model) || { roots: [], orphanSlots: [] };
-            rowDefs = collectDevisTableRowDefs(state, hooks, tree, catalogNodes);
-        }
-
-        tbody.innerHTML = rowDefs.map((r) => buildDevisTableRowHtml(state, hooks, r)).join('');
         const bindMount = isParcoursReorderTableMode(hooks) ? (root.parentElement || root) : root;
-        bindDevisTableEvents(state, hooks, bindMount);
+
+        if (isParcoursReorderTableMode(hooks) && !isParcoursStructureMode(hooks)) {
+            const order = typeof hooks?.resolveCatalogNodeOrder === 'function'
+                ? (hooks.resolveCatalogNodeOrder(state, tpl) || {})
+                : (MBO?.getTemplateCatalogParcours?.(tpl) || {}).order || {};
+            hooks._reorderCatalogNodes = catalogNodes;
+            hooks._reorderOrderMap = order;
+            const treeMount = root.querySelector('#ugap-devis-reorder-tree');
+            if (treeMount) {
+                treeMount.innerHTML = renderParcoursReorderTreeInnerHtml(catalogNodes, order);
+                bindDevisTableEvents(state, hooks, bindMount);
+            } else {
+                const body = root.querySelector('.ugap-devis-parcours__body');
+                if (body) {
+                    body.innerHTML = renderParcoursReorderTreeHtml(catalogNodes, order, hooks);
+                    bindDevisTableEvents(state, hooks, bindMount);
+                }
+            }
+        } else {
+            const tbody = root.querySelector('#ugap-devis-options-tbody');
+            if (!tbody) return;
+            ensureDevisTablePriceHeader(root, hooks);
+            let rowDefs;
+            let reorderCtx = null;
+            if (isParcoursReorderTableMode(hooks)) {
+                const order = typeof hooks?.resolveCatalogNodeOrder === 'function'
+                    ? (hooks.resolveCatalogNodeOrder(state, tpl) || {})
+                    : (MBO?.getTemplateCatalogParcours?.(tpl) || {}).order || {};
+                hooks._reorderCatalogNodes = catalogNodes;
+                hooks._reorderOrderMap = order;
+                rowDefs = collectParcoursReorderNodeRows(catalogNodes, order);
+            } else {
+                const tree = MBO.buildModelBaseEditorTree(model) || { roots: [], orphanSlots: [] };
+                rowDefs = collectDevisTableRowDefs(state, hooks, tree, catalogNodes);
+            }
+            tbody.innerHTML = rowDefs.map((r) => buildDevisTableRowHtml(state, hooks, r, reorderCtx)).join('');
+            bindDevisTableEvents(state, hooks, bindMount);
+        }
 
         if (scrollWrap && scrollSaved) {
             scrollWrap.scrollTop = scrollSaved.top;
@@ -2601,7 +3429,7 @@
         }
     }
 
-    function buildDevisTableRowHtml(state, hooks, rowDef) {
+    function buildDevisTableRowHtml(state, hooks, rowDef, reorderCtx) {
         const {
             group, mode, optId, categorie, sousNoeud, showCategorie, showSousNoeud,
             catalogNodeId, parentCatalogNodeId, reorderAnchor, reorderDepth,
@@ -2631,10 +3459,13 @@
             const l1Id = String(rowDef?.reorderL1CatalogId || '').trim();
             const l1Parent = String(rowDef?.reorderL1ParentId ?? '').trim();
             const amongChildren = rowDef?.reorderAmongChildren === true ? ' data-tpl-reorder-among-children="1"' : '';
-            const reorderRowAttrs = catalogNodeId
-                ? ` data-tpl-reorder-item="${escapeHtml(catalogNodeId)}" data-tpl-reorder-parent="${escapeHtml(parentCatalogNodeId || '')}" data-tpl-reorder-depth="${depth}"${reorderHasChildren ? ' data-tpl-reorder-has-children="1"' : ''}${l1Id ? ` data-tpl-reorder-l1-id="${escapeHtml(l1Id)}" data-tpl-reorder-l1-parent="${escapeHtml(l1Parent)}"` : ''}${amongChildren}`
+            const catAnchorAttr = rowDef.catCell && rowDef.catCell.skip !== true
+                ? ' data-tpl-reorder-cat-anchor="1"'
                 : '';
-            const catalogCols = buildReorderCatalogColumnCells(rowDef, hooks);
+            const reorderRowAttrs = catalogNodeId
+                ? ` data-tpl-reorder-item="${escapeHtml(catalogNodeId)}" data-tpl-reorder-parent="${escapeHtml(parentCatalogNodeId || '')}" data-tpl-reorder-depth="${depth}" data-tpl-reorder-root-cat="${escapeHtml(String(rowDef?.reorderRootCatId || catalogNodeId || ''))}"${reorderHasChildren ? ' data-tpl-reorder-has-children="1"' : ''}${l1Id ? ` data-tpl-reorder-l1-id="${escapeHtml(l1Id)}" data-tpl-reorder-l1-parent="${escapeHtml(l1Parent)}"` : ''}${amongChildren}${catAnchorAttr}`
+                : '';
+            const catalogCols = buildReorderCatalogColumnCells(rowDef, hooks, reorderCtx);
             const actionCell = buildStructureActionCellHtml(hooks, rowDef);
 
             return `
@@ -2678,7 +3509,7 @@
             </tr>`;
     }
 
-    const parcoursTableDndState = { fromId: '', parentId: '', fromDepth: 0, ancestorIds: new Set() };
+    const parcoursTableDndState = { fromId: '', parentId: '', catalogNodes: [], orderMap: {}, dragRows: [] };
 
     function collectReorderAncestorIds(mountEl, fromId) {
         const ids = new Set();
@@ -2705,6 +3536,7 @@
             '.ugap-tpl-reorder-row-dragging',
             '.ugap-tpl-reorder-cell-dragging',
             '.ugap-tpl-reorder-ancestor',
+            '.ugap-reorder-node--dragging',
         ].join(', ')).forEach((el) => {
             el.classList.remove(
                 'ugap-dnd--valid-sibling',
@@ -2713,7 +3545,8 @@
                 'ugap-tpl-reorder-group-dragging',
                 'ugap-tpl-reorder-row-dragging',
                 'ugap-tpl-reorder-cell-dragging',
-                'ugap-tpl-reorder-ancestor'
+                'ugap-tpl-reorder-ancestor',
+                'ugap-reorder-node--dragging'
             );
         });
         mountEl.querySelectorAll('.ugap-dnd--drop-before, .ugap-dnd--drop-after').forEach((el) => {
@@ -2721,45 +3554,120 @@
         });
     }
 
-    function markParcoursReorderSiblingTargets(mountEl, parentId, fromId, ancestorIds, fromDepth) {
-        if (!mountEl) return;
-        const pid = String(parentId ?? '');
-        const ancestors = ancestorIds instanceof Set ? ancestorIds : new Set();
-        const allRows = Array.from(mountEl.querySelectorAll('tr[data-tpl-reorder-item]'));
-        const validSiblingRows = [];
-
-        allRows.forEach((row) => {
-            const rowId = String(row.getAttribute('data-tpl-reorder-item') || '').trim();
-            row.classList.remove('ugap-dnd--valid-sibling', 'ugap-dnd--invalid-sibling', 'ugap-dnd--valid-drop-zone', 'ugap-tpl-reorder-ancestor');
-            if (ancestors.has(rowId)) {
-                row.classList.add('ugap-tpl-reorder-ancestor');
-                return;
-            }
-            if (rowId === fromId) return;
-            if (isReorderSiblingTargetRow(fromId, pid, row, fromDepth)) {
-                validSiblingRows.push(row);
-                row.classList.add('ugap-dnd--valid-sibling');
-            }
+    function findCategoryBlockAnchorRow(mountEl, rootCatId) {
+        const id = String(rootCatId || '').trim();
+        if (!mountEl || !id) return null;
+        const rows = Array.from(mountEl.querySelectorAll('tr[data-tpl-reorder-item]'));
+        const anchor = rows.find((row) => {
+            return String(row.getAttribute('data-tpl-reorder-root-cat') || '').trim() === id
+                && row.getAttribute('data-tpl-reorder-cat-anchor') === '1';
         });
+        if (anchor) return anchor;
+        return rows.find((row) => String(row.getAttribute('data-tpl-reorder-root-cat') || '').trim() === id) || null;
+    }
 
-        validSiblingRows.forEach((siblingRow) => {
-            const l1Id = String(siblingRow.getAttribute('data-tpl-reorder-l1-id') || '').trim();
-            const l1Parent = String(siblingRow.getAttribute('data-tpl-reorder-l1-parent') ?? '');
-            const repId = (l1Id && l1Parent === pid) ? l1Id : String(siblingRow.getAttribute('data-tpl-reorder-item') || '').trim();
-            getReorderSubtreeRowsForNodeId(mountEl, repId).forEach((row) => {
-                if (row.classList.contains('ugap-tpl-reorder-ancestor')) return;
-                if (!row.classList.contains('ugap-dnd--valid-sibling')) {
+    function resolveReorderDropIndicatorRow(mountEl, hoverRow, groupParentId, catalogNodes, orderMap) {
+        if (!hoverRow || !mountEl) return hoverRow;
+        const pid = String(groupParentId ?? '').trim();
+        const dropKey = resolveReorderDropTargetId(hoverRow, pid, catalogNodes, orderMap);
+        if (!dropKey) return hoverRow;
+        if (!pid) {
+            return findCategoryBlockAnchorRow(mountEl, dropKey) || hoverRow;
+        }
+        const blockRows = findReorderBlockRows(mountEl, dropKey, pid, catalogNodes, orderMap);
+        if (!blockRows.length) return hoverRow;
+        const anchorRow = blockRows.find((row) => {
+            const rowId = String(row.getAttribute('data-tpl-reorder-item') || '').trim();
+            return rowId === dropKey;
+        });
+        return anchorRow || blockRows[0];
+    }
+
+    function resolveReorderDropMode(event, hoverRow, mountEl, groupParentId, catalogNodes, orderMap) {
+        if (!hoverRow) return 'before';
+        const pid = String(groupParentId ?? '').trim();
+        const dropKey = resolveReorderDropTargetId(hoverRow, pid, catalogNodes, orderMap);
+        if (!dropKey || !mountEl) {
+            const rect = hoverRow.getBoundingClientRect();
+            return event.clientY - rect.top > rect.height * 0.55 ? 'after' : 'before';
+        }
+        const blockRows = findReorderBlockRows(mountEl, dropKey, pid, catalogNodes, orderMap);
+        if (blockRows.length <= 1) {
+            const rect = hoverRow.getBoundingClientRect();
+            return event.clientY - rect.top > rect.height * 0.55 ? 'after' : 'before';
+        }
+        const firstRect = blockRows[0].getBoundingClientRect();
+        const lastRect = blockRows[blockRows.length - 1].getBoundingClientRect();
+        const y = event.clientY;
+        if (y <= firstRect.top + firstRect.height * 0.45) return 'before';
+        if (y >= lastRect.top + lastRect.height * 0.55) return 'after';
+        const rect = hoverRow.getBoundingClientRect();
+        return y - rect.top > rect.height * 0.55 ? 'after' : 'before';
+    }
+
+    function markParcoursReorderSiblingTargets(mountEl, groupParentId, fromId, catalogNodes, orderMap) {
+        if (!mountEl) return;
+        const pid = String(groupParentId ?? '').trim();
+        const fid = String(fromId || '').trim();
+        const list = getParcoursOrderedSiblings(pid, catalogNodes, orderMap);
+        const listSet = new Set(list);
+
+        if (!pid) {
+            const catAnchorRows = new Set();
+            list.forEach((siblingId) => {
+                const sid = String(siblingId || '').trim();
+                if (!sid || sid === fid) return;
+                const anchor = findCategoryBlockAnchorRow(mountEl, sid);
+                if (anchor) catAnchorRows.add(anchor);
+            });
+
+            mountEl.querySelectorAll('tr[data-tpl-reorder-item]').forEach((row) => {
+                row.classList.remove(
+                    'ugap-dnd--valid-sibling',
+                    'ugap-dnd--invalid-sibling',
+                    'ugap-dnd--valid-drop-zone',
+                    'ugap-tpl-reorder-ancestor'
+                );
+                const rootCat = String(row.getAttribute('data-tpl-reorder-root-cat') || '').trim();
+                if (!rootCat || rootCat === fid || !listSet.has(rootCat)) {
+                    row.classList.add('ugap-dnd--invalid-sibling');
+                    return;
+                }
+                if (catAnchorRows.has(row)) {
+                    row.classList.add('ugap-dnd--valid-sibling');
+                } else {
                     row.classList.add('ugap-dnd--valid-drop-zone');
                 }
             });
+            return;
+        }
+
+        const blockStartRows = new Set();
+        list.forEach((siblingId) => {
+            const sid = String(siblingId || '').trim();
+            if (!sid || sid === fid) return;
+            const blockRows = findReorderBlockRows(mountEl, sid, pid, catalogNodes, orderMap);
+            if (blockRows.length) blockStartRows.add(blockRows[0]);
         });
 
-        allRows.forEach((row) => {
+        mountEl.querySelectorAll('tr[data-tpl-reorder-item]').forEach((row) => {
             const rowId = String(row.getAttribute('data-tpl-reorder-item') || '').trim();
-            if (rowId === fromId || row.classList.contains('ugap-tpl-reorder-ancestor')) return;
-            if (!row.classList.contains('ugap-dnd--valid-sibling')
-                && !row.classList.contains('ugap-dnd--valid-drop-zone')) {
+            row.classList.remove(
+                'ugap-dnd--valid-sibling',
+                'ugap-dnd--invalid-sibling',
+                'ugap-dnd--valid-drop-zone',
+                'ugap-tpl-reorder-ancestor'
+            );
+            if (rowId === fid) return;
+            const dropKey = resolveReorderDropTargetId(row, pid, catalogNodes, orderMap);
+            if (!dropKey || dropKey === fid || !listSet.has(dropKey)) {
                 row.classList.add('ugap-dnd--invalid-sibling');
+                return;
+            }
+            if (rowId === dropKey || blockStartRows.has(row)) {
+                row.classList.add('ugap-dnd--valid-sibling');
+            } else {
+                row.classList.add('ugap-dnd--valid-drop-zone');
             }
         });
     }
@@ -2768,15 +3676,53 @@
         if (!mountEl || !hooks?.parcoursReorderMode) return;
         if (mountEl.dataset.parcoursReorderBound === '1') {
             mountEl._parcoursReorderHooks = hooks;
+            if (hooks?._reorderCatalogNodes) {
+                mountEl._parcoursReorderHooks._reorderCatalogNodes = hooks._reorderCatalogNodes;
+            }
+            if (hooks?._reorderOrderMap) {
+                mountEl._parcoursReorderHooks._reorderOrderMap = hooks._reorderOrderMap;
+            }
             return;
         }
         mountEl.dataset.parcoursReorderBound = '1';
         mountEl._parcoursReorderHooks = hooks;
 
-        const resolveDropMode = (event, rowEl) => {
-            const rect = rowEl.getBoundingClientRect();
-            const y = event.clientY - rect.top;
-            return y > rect.height * 0.55 ? 'after' : 'before';
+        const applyReorderDropIndicator = (event, hoverRow) => {
+            const parentId = String(parcoursTableDndState.parentId ?? '');
+            const catalogNodes = parcoursTableDndState.catalogNodes || [];
+            const orderMap = parcoursTableDndState.orderMap || {};
+            const indicatorRow = resolveReorderDropIndicatorRow(
+                mountEl,
+                hoverRow,
+                parentId,
+                catalogNodes,
+                orderMap
+            );
+            const mode = resolveReorderDropMode(
+                event,
+                hoverRow,
+                mountEl,
+                parentId,
+                catalogNodes,
+                orderMap
+            );
+            if (indicatorRow) {
+                indicatorRow.classList.add(mode === 'after' ? 'ugap-dnd--drop-after' : 'ugap-dnd--drop-before');
+            }
+            return mode;
+        };
+
+        const hitReorderRowUnderPointer = (event) => {
+            const x = event.clientX;
+            const y = event.clientY;
+            if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+            const stack = document.elementsFromPoint(x, y);
+            for (const el of stack) {
+                if (!mountEl.contains(el)) continue;
+                const row = el.closest?.('tr[data-tpl-reorder-item]');
+                if (row) return row;
+            }
+            return null;
         };
 
         mountEl.addEventListener('dragstart', (e) => {
@@ -2790,49 +3736,60 @@
                 e.preventDefault();
                 return;
             }
-            const fromId = String(
-                handle.getAttribute('data-reorder-from-id') || row.getAttribute('data-tpl-reorder-item') || ''
-            ).trim();
+            const fromId = String(handle.getAttribute('data-reorder-from-id') || '').trim();
             if (!fromId) {
                 e.preventDefault();
                 return;
             }
+            const hooksRef = mountEl._parcoursReorderHooks || hooks;
+            const catalogNodes = hooksRef?._reorderCatalogNodes || [];
+            const orderMap = hooksRef?._reorderOrderMap || {};
             parcoursTableDndState.fromId = fromId;
-            parcoursTableDndState.parentId = String(
-                handle.getAttribute('data-reorder-parent-id') ?? resolveReorderParentIdForNode(mountEl, fromId)
-            );
-            parcoursTableDndState.fromDepth = Number(row.getAttribute('data-tpl-reorder-depth') || 0);
-            parcoursTableDndState.ancestorIds = collectReorderAncestorIds(mountEl, fromId);
+            parcoursTableDndState.parentId = String(handle.getAttribute('data-reorder-parent-id') ?? '');
+            parcoursTableDndState.catalogNodes = catalogNodes;
+            parcoursTableDndState.orderMap = orderMap;
             e.dataTransfer.effectAllowed = 'move';
             e.dataTransfer.setData('text/plain', fromId);
             const activeTd = handle.closest('td');
             if (activeTd) activeTd.classList.add('ugap-tpl-reorder-cell-dragging');
-            getReorderSubtreeRowsForNodeId(mountEl, fromId).forEach((el) => {
+            parcoursTableDndState.dragRows = getReorderSubtreeRowsForNodeId(
+                mountEl,
+                fromId,
+                parcoursTableDndState.parentId,
+                catalogNodes,
+                orderMap
+            );
+            parcoursTableDndState.dragRows.forEach((el) => {
                 el.classList.add('ugap-tpl-reorder-row-dragging');
+                el.style.pointerEvents = 'none';
             });
             mountEl.classList.add('ugap-parcours-reorder-dragging');
             markParcoursReorderSiblingTargets(
                 mountEl,
                 parcoursTableDndState.parentId,
                 fromId,
-                parcoursTableDndState.ancestorIds,
-                parcoursTableDndState.fromDepth
+                catalogNodes,
+                orderMap
             );
         }, true);
 
         mountEl.addEventListener('dragend', () => {
+            (parcoursTableDndState.dragRows || []).forEach((el) => {
+                el.style.pointerEvents = '';
+            });
+            parcoursTableDndState.dragRows = [];
             clearParcoursReorderDndMarks(mountEl);
             parcoursTableDndState.fromId = '';
             parcoursTableDndState.parentId = '';
-            parcoursTableDndState.fromDepth = 0;
-            parcoursTableDndState.ancestorIds = new Set();
+            parcoursTableDndState.catalogNodes = [];
+            parcoursTableDndState.orderMap = {};
         }, true);
 
         mountEl.addEventListener('dragover', (e) => {
             if (!parcoursTableDndState.fromId) return;
             e.preventDefault();
             if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
-            let row = e.target?.closest?.('tr[data-tpl-reorder-item]');
+            const row = hitReorderRowUnderPointer(e);
             mountEl.querySelectorAll('.ugap-dnd--drop-before, .ugap-dnd--drop-after').forEach((el) => {
                 el.classList.remove('ugap-dnd--drop-before', 'ugap-dnd--drop-after');
             });
@@ -2841,50 +3798,50 @@
                 && !row.classList.contains('ugap-dnd--valid-drop-zone')) {
                 return;
             }
-            row = resolveReorderDropRow(mountEl, row, parcoursTableDndState.parentId);
-            if (!row) return;
-            const toId = String(row.getAttribute('data-tpl-reorder-item') || '').trim();
-            const l1Id = String(row.getAttribute('data-tpl-reorder-l1-id') || '').trim();
-            const dropTargetId = (String(parcoursTableDndState.parentId ?? '') === String(row.getAttribute('data-tpl-reorder-l1-parent') ?? '') && l1Id)
-                ? l1Id
-                : toId;
             const parentId = String(parcoursTableDndState.parentId ?? '');
-            if (!dropTargetId || dropTargetId === parcoursTableDndState.fromId) return;
             if (!isReorderSiblingTargetRow(
                 parcoursTableDndState.fromId,
                 parentId,
                 row,
-                parcoursTableDndState.fromDepth
+                parcoursTableDndState.catalogNodes,
+                parcoursTableDndState.orderMap
             )) return;
-            row.classList.add(resolveDropMode(e, row) === 'after' ? 'ugap-dnd--drop-after' : 'ugap-dnd--drop-before');
+            applyReorderDropIndicator(e, row);
         }, true);
 
         mountEl.addEventListener('drop', (e) => {
             if (!parcoursTableDndState.fromId) return;
             e.preventDefault();
             e.stopPropagation();
-            let row = e.target?.closest?.('tr[data-tpl-reorder-item]');
+            const row = hitReorderRowUnderPointer(e);
             if (!row) return;
             if (!row.classList.contains('ugap-dnd--valid-sibling')
                 && !row.classList.contains('ugap-dnd--valid-drop-zone')) {
                 return;
             }
-            row = resolveReorderDropRow(mountEl, row, parcoursTableDndState.parentId);
-            if (!row) return;
-            const toId = String(row.getAttribute('data-tpl-reorder-item') || '').trim();
-            const l1Id = String(row.getAttribute('data-tpl-reorder-l1-id') || '').trim();
-            const dropTargetId = (String(parcoursTableDndState.parentId ?? '') === String(row.getAttribute('data-tpl-reorder-l1-parent') ?? '') && l1Id)
-                ? l1Id
-                : toId;
             const parentId = String(parcoursTableDndState.parentId ?? '');
-            if (!dropTargetId || dropTargetId === parcoursTableDndState.fromId) return;
             if (!isReorderSiblingTargetRow(
                 parcoursTableDndState.fromId,
                 parentId,
                 row,
-                parcoursTableDndState.fromDepth
+                parcoursTableDndState.catalogNodes,
+                parcoursTableDndState.orderMap
             )) return;
-            const mode = resolveDropMode(e, row);
+            const dropTargetId = resolveReorderDropTargetId(
+                row,
+                parentId,
+                parcoursTableDndState.catalogNodes,
+                parcoursTableDndState.orderMap
+            );
+            if (!dropTargetId || dropTargetId === parcoursTableDndState.fromId) return;
+            const mode = resolveReorderDropMode(
+                e,
+                row,
+                mountEl,
+                parentId,
+                parcoursTableDndState.catalogNodes,
+                parcoursTableDndState.orderMap
+            );
             mountEl.querySelectorAll('.ugap-dnd--drop-before, .ugap-dnd--drop-after').forEach((el) => {
                 el.classList.remove('ugap-dnd--drop-before', 'ugap-dnd--drop-after');
             });
@@ -2898,7 +3855,7 @@
     function bindDevisTableEvents(state, hooks, container) {
         if (isParcoursStructureMode(hooks)) return;
         if (hooks?.parcoursReorderMode) {
-            bindParcoursTableReorderEvents(container, hooks);
+            bindParcoursTreeReorderEvents(container, hooks);
             return;
         }
         if (isParcoursReadOnly(hooks)) return;
@@ -2983,31 +3940,28 @@
         const catalogNodes = getCatalogNodesForParcours(hooks);
 
         if (isParcoursReorderTableMode(hooks)) {
-            const { order } = MBO?.getTemplateCatalogParcours?.(tpl) || { order: {} };
-            const rowDefs = collectParcoursReorderNodeRows(catalogNodes, order);
+            const order = typeof hooks?.resolveCatalogNodeOrder === 'function'
+                ? (hooks.resolveCatalogNodeOrder(state, tpl) || {})
+                : (MBO?.getTemplateCatalogParcours?.(tpl) || {}).order || {};
             const structureMode = isParcoursStructureMode(hooks);
-            if (!rowDefs.length) {
-                const emptyMsg = structureMode
-                    ? 'Aucun nœud sélectionné — ajoutez une catégorie racine ci-dessus.'
-                    : 'Aucun nœud catalogue — créez l’arborescence dans l’onglet <strong>Catalogue</strong>.';
-                return `<p class="ugap-devis-empty">${emptyMsg}</p>`;
+            hooks._reorderCatalogNodes = catalogNodes;
+            hooks._reorderOrderMap = order;
+            if (!structureMode) {
+                return renderParcoursReorderTreeHtml(catalogNodes, order, hooks);
             }
-            const bodyHtml = rowDefs.map((r) => buildDevisTableRowHtml(state, hooks, r)).join('');
-            const wrapClass = structureMode
-                ? 'ugap-devis-table-wrap--structure'
-                : 'ugap-devis-table-wrap--reorder';
-            const tableClass = structureMode
-                ? 'ugap-devis-options-table--structure'
-                : 'ugap-devis-options-table--reorder';
-            const hint = structureMode
-                ? String(
-                    hooks?.getStructureHint?.()
-                    || 'Ajoutez ou retirez des nœuds catalogue. L’ordre d’affichage se règle dans le parcours <strong>Standard</strong>.'
-                )
-                : 'Glissez une ligne (catégorie ou sous-nœud) pour déplacer le <strong>groupe entier</strong> avec tous ses sous-nœuds. Le réordonnancement s’applique <strong>entre frères du même niveau</strong> — vous pouvez déposer sur n’importe quelle ligne d’un groupe cible.';
-            const actionHeader = structureMode
-                ? '<th class="ugap-tpl-structure-th">Action</th>'
-                : '';
+            const rowDefs = collectParcoursReorderNodeRows(catalogNodes, order);
+            const reorderCtx = null;
+            if (!rowDefs.length) {
+                return '<p class="ugap-devis-empty">Aucun nœud sélectionné — ajoutez une catégorie racine ci-dessus.</p>';
+            }
+            const bodyHtml = rowDefs.map((r) => buildDevisTableRowHtml(state, hooks, r, reorderCtx)).join('');
+            const wrapClass = 'ugap-devis-table-wrap--structure';
+            const tableClass = 'ugap-devis-options-table--structure';
+            const hint = String(
+                hooks?.getStructureHint?.()
+                || 'Ajoutez ou retirez des nœuds catalogue. L’ordre d’affichage se règle dans le parcours <strong>Standard</strong>.'
+            );
+            const actionHeader = '<th class="ugap-tpl-structure-th">Action</th>';
             return `
             <div class="excel-options-wrap ugap-devis-table-wrap ${wrapClass}">
                 <p class="ugap-tpl-reorder-hint">${hint}</p>
@@ -3426,8 +4380,8 @@
         });
         state.selectedOptions.add(oid);
         const addedAdjIds = [];
-        const motorAdjGroup = BAL?.isMotorLinkedAdjGroup?.(groupForAdj) === true;
-        if (motorAdjGroup && ARO?.applyLinkedAdjForReplacementPick) {
+        const linkedAdjGroup = BAL?.shouldAutoApplyLinkedAdj?.(groupForAdj) === true;
+        if (linkedAdjGroup && ARO?.applyLinkedAdjForReplacementPick) {
             const fromRep = ARO.applyLinkedAdjForReplacementPick(
                 state,
                 oid,
@@ -3435,7 +4389,7 @@
             );
             if (Array.isArray(fromRep)) addedAdjIds.push(...fromRep);
         }
-        if (!addedAdjIds.length && isBaseReplacedInGroup(state, groupForAdj, hooks) && motorAdjGroup) {
+        if (!addedAdjIds.length && isBaseReplacedInGroup(state, groupForAdj, hooks) && linkedAdjGroup) {
             const defaultBaseId = getGroupBaseOptionId(state, groupForAdj, hooks);
             if (defaultBaseId) {
                 const adjGroup = BAL?.effectiveAdjGroupForLinks?.(groupForAdj) || groupForAdj;
@@ -3454,7 +4408,7 @@
         try {
             const selectedNow = Array.from(state.selectedOptions || []).map((x) => String(x || '').trim());
             console.log('[UGAP][group-change] linked-adj', {
-                motorAdjGroup,
+                linkedAdjGroup,
                 groupLabel: String(group?.label || '').trim(),
                 selectedOptionId: String(oid || '').trim(),
                 addedMinorationIds: addedAdjIds,
@@ -4012,9 +4966,12 @@
         refreshDevisTableGroupRows,
         appendParcoursBillableOptionIds,
         collectParcoursOrderedBillableOptionIds,
+        collectParcoursOrderedDisplayOptionIds,
         collectDevisOptionCategoryMap,
         collectDevisModelCategory,
         forEachParcoursSingleChoiceGroup,
         getParcoursMixedSiblingIds,
+        getParcoursOrderedSiblings,
+        getReorderSiblingList,
     };
 })(typeof window !== 'undefined' ? window : global);

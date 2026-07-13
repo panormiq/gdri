@@ -171,6 +171,23 @@
         return { order, catalogNodes, included };
     }
 
+    function resolveParcoursSiblingList(parentId, catalogNodes, order) {
+        const pid = String(parentId ?? '').trim();
+        const TplTree = global.UgapConfiguratorTemplateTree;
+        if (TplTree?.getParcoursOrderedSiblings) {
+            return TplTree.getParcoursOrderedSiblings(pid, catalogNodes, order).slice();
+        }
+        const MBO = global.UgapModelBaseOptions;
+        if (MBO?.getOrderedCatalogSiblingIds) {
+            return MBO.getOrderedCatalogSiblingIds(pid, catalogNodes, order).slice();
+        }
+        const BTree = global.UgapBoatTemplateTree;
+        if (BTree?.orderedCatalogSiblingIds) {
+            return BTree.orderedCatalogSiblingIds(pid, catalogNodes, order).slice();
+        }
+        return Array.isArray(order[pid]) ? order[pid].slice() : [];
+    }
+
     function reorderTemplateVariantCatalogSiblings(templateId, variantId, parentId, fromKey, toKey, mode) {
         const id = String(templateId || '').trim();
         const vid = String(variantId || '').trim();
@@ -188,32 +205,20 @@
         if (vIdx < 0) return false;
 
         const { order, catalogNodes } = getMergedTemplateVariantCatalogNodeOrder(id, vid);
-        const Core = global.UgapCatalogueNodesCore;
-        const TplTree = global.UgapConfiguratorTemplateTree;
-        const BTree = global.UgapBoatTemplateTree;
 
-        const catalogNodeHasChildren = (cnId) => {
-            const cn = String(cnId || '').trim();
-            return (Core?.getChildren?.(catalogNodes, cn) || []).length > 0;
-        };
-
-        let siblingList = Array.isArray(order[pid]) ? order[pid].slice() : [];
-        if (!siblingList.length && BTree?.orderedIncludedSiblingIds) {
-            const included = BTree.resolveIncludedCatalogNodeIds(tpl.snapshot || {}, catalogNodes, order);
-            siblingList = BTree.orderedIncludedSiblingIds(pid, catalogNodes, order, included);
-        }
-        if (catalogNodeHasChildren(pid) && TplTree?.getParcoursMixedSiblingIds) {
-            siblingList = TplTree.getParcoursMixedSiblingIds(pid, catalogNodes, { ...order, [pid]: siblingList });
-        }
+        const siblingList = resolveParcoursSiblingList(pid, catalogNodes, order);
 
         const fromIdx = siblingList.findIndex((x) => String(x) === fromId);
         const toIdx = siblingList.findIndex((x) => String(x) === toId);
         if (fromIdx < 0 || toIdx < 0 || fromIdx === toIdx) return false;
 
         const nextList = reorderArrayByIndex(siblingList, fromIdx, toIdx, mode);
+        if (nextList.join('|') === siblingList.join('|')) return false;
+
         const variant = { ...variants[vIdx] };
         const nextOrder = normalizeCatalogNodeOrder(variant.catalogNodeOrder);
-        nextOrder[pid] = nextList;
+        nextOrder[pid] = nextList.slice();
+        if (!pid) nextOrder.root = nextList.slice();
         variant.catalogNodeOrder = nextOrder;
         variants[vIdx] = variant;
         tpl.variants = variants;
@@ -246,11 +251,11 @@
         const source = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
         const out = {};
         Object.entries(source).forEach(([key, ids]) => {
-            const pid = String(key || '').trim();
+            const pid = String(key === 'root' ? '' : key).trim();
             const list = (Array.isArray(ids) ? ids : [])
                 .map((x) => String(x || '').trim())
                 .filter(Boolean);
-            if (pid && list.length) out[pid] = list;
+            if (list.length) out[pid] = list;
         });
         return out;
     }
@@ -258,13 +263,19 @@
     function sanitizeConfigurationsList(list) {
         return (Array.isArray(list) ? list : [])
             .filter((c) => c && typeof c === 'object' && String(c.id || '').trim())
-            .map((c) => ({
-                id: String(c.id || '').trim(),
-                label: String(c.label || 'Configuration').trim() || 'Configuration',
-                isDefault: c.isDefault === true,
-                slotPicks: normalizeSlotPicksRow(c.slotPicks),
-                catalogNodeOrder: normalizeCatalogNodeOrder(c.catalogNodeOrder),
-            }));
+            .map((c) => {
+                const vid = String(c.templateVariantId || '').trim();
+                const viewMode = String(c.parcoursViewMode || '').trim() === 'custom' ? 'custom' : 'variant';
+                return {
+                    id: String(c.id || '').trim(),
+                    label: String(c.label || 'Configuration').trim() || 'Configuration',
+                    isDefault: c.isDefault === true,
+                    parcoursViewMode: viewMode,
+                    slotPicks: normalizeSlotPicksRow(c.slotPicks),
+                    catalogNodeOrder: normalizeCatalogNodeOrder(c.catalogNodeOrder),
+                    ...(vid ? { templateVariantId: vid } : {}),
+                };
+            });
     }
 
     function sanitizeModelConfigurations(raw) {
@@ -611,6 +622,75 @@
         return St?.getCatalog?.()?.nodes || [];
     }
 
+    function resolveDefaultTemplateVariantId(templateId) {
+        const variants = getVariantsForTemplate(templateId);
+        if (!variants.length) return '';
+        const def = variants.find((v) => v.isDefault === true)
+            || variants.find((v) => String(v.label || '').trim().toLowerCase() === 'standard')
+            || variants[0];
+        return String(def?.id || '').trim();
+    }
+
+    function resolveConfigurationTemplateVariantId(modelId, configId) {
+        const mid = String(modelId || '').trim();
+        const cid = String(configId || '').trim();
+        const cfg = getConfigurationById(mid, cid);
+        const MBO = global.UgapModelBaseOptions;
+        const data = getData();
+        const model = (Array.isArray(data?.models) ? data.models : []).find((m) => String(m?.id || '').trim() === mid);
+        const tplId = MBO?.resolveBoatTemplateIdForModel?.(model) || '';
+        const variants = getVariantsForTemplate(tplId);
+        if (!variants.length) return '';
+        const stored = String(cfg?.templateVariantId || '').trim();
+        if (stored && variants.some((v) => v.id === stored)) return stored;
+        return resolveDefaultTemplateVariantId(tplId);
+    }
+
+    function configurationHasCustomParcoursOrder(cfg) {
+        const order = normalizeCatalogNodeOrder(cfg?.catalogNodeOrder);
+        return Object.keys(order).some((key) => Array.isArray(order[key]) && order[key].length > 0);
+    }
+
+    function resolveConfigurationParcoursViewMode(modelId, configId) {
+        const cfg = getConfigurationById(modelId, configId);
+        return String(cfg?.parcoursViewMode || '').trim() === 'custom' ? 'custom' : 'variant';
+    }
+
+    function setConfigurationParcoursViewMode(modelId, configId, mode) {
+        const mid = String(modelId || '').trim();
+        const cid = String(configId || '').trim();
+        const next = String(mode || '').trim() === 'custom' ? 'custom' : 'variant';
+        if (!mid || !cid) return false;
+        const list = getConfigurationsForModel(mid);
+        const idx = list.findIndex((c) => c.id === cid);
+        if (idx < 0) return false;
+        list[idx] = { ...list[idx], parcoursViewMode: next };
+        writeConfigurationsForModel(mid, list);
+        return true;
+    }
+
+    function setConfigurationTemplateVariant(modelId, configId, variantId) {
+        const mid = String(modelId || '').trim();
+        const cid = String(configId || '').trim();
+        const vid = String(variantId || '').trim();
+        if (!mid || !cid) return false;
+        const list = getConfigurationsForModel(mid);
+        const idx = list.findIndex((c) => c.id === cid);
+        if (idx < 0) return false;
+        const MBO = global.UgapModelBaseOptions;
+        const data = getData();
+        const model = (Array.isArray(data?.models) ? data.models : []).find((m) => String(m?.id || '').trim() === mid);
+        const tplId = MBO?.resolveBoatTemplateIdForModel?.(model) || '';
+        const variants = getVariantsForTemplate(tplId);
+        if (vid && !variants.some((v) => v.id === vid)) return false;
+        const cfg = { ...list[idx] };
+        if (vid) cfg.templateVariantId = vid;
+        else delete cfg.templateVariantId;
+        list[idx] = cfg;
+        writeConfigurationsForModel(mid, list);
+        return true;
+    }
+
     function getMergedConfigurationCatalogNodeOrder(modelId, configId) {
         const mid = String(modelId || '').trim();
         const cid = String(configId || '').trim();
@@ -619,27 +699,37 @@
         const data = getData();
         const model = (Array.isArray(data?.models) ? data.models : []).find((m) => String(m?.id || '').trim() === mid);
         const tplId = MBO?.resolveBoatTemplateIdForModel?.(model) || '';
-        const tpl = MBO?.getTemplateById?.(tplId);
-        const snap = tpl?.snapshot && typeof tpl.snapshot === 'object' ? tpl.snapshot : {};
-        const catalogNodes = resolveCatalogNodesForReorder();
-        const BTree = global.UgapBoatTemplateTree;
-        const hasExplicitIncluded = Array.isArray(snap.includedCatalogNodeIds)
-            && snap.includedCatalogNodeIds.length > 0;
-        let order = BTree?.normalizeCatalogNodeOrder?.(snap.catalogNodeOrder) || {};
-        if (hasExplicitIncluded && BTree?.applyStoredCatalogNodeOrder) {
-            const included = BTree.resolveIncludedCatalogNodeIds(snap, catalogNodes, order);
-            order = BTree.applyStoredCatalogNodeOrder(catalogNodes, order, included);
-        } else if (!Object.keys(order).length && BTree?.defaultCatalogNodeOrder) {
-            order = BTree.defaultCatalogNodeOrder(catalogNodes);
-        } else if (BTree?.mergeCatalogNodeOrder) {
-            order = BTree.mergeCatalogNodeOrder(catalogNodes, order);
+        const variantId = resolveConfigurationTemplateVariantId(mid, cid);
+        let order = {};
+        let catalogNodes = resolveCatalogNodesForReorder();
+        if (tplId && variantId) {
+            const mergedVariant = getMergedTemplateVariantCatalogNodeOrder(tplId, variantId);
+            order = mergedVariant.order || {};
+            catalogNodes = mergedVariant.catalogNodes?.length ? mergedVariant.catalogNodes : catalogNodes;
+        } else {
+            const tpl = MBO?.getTemplateById?.(tplId);
+            const snap = tpl?.snapshot && typeof tpl.snapshot === 'object' ? tpl.snapshot : {};
+            const BTree = global.UgapBoatTemplateTree;
+            const hasExplicitIncluded = Array.isArray(snap.includedCatalogNodeIds)
+                && snap.includedCatalogNodeIds.length > 0;
+            order = BTree?.normalizeCatalogNodeOrder?.(snap.catalogNodeOrder) || {};
+            if (hasExplicitIncluded && BTree?.applyStoredCatalogNodeOrder) {
+                const included = BTree.resolveIncludedCatalogNodeIds(snap, catalogNodes, order);
+                order = BTree.applyStoredCatalogNodeOrder(catalogNodes, order, included);
+            } else if (!Object.keys(order).length && BTree?.defaultCatalogNodeOrder) {
+                order = BTree.defaultCatalogNodeOrder(catalogNodes);
+            } else if (BTree?.mergeCatalogNodeOrder) {
+                order = BTree.mergeCatalogNodeOrder(catalogNodes, order);
+            }
         }
         const override = normalizeCatalogNodeOrder(cfg?.catalogNodeOrder);
-        Object.keys(override).forEach((pid) => {
-            if (Array.isArray(override[pid]) && override[pid].length) {
-                order[pid] = override[pid].slice();
-            }
-        });
+        if (resolveConfigurationParcoursViewMode(mid, cid) === 'custom') {
+            Object.keys(override).forEach((pid) => {
+                if (Array.isArray(override[pid]) && override[pid].length) {
+                    order[pid] = override[pid].slice();
+                }
+            });
+        }
         return { order, catalogNodes };
     }
 
@@ -649,29 +739,15 @@
         const pid = String(parentId || '').trim();
         const fromId = String(fromKey || '').trim();
         const toId = String(toKey || '').trim();
-        if (!mid || !cid || !pid || !fromId || !toId) return false;
+        if (!mid || !cid || !fromId || !toId) return false;
 
         const list = getConfigurationsForModel(mid);
         const idx = list.findIndex((c) => c.id === cid);
         if (idx < 0) return false;
 
         const { order, catalogNodes } = getMergedConfigurationCatalogNodeOrder(mid, cid);
-        const Core = global.UgapCatalogueNodesCore;
-        const TplTree = global.UgapConfiguratorTemplateTree;
-        const BTree = global.UgapBoatTemplateTree;
 
-        const catalogNodeHasChildren = (cnId) => {
-            const id = String(cnId || '').trim();
-            return (Core?.getChildren?.(catalogNodes, id) || []).length > 0;
-        };
-
-        let siblingList = Array.isArray(order[pid]) ? order[pid].slice() : [];
-        if (!siblingList.length && BTree?.orderedCatalogSiblingIds) {
-            siblingList = BTree.orderedCatalogSiblingIds(pid, catalogNodes, order);
-        }
-        if (catalogNodeHasChildren(pid) && TplTree?.getParcoursMixedSiblingIds) {
-            siblingList = TplTree.getParcoursMixedSiblingIds(pid, catalogNodes, { ...order, [pid]: siblingList });
-        }
+        const siblingList = resolveParcoursSiblingList(pid, catalogNodes, order);
 
         const fromIdx = siblingList.findIndex((id) => String(id) === fromId);
         const toIdx = siblingList.findIndex((id) => String(id) === toId);
@@ -681,7 +757,9 @@
         const cfg = { ...list[idx] };
         const nextOrder = normalizeCatalogNodeOrder(cfg.catalogNodeOrder);
         nextOrder[pid] = nextList;
+        if (!pid) nextOrder.root = nextList.slice();
         cfg.catalogNodeOrder = nextOrder;
+        cfg.parcoursViewMode = 'custom';
         list[idx] = cfg;
         writeConfigurationsForModel(mid, list);
         return true;
@@ -703,6 +781,12 @@
         renameConfiguration,
         deleteConfiguration,
         setDefaultConfiguration,
+        setConfigurationTemplateVariant,
+        setConfigurationParcoursViewMode,
+        resolveConfigurationParcoursViewMode,
+        configurationHasCustomParcoursOrder,
+        resolveConfigurationTemplateVariantId,
+        resolveDefaultTemplateVariantId,
         setModelBaseSlotPick,
         setConfigurationSlotPick,
         getMergedConfigurationCatalogNodeOrder,

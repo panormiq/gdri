@@ -22,7 +22,8 @@ $flowId = preg_replace('/[^a-f0-9]/i', '', (string) ($_GET['flowId'] ?? ''));
 $page_title = $flowId ? 'Éditer un agent' : 'Créer un agent';
 
 $extra_styles = [url('assets/css/agent-flow-canvas.css')];
-$extra_scripts = [url('assets/js/agent-flow/agent-canvas.js')];
+$agentCanvasJs = __DIR__ . '/../assets/js/agent-flow/agent-canvas.js';
+$extra_scripts = [url('assets/js/agent-flow/agent-canvas.js') . '?v=' . (is_file($agentCanvasJs) ? filemtime($agentCanvasJs) : time())];
 
 require_once __DIR__ . '/../includes/header.php';
 ?>
@@ -47,7 +48,7 @@ require_once __DIR__ . '/../includes/header.php';
     <div class="agent-editor-layout">
         <aside class="agent-palette">
             <h3 style="margin:0 0 12px; font-size:0.95rem; color:#e2e8f0;">Palette</h3>
-            <p class="text-muted small" style="margin:0 0 12px; color:#94a3b8;">Glisser ou cliquer pour ajouter un bloc.</p>
+            <p class="text-muted small" style="margin:0 0 12px; color:#94a3b8;">Glisser un bloc sur le canvas. Relier ensuite via les ports bleus (bas/droite).</p>
             <div id="agentPalette">Chargement…</div>
         </aside>
 

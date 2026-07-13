@@ -115,7 +115,11 @@
             .map((n) => String(n.id || '').trim())
             .filter(Boolean);
         const order = orderMap && typeof orderMap === 'object' ? orderMap : {};
-        const stored = Array.isArray(order[pid]) ? order[pid].map((x) => String(x || '').trim()).filter(Boolean) : [];
+        const stored = Array.isArray(order[pid])
+            ? order[pid].map((x) => String(x || '').trim()).filter(Boolean)
+            : (pid === '' && Array.isArray(order.root)
+                ? order.root.map((x) => String(x || '').trim()).filter(Boolean)
+                : []);
         if (!stored.length) return defaultIds;
         const valid = new Set(defaultIds);
         const out = [];
@@ -392,14 +396,16 @@
         const draft = getTemplateBateauCreateDraft();
         const catalogNodes = getCatalogNodesForTemplate();
         const pid = String(parentId || '').trim();
-        if (!Array.isArray(draft.catalogNodeOrder[pid]) || !draft.catalogNodeOrder[pid].length) {
-            draft.catalogNodeOrder[pid] = getOrderedSiblingIds(pid, catalogNodes, draft.catalogNodeOrder);
-        }
-        const list = draft.catalogNodeOrder[pid].slice();
+        const TplTree = global.UgapConfiguratorTemplateTree;
+        let list = TplTree?.getParcoursOrderedSiblings
+            ? TplTree.getParcoursOrderedSiblings(pid, catalogNodes, draft.catalogNodeOrder).slice()
+            : getOrderedSiblingIds(pid, catalogNodes, draft.catalogNodeOrder);
         const fromIdx = list.findIndex((id) => String(id) === String(fromKey));
         const toIdx = list.findIndex((id) => String(id) === String(toKey));
         if (fromIdx < 0 || toIdx < 0 || fromIdx === toIdx) return;
-        draft.catalogNodeOrder[pid] = reorderArrayByIndex(list, fromIdx, toIdx, mode);
+        list = reorderArrayByIndex(list, fromIdx, toIdx, mode);
+        draft.catalogNodeOrder[pid] = list;
+        if (!pid) draft.catalogNodeOrder.root = list.slice();
     }
 
     const tplMirrorDndState = { fromId: '', parentId: '' };
@@ -1214,7 +1220,7 @@
                             ${escapeHtml(reorderLabel)}
                         </button>
                         ${!variant?.isDefault ? `<button type="button" class="btn btn-outline btn-sm"
-                            data-tpl-variant-default="${tplIndex}" data-variant-id="${escapeHtml(vid)}">Défaut</button>` : ''}
+                            data-tpl-variant-default="${tplIndex}" data-variant-id="${escapeHtml(vid)}">${escapeHtml(PP.variantDefaultButton || 'Variante par défaut')}</button>` : ''}
                         ${standard ? '' : `<button type="button" class="btn btn-outline btn-sm ugap-template-card__variant-delete"
                             data-tpl-variant-delete="${tplIndex}" data-variant-id="${escapeHtml(vid)}" title="Supprimer">×</button>`}
                     </div>

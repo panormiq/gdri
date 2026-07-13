@@ -96,7 +96,7 @@ function buildDevisVariables({
     'ugap:devis.numero': buildDevisNumber(info, entrepriseId),
     'ugap:devis.date': formatDateFr(),
     'ugap:devis.nomCourt': String(devisShortName || '').trim(),
-    'ugap:devis.modele': String(model?.name || devisName || '').trim(),
+    'ugap:devis.modele': String(model?.baseLabel || model?.name || devisName || '').trim(),
     'ugap:devis.validite': String(info.validiteDevisJours || 30),
     'ugap:devis.subtotal': formatMoney(pricingData.subtotal),
     'ugap:devis.budget5Disponible': formatMoney(pricingData.budget5Percent),

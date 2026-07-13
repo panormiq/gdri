@@ -351,6 +351,185 @@
             || (/\bDF\d{2,4}/i.test(n) && /\bsuzuki|mercury|yamaha|honda\b/i.test(n));
     }
 
+    function isMotorTarifCatalogOption(opt) {
+        if (!opt || typeof opt !== 'object') return false;
+        if (isImportGeneratedBaseOption(opt)) return false;
+        return isMotorTarifName(opt.name);
+    }
+
+    function isBaseChoiceCatalogOption(opt) {
+        if (!opt || typeof opt !== 'object') return false;
+        if (isImportGeneratedBaseOption(opt)) return true;
+        if (opt.manualBaseOption === true || opt.isBaseOption === true) return true;
+        return opt.baseIncluded === true;
+    }
+
+    function isImportMotorBaseProductLabel(label) {
+        const n = String(label || '').replace(/\s+/g, ' ').trim();
+        if (!n) return false;
+        if (isMotorTarifName(n)) return false;
+        if (n.length > 80) return false;
+        return (
+            /\b(moteurs?|motorisation|suzuki|mercury|yamaha|honda|evinrude|tohatsu|yanmar|volvo)\b/i.test(n)
+            || /\b\d{2,4}\s*cv\b/i.test(n)
+            || /\bdf\s*\d{2,4}\b/i.test(n)
+        );
+    }
+
+    function isImportMotorBaseProductRow(bp) {
+        if (!bp || typeof bp !== 'object') return false;
+        if (isImportMotorBaseProductLabel(bp.label)) return true;
+        const key = String(bp.key || '');
+        return /__p\d+$/i.test(key) || /__model_\d+$/i.test(key) || /__[a-f0-9]{6,}$/i.test(key);
+    }
+
+    function isMotorBaseCatalogOption(opt) {
+        if (!opt || typeof opt !== 'object') return false;
+        if (!isBaseChoiceCatalogOption(opt)) return false;
+        if (isMotorTarifCatalogOption(opt)) return false;
+        const labels = [
+            opt.name,
+            opt.importExcelLabel,
+            opt.details,
+            opt.importOptionLabel,
+        ].map((x) => String(x || '').replace(/\s+/g, ' ').trim()).filter(Boolean);
+        if (labels.some((label) => isImportMotorBaseProductLabel(label))) return true;
+        const data = resolveData();
+        const bpId = String(opt?.importBaseProductId || '').trim();
+        const cid = String(opt?.id || '').trim();
+        const bps = Array.isArray(data?.importBaseProducts) ? data.importBaseProducts : [];
+        const bp = bps.find((row) => {
+            const id = String(row?.id || '').trim();
+            const catalogId = String(row?.catalogOptionId || '').trim();
+            return (bpId && id === bpId) || (cid && catalogId === cid);
+        });
+        if (bp && isImportMotorBaseProductRow(bp)) return true;
+        const cnId = String(opt?.catalogObjectId || '').trim();
+        if (cnId && isMotorCatalogNodeId(cnId) && isImportGeneratedBaseOption(opt)) return true;
+        const BAL = global.UgapBaseAdjLinks;
+        if (BAL?.findMotorNonSupplyAdjOptionIds) {
+            const linkedIds = BAL.findMotorNonSupplyAdjOptionIds(opt, data?.categories);
+            if (linkedIds.length) return true;
+        }
+        return false;
+    }
+
+    function isMotorCatalogNodeId(nodeId) {
+        const cnId = String(nodeId || '').trim();
+        if (!cnId) return false;
+        const nodes = resolveCatalogNodesForRuntime();
+        const Core = global.UgapCatalogueNodesCore;
+        const node = Core?.getNodeById?.(nodes, cnId);
+        return Core?.isMotorCatalogNodeLabel?.(node) === true;
+    }
+
+    function modelAppliesToImportBaseProduct(bp, modelId) {
+        const mid = String(modelId || '').trim();
+        if (!mid || !bp || typeof bp !== 'object') return false;
+        const modelIds = [...new Set((Array.isArray(bp.modelIds) ? bp.modelIds : [])
+            .map((x) => String(x || '').trim())
+            .filter(Boolean))];
+        if (modelIds.length) return modelIds.includes(mid);
+        return true;
+    }
+
+    /** IBP moteur publiées compatibles avec le modèle (hors filtre nœud catalogue). */
+    function collectMotorBaseCatalogOptionIdsForModel(modelId) {
+        const mid = String(modelId || '').trim();
+        if (!mid) return [];
+        const data = resolveData();
+        const ids = new Set();
+        const categories = Array.isArray(data?.categories) ? data.categories : [];
+        categories.forEach((cat) => {
+            (Array.isArray(cat?.options) ? cat.options : []).forEach((opt) => {
+                const oid = String(opt?.id || '').trim();
+                if (!oid || !isCompatible(opt, mid)) return;
+                if (isMotorBaseCatalogOption(opt)) ids.add(oid);
+            });
+        });
+        const model = (Array.isArray(data?.models) ? data.models : [])
+            .find((m) => String(m?.id || '').trim() === mid);
+        const motorLabel = String(model?.motorizationBase || '').trim().toLowerCase();
+        (Array.isArray(data?.importBaseProducts) ? data.importBaseProducts : []).forEach((bp) => {
+            if (!modelAppliesToImportBaseProduct(bp, mid)) return;
+            const cid = String(bp?.catalogOptionId || '').trim();
+            if (!cid) return;
+            const bpLabel = String(bp?.label || bp?.baseOptionName || '').trim().toLowerCase();
+            const isMotorBp = isImportMotorBaseProductRow(bp)
+                || isImportMotorBaseProductLabel(bp.label)
+                || isImportMotorBaseProductLabel(bp.baseOptionName)
+                || (motorLabel && (bpLabel === motorLabel || bpLabel.includes(motorLabel) || motorLabel.includes(bpLabel)));
+            if (!isMotorBp) return;
+            const opt = findOptionRecord(cid)?.option;
+            if (!opt || !isCompatible(opt, mid)) return;
+            ids.add(cid);
+        });
+        return Array.from(ids).filter(Boolean);
+    }
+
+    function getCatalogNodeForSlot(slot) {
+        const cnId = catalogNodeIdFromSlot(slot);
+        if (!cnId) return null;
+        const nodes = resolveCatalogNodesForRuntime();
+        const Core = global.UgapCatalogueNodesCore;
+        return Core?.getNodeById?.(nodes, cnId) || null;
+    }
+
+    function isMotorCatalogNode(slot) {
+        const node = getCatalogNodeForSlot(slot);
+        const Core = global.UgapCatalogueNodesCore;
+        return Core?.isMotorCatalogNodeLabel?.(node) === true;
+    }
+
+    function slotHidesMinorationInChoices(slot) {
+        const node = getCatalogNodeForSlot(slot);
+        const Core = global.UgapCatalogueNodesCore;
+        return Core?.resolveHideMinorationInChoices?.(node) === true;
+    }
+
+    function isMotorChoiceSlot(slot) {
+        return isMotorCatalogNode(slot);
+    }
+
+    function isMotorCatalogContainerSlot(slot) {
+        if (!isMotorCatalogNode(slot)) return false;
+        const cnId = catalogNodeIdFromSlot(slot);
+        if (!cnId) return false;
+        const nodes = resolveCatalogNodesForRuntime();
+        const Core = global.UgapCatalogueNodesCore;
+        return (Core?.getChildren?.(nodes, cnId) || []).some(
+            (child) => Core?.isMotorCatalogNodeLabel?.(child) === true
+        );
+    }
+
+    function isMotorGenericOptionCatalogSlot(slot) {
+        const node = getCatalogNodeForSlot(slot);
+        if (!node) return false;
+        const label = String(node.label || '').trim().toLowerCase().replace(/\s+/g, '_');
+        return label === 'option_catalogue' || label === 'option catalogue';
+    }
+
+    function isOptionOnMotorChoiceSlotNode(opt, slot) {
+        const cnId = catalogNodeIdFromSlot(slot);
+        if (!cnId) return true;
+        return String(opt?.catalogObjectId || '').trim() === cnId;
+    }
+
+    function isOptionOnSiblingMotorisationNode(opt, slot) {
+        const slotCnId = catalogNodeIdFromSlot(slot);
+        const optCnId = String(opt?.catalogObjectId || '').trim();
+        if (!slotCnId || !optCnId || optCnId === slotCnId) return false;
+        const nodes = resolveCatalogNodesForRuntime();
+        const Core = global.UgapCatalogueNodesCore;
+        const slotNode = getCatalogNodeForSlot(slot);
+        const optNode = Core?.getNodeById?.(nodes, optCnId);
+        if (!slotNode || !optNode) return false;
+        const slotParent = String(slotNode.parentId || '').trim();
+        const optParent = String(optNode.parentId || '').trim();
+        if (!slotParent || slotParent !== optParent) return false;
+        return Core?.isMotorCatalogNodeLabel?.(optNode) === true;
+    }
+
     function isCompatible(opt, modelId) {
         const comp = Array.isArray(opt?.compatibleModels) ? opt.compatibleModels.map(String) : [];
         return comp.includes(String(modelId || '').trim());
@@ -713,8 +892,16 @@
         const explicit = getExplicitPickIds(mid, slot);
         if (explicit.length) return explicit;
         const defaults = defaultBaseOptionIdsInSlot(mid, slot);
-        if (isMultiChoiceSlot(slot)) return defaults;
-        return defaults.length ? [defaults[0]] : [];
+        if (defaults.length) {
+            return isMultiChoiceSlot(slot) ? defaults : [defaults[0]];
+        }
+        if (isMotorChoiceSlot(slot)) {
+            const motorIds = collectMotorBaseCatalogOptionIdsForModel(mid);
+            if (motorIds.length) {
+                return isMultiChoiceSlot(slot) ? motorIds : [motorIds[0]];
+            }
+        }
+        return [];
     }
 
     function getAssignedOptionIdAuto(modelId, slot) {
@@ -770,7 +957,27 @@
             if (baseOnly && !isSelectableBaseOption(opt, modelId)) return;
             ids.add(oid);
         });
-        const baseIds = new Set(defaultBaseOptionIdsInSlot(modelId, slot));
+        // IBP assignée au slot (ex. moteur de base) même si pas encore rattachée au nœud catalogue.
+        getAssignedOptionIds(modelId, slot).forEach((oid) => {
+            const opt = findOptionRecord(oid)?.option;
+            if (!opt || isMinorationOption(opt)) return;
+            if (!isCompatible(opt, modelId)) return;
+            if (baseOnly && !isSelectableBaseOption(opt, modelId)) return;
+            ids.add(oid);
+        });
+        if (isMotorChoiceSlot(slot)) {
+            collectMotorBaseCatalogOptionIdsForModel(modelId).forEach((oid) => {
+                const opt = findOptionRecord(oid)?.option;
+                if (!opt || isMinorationOption(opt)) return;
+                if (!isCompatible(opt, modelId)) return;
+                if (baseOnly && !isSelectableBaseOption(opt, modelId)) return;
+                ids.add(oid);
+            });
+        }
+        const baseIds = new Set([
+            ...defaultBaseOptionIdsInSlot(modelId, slot),
+            ...(isMotorChoiceSlot(slot) ? collectMotorBaseCatalogOptionIdsForModel(modelId) : []),
+        ]);
         const models = Array.isArray(getData()?.models) ? getData().models : [];
         const ODN = global.UgapOptionDisplayName;
         return Array.from(ids).map((oid) => {
@@ -803,7 +1010,11 @@
             .map((n) => String(n.id || '').trim())
             .filter(Boolean);
         const order = orderMap && typeof orderMap === 'object' ? orderMap : {};
-        const stored = Array.isArray(order[pid]) ? order[pid].map((x) => String(x || '').trim()).filter(Boolean) : [];
+        const stored = Array.isArray(order[pid])
+            ? order[pid].map((x) => String(x || '').trim()).filter(Boolean)
+            : (pid === '' && Array.isArray(order.root)
+                ? order.root.map((x) => String(x || '').trim()).filter(Boolean)
+                : []);
         if (!stored.length) return defaultIds;
         const valid = new Set(defaultIds);
         const out = [];
@@ -816,12 +1027,23 @@
         return out;
     }
 
-    function getTemplateCatalogParcours(tpl) {
+    function getTemplateCatalogParcours(tpl, variantId) {
         const snap = tpl?.snapshot && typeof tpl.snapshot === 'object' ? tpl.snapshot : {};
         const catalogNodes = resolveCatalogNodesForRuntime();
         const Tree = global.UgapBoatTemplateTree;
         const templateId = String(tpl?.id || '').trim();
         const St = global.UgapBateauBaseLcState;
+        const vid = String(variantId || '').trim();
+        if (templateId && vid && St?.getMergedTemplateVariantCatalogNodeOrder) {
+            const merged = St.getMergedTemplateVariantCatalogNodeOrder(templateId, vid);
+            if (merged?.order && Object.keys(merged.order).length) {
+                return {
+                    catalogNodes: merged.catalogNodes?.length ? merged.catalogNodes : catalogNodes,
+                    order: merged.order,
+                    included: merged.included,
+                };
+            }
+        }
         const variants = Array.isArray(tpl?.variants) ? tpl.variants : [];
         const stdVariant = variants.find((v) => v?.isDefault === true
             || String(v?.label || '').trim().toLowerCase() === 'standard');
@@ -868,10 +1090,12 @@
             const merged = St.getMergedConfigurationCatalogNodeOrder(mid, cid);
             if (merged?.order) return merged.order;
         }
-        const baseOrder = getTemplateCatalogParcours(tpl).order;
+        const variantId = St?.resolveConfigurationTemplateVariantId?.(mid, cid) || '';
+        const baseOrder = getTemplateCatalogParcours(tpl, variantId).order;
         const cfg = resolveConfigurationById(mid, cid);
+        const useCustomView = St?.resolveConfigurationParcoursViewMode?.(mid, cid) === 'custom';
         const override = cfg?.catalogNodeOrder;
-        if (!override || typeof override !== 'object' || !Object.keys(override).length) {
+        if (!useCustomView || !override || typeof override !== 'object' || !Object.keys(override).length) {
             return baseOrder;
         }
         const Tree = global.UgapBoatTemplateTree;
@@ -882,7 +1106,7 @@
             }
         });
         if (Tree?.mergeCatalogNodeOrder) {
-            const { catalogNodes } = getTemplateCatalogParcours(tpl);
+            const { catalogNodes } = getTemplateCatalogParcours(tpl, variantId);
             order = Tree.mergeCatalogNodeOrder(catalogNodes, order);
         }
         return order;
@@ -1514,6 +1738,14 @@
         setPresetEditContext,
         clearConfiguratorContext,
         isMotorTarifName,
+        isMotorTarifCatalogOption,
+        isMotorBaseCatalogOption,
+        isMotorChoiceSlot,
+        isMotorCatalogContainerSlot,
+        isMotorGenericOptionCatalogSlot,
+        slotHidesMinorationInChoices,
+        isOptionOnMotorChoiceSlotNode,
+        isOptionOnSiblingMotorisationNode,
         isImportGeneratedBaseOption,
         isBaseForModel,
         optionMatchesSlot,

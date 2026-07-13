@@ -1,5 +1,5 @@
 /**
- * Section Paramétrage > Modèles — template de base + parcours personnalisés.
+ * Section Paramétrage > Modèles — postes catalogue, template de base et modèles (configurations).
  */
 (function initUgapModelesTab(global) {
     'use strict';
@@ -86,7 +86,7 @@
         const tpl = MBO()?.resolveBoatTemplateForModel?.(model);
         if (tpl) return String(tpl.label || tpl.id || '').trim() || '—';
         const templates = MBO()?.getTemplates?.() || [];
-        if (!templates.length) return 'Aucun parcours';
+        if (!templates.length) return 'Aucun template de base';
         return '—';
     }
 
@@ -108,23 +108,74 @@
         return `<select class="ugap-modeles-template-select" data-modeles-template="${esc(mid)}" title="Template de base du modèle">${options.join('')}</select>`;
     }
 
+    function renderViewModeSelectHtml(model, cfg) {
+        const mid = String(model?.id || '').trim();
+        const cid = String(cfg?.id || '').trim();
+        const ML = PL().modele || {};
+        const current = CFG()?.resolveConfigurationParcoursViewMode?.(mid, cid) || 'variant';
+        const hasCustom = CFG()?.configurationHasCustomParcoursOrder?.(cfg) === true;
+        const customLabel = hasCustom
+            ? `${ML.viewModeCustom || 'Personnalisé'} ✓`
+            : (ML.viewModeCustom || 'Personnalisé');
+        return `
+            <label class="ugap-modeles-config-variant-wrap ugap-modeles-config-view-wrap">
+                <span class="ugap-modeles-config-variant-label">${esc(ML.viewModeField || 'Vue parcours')}</span>
+                <select class="ugap-modeles-config-view-mode" data-model-id="${esc(mid)}" data-config-id="${esc(cid)}"
+                    title="${esc(ML.viewModeField || 'Vue parcours')}">
+                    <option value="variant"${current === 'variant' ? ' selected' : ''}>${esc(ML.viewModeVariant || 'Défaut (variante)')}</option>
+                    <option value="custom"${current === 'custom' ? ' selected' : ''}>${esc(customLabel)}</option>
+                </select>
+            </label>`;
+    }
+
+    function renderVariantSelectHtml(model, cfg) {
+        const mid = String(model?.id || '').trim();
+        const cid = String(cfg?.id || '').trim();
+        const ML = PL().modele || {};
+        const tplId = MBO()?.resolveBoatTemplateIdForModel?.(model) || '';
+        if (!tplId) {
+            return '';
+        }
+        const variants = CFG()?.getVariantsForTemplate?.(tplId) || [];
+        if (!variants.length) {
+            return '';
+        }
+        const current = CFG()?.resolveConfigurationTemplateVariantId?.(mid, cid) || '';
+        const options = variants.map((v) => {
+            const id = String(v?.id || '').trim();
+            const label = String(v?.label || id).trim();
+            const defHint = v?.isDefault ? ' (défaut template)' : '';
+            const sel = id === current ? ' selected' : '';
+            return `<option value="${esc(id)}"${sel}>${esc(label)}${esc(defHint)}</option>`;
+        });
+        return `
+            <label class="ugap-modeles-config-variant-wrap">
+                <span class="ugap-modeles-config-variant-label">${esc(ML.variantField || 'Variante parcours')}</span>
+                <select class="ugap-modeles-config-variant" data-model-id="${esc(mid)}" data-config-id="${esc(cid)}"
+                    title="${esc(ML.variantField || 'Variante parcours du template de base')}">${options.join('')}</select>
+            </label>`;
+    }
+
     function renderConfigurationsHtml(model) {
         const mid = String(model?.id || '').trim();
         const configs = CFG()?.getConfigurationsForModel?.(mid) || [];
-        const PP = PL().parcoursPerso || {};
+        const ML = PL().modele || {};
         if (!configs.length) {
-            return `<p class="ugap-modeles-config-empty">${esc(PP.empty || 'Aucun parcours personnalisé.')}</p>`;
+            return `<p class="ugap-modeles-config-empty">${esc(ML.empty || 'Aucun modèle.')}</p>`;
         }
         return configs.map((cfg) => {
             const st = MBO()?.getConfigurationStatus?.(model, cfg.id) || { filledCount: 0, totalSlots: 0 };
             const filled = Number(st.filledCount) || 0;
             const total = Number(st.totalSlots) || 0;
             const complete = total > 0 && filled >= total;
+            const viewMode = CFG()?.resolveConfigurationParcoursViewMode?.(mid, cfg.id) || 'variant';
             return `
                 <div class="ugap-modeles-config-row" data-config-id="${esc(cfg.id)}">
                     <div class="ugap-modeles-config-row__main">
                         <input type="text" class="ugap-modeles-config-name" data-model-id="${esc(mid)}" data-config-id="${esc(cfg.id)}"
-                            value="${esc(cfg.label)}" title="Nom du parcours personnalisé">
+                            value="${esc(cfg.label)}" title="${esc(ML.nameTitle || 'Nom du modèle')}">
+                        ${renderViewModeSelectHtml(model, cfg)}
+                        ${renderVariantSelectHtml(model, cfg)}
                         <span class="ugap-modeles-config-status ${complete ? 'is-complete' : 'is-partial'}">
                             ${filled}/${total} option${total !== 1 ? 's' : ''}
                         </span>
@@ -132,8 +183,9 @@
                     </div>
                     <div class="ugap-modeles-config-row__actions">
                         <button type="button" class="btn btn-primary btn-sm" data-modeles-preset="${esc(mid)}" data-config-id="${esc(cfg.id)}">
-                            ${esc(PP.pickOptions || 'Choisir les options')}
+                            ${esc(ML.pickOptions || 'Choisir les options')}
                         </button>
+                        ${viewMode === 'custom' ? `<button type="button" class="btn btn-outline btn-sm" data-modeles-reorder="${esc(mid)}" data-config-id="${esc(cfg.id)}">${esc(ML.reorderParcours || 'Réordonner')}</button>` : ''}
                         ${!cfg.isDefault ? `<button type="button" class="btn btn-outline btn-sm" data-modeles-set-default="${esc(mid)}" data-config-id="${esc(cfg.id)}">Défaut</button>` : ''}
                         <button type="button" class="btn btn-outline btn-sm ugap-modeles-config-delete" data-model-id="${esc(mid)}" data-config-id="${esc(cfg.id)}" title="Supprimer">×</button>
                     </div>
@@ -144,7 +196,6 @@
     function renderModelCard(model) {
         const mid = String(model?.id || '').trim();
         const ML = PL().modele || {};
-        const PP = PL().parcoursPerso || {};
         const baseStatus = MBO()?.getStatus?.(model) || { missingCount: 0, slots: [] };
         const missing = Number(baseStatus.missingCount) || 0;
         return `
@@ -166,8 +217,8 @@
                 </div>
                 <div class="ugap-modeles-card__configs">
                     <div class="ugap-modeles-card__configs-head">
-                        <strong>${esc(PP.title || 'Parcours personnalisés')}</strong>
-                        <button type="button" class="btn btn-outline btn-sm" data-modeles-add-config="${esc(mid)}">+ ${esc(PP.create || 'Ajouter')}</button>
+                        <strong>${esc(ML.title || 'Modèles')}</strong>
+                        <button type="button" class="btn btn-outline btn-sm" data-modeles-add-config="${esc(mid)}">+ ${esc(ML.create || 'Ajouter un modèle')}</button>
                     </div>
                     <div class="ugap-modeles-config-list">${renderConfigurationsHtml(model)}</div>
                 </div>
@@ -183,13 +234,14 @@
         const models = getFilteredModels();
         const count = models.length;
         const total = getModels().length;
+        const ML = PL().modele || {};
         return `
             <div class="ugap-modeles-cards-shell" data-ugap-modeles-cards="1">
                 <div class="ugap-modeles-cards-toolbar">
                     <div>
                         <h2 style="margin:0 0 4px;">Modèles</h2>
                         <p style="margin:0;font-size:13px;color:#64748b;">
-                            Catalogue importé par poste. Choisissez un <strong>template de base</strong>, puis créez des <strong>parcours personnalisés</strong> (options par configuration).
+                            ${ML.tabDescription || 'Catalogue importé par poste. Choisissez un <strong>template de base</strong>, puis créez des <strong>modèles</strong> (options par configuration).'}
                         </p>
                     </div>
                     <input type="search" id="ugap-modeles-search" class="ugap-modeles-search" placeholder="Modèle, motorisation…"
@@ -250,6 +302,16 @@
             refreshEditorParcours();
         };
         const mid = String(model?.id || '').trim();
+        if (state.editMode === 'preset_reorder' && state.editingConfigId) {
+            CFG()?.setConfigurationParcoursViewMode?.(mid, state.editingConfigId, 'custom');
+            MBO()?.setPresetEditContext?.(mid, state.editingConfigId);
+            if (!bridge?.renderModelPresetReorderParcours) {
+                mount.innerHTML = '<p class="ugap-param-placeholder">Éditeur réordonnancement indisponible.</p>';
+                return;
+            }
+            bridge.renderModelPresetReorderParcours(model, state.editingConfigId, mount, { onChanged });
+            return;
+        }
         if (state.editMode === 'preset' && state.editingConfigId) {
             MBO()?.setPresetEditContext?.(mid, state.editingConfigId);
             if (!bridge?.renderModelPresetParcours) {
@@ -322,8 +384,12 @@
 
         const mid = String(modelId || '').trim();
         state.editingModelId = mid;
-        state.editMode = mode === 'preset' ? 'preset' : 'diagnostic';
-        state.editingConfigId = state.editMode === 'preset'
+        state.editMode = mode === 'preset'
+            ? 'preset'
+            : mode === 'preset_reorder'
+                ? 'preset_reorder'
+                : 'diagnostic';
+        state.editingConfigId = (state.editMode === 'preset' || state.editMode === 'preset_reorder')
             ? String(configId || '').trim()
             : '';
 
@@ -331,11 +397,17 @@
         const cfg = state.editingConfigId
             ? CFG()?.getConfigurationById?.(mid, state.editingConfigId)
             : null;
-        const PP = PL().parcoursPerso || {};
+        const ML = PL().modele || {};
         const TB = PL().templateDeBase || {};
         let title = 'Diagnostic options de base';
         if (state.editMode === 'preset') {
-            title = `${PP.singular ? PP.singular[0].toUpperCase() + PP.singular.slice(1) : 'Parcours'} « ${esc(cfg?.label || state.editingConfigId)} » — options`;
+            const sing = String(ML.singular || 'modèle').trim();
+            const cap = sing ? sing.charAt(0).toUpperCase() + sing.slice(1) : 'Modèle';
+            title = `${cap} « ${esc(cfg?.label || state.editingConfigId)} » — options`;
+        } else if (state.editMode === 'preset_reorder') {
+            const sing = String(ML.singular || 'modèle').trim();
+            const cap = sing ? sing.charAt(0).toUpperCase() + sing.slice(1) : 'Modèle';
+            title = `${cap} « ${esc(cfg?.label || state.editingConfigId)} » — ordre du parcours`;
         }
 
         let bodyHtml = '';
@@ -352,9 +424,11 @@
                     ${esc(model.name || mid)} · Poste ${esc(model.posteNumber ?? '—')} · ${esc(model.motorizationBase || '—')}
                 </p>
             </div>`;
-        hintEl.innerHTML = state.editMode === 'preset'
-            ? esc(PP.pickHint || 'Cliquez sur une ligne pour choisir une option.')
-            : 'Slots sans option de base détectée — diagnostic uniquement.';
+        hintEl.innerHTML = state.editMode === 'preset_reorder'
+            ? esc(ML.reorderHint || 'Glissez les blocs pour adapter l’ordre d’affichage de ce modèle.')
+            : state.editMode === 'preset'
+                ? esc(ML.pickHint || 'Cliquez sur une ligne pour choisir une option.')
+                : 'Slots sans option de base détectée — diagnostic uniquement.';
         bodyEl.innerHTML = bodyHtml;
 
         modal.hidden = false;
@@ -371,10 +445,13 @@
             if (state.editMode === 'preset' && state.editingConfigId) {
                 const ok = await CFG()?.persistModelConfigurationsOnly?.();
                 if (ok === false) return;
+            } else if (state.editMode === 'preset_reorder' && state.editingConfigId) {
+                const ok = await CFG()?.persistModelConfigurationsOnly?.();
+                if (ok === false) return;
             } else if (CFG()?.persistModelBaseSlotPicksOnly) {
                 await CFG().persistModelBaseSlotPicksOnly();
             }
-            global.showAlert?.('Parcours enregistré.', 'success');
+            global.showAlert?.(PL().modele?.saved || 'Modèle enregistré.', 'success');
             refreshCards();
             closeEditor();
         } catch (err) {
@@ -399,8 +476,8 @@
     }
 
     function promptConfigurationName(defaultName) {
-        const PP = PL().parcoursPerso || {};
-        const name = global.prompt(`Nom du ${PP.singular || 'parcours personnalisé'} :`, defaultName || 'UGAP');
+        const ML = PL().modele || {};
+        const name = global.prompt(`Nom du ${ML.singular || 'modèle'} :`, defaultName || 'UGAP');
         if (name == null) return null;
         const trimmed = String(name).trim();
         return trimmed || null;
@@ -492,6 +569,25 @@
         mount.dataset.modelesBound = '1';
 
         mount.addEventListener('change', (ev) => {
+            const viewModeSel = ev.target.closest('.ugap-modeles-config-view-mode');
+            if (viewModeSel) {
+                const mid = String(viewModeSel.getAttribute('data-model-id') || '').trim();
+                const cid = String(viewModeSel.getAttribute('data-config-id') || '').trim();
+                const mode = String(viewModeSel.value || '').trim();
+                if (!mid || !cid) return;
+                CFG()?.setConfigurationParcoursViewMode?.(mid, cid, mode);
+                refreshCards();
+                return;
+            }
+            const variantSel = ev.target.closest('.ugap-modeles-config-variant');
+            if (variantSel) {
+                const mid = String(variantSel.getAttribute('data-model-id') || '').trim();
+                const cid = String(variantSel.getAttribute('data-config-id') || '').trim();
+                const vid = String(variantSel.value || '').trim();
+                if (!mid || !cid || !vid) return;
+                CFG()?.setConfigurationTemplateVariant?.(mid, cid, vid);
+                return;
+            }
             const sel = ev.target.closest('.ugap-modeles-template-select');
             if (!sel) return;
             const mid = String(sel.getAttribute('data-modeles-template') || '').trim();
@@ -536,10 +632,27 @@
                     const cfg = CFG()?.createConfiguration?.(mid, name);
                     refreshCards();
                     if (cfg?.id) openEditor(mid, 'preset', cfg.id);
-                    global.showAlert?.('Parcours personnalisé créé.', 'success');
+                    global.showAlert?.(PL().modele?.created || 'Modèle créé.', 'success');
                 } catch (err) {
                     global.showAlert?.(err?.message || 'Erreur création configuration', 'error');
                 }
+                return;
+            }
+
+            const reorderBtn = ev.target.closest('[data-modeles-reorder]');
+            if (reorderBtn) {
+                void (async () => {
+                    try {
+                        await ensureLoaded();
+                        openEditor(
+                            String(reorderBtn.getAttribute('data-modeles-reorder') || '').trim(),
+                            'preset_reorder',
+                            String(reorderBtn.getAttribute('data-config-id') || '').trim()
+                        );
+                    } catch (err) {
+                        global.showAlert?.(err?.message || 'Erreur chargement', 'error');
+                    }
+                })();
                 return;
             }
 
@@ -587,7 +700,7 @@
             if (delBtn) {
                 const mid = String(delBtn.getAttribute('data-model-id') || '').trim();
                 const cid = String(delBtn.getAttribute('data-config-id') || '').trim();
-                if (!global.confirm('Supprimer ce parcours personnalisé ?')) return;
+                if (!global.confirm(PL().modele?.deletedConfirm || 'Supprimer ce modèle ?')) return;
                 CFG()?.deleteConfiguration?.(mid, cid);
                 if (state.editingConfigId === cid) closeEditor();
                 refreshCards();
