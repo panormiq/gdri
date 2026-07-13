@@ -137,7 +137,7 @@ const globalLimiter = rateLimit({
       return true;
     }
     // Test batch dataset (route authentifiée JWT, usage admin ponctuel)
-    if (req.path && req.path.includes('/analyse/test-dataset')) {
+    if (req.path && req.path.includes('/facebook/test-dataset')) {
       return true;
     }
     return false;

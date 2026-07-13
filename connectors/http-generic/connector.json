@@ -1,0 +1,136 @@
+{
+  "id": "http-generic",
+  "name": "HTTP générique",
+  "version": "1.0.0",
+  "author": "GDR-Innovation",
+  "description": "Webhook entrant, poll HTTP sortant et émission POST — connecteur déclaratif pour APIs REST simples.",
+  "direction": "bidirectional",
+  "compatiblePlatform": ">=1.0.0",
+  "capabilities": [
+    "ingest.push",
+    "ingest.poll",
+    "emit.http"
+  ],
+  "credentials": {
+    "type": "api_key",
+    "fields": ["bearerToken", "apiKeyHeader", "apiKeyValue", "basicUser", "basicPass", "webhookSecret"]
+  },
+  "configSchema": {
+    "type": "object",
+    "properties": {
+      "pollIntervalMinutes": {
+        "type": "number",
+        "title": "Intervalle de poll (minutes)",
+        "minimum": 1,
+        "default": 5
+      },
+      "pollUrl": {
+        "type": "string",
+        "title": "URL de poll (GET)",
+        "format": "uri"
+      },
+      "pollMethod": {
+        "type": "string",
+        "title": "Méthode poll",
+        "enum": ["GET", "POST"],
+        "default": "GET"
+      },
+      "emitUrl": {
+        "type": "string",
+        "title": "URL d'émission (POST)",
+        "format": "uri"
+      },
+      "emitMethod": {
+        "type": "string",
+        "title": "Méthode emit",
+        "enum": ["POST", "PUT", "PATCH"],
+        "default": "POST"
+      },
+      "webhookVerify": {
+        "type": "object",
+        "title": "Vérification webhook",
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": ["none", "header-secret"],
+            "default": "none"
+          },
+          "header": {
+            "type": "string",
+            "default": "X-Webhook-Secret"
+          },
+          "secret": {
+            "type": "string",
+            "format": "secret"
+          }
+        }
+      }
+    }
+  },
+  "operations": {
+    "ingest.push": {
+      "description": "POST /api/connectors/webhook/:instanceId"
+    },
+    "ingest.poll": {
+      "description": "Lecture périodique de pollUrl"
+    },
+    "emit.http": {
+      "description": "Envoi JSON vers emitUrl"
+    }
+  },
+  "presets": [
+    {
+      "id": "webhook-simple",
+      "name": "Webhook simple",
+      "description": "Réception HTTP — le tiers POST vers GDRI",
+      "ingestModes": ["push"],
+      "settings": {
+        "webhookVerify": { "type": "none" }
+      },
+      "mapping": {
+        "text": "message",
+        "author.name": "user.name",
+        "author.email": "user.email",
+        "sourceRef": "id"
+      }
+    },
+    {
+      "id": "crm-ticket",
+      "name": "CRM tickets",
+      "description": "Webhook + poll API tickets avec réponse HTTP",
+      "ingestModes": ["push", "poll"],
+      "settings": {
+        "pollIntervalMinutes": 5,
+        "pollMethod": "GET",
+        "emitMethod": "POST",
+        "webhookVerify": { "type": "header-secret", "header": "X-Webhook-Secret" }
+      },
+      "mapping": {
+        "text": "body",
+        "author.name": "contact.name",
+        "author.email": "contact.email",
+        "sourceRef": "ticket_id"
+      },
+      "emitBody": {
+        "reply": "{{message.text}}",
+        "ticket_id": "{{message.sourceRef}}"
+      }
+    },
+    {
+      "id": "api-poll-only",
+      "name": "API poll seule",
+      "description": "Lecture périodique d'une API REST (sans webhook)",
+      "ingestModes": ["poll"],
+      "settings": {
+        "pollIntervalMinutes": 5,
+        "pollMethod": "GET"
+      },
+      "mapping": {
+        "text": "message",
+        "author.name": "user.name",
+        "sourceRef": "id"
+      }
+    }
+  ],
+  "permissions": ["network"]
+}

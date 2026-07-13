@@ -1,0 +1,46 @@
+{
+  "id": "mail-out",
+  "name": "Mail sortant",
+  "version": "1.0.0",
+  "author": "GDR-Innovation",
+  "description": "Envoi d'emails via SMTP (compte infra Mail de l'entité).",
+  "direction": "output",
+  "compatiblePlatform": ">=1.0.0",
+  "capabilities": [
+    "emit.mail"
+  ],
+  "credentials": {
+    "type": "basic",
+    "inheritsFrom": "mail-infra",
+    "fields": ["accountRef"]
+  },
+  "configSchema": {
+    "type": "object",
+    "properties": {
+      "accountRef": {
+        "type": "string",
+        "title": "Compte mail (infra)",
+        "description": "Compte SMTP configuré dans Paramètres > Comptes mail"
+      },
+      "defaultSubjectPrefix": {
+        "type": "string",
+        "title": "Préfixe sujet (optionnel)",
+        "default": ""
+      }
+    },
+    "required": ["accountRef"]
+  },
+  "operations": {
+    "emit.mail": {
+      "description": "Envoi SMTP via infra Mail"
+    }
+  },
+  "instanceDefaults": {
+    "ingestModes": [],
+    "settings": {
+      "defaultSubjectPrefix": ""
+    },
+    "mapping": {}
+  },
+  "permissions": ["network", "secrets", "entity-data"]
+}

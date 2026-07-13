@@ -93,7 +93,22 @@ a:hover {
     justify-content: space-between;
     align-items: center;
     height: 100%;
-    padding: 20px var(--spacing-md) 0;
+    padding: 0 var(--spacing-md);
+}
+
+.mode-context-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.25rem 0.65rem;
+    border-radius: 999px;
+    font-size: 0.72rem;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+    color: #0d47a1;
+    background: #e3f2fd;
+    border: 1px solid #90caf9;
+    white-space: nowrap;
 }
 
 .logo {
@@ -645,11 +660,36 @@ main {
 }
 
 /* Cards */
+.hub-cards-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, 300px);
+    justify-content: start;
+    gap: 1.25rem;
+    padding: 0.25rem 0;
+}
+
+.hub-cards-grid > .card,
+.hub-cards-grid > .application-card,
+.hub-cards-grid > .legacy-card,
+.hub-cards-grid > .entity-config-card,
+.hub-cards-grid > .role-card,
+.hub-cards-grid > .account-module-card,
+.hub-cards-grid > .admin-module-card,
+.hub-cards-grid > .module-card {
+    width: 100%;
+}
+
 .cards-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-    gap: var(--spacing-lg);
+    grid-template-columns: repeat(auto-fill, 300px);
+    justify-content: start;
+    gap: 1.25rem;
+    padding: 0.25rem 0;
     margin-top: var(--spacing-xl);
+}
+
+.cards-grid > .card {
+    width: 100%;
 }
 
 .card {

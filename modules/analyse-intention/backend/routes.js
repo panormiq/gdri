@@ -1,5 +1,6 @@
 /**
- * Routes du module Analyse d'intention
+ * Routes du module Analyse d'intention (générique).
+ * Les routes Facebook (agent-config, suggest-reply, test-dataset) sont dans /api/facebook/*.
  * Fichier : modules/analyse-intention/backend/routes.js
  */
 
@@ -9,14 +10,11 @@ const path = require('path');
 const database = require(path.join(__dirname, '../../../backend/config/database'));
 const { authenticateJWT } = require(path.join(__dirname, '../../../backend/config/jwt'));
 const IntentionService = require('./services/IntentionService');
-const DatasetTestService = require('./services/DatasetTestService');
-const FacebookIntentionService = require(path.join(__dirname, '../../../backend/modules/analyse-intention/services/IntentionService'));
-const FacebookAIService = require(path.join(__dirname, '../../../backend/modules/analyse-intention/services/AIService'));
 const iaModule = require(path.join(__dirname, '../../ia/backend'));
+const PromptService = require(path.join(__dirname, '../../prompt/backend/services/PromptService'));
+const facebookAgentRoutes = require(path.join(__dirname, '../../../backend/modules/facebook/routes/agentRoutes'));
 
 let intentionService = null;
-let facebookIntentionService = null;
-let datasetTestService = null;
 
 function getIAClient() {
   return iaModule.getIAClient();
@@ -25,32 +23,32 @@ function getIAClient() {
 function getIntentionService() {
   if (!intentionService) {
     intentionService = new IntentionService(database);
-    intentionService.setAIService(getIAClient());
+    intentionService.setPromptServiceFactory(async (entityId) => {
+      if (entityId) {
+        return PromptService.forEntity(entityId);
+      }
+      return PromptService.global();
+    });
   }
   return intentionService;
 }
 
-function getFacebookIntentionService() {
-  if (!facebookIntentionService) {
-    const aiService = new FacebookAIService({
-      ollamaUrl: process.env.OLLAMA_URL || 'http://localhost:11434',
-      model: process.env.OLLAMA_MODEL || 'mistral:latest'
-    });
-    facebookIntentionService = new FacebookIntentionService(database);
-    facebookIntentionService.setAIService(aiService);
+/** Routes Facebook déléguées (agent-config, suggest-reply) — tests : /api/facebook/test-dataset uniquement */
+router.use((req, res, next) => {
+  const deprecated = [
+    '/agent-config',
+    '/suggest-reply'
+  ];
+  const pathOnly = req.path.split('?')[0];
+  if (deprecated.some((p) => pathOnly === p || pathOnly.startsWith(p + '/'))) {
+    res.set('X-Deprecated-Route', 'Use /api/facebook' + pathOnly);
+    return facebookAgentRoutes(req, res, next);
   }
-  return facebookIntentionService;
-}
-
-function getDatasetTestService() {
-  if (!datasetTestService) {
-    datasetTestService = new DatasetTestService(getFacebookIntentionService(), database);
-  }
-  return datasetTestService;
-}
+  return next();
+});
 
 /**
- * POST /api/analyse - Analyser les intentions d'un ou plusieurs messages
+ * POST /api/analyse - Analyser les intentions (usage générique)
  */
 router.post('/', async (req, res) => {
   try {
@@ -69,12 +67,15 @@ router.post('/', async (req, res) => {
 
     if (entityId) {
       try {
-        const configCollection = database.getCollection('analyse_intention_configs');
-        const config = await configCollection.findOne({ entrepriseId: entityId });
-
-        if (config && config.config) {
-          basePrompt = config.config.basePrompt || config.config.base_prompt || null;
-          customIntentions = config.config.customIntentions || config.config.intentions || [];
+        const { FacebookAgentConfigService } = require(path.join(
+          __dirname,
+          '../../../backend/modules/facebook/services/FacebookAgentConfigService'
+        ));
+        const fbConfig = new FacebookAgentConfigService(database);
+        const config = await fbConfig.loadConfig(entityId);
+        if (config) {
+          basePrompt = config.basePrompt || config.base_prompt || null;
+          customIntentions = config.customIntentions || config.intentions || [];
         }
       } catch (configError) {
         console.warn('⚠️  Erreur lors du chargement de la configuration:', configError);
@@ -82,7 +83,9 @@ router.post('/', async (req, res) => {
     }
 
     const service = getIntentionService();
-    const result = await service.analyzeIntentions(messages, basePrompt, customIntentions, customRules);
+    const result = await service.analyzeIntentions(messages, basePrompt, customIntentions, customRules, {
+      entityId
+    });
 
     if (result.success) {
       res.json({
@@ -106,20 +109,14 @@ router.post('/', async (req, res) => {
   }
 });
 
-/**
- * GET /api/analyse - Test simple
- */
 router.get('/', (req, res) => {
   res.json({
     success: true,
-    message: 'Module analyse-intention fonctionne',
-    routes: ['/config', '/test', '/agent-config']
+    message: 'Module analyse-intention (générique). Config Facebook : /api/facebook/agent-config',
+    routes: ['/config', '/test']
   });
 });
 
-/**
- * GET /api/analyse/config - Obtenir la configuration du module
- */
 router.get('/config', (req, res) => {
   try {
     const service = getIntentionService();
@@ -144,290 +141,20 @@ router.get('/config', (req, res) => {
   }
 });
 
-/**
- * GET /api/analyse/test - Tester la connexion Ollama
- */
-router.get('/test', async (req, res) => {
+/** @deprecated Utiliser GET /api/facebook/agent/test */
+router.get('/test', authenticateJWT, async (req, res) => {
   try {
-    const client = getIAClient();
-    const testResult = await client.testConnection();
-
+    const entrepriseId = req.user.entrepriseId;
+    const promptService = entrepriseId
+      ? await PromptService.forEntity(entrepriseId)
+      : PromptService.global();
+    const testResult = await promptService.testConnection();
     if (testResult.success) {
       res.json(testResult);
     } else {
       res.status(503).json(testResult);
     }
   } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: error.message
-    });
-  }
-});
-
-/**
- * GET /api/analyse/agent-config - Obtenir la configuration de l'agent IA
- */
-router.get('/agent-config', authenticateJWT, async (req, res) => {
-  try {
-    const entrepriseId = req.user.entrepriseId;
-    const pageId = req.query.pageId ? String(req.query.pageId) : null;
-
-    if (!entrepriseId) {
-      return res.json({
-        success: true,
-        data: {
-          basePrompt: '',
-          defaultEmail: '',
-          defaultEmails: [],
-          customIntentions: [],
-          defaultIntentionsEnabled: {},
-          smtp_profiles: {},
-          pageId: null,
-          reportFrequency: {}
-        }
-      });
-    }
-
-    const configCollection = database.getCollection('analyse_intention_configs');
-    let config = null;
-    if (pageId) {
-      config = await configCollection.findOne({
-        entrepriseId: entrepriseId,
-        pageId: pageId
-      });
-    }
-    if (!config) {
-      config = await configCollection.findOne({
-        entrepriseId: entrepriseId,
-        $or: [{ pageId: null }, { pageId: '' }, { pageId: { $exists: false } }]
-      });
-    }
-
-    if (!config || !config.config) {
-      return res.json({
-        success: true,
-        data: {
-          basePrompt: '',
-          defaultEmail: '',
-          defaultEmails: [],
-          customIntentions: [],
-          defaultIntentionsEnabled: {},
-          smtp_profiles: {},
-          pageId: pageId || null,
-          reportFrequency: {}
-        }
-      });
-    }
-
-    const rf = config.config.reportFrequency || {};
-    res.json({
-      success: true,
-      data: {
-        basePrompt: config.config.basePrompt || config.config.base_prompt || '',
-        defaultEmail: config.config.defaultEmail || config.config.default_email || '',
-        defaultEmails: Array.isArray(config.config.defaultEmails)
-          ? config.config.defaultEmails
-          : (Array.isArray(config.config.default_emails) ? config.config.default_emails : []),
-        customIntentions: config.config.customIntentions || config.config.intentions || [],
-        defaultIntentionsEnabled: config.config.defaultIntentionsEnabled || {},
-        smtp_profiles: config.config.smtp_profiles || config.config.smtpSettings || {},
-        pageId: config.pageId || null,
-        reportFrequency: {
-          urgentSchedule: rf.urgentSchedule,
-          urgentSendEmail: rf.urgentSendEmail !== false,
-          replyDailyHour: rf.replyDailyHour || '09:00',
-          replyDailyEnabled: rf.replyDailyEnabled !== false,
-          replyDailySendIfNoMessages: rf.replyDailySendIfNoMessages === true,
-          replyWeekDay: rf.replyWeekDay != null && rf.replyWeekDay !== '' ? String(rf.replyWeekDay) : '1',
-          replyWeeklyHour: rf.replyWeeklyHour || '09:00',
-          replyWeeklyEnabled: rf.replyWeeklyEnabled !== false,
-          replyWeeklySendIfNoMessages: rf.replyWeeklySendIfNoMessages === true,
-          replyMonthlyAnchor: rf.replyMonthlyAnchor === 'last' ? 'last' : 'first',
-          replyMonthlyHour: rf.replyMonthlyHour || '09:00',
-          replyMonthlyEnabled: rf.replyMonthlyEnabled !== false,
-          replyMonthlySendIfNoMessages: rf.replyMonthlySendIfNoMessages === true,
-          interactionFrequency: rf.interactionFrequency || 'daily',
-          interactionSendEmail: rf.interactionSendEmail === true,
-          skipReportIfNoNewMessages: rf.skipReportIfNoNewMessages === true
-        }
-      }
-    });
-  } catch (error) {
-    console.error('Erreur récupération config analyse-intention:', error);
-    res.status(500).json({
-      success: false,
-      message: error.message
-    });
-  }
-});
-
-/**
- * POST /api/analyse/agent-config - Sauvegarder la configuration de l'agent IA
- */
-router.post('/agent-config', authenticateJWT, async (req, res) => {
-  try {
-    const entrepriseId = req.user.entrepriseId;
-    const user_id = req.user.user_id;
-    const pageId = req.body.pageId != null && req.body.pageId !== '' ? String(req.body.pageId) : null;
-    const basePrompt = req.body.basePrompt || req.body.base_prompt || '';
-    const defaultEmail = req.body.defaultEmail || req.body.default_email || '';
-    const defaultEmailsRaw = req.body.defaultEmails || req.body.default_emails || [];
-    const defaultEmails = (Array.isArray(defaultEmailsRaw) ? defaultEmailsRaw : [defaultEmailsRaw])
-      .map((email) => String(email || '').trim().toLowerCase())
-      .filter(Boolean);
-    const customIntentions = req.body.customIntentions || req.body.intentions || [];
-    const defaultIntentionsEnabled = req.body.defaultIntentionsEnabled || {};
-    const smtp_profiles = req.body.smtp_profiles || req.body.smtpSettings || {};
-    const reportFrequency = req.body.reportFrequency || {};
-    const rf = reportFrequency;
-
-    if (!entrepriseId) {
-      return res.status(400).json({
-        success: false,
-        message: 'entrepriseId requis. Veuillez d\'abord créer/associer une entreprise à votre compte.'
-      });
-    }
-
-    const configCollection = database.getCollection('analyse_intention_configs');
-    const configToSave = {
-      basePrompt: basePrompt,
-      defaultEmail: defaultEmail,
-      defaultEmails: defaultEmails,
-      customIntentions: customIntentions,
-      defaultIntentionsEnabled: defaultIntentionsEnabled,
-      smtp_profiles: smtp_profiles,
-      reportFrequency: {
-        urgentSchedule: rf.urgentSchedule,
-        urgentSendEmail: rf.urgentSendEmail !== false,
-        replyDailyHour: rf.replyDailyHour || '09:00',
-        replyDailyEnabled: rf.replyDailyEnabled !== false,
-        replyDailySendIfNoMessages: rf.replyDailySendIfNoMessages === true,
-        replyWeekDay: rf.replyWeekDay != null && rf.replyWeekDay !== '' ? String(rf.replyWeekDay) : '1',
-        replyWeeklyHour: rf.replyWeeklyHour || '09:00',
-        replyWeeklyEnabled: rf.replyWeeklyEnabled !== false,
-        replyWeeklySendIfNoMessages: rf.replyWeeklySendIfNoMessages === true,
-        replyMonthlyAnchor: rf.replyMonthlyAnchor === 'last' ? 'last' : 'first',
-        replyMonthlyHour: rf.replyMonthlyHour || '09:00',
-        replyMonthlyEnabled: rf.replyMonthlyEnabled !== false,
-        replyMonthlySendIfNoMessages: rf.replyMonthlySendIfNoMessages === true,
-        interactionFrequency: rf.interactionFrequency || 'daily',
-        interactionSendEmail: rf.interactionSendEmail === true,
-        skipReportIfNoNewMessages: rf.skipReportIfNoNewMessages === true
-      }
-    };
-
-    let filter = { entrepriseId: entrepriseId };
-    if (pageId) {
-      filter.pageId = pageId;
-    } else {
-      filter.$or = [{ pageId: null }, { pageId: '' }, { pageId: { $exists: false } }];
-    }
-    const setPayload = {
-      entrepriseId: entrepriseId,
-      pageId: pageId != null ? pageId : null,
-      config: configToSave,
-      updated_at: new Date(),
-      updated_by: user_id
-    };
-    await configCollection.updateOne(filter, { $set: setPayload }, { upsert: true });
-
-    res.json({
-      success: true,
-      message: 'Configuration sauvegardée avec succès'
-    });
-  } catch (error) {
-    console.error('Erreur sauvegarde config analyse-intention:', error);
-    res.status(500).json({
-      success: false,
-      message: error.message
-    });
-  }
-});
-
-/**
- * GET /api/analyse/test-dataset - Infos sur le dataset de test (1000 emails)
- */
-router.get('/test-dataset', authenticateJWT, (req, res) => {
-  try {
-    const service = getDatasetTestService();
-    const info = service.getDatasetInfo();
-    res.json({ success: true, data: info });
-  } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
-  }
-});
-
-/**
- * POST /api/analyse/test-dataset - Analyser un lot du dataset (sans envoi de mail)
- */
-router.post('/test-dataset', authenticateJWT, async (req, res) => {
-  try {
-    const entrepriseId = req.user.entrepriseId;
-    const { offset = 0, limit = 1, pageId = null } = req.body || {};
-    console.log(`🧪 test-dataset batch offset=${offset} limit=${limit} entreprise=${entrepriseId || 'N/A'}`);
-    const service = getDatasetTestService();
-    const result = await service.analyzeBatch({
-      offset,
-      limit,
-      entrepriseId,
-      pageId: pageId != null && pageId !== '' ? String(pageId) : null
-    });
-    res.json(result);
-  } catch (error) {
-    console.error('Erreur test-dataset:', error);
-    res.status(500).json({ success: false, message: error.message });
-  }
-});
-
-/**
- * POST /api/analyse/suggest-reply
- */
-router.post('/suggest-reply', authenticateJWT, async (req, res) => {
-  try {
-    const { message, intentions = [] } = req.body || {};
-    if (!message || typeof message !== 'string' || !message.trim()) {
-      return res.status(400).json({
-        success: false,
-        message: 'Le paramètre "message" est requis'
-      });
-    }
-    const intentLabel = intentions.length ? ` (intentions détectées: ${intentions.join(', ')})` : '';
-    const prompt = `Tu es un assistant qui propose des réponses courtes et professionnelles pour une page Facebook / service client.
-
-Message reçu du client :
-"""
-${message.trim()}
-"""${intentLabel}
-
-Propose exactement 2 réponses possibles, courtes et adaptées. Réponds UNIQUEMENT avec le format suivant, sans autre texte avant ou après :
-Réponse A : [ta première proposition]
-Réponse B : [ta deuxième proposition]`;
-
-    const ai = getIAClient();
-    const result = await ai.sendAnalysisPrompt(prompt, { temperature: 0.6, max_tokens: 400 });
-    if (!result.success || !result.data || !result.data.response) {
-      return res.status(500).json({
-        success: false,
-        message: result.error?.message || 'L\'IA n\'a pas pu générer de suggestion'
-      });
-    }
-    const raw = (result.data.response || '').trim();
-    const suggestions = [];
-    const aMatch = raw.match(/R[eé]ponse\s*A\s*[:\-]\s*([\s\S]*?)(?=R[eé]ponse\s*B|$)/i);
-    const bMatch = raw.match(/R[eé]ponse\s*B\s*[:\-]\s*([\s\S]*?)$/im);
-    if (aMatch) suggestions.push(aMatch[1].trim().replace(/\n+/g, ' '));
-    if (bMatch) suggestions.push(bMatch[1].trim().replace(/\n+/g, ' '));
-    if (suggestions.length === 0) {
-      const oneLine = raw.split('\n')[0].trim();
-      if (oneLine) suggestions.push(oneLine);
-    }
-    res.json({
-      success: true,
-      suggestions: suggestions.length ? suggestions : ['']
-    });
-  } catch (error) {
-    console.error('Erreur suggest-reply:', error);
     res.status(500).json({
       success: false,
       message: error.message

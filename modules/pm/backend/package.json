@@ -1,0 +1,28 @@
+{
+  "name": "pm",
+  "displayName": "PM",
+  "version": "0.1.0",
+  "description": "Gestion de projet — inbox mail, cartes Kanban, liaison optionnelle GDERPI",
+  "icon": "📋",
+  "author": "GDR-Innovation",
+  "main": "index.js",
+  "enabled": true,
+  "routes": ["/api/pm"],
+  "type": "commonjs",
+  "dependencies": {
+    "imapflow": "^1.0.0"
+  },
+  "requiredServices": ["mail"],
+  "compatibleModules": ["gderpi", "annuaire"],
+  "compatibleVersion": ">=1.0.0",
+  "app": {
+    "id": "pm",
+    "label": "PM",
+    "description": "Suivi des demandes entrantes et des actions commerciales, avec lien GDERPI optionnel.",
+    "category": "operations",
+    "tags": ["projet", "kanban", "devis", "mail"],
+    "icon": "pm.svg",
+    "entryPath": "/modules/pm",
+    "configPath": "/modules/pm-config"
+  }
+}

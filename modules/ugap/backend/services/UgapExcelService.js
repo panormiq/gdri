@@ -7,6 +7,7 @@ const XLSX = require('xlsx');
 const path = require('path');
 const UgapImportAssignmentService = require('./UgapImportAssignmentService');
 const resolveImportLineKind = require('./excel-detect/resolveImportLineKind');
+const { detectRefUgapColumn, pickRefUgapFromRecapRow, formatUgapRefCell } = require('./excel-detect/detectRefUgapColumn');
 
 class UgapExcelService {
   static isCrossMarker(value) {
@@ -58,7 +59,7 @@ class UgapExcelService {
     };
   }
 
-  static extractBaseModelData(raw, modelCol, labelCol, priceClientCol, priceUgapCol, startRow) {
+  static extractBaseModelData(raw, modelCol, labelCol, priceClientCol, priceUgapCol, startRow, refUgapCol = -1) {
     const clientCol = priceClientCol > -1 ? priceClientCol : priceUgapCol;
     for (let r = startRow; r < raw.length; r++) {
       const row = raw[r] || [];
@@ -66,16 +67,24 @@ class UgapExcelService {
       if (!this.isCrossMarker(marker)) continue;
 
       const label = row[labelCol];
-      const labelStr = typeof label === 'string' ? label.trim() : '';
+      const labelStr = String(label ?? '').trim();
       if (!labelStr) continue;
 
       const priceClient = clientCol > -1 ? this.parsePrice(row[clientCol]) : 0;
       const priceUgap = priceUgapCol > -1 ? this.parsePrice(row[priceUgapCol]) : priceClient;
+      const refUgap = pickRefUgapFromRecapRow(row, {
+        refUgapCol,
+        modelCol,
+        labelCol,
+        priceClientCol,
+        priceUgapCol
+      });
       const parsed = this.parseBaseModelLabel(labelStr);
 
       return {
         rowIndex: r,
         label: labelStr,
+        refUgap,
         basePrice: priceClient > 0 ? priceClient : 0,
         priceClient: priceClient > 0 ? priceClient : 0,
         priceUgap: priceUgap > 0 ? priceUgap : 0,
@@ -89,6 +98,7 @@ class UgapExcelService {
     return {
       rowIndex: -1,
       label: '',
+      refUgap: '',
       basePrice: 0,
       priceClient: 0,
       priceUgap: 0,
@@ -173,6 +183,7 @@ class UgapExcelService {
     // Détection des colonnes de modèles via marqueurs X
     const modelCols = this.detectModelColumns(raw, structure.headerRowIndex);
     structure.modelCols = modelCols;
+    structure.refUgapCol = detectRefUgapColumn(raw, structure);
 
     return structure;
   }
@@ -519,7 +530,8 @@ class UgapExcelService {
         structure.labelCol,
         structure.priceClientCol,
         structure.priceUgapCol,
-        startRow
+        startRow,
+        structure.refUgapCol
       );
       if (baseData.rowIndex >= 0) {
         baseRowIndices.add(baseData.rowIndex);
@@ -533,6 +545,7 @@ class UgapExcelService {
         priceClient: baseData.priceClient,
         priceUgap: baseData.priceUgap,
         baseLabel: baseData.label || '',
+        refUgap: baseData.refUgap || '',
         motorizationBase: baseData.motorizationBase || '',
         posteNumber: baseData.posteNumber,
         defaultDeliveryMode: baseData.deliveryMode || ''
@@ -564,7 +577,7 @@ class UgapExcelService {
       const priceUgap = structure.priceUgapCol > -1 ? this.parsePrice(row[structure.priceUgapCol]) : priceClient;
       const refUgapRaw = structure.refUgapCol > -1 ? row[structure.refUgapCol] : null;
       const refUgap = (typeof refUgapRaw === 'string' || typeof refUgapRaw === 'number')
-        ? String(refUgapRaw).trim()
+        ? formatUgapRefCell(refUgapRaw)
         : '';
 
       const resolvedKind = resolveImportLineKind({ label: labelStr, refUgap });
@@ -610,6 +623,7 @@ class UgapExcelService {
       importOptions.push({
         id: `opt_${r}`,
         name: labelStr,
+        importExcelLabel: labelStr,
         priceClient: priceClient,
         priceUgap: priceUgap,
         refUgap: refUgap,
@@ -692,7 +706,8 @@ class UgapExcelService {
         structure.labelCol,
         structure.priceClientCol,
         structure.priceUgapCol,
-        startRow
+        startRow,
+        structure.refUgapCol
       );
       if (baseData.rowIndex >= 0) baseRowIndices.add(baseData.rowIndex);
       models.push({
@@ -777,7 +792,7 @@ class UgapExcelService {
         }
 
         const refRaw = structure.refUgapCol > -1 ? row[structure.refUgapCol] : null;
-        const refUgap = (typeof refRaw === 'string' || typeof refRaw === 'number') ? String(refRaw).trim() : '';
+        const refUgap = (typeof refRaw === 'string' || typeof refRaw === 'number') ? formatUgapRefCell(refRaw) : '';
         if (/^PR\s/i.test(labelStr)) {
           prCount += 1;
         } else if (isMinorationLine(labelStr, refUgap)) {
@@ -863,7 +878,7 @@ class UgapExcelService {
     const priceUgap = structure.priceUgapCol > -1 ? this.parsePrice(row[structure.priceUgapCol]) : priceClient;
     const refUgapRaw = structure.refUgapCol > -1 ? row[structure.refUgapCol] : null;
     const refUgap = (typeof refUgapRaw === 'string' || typeof refUgapRaw === 'number')
-      ? String(refUgapRaw).trim()
+      ? formatUgapRefCell(refUgapRaw)
       : '';
     const optionId = `opt_${rowIdx}`;
     const categoryName = this.determineCategory(labelStr);
@@ -886,12 +901,14 @@ class UgapExcelService {
       found.compatibleModels = Array.from(ids);
       if (!found.refUgap) found.refUgap = refUgap;
       if (!found.name) found.name = labelStr;
+      if (!String(found.importExcelLabel || '').trim()) found.importExcelLabel = labelStr;
       return { updated: true, created: false, optionId, categoryId: foundCategory?.id || null };
     }
 
     const newOption = {
       id: optionId,
       name: labelStr,
+      importExcelLabel: labelStr,
       priceClient,
       priceUgap,
       refUgap,

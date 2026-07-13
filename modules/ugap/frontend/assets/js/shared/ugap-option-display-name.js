@@ -187,8 +187,17 @@
         const models = Array.isArray(ctx?.models) ? ctx.models : [];
         const modelId = String(ctx?.modelId || '').trim();
 
+        const parsed = getParsedBaseReplacementLinks(opt);
+        const initialP = String(parsed?.initialProduct || '').trim();
+        const finalP = String(parsed?.finalProduct || '').trim();
+
         const custom = String(opt.importOptionLabel || '').trim();
-        if (custom && !isGenericBasePlaceholderLabel(custom)) return custom;
+        if (custom && !isGenericBasePlaceholderLabel(custom)) {
+            if (finalP && initialP && custom === initialP && !isGenericBasePlaceholderLabel(finalP)) {
+                return finalP;
+            }
+            return custom;
+        }
 
         if (isMotorBaseNonSupplyLabel(opt?.name)) {
             for (const model of resolveTargetModels(opt, models, modelId)) {
@@ -197,15 +206,19 @@
             }
         }
 
-        const parsed = getParsedBaseReplacementLinks(opt);
-        const initialP = String(parsed?.initialProduct || '').trim();
-        const finalP = String(parsed?.finalProduct || '').trim();
+        // Remplacement (MAJO) : afficher le nouveau produit, pas l'équipement de base remplacé.
+        if (finalP && initialP) {
+            if (!isGenericBasePlaceholderLabel(finalP)) return finalP;
+        }
         if (initialP && !isGenericBasePlaceholderLabel(initialP)) return initialP;
         if (finalP && !isGenericBasePlaceholderLabel(finalP)) return finalP;
 
         const rep = parseReplacementFromLabel(opt?.name);
         const repO = String(rep?.replacedObject || '').trim();
         const newO = String(rep?.newObject || '').trim();
+        if (newO && repO) {
+            if (!isGenericBasePlaceholderLabel(newO)) return newO;
+        }
         if (repO && !isGenericBasePlaceholderLabel(repO)) return repO;
         if (newO && !isGenericBasePlaceholderLabel(newO)) return newO;
 
@@ -269,8 +282,16 @@
 
         const repObj = String(line.replacedObject || '').trim();
         const newObj = String(line.newObject || '').trim();
-        if (repObj && !isGenericBasePlaceholderLabel(repObj)) return repObj;
-        if (newObj && !isGenericBasePlaceholderLabel(newObj)) return newObj;
+        if (lineKind === 'majoration') {
+            if (newObj && !isGenericBasePlaceholderLabel(newObj)) return newObj;
+            if (repObj && !isGenericBasePlaceholderLabel(repObj)) return repObj;
+        } else if (newObj && repObj) {
+            if (!isGenericBasePlaceholderLabel(newObj)) return newObj;
+            if (!isGenericBasePlaceholderLabel(repObj)) return repObj;
+        } else {
+            if (repObj && !isGenericBasePlaceholderLabel(repObj)) return repObj;
+            if (newObj && !isGenericBasePlaceholderLabel(newObj)) return newObj;
+        }
 
         const rep = parseReplacementFromLabel(label);
         const parsed = String(rep.replacedObject || rep.newObject || '').trim();

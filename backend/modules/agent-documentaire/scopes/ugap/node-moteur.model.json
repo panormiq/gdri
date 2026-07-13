@@ -1,0 +1,12 @@
+{
+  "namespace": "ugap:node:moteur",
+  "name": "Nœud moteur UGAP",
+  "fields": [
+    { "key": "refUgap", "label": "Réf. UGAP", "type": "text" },
+    { "key": "libelle", "label": "Libellé UGAP", "type": "text" },
+    { "key": "libelleApp", "label": "Libellé", "type": "text" },
+    { "key": "prix", "label": "Prix UGAP HT", "type": "currency" },
+    { "key": "ficheTechnique", "label": "Fiche technique", "type": "html" }
+  ],
+  "variants": []
+}

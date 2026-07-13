@@ -1,0 +1,224 @@
+{
+  "namespace": "ugap:devis:default",
+  "name": "Modèle devis UGAP",
+  "documentMode": "canvas",
+  "scope": "ugap",
+  "page": {
+    "format": "A4",
+    "widthMm": 210,
+    "heightMm": 297,
+    "margins": { "top": 15, "right": 15, "bottom": 15, "left": 15 }
+  },
+  "guides": {
+    "vertical": [105],
+    "horizontal": [40, 148]
+  },
+  "snap": {
+    "enabled": true,
+    "thresholdMm": 1.5,
+    "snapToPage": true,
+    "snapToGuides": true,
+    "snapToNodes": true
+  },
+  "nodes": [
+    {
+      "id": "zone_entreprise",
+      "type": "zone",
+      "zoneType": "entreprise",
+      "parentId": null,
+      "layout": { "x": 15, "y": 15, "width": 85, "height": 28, "unit": "mm" },
+      "zIndex": 1,
+      "style": { "border": "1px dashed #94a3b8", "backgroundColor": "rgba(248,250,252,0.9)" },
+      "children": ["img_logo", "tf_entreprise"],
+      "collectionNamespace": "ugap:entreprise"
+    },
+    {
+      "id": "img_logo",
+      "type": "image",
+      "parentId": "zone_entreprise",
+      "layout": { "x": 1.7, "y": 2.2, "width": 20.4, "height": 21.8, "unit": "mm" },
+      "imageConfig": {
+        "variable": "ugap:entreprise.logoUrl",
+        "fit": "contain"
+      }
+    },
+    {
+      "id": "tf_entreprise",
+      "type": "text-frame",
+      "parentId": "zone_entreprise",
+      "layout": { "x": 23.8, "y": 0.6, "width": 57.8, "height": 25.8, "unit": "mm" },
+      "content": {
+        "mode": "flow",
+        "html": "<p><strong>{{ugap:entreprise.raisonSociale}}</strong></p><p>{{ugap:entreprise.adresse}}</p><p>SIRET : {{ugap:entreprise.siret}}</p>"
+      },
+      "style": { "fontSize": 10 }
+    },
+    {
+      "id": "zone_client",
+      "type": "zone",
+      "zoneType": "client",
+      "parentId": null,
+      "layout": { "x": 110, "y": 15, "width": 85, "height": 28, "unit": "mm" },
+      "zIndex": 2,
+      "style": { "border": "1px dashed #94a3b8", "backgroundColor": "rgba(248,250,252,0.9)" },
+      "children": ["tf_client"],
+      "collectionNamespace": "ugap:client"
+    },
+    {
+      "id": "tf_client",
+      "type": "text-frame",
+      "parentId": "zone_client",
+      "layout": { "x": 1.7, "y": 0.6, "width": 81.6, "height": 25.8, "unit": "mm" },
+      "content": {
+        "mode": "flow",
+        "html": "<p><strong>{{ugap:client.nom}}</strong></p><p>{{ugap:client.adresse}}</p><p>{{ugap:client.codePostal}} {{ugap:client.ville}}</p>"
+      },
+      "style": { "fontSize": 10 }
+    },
+    {
+      "id": "zone_devis_meta",
+      "type": "zone",
+      "zoneType": "devis",
+      "parentId": null,
+      "layout": { "x": 15, "y": 46, "width": 180, "height": 14, "unit": "mm" },
+      "zIndex": 3,
+      "style": { "border": "1px dashed #cbd5e1" },
+      "children": ["tf_devis"],
+      "collectionNamespace": "ugap:devis-meta"
+    },
+    {
+      "id": "tf_devis",
+      "type": "text-frame",
+      "parentId": "zone_devis_meta",
+      "layout": { "x": 3.6, "y": 0.3, "width": 172.8, "height": 12.9, "unit": "mm" },
+      "content": {
+        "mode": "flow",
+        "html": "<p>Devis n° {{ugap:devis.numero}} — Date : {{ugap:devis.date}} — Validité : {{ugap:devis.validite}} jours</p>"
+      },
+      "style": { "fontSize": 10, "fontWeight": "bold" }
+    },
+    {
+      "id": "zone_lignes",
+      "type": "zone",
+      "zoneType": "lignes",
+      "parentId": null,
+      "layout": { "x": 15, "y": 64, "width": 180, "height": 90, "unit": "mm" },
+      "zIndex": 4,
+      "style": { "border": "1px solid #e2e8f0" },
+      "children": ["tbl_lignes"],
+      "collectionNamespace": "ugap:ligne-devis"
+    },
+    {
+      "id": "tbl_lignes",
+      "type": "table",
+      "parentId": "zone_lignes",
+      "layout": { "x": 3.6, "y": 1.8, "width": 172.8, "height": 86.4, "unit": "mm" },
+      "tableConfig": {
+        "collectionNamespace": "ugap:ligne-devis",
+        "visibleFields": ["refUgap", "libelle", "prix"],
+        "fieldOrder": ["refUgap", "libelle", "prix"],
+        "columnWidths": { "refUgap": 18, "libelle": 57, "prix": 25 }
+      }
+    },
+    {
+      "id": "zone_total_devis",
+      "type": "zone",
+      "zoneType": "total-devis",
+      "label": "Total devis",
+      "parentId": null,
+      "layout": { "x": 15, "y": 156, "width": 180, "height": 28, "unit": "mm" },
+      "zIndex": 5,
+      "style": { "border": "1px dashed #cbd5e1", "backgroundColor": "rgba(248,250,252,0.6)" },
+      "children": ["tf_budget5_disponible", "tf_total_devis"],
+      "collectionNamespace": "ugap:devis-meta",
+      "autoFitChildren": true
+    },
+    {
+      "id": "tf_budget5_disponible",
+      "type": "text-frame",
+      "label": "Budget 5 % disponible",
+      "parentId": "zone_total_devis",
+      "layout": { "x": 3.6, "y": 0.4, "width": 172.8, "height": 6, "unit": "mm" },
+      "content": {
+        "mode": "flow",
+        "html": "<p style=\"line-height:1.35\"><strong>Budget 5 % HT disponible :</strong> {{ugap:devis.budget5Disponible}} € — <strong>Restant :</strong> {{ugap:devis.budget5Restant}} €</p>"
+      },
+      "style": { "fontSize": 9, "textAlign": "right", "color": "#475569" }
+    },
+    {
+      "id": "tf_total_devis",
+      "type": "text-frame",
+      "label": "Totaux",
+      "parentId": "zone_total_devis",
+      "layout": { "x": 3.6, "y": 7, "width": 172.8, "height": 19.6, "unit": "mm" },
+      "content": {
+        "mode": "flow",
+        "html": "<p style=\"line-height:1.45\"><strong>Sous-total HT :</strong> {{ugap:devis.subtotal}} €<br><strong>Options 5 % consommées HT :</strong> {{ugap:devis.budget5}} €<br><strong>Total HT :</strong> {{ugap:devis.total}} €<br><strong>TVA ({{ugap:devis.tauxTva}} %) :</strong> {{ugap:devis.montantTva}} €<br><strong>Total TTC :</strong> {{ugap:devis.totalTtc}} €</p>"
+      },
+      "style": { "fontSize": 10, "fontWeight": "bold", "textAlign": "right" }
+    },
+    {
+      "id": "zone_transport",
+      "type": "zone",
+      "zoneType": "transport",
+      "parentId": null,
+      "layout": { "x": 15, "y": 186, "width": 180, "height": 16, "unit": "mm" },
+      "zIndex": 6,
+      "style": { "border": "1px dashed #cbd5e1" },
+      "children": ["tf_transport"]
+    },
+    {
+      "id": "tf_transport",
+      "type": "text-frame",
+      "parentId": "zone_transport",
+      "layout": { "x": 3.6, "y": 0.3, "width": 172.8, "height": 14.7, "unit": "mm" },
+      "content": {
+        "mode": "flow",
+        "html": "<p><strong>Transport / livraison</strong></p><p>{{ugap:transport.delaiLivraison}}</p>"
+      },
+      "style": { "fontSize": 9 }
+    },
+    {
+      "id": "zone_bon_accord",
+      "type": "zone",
+      "zoneType": "bon-pour-accord",
+      "parentId": null,
+      "layout": { "x": 15, "y": 206, "width": 90, "height": 35, "unit": "mm" },
+      "zIndex": 7,
+      "style": { "border": "1px dashed #cbd5e1" },
+      "children": ["tf_bon_accord"]
+    },
+    {
+      "id": "tf_bon_accord",
+      "type": "text-frame",
+      "parentId": "zone_bon_accord",
+      "layout": { "x": 1.8, "y": 0.7, "width": 86.4, "height": 32.2, "unit": "mm" },
+      "content": {
+        "mode": "flow",
+        "html": "<p>Bon pour accord</p><p>Fait à ________________, le ____ / ____ / ______</p><p>Signature :</p>"
+      },
+      "style": { "fontSize": 9 }
+    },
+    {
+      "id": "zone_pied_page",
+      "type": "zone",
+      "zoneType": "pied-de-page",
+      "parentId": null,
+      "layout": { "x": 15, "y": 250, "width": 180, "height": 32, "unit": "mm" },
+      "zIndex": 8,
+      "style": { "border": "1px dashed #cbd5e1" },
+      "children": ["tf_pied"]
+    },
+    {
+      "id": "tf_pied",
+      "type": "text-frame",
+      "parentId": "zone_pied_page",
+      "layout": { "x": 3.6, "y": 0.6, "width": 172.8, "height": 29.4, "unit": "mm" },
+      "content": {
+        "mode": "flow",
+        "html": "<p>{{ugap:entreprise.conditionsPaiement}}</p><p>{{ugap:entreprise.mentionsLegales}}</p>"
+      },
+      "style": { "fontSize": 8, "color": "#64748b" }
+    }
+  ]
+}

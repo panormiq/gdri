@@ -6,7 +6,7 @@
     'use strict';
 
     const SECTIONS = [
-        'importation', 'catalogue', 'options', 'bateau-base', 'modeles',
+        'catalogue', 'options', 'liaisons', 'bateau-base', 'modeles', 'info-entreprise', 'modele-devis', 'importation',
     ];
 
     const IMPORT_TABS = [
@@ -36,7 +36,7 @@
 
     function normalizeSection(sectionId) {
         if (sectionId === 'categorie') return 'catalogue';
-        return SECTIONS.includes(sectionId) ? sectionId : 'importation';
+        return SECTIONS.includes(sectionId) ? sectionId : 'catalogue';
     }
 
     function syncUrl(sectionId, tabId) {
@@ -97,6 +97,9 @@
             ? setActiveImportTab(tabId || getCurrentImportTab())
             : null;
         syncUrl(section, activeTab);
+        if (section === 'importation' && activeTab === 'modeles' && window.UgapImportModelesTab?.refreshAndRender) {
+            void window.UgapImportModelesTab.refreshAndRender();
+        }
         if (section === 'importation' && activeTab === 'valider' && window.UgapImportValiderTab?.refreshStaging) {
             window.UgapImportValiderTab.refreshStaging();
         }
@@ -115,9 +118,18 @@
         if (section === 'options' && window.UgapOptionsTab?.mount) {
             window.UgapOptionsTab.mount();
         }
+        if (section === 'liaisons' && window.UgapLiaisonsTab?.mount) {
+            window.UgapLiaisonsTab.mount();
+        }
         if (section === 'bateau-base') {
             const run = window.UgapBateauBaseLcTab?.refresh || window.UgapBateauBaseLcTab?.mount;
             if (run) void run();
+        }
+        if (section === 'info-entreprise' && window.UgapInfoEntrepriseTab?.mount) {
+            window.UgapInfoEntrepriseTab.mount();
+        }
+        if (section === 'modele-devis' && window.UgapModeleDevisTab?.mount) {
+            window.UgapModeleDevisTab.mount();
         }
         if (typeof window.onEmbeddedTabActivated === 'function') {
             window.onEmbeddedTabActivated();

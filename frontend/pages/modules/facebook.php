@@ -67,6 +67,10 @@ $tabs = [
         'label' => 'Agent IA',
         'url' => url('pages/modules/analyse-intention-config.php')
     ],
+    'tests' => [
+        'label' => 'Tests',
+        'url' => url('pages/modules/facebook-agent-tests.php')
+    ],
     'llms' => [
         'label' => 'LLMs',
         'url' => url('pages/modules/ia-llms.php')
@@ -95,7 +99,7 @@ if (!empty($queryForFrame)) {
 <div class="container" style="max-width: 1200px; margin: 2rem auto; padding: 0 1rem;">
     <div style="display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap; margin-bottom: 1rem;">
         <h1 style="margin: 0;">Module Facebook</h1>
-        <a href="<?= url('pages/modules.php') ?>" class="btn btn-outline">← Modules</a>
+        <a href="<?= url('pages/modules.php') ?>" class="btn btn-outline">← Applications</a>
     </div>
 
     <p class="text-muted" style="margin-bottom: 1rem;">

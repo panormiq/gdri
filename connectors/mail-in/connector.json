@@ -1,0 +1,65 @@
+{
+  "id": "mail-in",
+  "name": "Mail entrant",
+  "version": "1.0.0",
+  "author": "GDR-Innovation",
+  "description": "Réception d'emails via IMAP (poll planifié ou manuel).",
+  "direction": "input",
+  "compatiblePlatform": ">=1.0.0",
+  "capabilities": [
+    "ingest.poll"
+  ],
+  "credentials": {
+    "type": "basic",
+    "inheritsFrom": "mail-infra",
+    "fields": ["accountRef"]
+  },
+  "configSchema": {
+    "type": "object",
+    "properties": {
+      "accountRef": {
+        "type": "string",
+        "title": "Compte mail (infra)",
+        "description": "Référence du compte configuré dans Paramètres > Mail"
+      },
+      "mailbox": {
+        "type": "string",
+        "title": "Dossier IMAP",
+        "default": "INBOX"
+      },
+      "pollIntervalMinutes": {
+        "type": "number",
+        "title": "Intervalle de poll (minutes)",
+        "minimum": 1,
+        "default": 3
+      },
+      "unseenOnly": {
+        "type": "boolean",
+        "title": "Uniquement non lus",
+        "default": true
+      }
+    },
+    "required": ["accountRef"]
+  },
+  "operations": {
+    "ingest.poll": {
+      "description": "Lecture IMAP périodique"
+    }
+  },
+  "instanceDefaults": {
+    "ingestModes": ["poll"],
+    "settings": {
+      "mailbox": "INBOX",
+      "pollIntervalMinutes": 3,
+      "unseenOnly": true
+    },
+    "mapping": {
+      "text": "text",
+      "author.email": "fromEmail",
+      "author.name": "fromName",
+      "sourceRef": "uid",
+      "metadata.subject": "subject"
+    }
+  },
+  "permissions": ["network", "secrets", "entity-data"]
+}

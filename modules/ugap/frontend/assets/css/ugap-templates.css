@@ -297,6 +297,252 @@
     line-height: 1;
 }
 
+/* Templates de base — cartes + variants */
+.ugap-template-cards-shell {
+    display: grid;
+    gap: 16px;
+}
+
+.ugap-template-cards-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.ugap-template-cards-toolbar__actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+}
+
+.ugap-template-search {
+    min-width: 220px;
+    padding: 8px 10px;
+    border: 1px solid #dbe3ea;
+    border-radius: 8px;
+    font-size: 13px;
+}
+
+.ugap-template-cards-count {
+    margin: 0;
+    font-size: 12px;
+    color: #64748b;
+}
+
+.ugap-template-cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+    gap: 14px;
+}
+
+.ugap-template-card {
+    display: grid;
+    gap: 12px;
+    padding: 14px;
+    border: 1px solid #e5e7eb;
+    border-radius: 10px;
+    background: #fff;
+}
+
+.ugap-template-card__head h3 {
+    margin: 0 0 6px;
+    font-size: 16px;
+}
+
+.ugap-template-card__meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    font-size: 12px;
+    color: #64748b;
+}
+
+.ugap-template-card__actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.ugap-template-card__variants {
+    border-top: 1px solid #eef2f7;
+    padding-top: 10px;
+}
+
+.ugap-template-card__variants-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 8px;
+}
+
+.ugap-template-card__variant-list {
+    display: grid;
+    gap: 8px;
+}
+
+.ugap-template-card__variant-row {
+    display: grid;
+    gap: 8px;
+    padding: 8px;
+    border: 1px solid #eef2f7;
+    border-radius: 8px;
+    background: #f8fafc;
+}
+
+.ugap-template-card__variant-main {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+}
+
+.ugap-template-card__variant-name {
+    flex: 1;
+    min-width: 120px;
+    padding: 6px 8px;
+    border: 1px solid #dbe3ea;
+    border-radius: 6px;
+    font-size: 13px;
+}
+
+.ugap-template-card__variant-name--fixed {
+    border: none;
+    padding: 6px 0;
+    font-weight: 600;
+    background: transparent;
+}
+
+.ugap-template-card__variant-default {
+    font-size: 11px;
+    font-weight: 600;
+    color: #0f766e;
+    background: #ecfdf5;
+    border: 1px solid #a7f3d0;
+    border-radius: 999px;
+    padding: 2px 8px;
+}
+
+.ugap-template-card__variant-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.ugap-template-card__variant-empty {
+    margin: 0;
+    font-size: 12px;
+    color: #94a3b8;
+}
+
+.ugap-template-create-panel {
+    margin-bottom: 8px;
+}
+
+.ugap-tpl-structure-editor__intro {
+    margin: 0 0 10px;
+    font-size: 13px;
+    color: #475569;
+}
+
+.ugap-tpl-structure-editor__roots-actions {
+    margin-bottom: 10px;
+}
+
+.ugap-tpl-tree-node--structure {
+    margin-bottom: 8px;
+    padding: 8px 10px;
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    background: #fafafa;
+}
+
+.ugap-tpl-tree-node__head {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+}
+
+.ugap-tpl-tree-node__label {
+    flex: 1;
+    font-weight: 600;
+    font-size: 13px;
+}
+
+.ugap-tpl-tree-node__role {
+    font-size: 11px;
+    color: #64748b;
+}
+
+.ugap-tpl-add-node-select {
+    margin-top: 6px;
+    max-width: 100%;
+    padding: 6px 8px;
+    border: 1px solid #dbe3ea;
+    border-radius: 6px;
+    font-size: 12px;
+}
+
+.ugap-template-variant-modal__body {
+    padding: 0 14px 14px;
+    max-height: min(70vh, 720px);
+    overflow: auto;
+    flex: 1;
+}
+
+.ugap-template-variant-modal__foot {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    padding: 12px 14px;
+    border-top: 1px solid #eef2f7;
+}
+
+body.ugap-template-variant-open {
+    overflow: hidden;
+}
+
+.ugap-template-variant-modal__panel {
+    width: min(1100px, calc(100vw - 32px));
+    max-height: min(92vh, 900px);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.ugap-template-structure-modal__panel {
+    width: min(1100px, calc(100vw - 32px));
+    max-height: min(92vh, 900px);
+    display: flex;
+    flex-direction: column;
+}
+
+.ugap-template-structure-modal__body {
+    padding: 0 14px 14px;
+    overflow: auto;
+    flex: 1;
+    max-height: min(70vh, 720px);
+}
+
+.ugap-template-structure-modal__foot {
+    padding: 12px 14px;
+    border-top: 1px solid #eef2f7;
+}
+
+.ugap-template-structure-modal__actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+}
+
+body.ugap-template-structure-open {
+    overflow: hidden;
+}
+
 .ugap-model-base-assign-btn {
     margin-top: 6px;
     font-size: 11px;

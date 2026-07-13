@@ -45,8 +45,11 @@ function initScrollAnimations() {
         threshold: 0.1
     });
 
-    // Observer les éléments avec animation
+    // Observer les éléments avec animation (hors configurateur UGAP : étapes masquées sinon)
     document.querySelectorAll('.card, .section').forEach(el => {
+        if (el.closest('#ugap-configurator-app') || el.classList.contains('step-content')) {
+            return;
+        }
         el.style.opacity = '0';
         el.style.transform = 'translateY(20px)';
         el.style.transition = 'opacity 0.6s ease, transform 0.6s ease';

@@ -1,0 +1,11 @@
+{
+  "name": "media-studio",
+  "displayName": "Studio Média",
+  "version": "0.1.0",
+  "description": "Création d'images et vidéos via IA (chat + ComfyUI SDXL / Flux)",
+  "author": "GDR-Innovation",
+  "routes": ["/api/media-studio"],
+  "dependencies": [],
+  "requiredServices": ["ia"],
+  "compatibleVersion": ">=1.0.0"
+}

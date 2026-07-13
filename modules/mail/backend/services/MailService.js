@@ -190,6 +190,7 @@ class MailService {
    * Envoie un email
    * @param {Object} options - Options d'envoi
    * @param {string} options.to - Destinataire
+   * @param {string|Array} [options.cc] - Copie (optionnel)
    * @param {string} options.subject - Sujet
    * @param {string} options.body - Corps texte
    * @param {string} options.body_html - Corps HTML (optionnel)
@@ -215,6 +216,7 @@ class MailService {
     }
     const {
       to,
+      cc = null,
       subject,
       body,
       body_html = null,
@@ -258,6 +260,7 @@ class MailService {
       entity_id: entity_id || null,
       profile_used: routing.profile,
       to: routing.to || to,
+      cc: cc || null,
       from: {
         name: from.name,
         email: from.email
@@ -289,6 +292,7 @@ class MailService {
           path: a.path || null
         }))
       };
+      if (cc) mailOptions.cc = cc;
 
       const info = await transporter.sendMail(mailOptions);
 

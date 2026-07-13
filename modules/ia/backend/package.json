@@ -8,6 +8,10 @@
   "dependencies": [],
   "requiredServices": [],
   "compatibleVersion": ">=1.0.0",
+  "catalog": {
+    "type": "extension",
+    "visibility": "hidden"
+  },
   "app": {
     "id": "ia",
     "label": "Serveur IA",

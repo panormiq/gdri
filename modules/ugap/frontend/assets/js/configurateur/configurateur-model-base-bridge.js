@@ -57,6 +57,12 @@
                 }
             },
             getModelBaseSlotPicks: () => {
+                const mid = String(state.selectedModel?.id || '').trim();
+                const cfgId = String(state.selectedConfig?.id || '').trim();
+                const cfgPicks = state.selectedConfig?.slotPicks;
+                if (mid && cfgId && cfgId !== 'default-config' && cfgPicks && typeof cfgPicks === 'object') {
+                    return { [mid]: { ...cfgPicks } };
+                }
                 const picks = state.uiState?.modelBaseSlotPicks;
                 return picks && typeof picks === 'object' && !Array.isArray(picks) ? picks : {};
             },
@@ -71,6 +77,12 @@
                 return comp.includes(mid);
             },
         });
+
+        const mid = String(state.selectedModel?.id || '').trim();
+        const cfgId = String(state.selectedConfig?.id || '').trim();
+        if (mid && cfgId && cfgId !== 'default-config') {
+            MBO.setPresetEditContext?.(mid, cfgId);
+        }
     }
 
     function clearConfiguratorModelBaseBridge() {

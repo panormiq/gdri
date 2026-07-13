@@ -10,10 +10,22 @@ class IntentionService {
   constructor(database) {
     this.database = database;
     this.aiService = null;
+    this.promptServiceFactory = null;
   }
 
   setAIService(aiService) {
     this.aiService = aiService;
+  }
+
+  setPromptServiceFactory(factory) {
+    this.promptServiceFactory = factory;
+  }
+
+  async resolvePromptService(entityId) {
+    if (typeof this.promptServiceFactory === 'function') {
+      return this.promptServiceFactory(entityId);
+    }
+    return null;
   }
 
   generateMultiIntentionPrompt(messages, basePrompt = null, customIntentions = [], customRules = null) {
@@ -273,22 +285,35 @@ FORMAT DE RÉPONSE OBLIGATOIRE — réponds UNIQUEMENT avec ce JSON valide, sans
   async analyzeIntentions(messages, basePrompt = null, customIntentions = [], customRules = null, options = {}) {
     try {
       const messagesArray = Array.isArray(messages) ? messages : [messages];
-
-      if (!this.aiService) {
-        throw new Error('AIService non configuré. Utilisez setAIService() avant d\'analyser.');
-      }
+      const entityId = options.entityId || null;
 
       const prompt = this.generateMultiIntentionPrompt(messagesArray, basePrompt, customIntentions, customRules);
-      const aiResponse = await this.aiService.sendAnalysisPrompt(prompt, {
-        temperature: 0.7,
-        max_tokens: 4000
-      });
+      const iaOptions = { temperature: 0.7, max_tokens: 4000 };
 
-      if (!aiResponse.success) {
-        throw new Error(aiResponse.error?.message || 'Erreur lors de l\'analyse IA');
+      let responseText = '';
+      let processingTime = null;
+      let model = 'unknown';
+
+      const promptService = await this.resolvePromptService(entityId);
+      if (promptService) {
+        const gen = await promptService.generate(prompt, iaOptions);
+        if (!gen.success) {
+          throw new Error(gen.error?.message || 'Erreur lors de l\'analyse IA');
+        }
+        responseText = gen.raw || '';
+        processingTime = gen.meta?.processing_time ?? null;
+        model = gen.meta?.model || model;
+      } else if (this.aiService) {
+        const aiResponse = await this.aiService.sendAnalysisPrompt(prompt, iaOptions);
+        if (!aiResponse.success) {
+          throw new Error(aiResponse.error?.message || 'Erreur lors de l\'analyse IA');
+        }
+        responseText = aiResponse.data.response;
+        processingTime = aiResponse.data.processing_time || null;
+        model = aiResponse.data.model || model;
+      } else {
+        throw new Error('PromptService non configuré. Utilisez setPromptServiceFactory() ou setAIService().');
       }
-
-      const responseText = aiResponse.data.response;
       const parsedResponse = this.normalizeAIResponse(this.parseAIResponse(responseText));
       const validation = this.validateMultiIntentionResponse(parsedResponse);
       if (!validation.valid) {
@@ -303,8 +328,8 @@ FORMAT DE RÉPONSE OBLIGATOIRE — réponds UNIQUEMENT avec ce JSON valide, sans
         analysis: parsedResponse,
         customRules: customRules || [],
         createdAt: new Date(),
-        processingTime: aiResponse.data.processing_time || null,
-        model: aiResponse.data.model || 'unknown'
+        processingTime: processingTime,
+        model: model
       };
 
       if (!options.skipSave) {
@@ -320,8 +345,8 @@ FORMAT DE RÉPONSE OBLIGATOIRE — réponds UNIQUEMENT avec ce JSON valide, sans
         success: true,
         data: parsedResponse,
         metadata: {
-          processingTime: aiResponse.data.processing_time,
-          model: aiResponse.data.model,
+          processingTime: processingTime,
+          model: model,
           messagesCount: messagesArray.length
         }
       };

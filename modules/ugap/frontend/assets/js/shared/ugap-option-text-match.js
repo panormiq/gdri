@@ -41,6 +41,8 @@
             src.importExcelLabel,
             src.importOptionLabel,
             src.refUgap,
+            src.refFournisseur,
+            src.baseRefUgap,
             groups,
             src.category || src.categoryName,
             src.optionTypeLabel,

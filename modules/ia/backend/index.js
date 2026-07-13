@@ -25,6 +25,10 @@ async function init(app, db) {
     await serversCol.createIndex({ scope: 1 });
     await serversCol.createIndex({ entity_id: 1 });
     await serversCol.createIndex({ owner_user_id: 1 });
+    const policiesCol = database.getCollection('ia_entity_server_policies');
+    await policiesCol.createIndex({ entity_id: 1, server_id: 1 }, { unique: true });
+    const usageCol = database.getCollection('ia_entity_token_usage');
+    await usageCol.createIndex({ entity_id: 1, server_id: 1, month: 1 }, { unique: true });
   } catch (e) {
     console.warn('  ⚠️ Index ia_llms / ia_llm_user_rights / ia_servers:', e.message);
   }
@@ -61,6 +65,7 @@ module.exports = {
   getIAClient,
   getIAClientForEntity,
   getLLMConfigForEntity,
+  PromptService: require('../../prompt/backend/services/PromptService'),
   routes: getRoutes,
   config: {}
 };

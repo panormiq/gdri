@@ -1,0 +1,14 @@
+{
+  "name": "agent-documentaire-v2",
+  "displayName": "Agent Documentaire V2",
+  "version": "2.0.0",
+  "description": "Moteur documentaire canvas A4 — collections, templates, PDF",
+  "author": "GDR-Innovation",
+  "routes": [
+    "/api/agent-documentaire-v2"
+  ],
+  "enabled": true,
+  "dependencies": {},
+  "requiredServices": [],
+  "compatibleVersion": ">=1.0.0"
+}

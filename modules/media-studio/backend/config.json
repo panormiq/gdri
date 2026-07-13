@@ -1,0 +1,75 @@
+{
+  "comfyui": {
+    "baseUrl": "http://127.0.0.1:8188",
+    "timeoutMs": 300000,
+    "pollIntervalMs": 1500,
+    "defaultModel": "flux",
+    "models": {
+      "flux": {
+        "label": "Flux Schnell",
+        "width": 768,
+        "height": 768,
+        "steps": 4,
+        "cfg": 1,
+        "sampler": "euler",
+        "scheduler": "simple",
+        "unet": "flux1-schnell-Q4_K_S.gguf",
+        "clipL": "clip_l.safetensors",
+        "t5": "t5xxl_fp8_e4m3fn.safetensors",
+        "vae": "ae.safetensors"
+      },
+      "sdxl": {
+        "label": "SDXL Turbo",
+        "width": 1024,
+        "height": 1024,
+        "steps": 4,
+        "cfg": 1,
+        "sampler": "euler",
+        "scheduler": "simple",
+        "checkpoint": "sd_xl_turbo_1.0_fp16.safetensors",
+        "negativePrompt": "blurry, low quality, distorted, watermark, text"
+      }
+    }
+  },
+  "chromaKey": {
+    "thresholdLow": 52,
+    "thresholdHigh": 145,
+    "edgeDespill": true,
+    "cornerPatchSize": 14
+  },
+  "extract": {
+    "engine": "rembg",
+    "fallbackEngine": "checkerboard",
+    "rembg": {
+      "python": "py",
+      "model": "u2net",
+      "timeoutMs": 180000
+    }
+  },
+  "i2v": {
+    "defaultEngine": "ltx",
+    "timeoutMs": 900000,
+    "maxDimension": 512,
+    "backgroundColor": "#E8E8E8",
+    "ltx": {
+      "label": "LTX-Video i2v",
+      "checkpoint": "ltx-video-2b-v0.9.1.safetensors",
+      "textEncoder": "t5xxl_fp8_e4m3fn.safetensors",
+      "width": 512,
+      "height": 512,
+      "length": 49,
+      "steps": 16,
+      "cfg": 3.5,
+      "strength": 0.72,
+      "frameRate": 24,
+      "sampler": "euler",
+      "scheduler": "simple",
+      "negativePrompt": "blur, motion blur, smear, morphing, warping, melting, distortion, out of focus, fuzzy, low quality, watermark, text overlay, camera shake, zoom, static flicker"
+    },
+    "video": {
+      "colorkeySimilarity": 0.10,
+      "colorkeyBlend": 0.03,
+      "ffmpegPath": ""
+    }
+  }
+}

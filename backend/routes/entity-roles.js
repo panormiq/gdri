@@ -2,6 +2,11 @@ const express = require('express');
 const { ObjectId } = require('mongodb');
 const { authenticateJWT } = require('../config/jwt');
 const database = require('../config/database');
+const {
+  getAllEntityRoles,
+  isStructuralRoleKey,
+  isPlatformRoleKey
+} = require('../core/entity-member-users');
 
 const router = express.Router();
 
@@ -25,10 +30,7 @@ router.get('/', authenticateJWT, async (req, res) => {
     const entityId = ensureEntityScope(req, res);
     if (!entityId) return;
     const db = await database.connect();
-    const roles = await db.collection('entity_roles')
-      .find({ entity_id: entityId })
-      .sort({ isSystem: -1, label: 1 })
-      .toArray();
+    const roles = await getAllEntityRoles(db, entityId);
     res.json({ success: true, data: roles });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message || 'Erreur serveur' });
@@ -43,6 +45,9 @@ router.post('/', authenticateJWT, async (req, res) => {
     const description = String(req.body.description || '').trim();
     const key = String(req.body.key || '').trim();
     if (!label || !key) return res.status(400).json({ success: false, message: 'Donnees invalides' });
+    if (isPlatformRoleKey(key) || isStructuralRoleKey(key)) {
+      return res.status(400).json({ success: false, message: 'Cle de role reservee (structurelle ou plateforme)' });
+    }
     const db = await database.connect();
     const coll = db.collection('entity_roles');
     const exists = await coll.findOne({ entity_id: entityId, key });
@@ -73,6 +78,9 @@ router.put('/:key/toggle', authenticateJWT, async (req, res) => {
     const coll = db.collection('entity_roles');
     const role = await coll.findOne({ entity_id: entityId, key });
     if (!role) return res.status(404).json({ success: false, message: 'Role introuvable' });
+    if (role.isSystem) {
+      return res.status(400).json({ success: false, message: 'Un role structurel ne peut pas etre desactive' });
+    }
     const next = !(role.isActive !== false);
     await coll.updateOne({ entity_id: entityId, key }, { $set: { isActive: next, updatedAt: new Date() } });
     res.json({ success: true });

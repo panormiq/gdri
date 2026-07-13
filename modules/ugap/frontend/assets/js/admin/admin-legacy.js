@@ -2736,7 +2736,7 @@ Format:
             }
             const templateId = String(model?.boatTemplateId || '').trim();
             if (!templateId) {
-                showAlert('Assignez d’abord un template bateau à ce modèle.', 'warning');
+                showAlert('Assignez d’abord un ordre des options à ce modèle.', 'warning');
                 return;
             }
             const before = getModelTemplateBaseOptionsStatus(model);
@@ -2921,7 +2921,7 @@ Format:
             if (!templateId) {
                 root.innerHTML = `
                     <p style="color:#64748b; font-size:13px; line-height:1.5;">
-                        Assignez d’abord un <strong>template bateau</strong> depuis la liste des modèles,
+                        Assignez d’abord un <strong>ordre des options</strong> depuis la liste des modèles,
                         puis revenez ici pour choisir les options de base par famille.
                     </p>`;
                 return;
@@ -3167,7 +3167,7 @@ Format:
             }).join('');
             const emptyHint = templates.length
                 ? ''
-                : '<span style="display:block;font-size:11px;color:#b45309;margin-top:4px;">Créez un template dans l’onglet Template bateau.</span>';
+                : '<span style="display:block;font-size:11px;color:#b45309;margin-top:4px;">Créez un ordre des options dans l’onglet Ordre des options.</span>';
             return `<select
                 class="ugap-model-template-select"
                 onchange="onModelBoatTemplateAssignmentChange(decodeURIComponent('${encMid}'), this.value)"
@@ -8087,7 +8087,7 @@ Format:
                 elementKey: 'vue-metier',
                 elementLabel: 'vue métier',
                 title: 'Vues métier',
-                description: 'Comme pour un template bateau : ajoutez des familles validées et cochez les groupes de décision par famille. Double-clic ou « Modifier » pour éditer.',
+                description: 'Comme pour un ordre des options : ajoutez des familles validées et cochez les groupes de décision par famille. Double-clic ou « Modifier » pour éditer.',
                 columns: [
                     { key: 'viewLabel', label: 'Vue métier', type: 'html' },
                     { key: 'familiesSummary', label: 'Familles' },
@@ -9716,7 +9716,7 @@ Format:
             // Afficher la progression dans le conteneur Template bateau
             const container = document.getElementById('ugap-template-bateau-lc-mount');
             if (!container) {
-                showAlert('Onglet Template bateau introuvable.', 'error');
+                showAlert('Onglet Ordre des options introuvable.', 'error');
                 return;
             }
             const originalContent = container.innerHTML;
@@ -12680,7 +12680,7 @@ Format:
                     <div style="margin-top:6px; font-size:12px; color:#64748b;">Sélection actuelle : <strong>${escapeHtml(String(targetModelLabel || selectedModelId))}</strong></div>
                 </div>`
                 : `<div style="margin-bottom:12px; padding:10px; border:1px solid #e9ecef; border-radius:6px; background:#f8f9fa; color:#444; font-size:13px;">
-                    Template bateau global (indépendant du modèle) : sélectionnez les familles/options que vous voulez inclure par défaut.
+                    Ordre des options global (indépendant du modèle) : sélectionnez les familles/options que vous voulez inclure par défaut.
                 </div>`;
             const importTemplateSharedRoot = isImportTemplateSharedRoot(rootId);
             const templateSaveBox = '';

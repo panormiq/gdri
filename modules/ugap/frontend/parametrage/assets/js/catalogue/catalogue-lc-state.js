@@ -379,6 +379,7 @@
             parentId: String(parentId || '').trim(),
             label: String(label || '').trim() || 'Nœud',
             sortOrder: catalog.nodes.length * 10,
+            hideMinorationInChoices: Core()?.isMotorCatalogNodeLabel?.({ label, keywords: '' }) === true,
         });
         if (!row) return null;
         catalog.nodes.push(row);
@@ -426,7 +427,8 @@
         return `opt_${n}`;
     }
 
-    async function createBaseCatalogOption(fields) {
+    async function createCatalogOption(fields) {
+        const optionType = String(fields?.optionType || 'catalogue').trim().toLowerCase();
         const categoryId = String(fields?.categoryId || importCategories[0]?.id || '').trim();
         const name = String(fields?.name || '').trim();
         const catalogObjectId = String(fields?.catalogObjectId || '').trim();
@@ -438,58 +440,132 @@
         const details = String(fields?.details || '').trim();
         let refUgap = String(fields?.refUgap || '').trim();
         const priceN = Number(String(fields?.price ?? '').replace(',', '.'));
-        const baseIncludedPrice = Number.isFinite(priceN) ? priceN : 0;
-        const compatibleModels = (Array.isArray(fields?.compatibleModels) ? fields.compatibleModels : [])
+        const resolvedPrice = Number.isFinite(priceN) ? priceN : 0;
+        const allModels = fields?.allModels === true || fields?.isDivers === true;
+        const compatibleModels = allModels ? [] : (Array.isArray(fields?.compatibleModels) ? fields.compatibleModels : [])
             .map((x) => String(x || '').trim())
             .filter(Boolean);
-        if (!compatibleModels.length) {
-            throw new Error('Sélectionnez au moins un modèle (poste) utilisable pour cette option.');
+        if (!allModels && !compatibleModels.length) {
+            throw new Error('Sélectionnez au moins un modèle (poste) ou cochez « Tous les modèles ».');
         }
         const id = allocateNextOptionId();
-        if (!refUgap) refUgap = `BASE-${id}`;
+        if (!refUgap && optionType === 'base') refUgap = `BASE-${id}`;
 
         const pricesRaw = fields?.pricesByModelId && typeof fields.pricesByModelId === 'object'
             ? fields.pricesByModelId
             : {};
-        const importBaseProductPricesByModelId = {};
-        compatibleModels.forEach((cid) => {
-            const v = Number(pricesRaw[cid]);
-            importBaseProductPricesByModelId[cid] = Number.isFinite(v) ? v : baseIncludedPrice;
-        });
-        const priceVals = compatibleModels
-            .map((cid) => importBaseProductPricesByModelId[cid])
-            .filter((v) => Number.isFinite(v));
-        const distinct = [...new Set(priceVals.map((v) => Number(v.toFixed(2))))];
-        const pricingMode = String(fields?.pricingMode || '').trim() === 'per_model'
-            || (distinct.length > 1)
-            ? 'per_model'
-            : 'fixed';
-        const resolvedBasePrice = distinct.length === 1 ? distinct[0] : baseIncludedPrice;
+        const pricesByModelId = {};
+        let pricingMode = 'fixed';
+        let mainPrice = resolvedPrice;
+        if (!allModels) {
+            compatibleModels.forEach((cid) => {
+                const v = Number(pricesRaw[cid]);
+                pricesByModelId[cid] = Number.isFinite(v) ? v : resolvedPrice;
+            });
+            const priceVals = compatibleModels
+                .map((cid) => pricesByModelId[cid])
+                .filter((v) => Number.isFinite(v));
+            const distinct = [...new Set(priceVals.map((v) => Number(v.toFixed(2))))];
+            pricingMode = String(fields?.pricingMode || '').trim() === 'per_model'
+                || (distinct.length > 1)
+                ? 'per_model'
+                : 'fixed';
+            mainPrice = distinct.length === 1 ? distinct[0] : resolvedPrice;
+        }
+
+        const typePatch = (() => {
+            if (optionType === 'base') {
+                return {
+                    tags: [baseTag],
+                    manualBaseOption: true,
+                    baseIncluded: true,
+                    isBaseOption: true,
+                    isMinoration: false,
+                    isSparePart: false,
+                    importOptionLineKind: 'option',
+                    manualMinorationAssignment: false,
+                    manualMajorationAssignment: false,
+                    inclusionKind: 'inclus',
+                    baseIncludedPrice: mainPrice,
+                    importBaseProductPricingMode: pricingMode,
+                };
+            }
+            if (optionType === 'mino') {
+                return {
+                    tags: [],
+                    manualBaseOption: false,
+                    baseIncluded: false,
+                    isBaseOption: false,
+                    isMinoration: true,
+                    isSparePart: false,
+                    importOptionLineKind: 'minoration',
+                    manualMinorationAssignment: true,
+                    manualMajorationAssignment: false,
+                };
+            }
+            if (optionType === 'majo') {
+                return {
+                    tags: [],
+                    manualBaseOption: false,
+                    baseIncluded: false,
+                    isBaseOption: false,
+                    isMinoration: false,
+                    isSparePart: false,
+                    importOptionLineKind: 'majoration',
+                    manualMajorationAssignment: true,
+                    manualMinorationAssignment: false,
+                };
+            }
+            if (optionType === 'pr') {
+                return {
+                    tags: [],
+                    manualBaseOption: false,
+                    baseIncluded: false,
+                    isBaseOption: false,
+                    isMinoration: false,
+                    isSparePart: true,
+                    importOptionLineKind: 'pr',
+                    manualMajorationAssignment: false,
+                    manualMinorationAssignment: false,
+                };
+            }
+            return {
+                tags: [],
+                manualBaseOption: false,
+                baseIncluded: false,
+                isBaseOption: false,
+                isMinoration: false,
+                isSparePart: false,
+                importOptionLineKind: 'option',
+                manualMajorationAssignment: false,
+                manualMinorationAssignment: false,
+            };
+        })();
 
         const body = {
             id,
             categoryId,
             name,
             refUgap,
-            baseRefUgap: refUgap,
             details,
-            importExcelLabel: details,
+            importExcelLabel: details || name,
             catalogObjectId,
-            tags: [baseTag],
-            manualBaseOption: true,
-            baseIncluded: true,
-            isBaseOption: true,
-            baseIncludedPrice: resolvedBasePrice,
-            priceUgap: resolvedBasePrice,
+            priceUgap: mainPrice,
             priceClient: 0,
             compatibleModels,
-            isDivers: false,
-            inclusionKind: 'inclus',
-            importOptionLineKind: 'option',
-            importBaseProductPricingMode: pricingMode,
+            isDivers: allModels,
+            ...typePatch,
         };
-        if (pricingMode === 'per_model' && Object.keys(importBaseProductPricesByModelId).length) {
-            body.importBaseProductPricesByModelId = importBaseProductPricesByModelId;
+        if (optionType === 'base') {
+            body.baseRefUgap = refUgap;
+            if (allModels) body.importBaseProductPricingMode = 'fixed';
+        }
+        if (pricingMode === 'per_model' && !allModels) {
+            if (optionType === 'base') {
+                body.importBaseProductPricesByModelId = pricesByModelId;
+            } else {
+                body.pricesByModelId = pricesByModelId;
+            }
         }
 
         const res = await global.apiCall('/options', {
@@ -499,20 +575,21 @@
         const createdId = String(res?.id || id).trim();
         if (!createdId) throw new Error('Création option : id non retourné.');
 
+        const putPayload = { catalogObjectId };
+        if (typePatch.tags?.length) putPayload.tags = typePatch.tags;
         await global.apiCall(`/options/${encodeURIComponent(createdId)}`, {
             method: 'PUT',
-            body: JSON.stringify({ catalogObjectId, tags: [baseTag] }),
+            body: JSON.stringify(putPayload),
         });
 
         const catName = importCategories.find((c) => c.id === categoryId)?.name || '';
-        upsertOptionInIndex({ ...body, id: createdId, catalogObjectId, tags: [baseTag] }, categoryId, catName);
+        upsertOptionInIndex({ ...body, id: createdId, catalogObjectId }, categoryId, catName);
         await refreshOptionsFromServer();
-
-        const linked = getOptionsForNode(catalogObjectId);
-        if (!linked.some((o) => o.id === createdId)) {
-            upsertOptionInIndex({ ...body, id: createdId, catalogObjectId, tags: [baseTag] }, categoryId, catName);
-        }
         return createdId;
+    }
+
+    async function createBaseCatalogOption(fields) {
+        return createCatalogOption({ ...fields, optionType: 'base' });
     }
 
     function patchLocalOptionFields(id, payload) {
@@ -662,6 +739,7 @@
         syncOptionsIndexFromPayload,
         allocateNextOptionId,
         createBaseCatalogOption,
+        createCatalogOption,
         getOptionsForNode,
         getOptionsForObject: getOptionsForNode,
         getOptionsLinkSummaryForNode,

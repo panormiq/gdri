@@ -9,6 +9,7 @@ if (!$ugapModuleRoot || !is_file($ugapModuleRoot . '/parametrage/gdri-embed.php'
     return;
 }
 ?>
+<script>window.UgapDevisTemplateEditorBase = <?= json_encode(url('pages/modules/document-agent-v2/editor.php')) ?>;</script>
 <div class="ugap-module-layout" id="ugap-parametrage-embed-root">
     <div class="ugap-panel ugap-panel--parametrage">
         <?php if ($canManageUgap): ?>

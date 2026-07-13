@@ -241,12 +241,14 @@ require_once '../includes/header.php';
 
 .modules-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    grid-template-columns: repeat(auto-fill, 300px);
+    justify-content: start;
     gap: var(--spacing-lg);
     margin-bottom: var(--spacing-lg);
 }
 
 .module-card {
+    width: 100%;
     display: flex;
     flex-direction: column;
     justify-content: space-between;

@@ -144,6 +144,8 @@
             ).join('')}</ul>`
             : '<p class="ugap-catalogue-muted">Aucune option liée. Utilisez « Proposer des liaisons » ou « Créer une option ».</p>';
 
+        const hideMinoration = Core()?.resolveHideMinorationInChoices?.(node) === true;
+
         return `
             <form class="ugap-catalogue-detail-form" data-node-detail-form>
                 <p class="ugap-catalogue-breadcrumb">${esc(Core()?.nodeBreadcrumb?.(catalog.nodes, node.id) || node.label)}</p>
@@ -168,12 +170,23 @@
                         <option value="multi_choice"${node.decisionMode === 'multi_choice' ? ' selected' : ''}>Choix multiple</option>
                     </select>
                 </label>
+                <label class="ugap-catalogue-modal__field ugap-catalogue-checkbox-field">
+                    <span class="ugap-catalogue-checkbox-field__row">
+                        <input type="checkbox" data-node-hide-minoration${hideMinoration ? ' checked' : ''}>
+                        <span class="ugap-catalogue-checkbox-field__label">Ne pas afficher minoration</span>
+                    </span>
+                    <span class="ugap-catalogue-muted ugap-catalogue-checkbox-field__hint">Dans le configurateur, les lignes minoration (MINO) sont exclues du picker de ce nœud. Coché par défaut pour Moteur / Motorisation.</span>
+                </label>
                 <fieldset class="ugap-catalogue-modal__field">
                     <legend>Tags catalogue</legend>
                     <div class="ugap-catalogue-tag-checks">${tagChecks || '<span class="ugap-catalogue-muted">Aucun tag.</span>'}</div>
                 </fieldset>
                 <div class="ugap-catalogue-detail-actions">
                     <button type="button" class="btn btn-primary" data-save-node-detail>Enregistrer</button>
+                    <button type="button" class="btn btn-outline" data-associate-node-auto
+                        title="Lie automatiquement les options correspondant aux mots-clés de ce nœud uniquement">
+                        Associer options à ce nœud
+                    </button>
                     <button type="button" class="btn btn-outline" data-suggest-links>Proposer des liaisons</button>
                     <button type="button" class="btn btn-outline" data-create-option>Créer une option</button>
                     <button type="button" class="btn btn-outline btn-danger" data-delete-node>Supprimer</button>
@@ -496,6 +509,7 @@
                 parentId,
                 keywords: String(root.querySelector('[data-node-keywords]')?.value || '').trim(),
                 decisionMode: root.querySelector('[data-node-decision]')?.value === 'multi_choice' ? 'multi_choice' : 'single_choice',
+                hideMinorationInChoices: !!root.querySelector('[data-node-hide-minoration]')?.checked,
                 tags: readDetailTags(root),
             });
             await State().persistNow();
@@ -587,6 +601,32 @@
                 catalogObject: draft,
                 onApplied: () => renderStructurePanels({ tree: true, detail: true, preserveTreeScroll: true }),
             });
+            return;
+        }
+
+        if (ev.target.closest('[data-associate-node-auto]')) {
+            const node = selectedNode();
+            if (!node) {
+                toast('Sélectionnez un nœud.', 'warning');
+                return;
+            }
+            if (!global.UgapCatalogueBulkLink?.runSingleNodeWithConfirm) {
+                toast('Module d’association catalogue indisponible — rechargez la page (Ctrl+F5).', 'error');
+                return;
+            }
+            const draft = {
+                ...node,
+                keywords: String(root.querySelector('[data-node-keywords]')?.value || node.keywords || '').trim(),
+            };
+            const btn = ev.target.closest('[data-associate-node-auto]');
+            void global.UgapCatalogueBulkLink.runSingleNodeWithConfirm(draft, {
+                confirm: openConfirm,
+                btn,
+            }).then((result) => {
+                if (result?.saved) {
+                    renderStructurePanels({ tree: true, detail: true, preserveTreeScroll: true });
+                }
+            }).catch(() => { /* alerté dans bulk-link */ });
             return;
         }
 

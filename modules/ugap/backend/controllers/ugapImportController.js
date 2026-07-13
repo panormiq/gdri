@@ -80,7 +80,7 @@ async function importExcel(req, res) {
       }
     }
 
-    const staging = await UgapDataService.saveImportStaging(req.entrepriseDb, req.entrepriseId, {
+    let staging = await UgapDataService.saveImportStaging(req.entrepriseDb, req.entrepriseId, {
       ...extractedData,
       source: {
         sourceFileName: path.basename(filePath),
@@ -89,16 +89,25 @@ async function importExcel(req, res) {
         importedAt: new Date()
       }
     });
+    staging = await UgapDataService.finalizeImportStagingRead(req.entrepriseDb, staging);
+
+    const refsFound = (staging.models || []).filter((m) => String(m?.refUgap || '').trim()).length;
+    console.log(
+      `✅ UGAP import: ${refsFound}/${(staging.models || []).length} modèle(s) avec ref UGAP (col ${extractedData.structure?.refUgapCol ?? '?'})`
+    );
 
     res.json({
       success: true,
       message: 'Import en zone tampon réussi',
       data: {
         importId: String(staging._id),
+        staging,
         status: staging.status,
         alreadyProcessed: !!staging.alreadyProcessed,
         alreadyValidated: !!staging.alreadyValidated,
         modelsCount: extractedData.models.length,
+        modelsWithRefUgap: refsFound,
+        refUgapCol: extractedData.structure?.refUgapCol ?? -1,
         categoriesCount: 0,
         optionsCount: allOptions.length
       }
@@ -157,14 +166,22 @@ async function validateImportModels(req, res) {
     const { importId } = req.params;
     const modelIds = Array.isArray(req.body?.modelIds) ? req.body.modelIds : [];
     const modelUpdates = Array.isArray(req.body?.modelUpdates) ? req.body.modelUpdates : [];
-    const data = await UgapDataService.markImportModelsValidated(
+    const { staging, syncWarning = '' } = await UgapDataService.markImportModelsValidated(
       req.entrepriseDb,
       req.entrepriseId,
       importId,
       modelIds,
       modelUpdates
     );
-    res.json({ success: true, message: 'Validation modèles mise à jour', data });
+    const warn = String(syncWarning || '').trim();
+    res.json({
+      success: true,
+      message: warn
+        ? `Validation modèles mise à jour (${warn})`
+        : 'Validation modèles mise à jour',
+      data: staging,
+      syncWarning: warn || undefined
+    });
   } catch (error) {
     console.error('❌ UGAP validateImportModels error:', error);
     res.status(500).json({ success: false, message: error.message || 'Erreur serveur' });

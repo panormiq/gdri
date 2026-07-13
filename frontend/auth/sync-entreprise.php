@@ -44,11 +44,14 @@ try {
     
     $_SESSION['currentEntrepriseId'] = $currentEntrepriseId;
     $_SESSION['entrepriseId'] = $currentEntrepriseId; // Gardé pour compatibilité
+
+    $freshJwt = getJWTToken();
     
     echo json_encode([
         'success' => true,
         'message' => 'Session synchronisée',
-        'currentEntrepriseId' => $currentEntrepriseId
+        'currentEntrepriseId' => $currentEntrepriseId,
+        'jwt' => $freshJwt
     ]);
     
 } catch (Exception $e) {

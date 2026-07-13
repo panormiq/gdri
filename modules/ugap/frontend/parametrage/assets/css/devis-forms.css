@@ -1,0 +1,356 @@
+.ugap-devis-form-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px 16px;
+}
+
+.ugap-devis-form-grid label {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font-size: 12px;
+    color: #64748b;
+}
+
+.ugap-devis-form-grid input,
+.ugap-devis-form-grid select,
+.ugap-devis-form-grid textarea {
+    font-size: 14px;
+    color: #0f172a;
+    padding: 7px 8px;
+    border: 1px solid #d1d5db;
+    border-radius: 6px;
+    background: #fff;
+}
+
+.ugap-devis-span2 { grid-column: span 2; }
+
+.ugap-devis-fieldset {
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    padding: 12px 14px 14px;
+    margin: 0;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px 14px;
+    grid-column: span 2;
+}
+
+.ugap-devis-fieldset legend {
+    font-size: 13px;
+    font-weight: 600;
+    color: #334155;
+    padding: 0 6px;
+}
+
+.ugap-devis-form-actions {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.ugap-devis-form-status {
+    font-size: 13px;
+    color: #64748b;
+}
+
+.ugap-devis-checkbox {
+    flex-direction: row !important;
+    align-items: center;
+    gap: 8px !important;
+    color: #334155 !important;
+    font-size: 14px !important;
+}
+
+.ugap-devis-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 14px;
+}
+
+.ugap-devis-table th,
+.ugap-devis-table td {
+    border-bottom: 1px solid #e5e7eb;
+    padding: 10px 8px;
+    text-align: left;
+    vertical-align: top;
+}
+
+.ugap-devis-table th {
+    font-size: 12px;
+    color: #64748b;
+    font-weight: 600;
+}
+
+.ugap-devis-table-actions {
+    white-space: nowrap;
+    display: flex;
+    gap: 6px;
+}
+
+.ugap-tag {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 600;
+    background: #f1f5f9;
+    color: #64748b;
+}
+
+.ugap-tag--ok {
+    background: #dcfce7;
+    color: #166534;
+}
+
+.ugap-devis-modal {
+    position: fixed;
+    inset: 0;
+    background: rgba(15, 23, 42, 0.45);
+    z-index: 10060;
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    padding: 24px 16px;
+    overflow-y: auto;
+}
+
+.ugap-devis-modal.hidden { display: none; }
+
+.ugap-devis-modal__panel {
+    width: min(640px, 96vw);
+    margin: 0;
+}
+
+.ugap-devis-modal__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 12px;
+}
+
+.ugap-devis-modal__header h3 { margin: 0; }
+
+.ugap-devis-modal__close {
+    border: none;
+    background: transparent;
+    font-size: 24px;
+    line-height: 1;
+    cursor: pointer;
+    color: #64748b;
+}
+
+.ugap-client-mode-tabs {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 14px;
+}
+
+.ugap-client-mode-tab {
+    padding: 8px 14px;
+    border: 1px solid #d1d5db;
+    border-radius: 6px;
+    background: #fff;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 600;
+    color: #475569;
+}
+
+.ugap-client-mode-tab.is-active {
+    border-color: var(--primary-color, #007bff);
+    color: var(--primary-color, #007bff);
+    background: #f0f7ff;
+}
+
+.ugap-devis-form-grid input[readonly],
+.ugap-devis-form-grid textarea[readonly] {
+    background: #f8fafc;
+    color: #475569;
+    cursor: default;
+}
+
+    .ugap-devis-form-grid,
+    .ugap-devis-fieldset {
+        grid-template-columns: 1fr;
+    }
+    .ugap-devis-span2,
+    .ugap-devis-fieldset {
+        grid-column: span 1;
+    }
+}
+
+.ugap-devis-form-status.is-success { color: #059669; }
+.ugap-devis-form-status.is-error { color: #dc2626; }
+
+.ugap-devis-template-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 14px;
+    margin-top: 16px;
+}
+
+.ugap-devis-template-card {
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+    padding: 14px;
+    background: #fff;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    min-height: 0;
+}
+
+.ugap-devis-template-card.is-active {
+    border-color: #0891b2;
+    box-shadow: 0 0 0 1px rgba(8, 145, 178, 0.15);
+}
+
+.ugap-devis-template-card-head {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+}
+
+.ugap-devis-template-name {
+    width: 100%;
+    box-sizing: border-box;
+    font-size: 15px;
+    font-weight: 600;
+    color: #0f172a;
+    border: 1px solid transparent;
+    border-radius: 6px;
+    padding: 4px 6px;
+    background: transparent;
+}
+
+.ugap-devis-template-name:hover,
+.ugap-devis-template-name:focus {
+    border-color: #cbd5e1;
+    background: #f8fafc;
+    outline: none;
+}
+
+.ugap-devis-template-badges {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    align-items: center;
+}
+
+.ugap-devis-template-badge {
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    padding: 2px 6px;
+    border-radius: 999px;
+    background: #f1f5f9;
+    color: #64748b;
+    white-space: nowrap;
+}
+
+.ugap-devis-template-badge.is-active {
+    background: #ecfeff;
+    color: #0e7490;
+}
+
+.ugap-devis-template-badge.is-default {
+    background: #fef3c7;
+    color: #92400e;
+}
+
+.ugap-devis-template-badge.is-default-print {
+    background: #eef2ff;
+    color: #4338ca;
+}
+
+.ugap-devis-template-prefs {
+    display: flex;
+    flex-direction: column;
+    padding: 10px 12px;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    background: #f8fafc;
+}
+
+.ugap-devis-template-prefs-title {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: #64748b;
+    margin-bottom: 6px;
+}
+
+.ugap-devis-template-pref {
+    display: grid;
+    grid-template-columns: 16px 1fr;
+    align-items: center;
+    column-gap: 10px;
+    padding: 7px 0;
+    margin: 0;
+    font-size: 13px;
+    line-height: 1.35;
+    color: #334155;
+    cursor: pointer;
+}
+
+.ugap-devis-template-pref + .ugap-devis-template-pref {
+    border-top: 1px solid #e2e8f0;
+}
+
+.ugap-devis-template-pref input[type="checkbox"] {
+    width: 16px;
+    height: 16px;
+    margin: 0;
+    cursor: pointer;
+}
+
+.ugap-devis-template-pref span {
+    min-width: 0;
+}
+
+.ugap-devis-template-meta {
+    margin: 0;
+    font-size: 11px;
+    color: #64748b;
+    word-break: break-all;
+}
+
+.ugap-devis-template-short-name-wrap {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.ugap-devis-template-short-name-label {
+    font-size: 11px;
+    font-weight: 600;
+    color: #64748b;
+}
+
+.ugap-devis-template-short-name {
+    width: 100%;
+    box-sizing: border-box;
+    font-size: 13px;
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+    padding: 6px 8px;
+    background: #fff;
+}
+
+.ugap-devis-template-short-name:focus {
+    border-color: #0891b2;
+    outline: none;
+    box-shadow: 0 0 0 2px rgba(8, 145, 178, 0.12);
+}
+
+.ugap-devis-template-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: auto;
+}

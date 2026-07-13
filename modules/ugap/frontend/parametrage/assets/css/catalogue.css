@@ -907,12 +907,49 @@
     margin-bottom: 4px;
 }
 
-.ugap-catalogue-modal__field input,
+.ugap-catalogue-modal__field input:not([type="checkbox"]),
 .ugap-catalogue-modal__field select {
     width: 100%;
     padding: 8px 10px;
     font-size: 13px;
     font-weight: normal;
+}
+
+.ugap-catalogue-checkbox-field {
+    display: block;
+    font-weight: 500;
+}
+
+.ugap-catalogue-checkbox-field__row {
+    display: flex !important;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 4px;
+}
+
+.ugap-catalogue-checkbox-field__row span {
+    display: inline !important;
+    margin-bottom: 0 !important;
+}
+
+.ugap-catalogue-checkbox-field__label {
+    font-weight: 600;
+    line-height: 1.3;
+}
+
+.ugap-catalogue-checkbox-field input[type="checkbox"] {
+    width: auto;
+    padding: 0;
+    margin: 0;
+    flex-shrink: 0;
+}
+
+.ugap-catalogue-checkbox-field__hint {
+    display: block;
+    font-weight: normal;
+    font-size: 12px;
+    line-height: 1.4;
+    margin: 0 0 0 24px;
 }
 
 .ugap-catalogue-modal__field small {

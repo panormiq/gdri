@@ -32,7 +32,8 @@ function detectModels(raw, structure, priceClientCol, priceUgapCol) {
       structure.labelCol,
       priceClientCol,
       priceUgapCol,
-      startRow
+      startRow,
+      structure.refUgapCol
     );
     if (recap.rowIndex >= 0) {
       baseRowIndices.add(recap.rowIndex);
@@ -43,6 +44,7 @@ function detectModels(raw, structure, priceClientCol, priceUgapCol) {
       colIndex: colIdx,
       name: recap.parsed.modelName || nameFallback,
       baseLabel: recap.label,
+      refUgap: recap.refUgap || '',
       motorizationBase: recap.parsed.motorizationBase || '',
       posteNumber: recap.parsed.posteNumber,
       priceClient: recap.priceClient,

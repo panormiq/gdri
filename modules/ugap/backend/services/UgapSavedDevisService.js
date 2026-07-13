@@ -22,8 +22,11 @@ class UgapSavedDevisService {
       fivePercentCustomOptions: Array.isArray(p.fivePercentCustomOptions)
         ? p.fivePercentCustomOptions.filter((x) => x && typeof x === 'object')
         : [],
-      use5Percent: !!p.use5Percent,
-      devisName: String(p.devisName || '').trim()
+      use5Percent: p.use5Percent !== false,
+      devisName: String(p.devisName || '').trim(),
+      clientId: p.clientId != null ? String(p.clientId).trim() || null : null,
+      clientInfo: p.clientInfo && typeof p.clientInfo === 'object' ? p.clientInfo : null,
+      commercialId: p.commercialId != null ? String(p.commercialId).trim() || null : null
     };
   }
 

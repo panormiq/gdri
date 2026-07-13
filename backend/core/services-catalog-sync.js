@@ -20,12 +20,24 @@ async function syncServicesCatalogFromModules() {
 
     slugs.push(slug);
 
+    const catalog = moduleInfo.catalog && typeof moduleInfo.catalog === 'object'
+      ? moduleInfo.catalog
+      : {};
+    const catalogType = catalog.type
+      || (moduleInfo.app?.category === 'infrastructure' ? 'extension' : 'app');
+    const catalogVisibility = catalog.visibility
+      || (catalogType === 'extension' ? 'hidden' : 'public');
+
     const serviceDoc = {
       name: moduleInfo.displayName || moduleInfo.name,
       slug,
       description: moduleInfo.description || `Module ${moduleInfo.displayName || moduleInfo.name}`,
       icon: moduleInfo.icon || '🧩',
       status: moduleInfo.enabled === false ? 'inactive' : 'active',
+      catalog_type: catalogType,
+      catalog_visibility: catalogVisibility,
+      catalog_parent_app: catalog.parent_app || null,
+      catalog_entry_url: catalog.entry_url || null,
       updated_at: new Date()
     };
 

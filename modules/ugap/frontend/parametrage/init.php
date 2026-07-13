@@ -22,7 +22,7 @@ $__ugapFrontendRoot = dirname(__DIR__);
 
 
 
-$allowedSections = ['importation', 'catalogue', 'options', 'bateau-base', 'modeles'];
+$allowedSections = ['catalogue', 'options', 'liaisons', 'bateau-base', 'modeles', 'info-entreprise', 'modele-devis', 'importation'];
 
 $allowedImportTabs = ['detect', 'modeles', 'minoration', 'majoration', 'catalogue', 'base_option', 'pr', 'valider'];
 
@@ -34,7 +34,7 @@ if (!isset($__ugapParamSection)) {
 
         ? (string) $_GET['param_section']
 
-        : (isset($_GET['section']) ? (string) $_GET['section'] : 'importation');
+        : (isset($_GET['section']) ? (string) $_GET['section'] : 'catalogue');
 
 }
 
@@ -42,7 +42,7 @@ if (!isset($__ugapParamSection)) {
 
 if (!in_array($__ugapParamSection, $allowedSections, true)) {
 
-    $__ugapParamSection = 'importation';
+    $__ugapParamSection = 'catalogue';
 
 }
 
@@ -78,6 +78,8 @@ $ugapParamEnqueueAssets = static function () use ($__ugapFrontendRoot): void {
 
     ugap_enqueue_style('/modules/ugap/frontend/parametrage/assets/css/famille-lc.css');
 
+    ugap_enqueue_style('/modules/ugap/frontend/parametrage/assets/css/parcours-table.css');
+
 
 
     ugap_enqueue_script('/modules/ugap/frontend/assets/js/shared/ugap-gdri-host.js');
@@ -89,6 +91,10 @@ $ugapParamEnqueueAssets = static function () use ($__ugapFrontendRoot): void {
     ugap_enqueue_script('/modules/ugap/frontend/assets/js/shared/ugap-poste-from-label.js');
 
     ugap_enqueue_script('/modules/ugap/frontend/assets/js/shared/ugap-option-display-name.js');
+
+    ugap_enqueue_script('/modules/ugap/frontend/assets/js/shared/ugap-ref-display.js');
+
+    ugap_enqueue_script('/modules/ugap/frontend/assets/js/shared/ugap-adj-replacement-options.js');
 
     ugap_enqueue_script('/modules/ugap/frontend/assets/js/shared/ugap-option-text-match.js');
 
@@ -150,9 +156,23 @@ $ugapParamEnqueueAssets = static function () use ($__ugapFrontendRoot): void {
 
     ugap_enqueue_script('/modules/ugap/frontend/parametrage/assets/js/famille/famille-lc-tab.js');
 
+    ugap_enqueue_script('/modules/ugap/frontend/assets/js/shared/ugap-model-base-options.js');
+
+    ugap_enqueue_script('/modules/ugap/frontend/parametrage/assets/js/options/options-create-modal.js');
+
     ugap_enqueue_script('/modules/ugap/frontend/parametrage/assets/js/options/options-tab.js');
 
+    ugap_enqueue_script('/modules/ugap/frontend/parametrage/assets/js/liaisons/liaisons-shared.js');
+    ugap_enqueue_script('/modules/ugap/frontend/parametrage/assets/js/liaisons/liaisons-option-picker.js');
+    ugap_enqueue_script('/modules/ugap/frontend/parametrage/assets/js/liaisons/liaisons-incompatibility-panel.js');
+    ugap_enqueue_script('/modules/ugap/frontend/parametrage/assets/js/liaisons/liaisons-complementary-panel.js');
+    ugap_enqueue_script('/modules/ugap/frontend/parametrage/assets/js/liaisons/liaisons-auto-add-panel.js');
+    ugap_enqueue_script('/modules/ugap/frontend/parametrage/assets/js/liaisons/liaisons-requires-panel.js');
+    ugap_enqueue_script('/modules/ugap/frontend/parametrage/assets/js/liaisons/liaisons-tab.js');
+
     ugap_enqueue_script('/modules/ugap/frontend/assets/js/shared/ugap-sortable-dnd.js');
+
+    ugap_enqueue_script('/modules/ugap/frontend/assets/js/shared/ugap-parcours-labels.js');
 
     ugap_enqueue_script('/modules/ugap/frontend/assets/js/shared/boat-template-tree.js');
 
@@ -160,15 +180,33 @@ $ugapParamEnqueueAssets = static function () use ($__ugapFrontendRoot): void {
 
     ugap_enqueue_script('/modules/ugap/frontend/parametrage/assets/js/bateau-base/bateau-base-lc-state.js');
 
+    ugap_enqueue_script('/modules/ugap/frontend/assets/js/tabs/template-bateau-structure-editor.js');
+
+    ugap_enqueue_script('/modules/ugap/frontend/assets/js/tabs/template-bateau-variant-editor.js');
+
     ugap_enqueue_script('/modules/ugap/frontend/assets/js/tabs/template-bateau-tab.js');
 
     ugap_enqueue_script('/modules/ugap/frontend/parametrage/assets/js/bateau-base/bateau-base-lc-tab.js');
 
     ugap_enqueue_script('/modules/ugap/frontend/assets/js/shared/ugap-group-display.js');
 
-    ugap_enqueue_script('/modules/ugap/frontend/assets/js/shared/ugap-model-base-options.js');
+    ugap_enqueue_script('/modules/ugap/frontend/assets/js/configurateur/configurateur-model-base-bridge.js');
+
+    ugap_enqueue_script('/modules/ugap/frontend/assets/js/configurateur/configurateur-template-tree.js');
+
+    ugap_enqueue_script('/modules/ugap/frontend/parametrage/assets/js/shared/parametrage-parcours-bridge.js');
 
     ugap_enqueue_script('/modules/ugap/frontend/parametrage/assets/js/modeles/modeles-tab.js');
+
+    ugap_enqueue_style('/modules/ugap/frontend/parametrage/assets/css/devis-forms.css');
+
+    ugap_enqueue_script('/modules/ugap/frontend/parametrage/assets/js/devis/info-entreprise-tab.js');
+
+    ugap_enqueue_script('/modules/ugap/frontend/parametrage/assets/js/devis/modele-devis-tab.js');
+
+    ugap_enqueue_script('/modules/ugap/frontend/assets/js/import/import-models-step.js');
+
+    ugap_enqueue_script('/modules/ugap/frontend/parametrage/assets/js/import/modeles-import-tab.js');
 
     ugap_enqueue_script('/modules/ugap/frontend/parametrage/assets/js/import/valider-tab.js');
 

@@ -1,0 +1,281 @@
+{
+  "sections": [
+    {
+      "id": "ugap_zone_entreprise",
+      "type": "section",
+      "title": "Entreprise",
+      "level": 1,
+      "zoneType": "entreprise",
+      "order": 1,
+      "isAnnex": false,
+      "structure": "structural",
+      "actif": true,
+      "parent": null,
+      "category": "entreprise",
+      "content": [
+        {
+          "type": "paragraph",
+          "id": "ugap_zone_entreprise_p1",
+          "text": "{{ugap:entreprise.raisonSociale}}",
+          "styles": { "fontWeight": "bold", "fontSize": "14pt" }
+        },
+        {
+          "type": "paragraph",
+          "id": "ugap_zone_entreprise_p2",
+          "text": "{{ugap:entreprise.adresse}} — {{ugap:entreprise.codePostal}} {{ugap:entreprise.ville}}",
+          "styles": {}
+        },
+        {
+          "type": "paragraph",
+          "id": "ugap_zone_entreprise_p3",
+          "text": "SIRET : {{ugap:entreprise.siret}} — TVA : {{ugap:entreprise.tvaIntracommunautaire}}",
+          "styles": {}
+        },
+        {
+          "type": "paragraph",
+          "id": "ugap_zone_entreprise_p4",
+          "text": "Tél. {{ugap:entreprise.telephone}} — {{ugap:entreprise.email}}",
+          "styles": {}
+        }
+      ],
+      "children": []
+    },
+    {
+      "id": "ugap_zone_client",
+      "type": "section",
+      "title": "Client",
+      "level": 1,
+      "zoneType": "client",
+      "order": 2,
+      "isAnnex": false,
+      "structure": "structural",
+      "actif": true,
+      "parent": null,
+      "category": "client",
+      "content": [
+        {
+          "type": "paragraph",
+          "id": "ugap_zone_client_p1",
+          "text": "{{ugap:client.nom}}",
+          "styles": { "fontWeight": "bold", "fontSize": "13pt" }
+        },
+        {
+          "type": "paragraph",
+          "id": "ugap_zone_client_p2",
+          "text": "{{ugap:client.adresse}}",
+          "styles": {}
+        },
+        {
+          "type": "paragraph",
+          "id": "ugap_zone_client_p3",
+          "text": "{{ugap:client.codePostal}} {{ugap:client.ville}}",
+          "styles": {}
+        },
+        {
+          "type": "paragraph",
+          "id": "ugap_zone_client_p4",
+          "text": "{{ugap:client.email}} — {{ugap:client.telephone}}",
+          "styles": {}
+        }
+      ],
+      "children": []
+    },
+    {
+      "id": "ugap_zone_devis",
+      "type": "section",
+      "title": "Devis",
+      "level": 1,
+      "zoneType": "devis",
+      "order": 3,
+      "isAnnex": false,
+      "structure": "structural",
+      "actif": true,
+      "parent": null,
+      "category": "devis",
+      "content": [
+        {
+          "type": "paragraph",
+          "id": "ugap_zone_devis_p1",
+          "text": "Devis n° {{ugap:devis.numero}} — Date : {{ugap:devis.date}}",
+          "styles": { "fontWeight": "bold" }
+        },
+        {
+          "type": "paragraph",
+          "id": "ugap_zone_devis_p2",
+          "text": "Modèle : {{ugap:devis.modele}} — Validité : {{ugap:devis.validite}} jours",
+          "styles": {}
+        },
+        {
+          "type": "paragraph",
+          "id": "ugap_zone_devis_p3",
+          "text": "Commercial : {{ugap:commercial.nom}} — {{ugap:commercial.email}}",
+          "styles": {}
+        }
+      ],
+      "children": []
+    },
+    {
+      "id": "ugap_zone_lignes",
+      "type": "section",
+      "title": "Lignes du devis",
+      "level": 1,
+      "zoneType": "lignes",
+      "order": 4,
+      "isAnnex": false,
+      "structure": "structural",
+      "actif": true,
+      "parent": null,
+      "category": "lignes",
+      "content": [
+        {
+          "type": "paragraph",
+          "id": "ugap_zone_lignes_p1",
+          "text": "{{ugap:lignes.table}}",
+          "styles": {}
+        }
+      ],
+      "children": []
+    },
+    {
+      "id": "ugap_zone_total_devis",
+      "type": "section",
+      "title": "Total devis",
+      "level": 1,
+      "zoneType": "total-devis",
+      "order": 5,
+      "isAnnex": false,
+      "structure": "structural",
+      "actif": true,
+      "parent": null,
+      "category": "total-devis",
+      "content": [
+        {
+          "type": "paragraph",
+          "id": "ugap_zone_total_devis_p0",
+          "text": "Budget 5 % HT disponible : {{ugap:devis.budget5Disponible}} — Restant : {{ugap:devis.budget5Restant}}",
+          "styles": { "fontSize": "9pt", "textAlign": "right", "color": "#475569" }
+        },
+        {
+          "type": "paragraph",
+          "id": "ugap_zone_total_devis_p1",
+          "text": "Sous-total HT : {{ugap:devis.subtotal}} — Options 5 % consommées HT : {{ugap:devis.budget5}} — Total HT : {{ugap:devis.total}}",
+          "styles": { "fontWeight": "bold", "textAlign": "right" }
+        },
+        {
+          "type": "paragraph",
+          "id": "ugap_zone_total_devis_p2",
+          "text": "TVA ({{ugap:devis.tauxTva}} %) : {{ugap:devis.montantTva}} — Total TTC : {{ugap:devis.totalTtc}}",
+          "styles": { "fontWeight": "bold", "textAlign": "right", "marginTop": "6pt" }
+        }
+      ],
+      "children": []
+    },
+    {
+      "id": "ugap_zone_moteur",
+      "type": "section",
+      "title": "Motorisation",
+      "level": 1,
+      "zoneType": "slot",
+      "order": 6,
+      "isAnnex": false,
+      "structure": "structural",
+      "actif": true,
+      "parent": null,
+      "category": "ugap:node:moteur",
+      "content": [
+        {
+          "type": "paragraph",
+          "id": "ugap_zone_moteur_p1",
+          "text": "Moteur sélectionné : {{ugap:node:moteur.libelle}} (Réf. {{ugap:node:moteur.refUgap}}) — {{ugap:node:moteur.prix}} € HT",
+          "styles": {}
+        }
+      ],
+      "children": []
+    },
+    {
+      "id": "ugap_zone_transport",
+      "type": "section",
+      "title": "Transport et livraison",
+      "level": 1,
+      "zoneType": "transport",
+      "order": 7,
+      "isAnnex": false,
+      "structure": "structural",
+      "actif": true,
+      "parent": null,
+      "category": "transport",
+      "content": [
+        {
+          "type": "paragraph",
+          "id": "ugap_zone_transport_p1",
+          "text": "{{ugap:transport.delaiLivraison}}",
+          "styles": {}
+        }
+      ],
+      "children": []
+    },
+    {
+      "id": "ugap_zone_bon_accord",
+      "type": "section",
+      "title": "Bon pour accord",
+      "level": 1,
+      "zoneType": "bon-pour-accord",
+      "order": 8,
+      "isAnnex": false,
+      "structure": "structural",
+      "actif": true,
+      "parent": null,
+      "category": "bon-pour-accord",
+      "content": [
+        {
+          "type": "paragraph",
+          "id": "ugap_zone_bon_accord_p1",
+          "text": "Bon pour accord, date et signature :",
+          "styles": {}
+        },
+        {
+          "type": "paragraph",
+          "id": "ugap_zone_bon_accord_p2",
+          "text": "Fait à ____________________, le ____ / ____ / ______",
+          "styles": { "marginTop": "24pt" }
+        },
+        {
+          "type": "paragraph",
+          "id": "ugap_zone_bon_accord_p3",
+          "text": "Signature et cachet :",
+          "styles": { "marginTop": "48pt" }
+        }
+      ],
+      "children": []
+    },
+    {
+      "id": "ugap_zone_pied_page",
+      "type": "section",
+      "title": "Pied de page",
+      "level": 1,
+      "zoneType": "pied-de-page",
+      "order": 9,
+      "isAnnex": false,
+      "structure": "structural",
+      "actif": true,
+      "parent": null,
+      "category": "pied-de-page",
+      "content": [
+        {
+          "type": "paragraph",
+          "id": "ugap_zone_pied_page_p1",
+          "text": "{{ugap:entreprise.conditionsPaiement}}",
+          "styles": { "fontSize": "9pt" }
+        },
+        {
+          "type": "paragraph",
+          "id": "ugap_zone_pied_page_p2",
+          "text": "{{ugap:entreprise.mentionsLegales}}",
+          "styles": { "fontSize": "8pt", "marginTop": "8pt" }
+        }
+      ],
+      "children": []
+    }
+  ],
+  "toc": []
+}

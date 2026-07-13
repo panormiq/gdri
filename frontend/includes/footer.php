@@ -3,6 +3,10 @@
  * Footer commun pour toutes les pages - GDRI
  * Fichier : includes/footer.php
  */
+
+if (!empty($GLOBALS['gdri_admin_shell_open'])) {
+    echo '</main></div>';
+}
 ?>
 
 <!-- Footer -->

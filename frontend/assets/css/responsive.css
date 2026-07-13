@@ -72,8 +72,10 @@
     }
 
     /* Cards grid */
-    .cards-grid {
+    .cards-grid,
+    .hub-cards-grid {
         grid-template-columns: 1fr;
+        justify-content: stretch;
     }
 
     /* Footer */

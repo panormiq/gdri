@@ -61,6 +61,7 @@
 
         const models = Array.isArray(staging.models) ? staging.models : [];
         const validated = Array.isArray(staging?.progress?.validatedModelIds) ? staging.progress.validatedModelIds : [];
+        const modelsPending = models.length > validated.length;
         const allOptions = Array.isArray(staging.importOptions) && staging.importOptions.length
             ? staging.importOptions
             : (Array.isArray(staging.categories) ? staging.categories : []).flatMap((cat) => (
@@ -205,6 +206,9 @@
                 validateOptions();
             } else if (target.id === 'ugap-valider-publish-btn') {
                 publishImport();
+            } else if (target.id === 'ugap-valider-goto-modeles') {
+                const tabBtn = document.querySelector('.ugap-import-tab[data-tab="modeles"]');
+                if (tabBtn) tabBtn.click();
             }
         });
 

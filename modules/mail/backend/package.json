@@ -10,6 +10,10 @@
     "nodemailer": "^6.9.0"
   },
   "requiredServices": [],
-  "compatibleVersion": ">=1.0.0"
+  "compatibleVersion": ">=1.0.0",
+  "catalog": {
+    "type": "extension",
+    "visibility": "hidden"
+  }
 }
 

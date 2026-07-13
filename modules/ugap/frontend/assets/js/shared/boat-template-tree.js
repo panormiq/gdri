@@ -168,6 +168,11 @@
             const valid = new Set(defaultIds);
             const result = [];
             prev.forEach((id) => {
+                // Ordre parcours mixte : la catégorie peut apparaître parmi ses sous-catégories.
+                if (pid && id === pid) {
+                    if (!result.includes(id)) result.push(id);
+                    return;
+                }
                 if (valid.has(id)) {
                     result.push(id);
                     valid.delete(id);
@@ -189,7 +194,7 @@
             : mergeCatalogNodeOrder(catalogNodes, orderMap);
         const pid = String(parentId || '').trim();
         if (Array.isArray(merged[pid]) && merged[pid].length) {
-            return merged[pid].slice();
+            return merged[pid].filter((id) => id !== pid);
         }
         const Core = global.UgapCatalogueNodesCore;
         if (Core?.getChildren) {
@@ -203,6 +208,225 @@
     function templateNodeIdForCatalog(catalogNodeId) {
         const id = String(catalogNodeId || '').trim();
         return id ? `tplcn_${id}` : newNodeId('tplcn');
+    }
+
+    /** IDs présents dans une map d’ordre (toutes les listes de frères). */
+    function collectIdsFromCatalogNodeOrder(orderMap) {
+        const ids = new Set();
+        const src = orderMap && typeof orderMap === 'object' ? orderMap : {};
+        Object.values(src).forEach((list) => {
+            (Array.isArray(list) ? list : []).forEach((id) => {
+                const x = String(id || '').trim();
+                if (x) ids.add(x);
+            });
+        });
+        return ids;
+    }
+
+    /** Ancêtres catalogue jusqu’à la racine (pour garder un arbre connecté). */
+    function collectCatalogAncestorIds(catalogNodes, nodeId) {
+        const Core = global.UgapCatalogueNodesCore;
+        const nodes = Array.isArray(catalogNodes) ? catalogNodes : [];
+        const out = [];
+        let cur = String(nodeId || '').trim();
+        const seen = new Set();
+        while (cur && !seen.has(cur)) {
+            seen.add(cur);
+            const row = Core?.getNodeById?.(nodes, cur) || nodes.find((n) => String(n?.id || '').trim() === cur);
+            if (!row) break;
+            const parentId = String(row.parentId ?? row.parent ?? '').trim();
+            if (!parentId) break;
+            out.unshift(parentId);
+            cur = parentId;
+        }
+        return out;
+    }
+
+    /** Descendants catalogue (récursif). */
+    function collectCatalogDescendantIds(catalogNodes, nodeId) {
+        const Core = global.UgapCatalogueNodesCore;
+        const nodes = Array.isArray(catalogNodes) ? catalogNodes : [];
+        const root = String(nodeId || '').trim();
+        if (!root || !Core?.getChildren) return [];
+        const out = [];
+        const walk = (pid) => {
+            Core.getChildren(nodes, pid).forEach((child) => {
+                const id = String(child?.id || '').trim();
+                if (!id) return;
+                out.push(id);
+                walk(id);
+            });
+        };
+        walk(root);
+        return out;
+    }
+
+    function normalizeIncludedCatalogNodeIds(raw, catalogNodes) {
+        const nodes = Array.isArray(catalogNodes) ? catalogNodes : [];
+        const valid = new Set(nodes.map((n) => String(n?.id || '').trim()).filter(Boolean));
+        return (Array.isArray(raw) ? raw : [])
+            .map((x) => String(x || '').trim())
+            .filter((id) => valid.has(id));
+    }
+
+    /**
+     * Ordre stocké sans réinjecter les nœuds catalogue absents du template.
+     * Valide les IDs et conserve uniquement les frères explicitement listés.
+     */
+    function applyStoredCatalogNodeOrder(catalogNodes, orderMap, includedIds) {
+        const nodes = Array.isArray(catalogNodes) ? catalogNodes : [];
+        const included = includedIds instanceof Set
+            ? includedIds
+            : new Set(normalizeIncludedCatalogNodeIds(includedIds, nodes));
+        const Core = global.UgapCatalogueNodesCore;
+        const byId = new Set(nodes.map((n) => String(n?.id || '').trim()).filter(Boolean));
+        const out = {};
+        const src = normalizeCatalogNodeOrder(orderMap);
+        Object.keys(src).forEach((pid) => {
+            const parentId = String(pid || '').trim();
+            if (parentId && !included.has(parentId)) return;
+            const ids = (Array.isArray(src[parentId]) ? src[parentId] : [])
+                .map((x) => String(x || '').trim())
+                .filter((id) => byId.has(id) && included.has(id) && id !== parentId);
+            if (ids.length) out[parentId] = ids;
+        });
+        if (!Object.keys(out).length && included.size && Core?.getChildren) {
+            const walk = (parentId) => {
+                const pid = String(parentId || '').trim();
+                const kids = Core.getChildren(nodes, pid)
+                    .map((n) => String(n?.id || '').trim())
+                    .filter((id) => included.has(id));
+                if (kids.length) out[pid] = kids;
+                kids.forEach((id) => walk(id));
+            };
+            walk('');
+        }
+        return out;
+    }
+
+    function resolveIncludedCatalogNodeIds(snap, catalogNodes, orderMap) {
+        const nodes = Array.isArray(catalogNodes) ? catalogNodes : [];
+        const explicit = normalizeIncludedCatalogNodeIds(snap?.includedCatalogNodeIds, nodes);
+        if (explicit.length) return explicit;
+        const fromOrder = collectIdsFromCatalogNodeOrder(orderMap);
+        if (fromOrder.size) return Array.from(fromOrder);
+        if (Array.isArray(snap?.categoryTree) && snap.categoryTree.length) {
+            const extracted = extractCatalogNodeOrderFromCategoryTree(snap.categoryTree, nodes);
+            return Array.from(collectIdsFromCatalogNodeOrder(extracted));
+        }
+        return nodes.map((n) => String(n?.id || '').trim()).filter(Boolean);
+    }
+
+    function catalogChildIds(parentId, catalogNodes, included) {
+        const Core = global.UgapCatalogueNodesCore;
+        const pid = String(parentId || '').trim();
+        const inc = included instanceof Set ? included : new Set(included);
+        if (!Core?.getChildren) return [];
+        return Core.getChildren(catalogNodes, pid)
+            .map((n) => String(n?.id || '').trim())
+            .filter((id) => id && inc.has(id));
+    }
+
+    /**
+     * Frères pour l’éditeur de structure — hiérarchie catalogue uniquement
+     * (exclut le « parcours mixte » où un parent peut apparaître parmi ses enfants).
+     */
+    function orderedStructureSiblingIds(parentId, catalogNodes, orderMap, includedIds) {
+        const pid = String(parentId || '').trim();
+        const included = includedIds instanceof Set
+            ? includedIds
+            : new Set(normalizeIncludedCatalogNodeIds(includedIds, catalogNodes));
+        const defaultKids = catalogChildIds(pid, catalogNodes, included);
+        if (!defaultKids.length) return [];
+
+        const stored = normalizeCatalogNodeOrder(orderMap)[pid];
+        if (!Array.isArray(stored) || !stored.length) return defaultKids;
+
+        const valid = new Set(defaultKids);
+        const out = [];
+        stored.forEach((raw) => {
+            const id = String(raw || '').trim();
+            if (!id || id === pid || !valid.has(id) || !included.has(id)) return;
+            if (!out.includes(id)) out.push(id);
+        });
+        defaultKids.forEach((id) => {
+            if (!out.includes(id)) out.push(id);
+        });
+        return out;
+    }
+
+    /** Réordonne catalogNodeOrder pour l’éditeur structure (sans entrées mixtes / auto-référence). */
+    function sanitizeStructureCatalogNodeOrder(catalogNodes, orderMap, includedIds) {
+        const nodes = Array.isArray(catalogNodes) ? catalogNodes : [];
+        const included = new Set(normalizeIncludedCatalogNodeIds(includedIds, nodes));
+        const out = {};
+        const visit = (parentId) => {
+            const pid = String(parentId || '').trim();
+            const kids = orderedStructureSiblingIds(pid, nodes, orderMap, included);
+            if (kids.length) out[pid] = kids;
+            kids.forEach((id) => visit(id));
+        };
+        visit('');
+        return out;
+    }
+
+    function orderedIncludedSiblingIds(parentId, catalogNodes, orderMap, includedIds) {
+        const pid = String(parentId || '').trim();
+        const included = includedIds instanceof Set
+            ? includedIds
+            : new Set(normalizeIncludedCatalogNodeIds(includedIds, catalogNodes));
+        const order = applyStoredCatalogNodeOrder(catalogNodes, orderMap, included);
+        if (Array.isArray(order[pid]) && order[pid].length) {
+            return order[pid].filter((id) => included.has(id) && id !== pid);
+        }
+        const Core = global.UgapCatalogueNodesCore;
+        if (!Core?.getChildren) return [];
+        return Core.getChildren(catalogNodes, pid)
+            .map((n) => String(n?.id || '').trim())
+            .filter((id) => included.has(id));
+    }
+
+    /** Arbre categoryTree = sous-ensemble du catalogue (nœuds inclus + ordre). */
+    function buildCategoryTreeFromIncludedCatalog(catalogNodes, orderMap, includedIds) {
+        const nodes = Array.isArray(catalogNodes) ? catalogNodes : [];
+        const includedList = normalizeIncludedCatalogNodeIds(includedIds, nodes);
+        const included = new Set(includedList);
+        if (!included.size) return [];
+        const order = applyStoredCatalogNodeOrder(nodes, orderMap, included);
+        const Core = global.UgapCatalogueNodesCore;
+        if (!Core?.getChildren) return [];
+
+        const buildRefs = (catalogNode) => {
+            if (typeof buildRefsFromCatalogNode === 'function') {
+                return buildRefsFromCatalogNode(catalogNode, nodes);
+            }
+            const Catalog = global.UgapGroupCatalog;
+            if (Catalog?.buildRefsFromCatalogNode) {
+                return Catalog.buildRefsFromCatalogNode(catalogNode, nodes);
+            }
+            return [];
+        };
+
+        const buildNode = (catalogNodeId) => {
+            const nid = String(catalogNodeId || '').trim();
+            if (!nid || !included.has(nid)) return null;
+            const cn = Core.getNodeById?.(nodes, nid) || { id: nid, label: nid };
+            const label = Core.nodeBreadcrumb?.(nodes, nid)
+                || String(cn.label || nid).trim();
+            const childIds = orderedIncludedSiblingIds(nid, nodes, order, included);
+            const children = childIds.map((cid) => buildNode(cid)).filter(Boolean);
+            return normalizeTreeNode({
+                id: templateNodeIdForCatalog(nid),
+                label,
+                catalogNodeRefId: nid,
+                decisionGroupRefs: buildRefs(cn),
+                children,
+            });
+        };
+
+        return orderedIncludedSiblingIds('', nodes, order, included)
+            .map((rootId) => buildNode(rootId))
+            .filter(Boolean);
     }
 
     /** Arbre categoryTree dérivé du catalogue + ordre d’affichage (parcours configurateur). */
@@ -478,9 +702,76 @@
         return map;
     }
 
+    function normalizeCatalogNodeFivePercentEnabled(raw) {
+        const out = {};
+        const src = raw && typeof raw === 'object' ? raw : {};
+        Object.keys(src).forEach((key) => {
+            const id = String(key || '').trim();
+            if (id) out[id] = src[key] === true;
+        });
+        return out;
+    }
+
+    function catalogNodeHasDirectOptions(catalogNodeId, catalogNodes) {
+        const id = String(catalogNodeId || '').trim();
+        if (!id) return false;
+        const nodes = Array.isArray(catalogNodes) ? catalogNodes : [];
+        const St = global.UgapCatalogueLcState;
+        if (St?.getOptionsLinkSummaryForNode) {
+            const summary = St.getOptionsLinkSummaryForNode(id, nodes) || {};
+            const direct = Array.isArray(summary.direct) ? summary.direct : [];
+            return direct.length > 0;
+        }
+        return false;
+    }
+
+    function walkCatalogNodeIdsInOrder(catalogNodes, orderMap) {
+        const nodes = Array.isArray(catalogNodes) ? catalogNodes : [];
+        const order = orderMap && typeof orderMap === 'object' ? orderMap : {};
+        const Core = global.UgapCatalogueNodesCore;
+        if (!Core?.getChildren) return [];
+        const out = [];
+        const visit = (parentId) => {
+            const pid = String(parentId || '').trim();
+            const siblingIds = orderedCatalogSiblingIds(pid, nodes, order);
+            siblingIds.forEach((cnId) => {
+                const id = String(cnId || '').trim();
+                if (!id) return;
+                out.push(id);
+                visit(id);
+            });
+        };
+        visit('');
+        return out;
+    }
+
+    function ensureCatalogNodeFivePercentDefaults(enabledMap, catalogNodes, orderMap) {
+        const current = normalizeCatalogNodeFivePercentEnabled(enabledMap);
+        const next = { ...current };
+        walkCatalogNodeIdsInOrder(catalogNodes, orderMap).forEach((cnId) => {
+            if (Object.prototype.hasOwnProperty.call(next, cnId)) return;
+            next[cnId] = catalogNodeHasDirectOptions(cnId, catalogNodes);
+        });
+        return next;
+    }
+
+    function resolveCatalogNodeFivePercentEnabled(enabledMap, catalogNodeId, catalogNodes, hasChoices) {
+        const id = String(catalogNodeId || '').trim();
+        if (!id) return false;
+        const map = normalizeCatalogNodeFivePercentEnabled(enabledMap);
+        if (Object.prototype.hasOwnProperty.call(map, id)) return map[id] === true;
+        if (hasChoices === true) return true;
+        return catalogNodeHasDirectOptions(id, catalogNodes);
+    }
+
     global.UgapBoatTemplateTree = {
         newNodeId,
         normalizeDecisionGroupRef,
+        normalizeCatalogNodeFivePercentEnabled,
+        catalogNodeHasDirectOptions,
+        ensureCatalogNodeFivePercentDefaults,
+        resolveCatalogNodeFivePercentEnabled,
+        walkCatalogNodeIdsInOrder,
         normalizeTreeNode,
         normalizeCategoryTree,
         normalizeBoatTemplateSnapshot,
@@ -494,6 +785,17 @@
         defaultCatalogNodeOrder,
         mergeCatalogNodeOrder,
         orderedCatalogSiblingIds,
+        collectIdsFromCatalogNodeOrder,
+        collectCatalogAncestorIds,
+        collectCatalogDescendantIds,
+        normalizeIncludedCatalogNodeIds,
+        applyStoredCatalogNodeOrder,
+        resolveIncludedCatalogNodeIds,
+        orderedIncludedSiblingIds,
+        catalogChildIds,
+        orderedStructureSiblingIds,
+        sanitizeStructureCatalogNodeOrder,
+        buildCategoryTreeFromIncludedCatalog,
         buildCategoryTreeFromCatalog,
         extractCatalogNodeOrderFromCategoryTree,
         templateNodeIdForCatalog,

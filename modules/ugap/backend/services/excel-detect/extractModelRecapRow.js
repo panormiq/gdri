@@ -10,6 +10,7 @@
 
 const isCrossMarker = require('./isCrossMarker');
 const parseBaseModelLabel = require('./parseBaseModelLabel');
+const { pickRefUgapFromRecapRow, formatUgapRefCell } = require('./detectRefUgapColumn');
 
 function parsePrice(value) {
   if (typeof value === 'number') return value;
@@ -21,7 +22,7 @@ function parsePrice(value) {
   return 0;
 }
 
-function extractModelRecapRow(raw, colIndex, labelCol, priceClientCol, priceUgapCol, startRow) {
+function extractModelRecapRow(raw, colIndex, labelCol, priceClientCol, priceUgapCol, startRow, refUgapCol = -1) {
   for (let r = startRow; r < raw.length; r++) {
     const row = raw[r] || [];
     if (!isCrossMarker(row[colIndex])) continue;
@@ -32,10 +33,18 @@ function extractModelRecapRow(raw, colIndex, labelCol, priceClientCol, priceUgap
 
     const priceClient = parsePrice(row[priceClientCol]);
     const priceUgap = priceUgapCol > -1 ? parsePrice(row[priceUgapCol]) : priceClient;
+    const refUgap = pickRefUgapFromRecapRow(row, {
+      refUgapCol,
+      modelCol: colIndex,
+      labelCol,
+      priceClientCol,
+      priceUgapCol
+    });
 
     return {
       rowIndex: r,
       label: labelStr,
+      refUgap,
       priceClient: priceClient > 0 ? priceClient : 0,
       priceUgap: priceUgap > 0 ? priceUgap : 0,
       parsed: parseBaseModelLabel(labelStr)
@@ -45,6 +54,7 @@ function extractModelRecapRow(raw, colIndex, labelCol, priceClientCol, priceUgap
   return {
     rowIndex: -1,
     label: '',
+    refUgap: '',
     priceClient: 0,
     priceUgap: 0,
     parsed: parseBaseModelLabel('')

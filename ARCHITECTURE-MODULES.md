@@ -1,5 +1,7 @@
 # Architecture des Modules GDRI
 
+> **Charte produit CMS vs modules** : voir [`CMS-CHARTE.md`](CMS-CHARTE.md) (périmètre du noyau plateforme, extensions, apps, agents).
+
 ## Vue d'ensemble
 
 L'architecture GDRI est conçue pour permettre l'intégration de modules backend et frontend de manière modulaire et extensible. Tous les modules passent par le **serveur GDRI central** qui gère l'authentification, le multitenant et le routage.

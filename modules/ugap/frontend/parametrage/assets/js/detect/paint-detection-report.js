@@ -11,7 +11,6 @@
         if (modelsMount && global.UgapDetectRenderModels) {
             global.UgapDetectRenderModels.renderDetectionModelsTable(modelsMount, report?.models);
         }
-
         const minoWrap = document.querySelector('[data-detect-kind="minoration"]');
         if (minoWrap && global.UgapDetectRenderMinoration) {
             global.UgapDetectRenderMinoration.renderDetectionMinorationTable(

@@ -11,6 +11,7 @@ const express = require('express');
 const router = express.Router();
 const { ObjectId } = require('mongodb');
 const database = require(path.join(__dirname, '../../../backend/config/database'));
+const { findEntityMemberUsers, getActiveEntityRoles, isPlatformRoleKey } = require(path.join(__dirname, '../../../backend/core/entity-member-users'));
 const { authenticateJWT } = require(path.join(__dirname, '../../../backend/config/jwt'));
 const iaModule = require('./index');
 const providersList = require('./data/providers');
@@ -25,6 +26,8 @@ const COLLECTION_ROLE_RIGHTS = 'ia_llm_role_rights';
 const COLLECTION_SERVER_USER_RIGHTS = 'ia_server_user_rights';
 const COLLECTION_SERVER_ROLE_RIGHTS = 'ia_server_role_rights';
 const COLLECTION_ENTITY_SETTINGS = 'ia_entity_settings';
+const COLLECTION_SERVER_POLICIES = 'ia_entity_server_policies';
+const COLLECTION_TOKEN_USAGE = 'ia_entity_token_usage';
 const COLLECTION_SERVERS = 'ia_servers';
 
 function maskKey(key) {
@@ -57,6 +60,108 @@ function requireEntity(req, res, next) {
   }
   req.iaEntityId = entityId;
   next();
+}
+
+/** Admin entité ou GDRI (avec entité active) */
+function requireEntityAdmin(req, res, next) {
+  const role = req.user && req.user.role;
+  if (role !== 'ADMIN_GDRI' && role !== 'ADMIN_ENTITY') {
+    return res.status(403).json({ success: false, message: 'Admin entité requis.' });
+  }
+  return requireEntity(req, res, next);
+}
+
+/** Modification technique (URL, token, endpoints) : console GDRI ou serveur propre à l'entité */
+function canModifyServerInfra(req, serverDoc) {
+  if (!serverDoc) return false;
+  if (req.user && req.user.role === 'ADMIN_GDRI') return true;
+  const entityId = getEntityId(req);
+  const userId = (req.user && (req.user.user_id || req.user.sub || req.user._id))
+    ? String(req.user.user_id || req.user.sub || req.user._id)
+    : null;
+  if (serverDoc.scope === 'entity' && entityId && String(serverDoc.entity_id) === String(entityId)) {
+    return true;
+  }
+  if (entityId && serverDoc.owner_entity_id && String(serverDoc.owner_entity_id) === String(entityId)) {
+    return true;
+  }
+  if (serverDoc.scope === 'user' && userId && serverDoc.owner_user_id && String(serverDoc.owner_user_id) === userId) {
+    return true;
+  }
+  return false;
+}
+
+function currentUsageMonthKey() {
+  const d = new Date();
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
+}
+
+function estimateTokenCount(prompt, responseText) {
+  const p = typeof prompt === 'string' ? prompt.length : 0;
+  const r = typeof responseText === 'string' ? responseText.length : 0;
+  return Math.max(1, Math.ceil((p + r) / 4));
+}
+
+async function getEntityServerPolicy(entityId, serverId) {
+  const policiesCol = database.getCollection(COLLECTION_SERVER_POLICIES);
+  return policiesCol.findOne({
+    entity_id: String(entityId),
+    server_id: String(serverId)
+  });
+}
+
+async function getMonthlyTokenUsage(entityId, serverId) {
+  const col = database.getCollection(COLLECTION_TOKEN_USAGE);
+  const doc = await col.findOne({
+    entity_id: String(entityId),
+    server_id: String(serverId),
+    month: currentUsageMonthKey()
+  });
+  return doc && doc.tokens_used != null ? Number(doc.tokens_used) : 0;
+}
+
+async function incrementMonthlyTokenUsage(entityId, serverId, tokens) {
+  const n = Number(tokens);
+  if (!n || n <= 0) return;
+  const col = database.getCollection(COLLECTION_TOKEN_USAGE);
+  await col.updateOne(
+    {
+      entity_id: String(entityId),
+      server_id: String(serverId),
+      month: currentUsageMonthKey()
+    },
+    { $inc: { tokens_used: n }, $set: { updated_at: new Date() } },
+    { upsert: true }
+  );
+}
+
+/** Owner entité sur serveur global privé/dédié : gérer modèles et LLM (pas l'infra). */
+function canEntityOperateOwnedServer(req, serverDoc) {
+  if (!serverDoc || serverDoc.scope !== 'global') return true;
+  if (req.user && req.user.role === 'ADMIN_GDRI') return true;
+  const entityId = getEntityId(req);
+  const isOwner = !!(entityId && serverDoc.owner_entity_id
+    && String(serverDoc.owner_entity_id) === String(entityId));
+  if (!isOwner) return false;
+  const mode = serverDoc.mode || null;
+  if (mode === 'dedicated') return true;
+  if (mode === 'private' && serverDoc.allow_owner_add_llm === true) return true;
+  return false;
+}
+
+function denyGlobalServerModels(res, serverDoc, req) {
+  if (!serverDoc || serverDoc.scope !== 'global') return false;
+  if (req.user && req.user.role === 'ADMIN_GDRI') return false;
+  const mode = serverDoc.mode || null;
+  if (mode === 'mutualized') {
+    res.status(403).json({ success: false, message: 'Gestion des modèles interdite sur serveur mutualisé.' });
+    return true;
+  }
+  if (!canEntityOperateOwnedServer(req, serverDoc)) {
+    res.status(403).json({ success: false, message: 'Gestion des modèles réservée à l’owner du serveur ou à GDRI.' });
+    return true;
+  }
+  return false;
 }
 
 /** Masque les champs sensibles d'un document LLM pour la réponse */
@@ -178,6 +283,38 @@ function canAccessServer(req, serverDoc) {
   return false;
 }
 
+/** Serveur pool mutualisé offert par GDRI (non supprimable). */
+function isMutualizedPlatformServer(serverDoc) {
+  if (!serverDoc || serverDoc.scope !== 'global') return false;
+  const mode = serverDoc.mode ? String(serverDoc.mode).trim() : '';
+  if (mode === 'mutualized') return true;
+  const hasOwner = !!(serverDoc.owner_entity_id && String(serverDoc.owner_entity_id).trim());
+  if (!hasOwner && mode !== 'private' && mode !== 'dedicated') return true;
+  return false;
+}
+
+/** Suppression : mutualisés GDRI interdits ; reste selon propriétaire / admin plateforme */
+function canDeleteServer(req, serverDoc) {
+  if (!serverDoc) return false;
+  if (isMutualizedPlatformServer(serverDoc)) return false;
+  if (req.user && req.user.role === 'ADMIN_GDRI') return true;
+  const entityId = getEntityId(req);
+  const userId = (req.user && (req.user.user_id || req.user.sub || req.user._id))
+    ? String(req.user.user_id || req.user.sub || req.user._id)
+    : null;
+
+  if (serverDoc.scope === 'entity' && entityId && String(serverDoc.entity_id) === String(entityId)) {
+    return true;
+  }
+  if (entityId && serverDoc.owner_entity_id && String(serverDoc.owner_entity_id) === String(entityId)) {
+    return serverDoc.scope !== 'global';
+  }
+  if (serverDoc.scope === 'user' && userId && serverDoc.owner_user_id && String(serverDoc.owner_user_id) === userId) {
+    return true;
+  }
+  return false;
+}
+
 /**
  * GET /api/ia/providers - Liste des fournisseurs et modèles (public pour la page config)
  */
@@ -266,6 +403,23 @@ router.post('/servers', authenticateJWT, async (req, res) => {
     const entityId = getEntityId(req);
     const userId = (req.user && (req.user.user_id || req.user.sub || req.user._id)) ? String(req.user.user_id || req.user.sub || req.user._id) : null;
     const isAdminGdri = req.user && req.user.role === 'ADMIN_GDRI';
+    const isEntityAdmin = req.user && req.user.role === 'ADMIN_ENTITY';
+    const isUserScope = body.scope === 'user';
+
+    if (!isAdminGdri) {
+      if (isUserScope) {
+        if (!userId) {
+          return res.status(403).json({ success: false, message: 'Utilisateur requis pour un serveur personnel.' });
+        }
+      } else if (isEntityAdmin && entityId) {
+        body.scope = 'entity';
+      } else {
+        return res.status(403).json({
+          success: false,
+          message: 'Création réservée : admin entité (serveur entité), utilisateur (serveur perso) ou console GDRI.'
+        });
+      }
+    }
 
     let doc = {};
     const presetId = body.presetId && String(body.presetId).trim();
@@ -350,6 +504,15 @@ router.put('/servers/:id', authenticateJWT, async (req, res) => {
     if (!canAccessServer(req, server)) return res.status(403).json({ success: false, message: 'Accès refusé' });
 
     const body = req.body || {};
+    const infraKeys = ['name', 'baseUrl', 'auth', 'endpoints', 'defaultModel'];
+    const touchesInfra = infraKeys.some((key) => body[key] !== undefined);
+    if (touchesInfra && !canModifyServerInfra(req, server)) {
+      return res.status(403).json({
+        success: false,
+        message: 'Modification technique réservée à la console GDRI.'
+      });
+    }
+
     const update = { updated_at: new Date() };
     if (body.name !== undefined) update.name = String(body.name).trim();
     if (body.baseUrl !== undefined) update.baseUrl = String(body.baseUrl).trim();
@@ -446,11 +609,116 @@ router.delete('/servers/:id', authenticateJWT, async (req, res) => {
     const col = database.getCollection(COLLECTION_SERVERS);
     const server = await col.findOne({ _id: id });
     if (!server) return res.status(404).json({ success: false, message: 'Serveur non trouvé' });
-    if (!canAccessServer(req, server)) return res.status(403).json({ success: false, message: 'Accès refusé' });
+    if (isMutualizedPlatformServer(server)) {
+      return res.status(403).json({ success: false, message: 'Les serveurs mutualisés GDRI ne peuvent pas être supprimés.' });
+    }
+    if (!canDeleteServer(req, server)) return res.status(403).json({ success: false, message: 'Suppression non autorisée pour ce serveur' });
     await col.deleteOne({ _id: id });
     res.json({ success: true, message: 'Serveur supprimé' });
   } catch (e) {
     console.error('DELETE /api/ia/servers/:id:', e);
+    res.status(500).json({ success: false, message: e.message });
+  }
+});
+
+/**
+ * GET /api/ia/servers/:id/entity-policy - Limites entité sur un serveur GDRI
+ */
+router.get('/servers/:id/entity-policy', authenticateJWT, requireEntityAdmin, async (req, res) => {
+  try {
+    let serverObjectId;
+    try { serverObjectId = new ObjectId(req.params.id); } catch (_) {
+      return res.status(400).json({ success: false, message: 'ID serveur invalide' });
+    }
+    const serversCol = database.getCollection(COLLECTION_SERVERS);
+    const server = await serversCol.findOne({ _id: serverObjectId });
+    if (!server) return res.status(404).json({ success: false, message: 'Serveur non trouvé' });
+    if (!canAccessServer(req, server)) {
+      return res.status(403).json({ success: false, message: 'Accès refusé à ce serveur' });
+    }
+
+    const entityId = req.iaEntityId;
+    const policiesCol = database.getCollection(COLLECTION_SERVER_POLICIES);
+    const policy = await policiesCol.findOne({
+      entity_id: entityId,
+      server_id: String(serverObjectId)
+    });
+    const tokensUsedThisMonth = await getMonthlyTokenUsage(entityId, String(serverObjectId));
+
+    res.json({
+      success: true,
+      policy: {
+        server_id: String(serverObjectId),
+        entity_id: entityId,
+        max_tokens_per_month: policy && policy.max_tokens_per_month != null ? Number(policy.max_tokens_per_month) : null,
+        max_tokens_per_request: policy && policy.max_tokens_per_request != null ? Number(policy.max_tokens_per_request) : null,
+        enabled: policy ? policy.enabled !== false : true,
+        tokens_used_this_month: tokensUsedThisMonth,
+        usage_month: currentUsageMonthKey()
+      }
+    });
+  } catch (e) {
+    console.error('GET /api/ia/servers/:id/entity-policy:', e);
+    res.status(500).json({ success: false, message: e.message });
+  }
+});
+
+/**
+ * PUT /api/ia/servers/:id/entity-policy - Limites entité (tokens, activation)
+ */
+router.put('/servers/:id/entity-policy', authenticateJWT, requireEntityAdmin, async (req, res) => {
+  try {
+    let serverObjectId;
+    try { serverObjectId = new ObjectId(req.params.id); } catch (_) {
+      return res.status(400).json({ success: false, message: 'ID serveur invalide' });
+    }
+    const serversCol = database.getCollection(COLLECTION_SERVERS);
+    const server = await serversCol.findOne({ _id: serverObjectId });
+    if (!server) return res.status(404).json({ success: false, message: 'Serveur non trouvé' });
+    if (!canAccessServer(req, server)) {
+      return res.status(403).json({ success: false, message: 'Accès refusé à ce serveur' });
+    }
+
+    const entityId = req.iaEntityId;
+    const body = req.body || {};
+    const update = {
+      entity_id: entityId,
+      server_id: String(serverObjectId),
+      updated_at: new Date()
+    };
+
+    if (body.max_tokens_per_month !== undefined) {
+      const v = body.max_tokens_per_month;
+      update.max_tokens_per_month = (v === null || v === '') ? null : Math.max(0, Number(v) || 0);
+    }
+    if (body.max_tokens_per_request !== undefined) {
+      const v = body.max_tokens_per_request;
+      update.max_tokens_per_request = (v === null || v === '') ? null : Math.max(0, Number(v) || 0);
+    }
+    if (body.enabled !== undefined) {
+      update.enabled = body.enabled !== false;
+    }
+
+    const policiesCol = database.getCollection(COLLECTION_SERVER_POLICIES);
+    await policiesCol.updateOne(
+      { entity_id: entityId, server_id: String(serverObjectId) },
+      { $set: update },
+      { upsert: true }
+    );
+    const saved = await policiesCol.findOne({ entity_id: entityId, server_id: String(serverObjectId) });
+
+    res.json({
+      success: true,
+      policy: {
+        server_id: String(serverObjectId),
+        entity_id: entityId,
+        max_tokens_per_month: saved && saved.max_tokens_per_month != null ? Number(saved.max_tokens_per_month) : null,
+        max_tokens_per_request: saved && saved.max_tokens_per_request != null ? Number(saved.max_tokens_per_request) : null,
+        enabled: saved ? saved.enabled !== false : true
+      }
+    });
+  } catch (e) {
+    console.error('PUT /api/ia/servers/:id/entity-policy:', e);
     res.status(500).json({ success: false, message: e.message });
   }
 });
@@ -529,6 +797,7 @@ router.put('/servers/:id/models/enabled', authenticateJWT, async (req, res) => {
     const server = await col.findOne({ _id: id });
     if (!server) return res.status(404).json({ success: false, message: 'Serveur non trouvé' });
     if (!canAccessServer(req, server)) return res.status(403).json({ success: false, message: 'Accès refusé' });
+    if (denyGlobalServerModels(res, server, req)) return;
 
     await col.updateOne(
       { _id: id },
@@ -596,6 +865,7 @@ router.post('/servers/:id/models', authenticateJWT, async (req, res) => {
     const server = await col.findOne({ _id: id });
     if (!server) return res.status(404).json({ success: false, message: 'Serveur non trouvé' });
     if (!canAccessServer(req, server)) return res.status(403).json({ success: false, message: 'Accès refusé' });
+    if (denyGlobalServerModels(res, server, req)) return;
 
     const baseUrl = (server.baseUrl || '').replace(/\/$/, '');
     const ep = server.endpoints && server.endpoints.modelsAdd ? String(server.endpoints.modelsAdd).trim() : '';
@@ -690,6 +960,7 @@ router.delete('/servers/:id/models', authenticateJWT, async (req, res) => {
     const server = await col.findOne({ _id: id });
     if (!server) return res.status(404).json({ success: false, message: 'Serveur non trouvé' });
     if (!canAccessServer(req, server)) return res.status(403).json({ success: false, message: 'Accès refusé' });
+    if (denyGlobalServerModels(res, server, req)) return;
 
     const baseUrl = (server.baseUrl || '').replace(/\/$/, '');
     const ep = server.endpoints && server.endpoints.modelsDelete ? String(server.endpoints.modelsDelete).trim() : '';
@@ -905,17 +1176,21 @@ router.post('/llms', authenticateJWT, requireEntity, async (req, res) => {
       }
 
       // Règle plateforme / ownership :
-      // - mutualized/dedicated : l'owner ne peut PAS ajouter de LLM
-      // - private : l'owner peut ajouter seulement si allow_owner_add_llm = true
-      // - legacy: allowEntitiesToAddLlm (ancien flag global) autorise l'ajout si pas d'owner/mode
+      // - mutualized : pas d'ajout LLM par l'entité
+      // - dedicated : l'owner gère les modèles (console entité)
+      // - private : l'owner peut ajouter si allow_owner_add_llm = true
       const entityIdForReq = req.iaEntityId;
       if (!isAdminGdri && server.scope === 'global') {
         const mode = server.mode || null;
         const isOwner = !!(server.owner_entity_id && String(server.owner_entity_id) === String(entityIdForReq));
-        if (mode === 'mutualized' || mode === 'dedicated') {
-          return res.status(403).json({ success: false, message: 'Ajout de LLM interdit sur ce serveur (mutualisé/dédié).' });
+        if (mode === 'mutualized') {
+          return res.status(403).json({ success: false, message: 'Ajout de LLM interdit sur ce serveur (mutualisé).' });
         }
-        if (mode === 'private') {
+        if (mode === 'dedicated') {
+          if (!isOwner) {
+            return res.status(403).json({ success: false, message: 'Ajout de LLM interdit : seul l’owner peut gérer ce serveur dédié.' });
+          }
+        } else if (mode === 'private') {
           if (!isOwner) return res.status(403).json({ success: false, message: 'Ajout de LLM interdit : seul l’owner peut ajouter des modèles.' });
           if (server.allow_owner_add_llm !== true) {
             return res.status(403).json({ success: false, message: 'Ajout de LLM interdit : owner non autorisé sur ce serveur privé.' });
@@ -1016,10 +1291,14 @@ router.put('/llms/:id', authenticateJWT, requireEntity, async (req, res) => {
         if (!isAdminGdri && server.scope === 'global') {
           const mode = server.mode || null;
           const isOwner = !!(server.owner_entity_id && String(server.owner_entity_id) === String(entityIdForReq));
-          if (mode === 'mutualized' || mode === 'dedicated') {
-            return res.status(403).json({ success: false, message: 'Modification interdite sur ce serveur (mutualisé/dédié).' });
+          if (mode === 'mutualized') {
+            return res.status(403).json({ success: false, message: 'Modification interdite sur serveur mutualisé.' });
           }
-          if (mode === 'private') {
+          if (mode === 'dedicated') {
+            if (!isOwner) {
+              return res.status(403).json({ success: false, message: 'Modification interdite : seul l’owner gère ce serveur dédié.' });
+            }
+          } else if (mode === 'private') {
             if (!isOwner) return res.status(403).json({ success: false, message: 'Modification interdite : seul l’owner peut modifier les modèles.' });
             if (server.allow_owner_add_llm !== true) {
               return res.status(403).json({ success: false, message: 'Modification interdite : owner non autorisé sur ce serveur privé.' });
@@ -1107,25 +1386,22 @@ router.delete('/llms/:id', authenticateJWT, requireEntity, async (req, res) => {
 router.get('/entity-users', authenticateJWT, requireEntity, async (req, res) => {
   try {
     const entityId = req.iaEntityId;
+    const db = await database.connect();
     const usersCol = database.getCollection('users');
-    const entityOid = new ObjectId(entityId);
-    const users = await usersCol
-      .find({
-        $or: [
-          { entity_id: entityOid },
-          { currentEntrepriseId: entityOid },
-          { 'entreprises.entrepriseId': entityOid }
-        ]
-      })
-      .project({ _id: 1, email: 1, name: 1, firstname: 1, role: 1 })
-      .toArray();
+    const [members, entityRoles] = await Promise.all([
+      findEntityMemberUsers(usersCol, entityId),
+      getActiveEntityRoles(db, entityId)
+    ]);
     res.json({
       success: true,
-      users: users.map(u => ({
-        _id: u._id.toString(),
-        email: u.email || '',
-        name: u.name || u.firstname || '',
-        role: u.role || ''
+      entity_roles: entityRoles,
+      users: members.map((m) => ({
+        _id: m.userId,
+        email: m.email,
+        name: m.name,
+        membership_role: m.membershipRole,
+        entity_roles: m.entity_roles,
+        role: m.membershipRole
       }))
     });
   } catch (e) {
@@ -1159,7 +1435,7 @@ router.get('/entity-settings', authenticateJWT, requireEntity, async (req, res) 
  * PUT /api/ia/entity-settings - Mettre à jour les paramètres IA de l'entité
  * Body: { allowUsersToAddLlm?: boolean, allowUsersToAddLlmRole?: 'admin' | 'all' }
  */
-router.put('/entity-settings', authenticateJWT, requireEntity, async (req, res) => {
+router.put('/entity-settings', authenticateJWT, requireEntityAdmin, async (req, res) => {
   try {
     const entityId = req.iaEntityId;
     const body = req.body || {};
@@ -1470,7 +1746,7 @@ router.get('/rights/server/user/:userId/:serverId', authenticateJWT, requireEnti
  * PUT /api/ia/rights/server/user/:userId/:serverId
  * Body: { model_names: string[] }
  */
-router.put('/rights/server/user/:userId/:serverId', authenticateJWT, requireEntity, async (req, res) => {
+router.put('/rights/server/user/:userId/:serverId', authenticateJWT, requireEntityAdmin, async (req, res) => {
   try {
     const entityId = req.iaEntityId;
     const userId = String(req.params.userId || '').trim();
@@ -1517,6 +1793,9 @@ router.get('/rights/server/role/:roleId/:serverId', authenticateJWT, requireEnti
     const roleId = String(req.params.roleId || '').trim();
     const serverId = String(req.params.serverId || '').trim();
     if (!roleId || !serverId) return res.status(400).json({ success: false, message: 'roleId et serverId requis' });
+    if (isPlatformRoleKey(roleId)) {
+      return res.status(400).json({ success: false, message: 'Rôle plateforme non autorisé dans l\'espace entité' });
+    }
 
     let serverOid;
     try { serverOid = new ObjectId(serverId); } catch (_) {
@@ -1546,12 +1825,20 @@ router.get('/rights/server/role/:roleId/:serverId', authenticateJWT, requireEnti
  * PUT /api/ia/rights/server/role/:roleId/:serverId
  * Body: { model_names: string[] }
  */
-router.put('/rights/server/role/:roleId/:serverId', authenticateJWT, requireEntity, async (req, res) => {
+router.put('/rights/server/role/:roleId/:serverId', authenticateJWT, requireEntityAdmin, async (req, res) => {
   try {
     const entityId = req.iaEntityId;
     const roleId = String(req.params.roleId || '').trim();
     const serverId = String(req.params.serverId || '').trim();
     if (!roleId || !serverId) return res.status(400).json({ success: false, message: 'roleId et serverId requis' });
+    if (isPlatformRoleKey(roleId)) {
+      return res.status(400).json({ success: false, message: 'Rôle plateforme non autorisé dans l\'espace entité' });
+    }
+    const db = await database.connect();
+    const activeRoles = await getActiveEntityRoles(db, entityId);
+    if (!activeRoles.some((r) => String(r.key) === roleId)) {
+      return res.status(400).json({ success: false, message: 'Rôle métier inconnu pour cette entité' });
+    }
 
     let serverOid;
     try { serverOid = new ObjectId(serverId); } catch (_) {
@@ -1595,16 +1882,62 @@ router.post('/generate', authenticateJWT, requireEntity, async (req, res) => {
     if (!prompt || typeof prompt !== 'string') {
       return res.status(400).json({ success: false, message: 'prompt (string) requis' });
     }
-    let client = await iaModule.getIAClientForEntity(entityId, llm_id || null);
-    if (!client) {
-      client = iaModule.getIAClient();
-    }
+
+    const llmDoc = await iaModule.getLLMConfigForEntity(entityId, llm_id || null);
+    const resolvedServerId = llmDoc && llmDoc.server_id
+      ? String(llmDoc.server_id)
+      : null;
+
     const options = {};
     if (temperature != null) options.temperature = Number(temperature);
     if (max_tokens != null) options.max_tokens = Number(max_tokens);
     if (top_p != null) options.top_p = Number(top_p);
     if (top_k != null) options.top_k = Number(top_k);
+
+    if (resolvedServerId) {
+      const policy = await getEntityServerPolicy(entityId, resolvedServerId);
+      if (policy && policy.enabled === false) {
+        return res.status(403).json({
+          success: false,
+          message: 'Ce serveur IA est désactivé pour votre entité.'
+        });
+      }
+      if (policy && policy.max_tokens_per_request != null) {
+        const cap = Number(policy.max_tokens_per_request);
+        if (!options.max_tokens || options.max_tokens > cap) {
+          options.max_tokens = cap;
+        }
+      }
+      if (policy && policy.max_tokens_per_month != null) {
+        const monthlyCap = Number(policy.max_tokens_per_month);
+        const used = await getMonthlyTokenUsage(entityId, resolvedServerId);
+        if (used >= monthlyCap) {
+          return res.status(429).json({
+            success: false,
+            message: 'Plafond mensuel de tokens atteint pour ce serveur.'
+          });
+        }
+        const remaining = monthlyCap - used;
+        if (options.max_tokens) {
+          options.max_tokens = Math.min(options.max_tokens, remaining);
+        } else {
+          options.max_tokens = remaining;
+        }
+      }
+    }
+
+    let client = await iaModule.getIAClientForEntity(entityId, llm_id || null);
+    if (!client) {
+      client = iaModule.getIAClient();
+    }
     const result = await client.generate(prompt.trim(), options);
+
+    if (resolvedServerId && result && result.success) {
+      const responseText = result.data && result.data.response ? result.data.response : '';
+      const usedTokens = estimateTokenCount(prompt, responseText);
+      await incrementMonthlyTokenUsage(entityId, resolvedServerId, usedTokens);
+    }
+
     res.json(result);
   } catch (e) {
     console.error('POST /api/ia/generate:', e);

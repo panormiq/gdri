@@ -1,0 +1,23 @@
+{
+  "name": "annuaire",
+  "displayName": "Annuaire",
+  "version": "0.1.0",
+  "description": "Annuaire entreprise — organisations, services et contacts (interne et externe)",
+  "icon": "📇",
+  "author": "GDR-Innovation",
+  "main": "index.js",
+  "enabled": true,
+  "routes": ["/api/annuaire"],
+  "type": "commonjs",
+  "requiredServices": [],
+  "compatibleModules": ["gderpi", "pm"],
+  "compatibleVersion": ">=1.0.0",
+  "app": {
+    "id": "annuaire",
+    "label": "Annuaire",
+    "description": "Organisations, services et personnes — internes et externes.",
+    "category": "operations",
+    "tags": ["contacts", "organisations", "crm"],
+    "entryPath": "/modules/annuaire"
+  }
+}

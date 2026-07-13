@@ -1,8 +1,9 @@
 <?php
 /**
- * IA – Serveurs : grille + modal (style ia-config).
- * - Mode entité ($iaServersUiMode = 'entity') : onglets Serveur | Avancé | LLM | Autorisations | Utilisateurs.
- * - Mode utilisateur ($iaServersUiMode = 'user', Mon compte) : Serveur | Avancé | LLM uniquement + clés perso.
+ * IA – Serveurs : grille + modal.
+ * - Mode entité : serveurs GDRI = politique (qui, limites) ; serveurs propres entité = infra complète.
+ * - Mode console GDRI : voir config.php (infra, distribution).
+ * - Mode utilisateur ($iaServersUiMode = 'user') : serveurs personnels + clés.
  */
 require_once __DIR__ . '/bootstrap.php';
 
@@ -29,14 +30,32 @@ if (empty($currentEntrepriseId) && isset($currentEntreprise) && !empty($currentE
 }
 $isAdminGdri = hasRole(ROLE_ADMIN_GDRI);
 $currentUserId = isset($_SESSION['user_id']) ? (string) $_SESSION['user_id'] : '';
+$isEntityMode = ($iaServersUiMode === 'entity');
 ?>
 
 <section class="section">
     <div class="container">
-        <h1 class="mb-3"><?= $iaServersUiMode === 'user' ? 'IA – Mes serveurs &amp; clés' : 'Configuration IA – Entité' ?></h1>
+        <h1 class="mb-3"><?= $iaServersUiMode === 'user' ? 'IA – Mes serveurs &amp; clés' : 'Serveurs IA – Entité' ?></h1>
+        <?php if ($isEntityMode): ?>
+        <p class="text-muted small mb-2">
+            <strong>Serveurs GDRI mutualisés</strong> : accès aux modèles et limites de tokens.
+            <strong>Votre serveur GDRI dédié / privé</strong> : modèles installés, accès utilisateurs et limites.
+            Vous pouvez aussi <strong>ajouter vos propres clés</strong> (Anthropic, OpenAI…).
+            Qui peut <strong>ajouter des LLM</strong> : page <a href="<?= url('pages/users.php') ?>">Utilisateurs &amp; Permissions</a> (admin du service IA).
+        </p>
+        <?php if ($isAdminGdri): ?>
+        <p class="text-muted small mb-4">
+            Infra des serveurs distribués plateforme :
+            <a href="<?= url('pages/modules/ia-config.php') ?>">Console GDRI → Serveurs IA</a>
+        </p>
+        <?php else: ?>
+        <p class="text-muted small mb-4">Cliquez sur un serveur GDRI pour autorisations et limites ; sur un serveur entité pour paramètres et clés.</p>
+        <?php endif; ?>
+        <?php else: ?>
         <p class="text-muted small mb-4"><?= $iaServersUiMode === 'user'
             ? 'Serveurs auxquels vous avez accès (entité ou personnels). Pour GPT / Claude / DeepSeek, ajoutez un serveur via le preset du fournisseur et votre clé API. Cliquez sur une carte pour paramètres, endpoints et modèles.'
             : 'Cliquez sur un serveur pour ouvrir le modal et gérer : paramètres, LLM, autorisations d’ajout et droits utilisateurs.' ?></p>
+        <?php endif; ?>
 
         <div>
             <div id="serversApiMessage" class="alert alert-info small mb-3" style="display:none;"></div>
@@ -44,9 +63,15 @@ $currentUserId = isset($_SESSION['user_id']) ? (string) $_SESSION['user_id'] : '
                 <button type="button" id="btnAddServer" class="btn btn-sm btn-outline-primary">+ Ajouter un serveur</button>
                 <button type="button" id="btnRefreshServers" class="btn btn-sm btn-outline-secondary ml-2">Rafraîchir</button>
             </div>
-            <?php if ($iaServersUiMode === 'user'): ?>
+            <?php if ($isEntityMode): ?>
             <div class="alert alert-light border small mb-4" role="status">
-                <strong>OpenAI, Anthropic, DeepSeek…</strong> se configurent comme des <strong>serveurs</strong> : cliquez sur « + Ajouter un serveur », choisissez le preset (ex. OpenAI (GPT)), collez votre <strong>clé API</strong> dans le champ prévu — c’est le même modèle qu’un serveur Ollama ou backendIA, avec <code>scope</code> personnel.
+                <strong>Clés propres (Anthropic, OpenAI, DeepSeek…)</strong> : « + Ajouter un serveur », choisissez le preset du fournisseur, collez votre clé API.
+                Le serveur est rattaché à votre entité (<code>scope entité</code>).
+            </div>
+            <?php elseif ($iaServersUiMode === 'user'): ?>
+            <div class="alert alert-light border small mb-4" role="status">
+                <strong>Vos clés (Anthropic, OpenAI, DeepSeek…)</strong> : ajoutez un serveur personnel via « + Ajouter un serveur ».
+                Les serveurs mutualisés de l’entité sont visibles en lecture seule — la politique d’accès est gérée par votre administrateur.
             </div>
             <?php endif; ?>
             <div id="addServerBlock" class="border rounded p-3 mb-4" style="display:none;">
@@ -88,9 +113,11 @@ $currentUserId = isset($_SESSION['user_id']) ? (string) $_SESSION['user_id'] : '
     padding-left: 0;
 }
 .server-row { border: 1px solid #dee2e6; border-radius: 10px; overflow: hidden; cursor: pointer; background: #f8f9fa; }
-.server-row-head { padding: 16px 14px; display: flex; align-items: center; justify-content: center; gap: 10px; background: #f8f9fa; text-align: center; }
+.server-row-head { padding: 16px 14px; display: flex; align-items: center; justify-content: space-between; gap: 10px; background: #f8f9fa; text-align: left; }
 .server-row-head:hover { background: #e9ecef; }
-.server-row-head h3 { margin: 0; font-size: 1rem; font-weight: 600; }
+.server-row-head-main { display: flex; align-items: center; justify-content: center; gap: 10px; flex: 1; min-width: 0; }
+.server-row-head h3 { margin: 0; font-size: 1rem; font-weight: 600; text-align: center; }
+.server-head-delete { flex-shrink: 0; }
 .server-row-icon { font-size: 1.8rem; }
 .server-row-body {
     padding: 16px; background: #fff; border-top: 1px solid #dee2e6; display: none;
@@ -165,6 +192,29 @@ $currentUserId = isset($_SESSION['user_id']) ? (string) $_SESSION['user_id'] : '
     const IA_SERVERS_UI_MODE = <?= json_encode($iaServersUiMode) ?>;
     const CURRENT_USER_ID = '<?= addslashes((string)$currentUserId) ?>';
 
+    const IA_SERVERS_ENTITY_MODE = <?= $isEntityMode ? 'true' : 'false' ?>;
+
+    function isPlatformServer(s) {
+        return !!(s && s.scope === 'global');
+    }
+
+    function isEntityOwnedGdriServer(s) {
+        return !!(isPlatformServer(s) && CURRENT_ENTITY_ID && s.owner_entity_id
+            && String(s.owner_entity_id) === String(CURRENT_ENTITY_ID));
+    }
+
+    /** Serveur GDRI acheté / dédié : console entité (modèles, droits) sans infra technique. */
+    function isEntityConsoleServer(s) {
+        if (!IA_SERVERS_ENTITY_MODE || !isEntityOwnedGdriServer(s)) return false;
+        var mode = s.mode || '';
+        return mode === 'private' || mode === 'dedicated';
+    }
+
+    /** Serveur GDRI mutualisé ou non owner : politique seule (qui, limites). */
+    function isPolicyOnlyServer(s) {
+        return IA_SERVERS_ENTITY_MODE && isPlatformServer(s) && !isEntityConsoleServer(s);
+    }
+
     function withEntityQuery(path) {
         if (IS_ADMIN_GDRI && CURRENT_ENTITY_ID) {
             var sep = path.indexOf('?') === -1 ? '?' : '&';
@@ -203,6 +253,42 @@ $currentUserId = isset($_SESSION['user_id']) ? (string) $_SESSION['user_id'] : '
         el.className = 'small mt-2 ' + (type === 'error' ? 'text-danger' : type === 'success' ? 'text-success' : 'text-muted');
     }
 
+    function isMutualizedPlatformServer(s) {
+        if (!s || s.scope !== 'global') return false;
+        var mode = s.mode ? String(s.mode).trim() : '';
+        if (mode === 'mutualized') return true;
+        var hasOwner = !!(s.owner_entity_id && String(s.owner_entity_id).trim());
+        if (!hasOwner && mode !== 'private' && mode !== 'dedicated') return true;
+        return false;
+    }
+
+    function canDeleteServer(s) {
+        if (!s || isMutualizedPlatformServer(s)) return false;
+        return canManageServer(s);
+    }
+
+    function canManageServer(s) {
+        if (!s) return false;
+        if (IS_ADMIN_GDRI) return true;
+        if (IA_SERVERS_UI_MODE === 'user') {
+            if (s.scope === 'user') return true;
+            if (s.owner_user_id && String(s.owner_user_id) === String(CURRENT_USER_ID)) return true;
+            return false;
+        }
+        if (s.scope === 'entity' && CURRENT_ENTITY_ID && s.entity_id && String(s.entity_id) === String(CURRENT_ENTITY_ID)) {
+            return true;
+        }
+        // Serveurs GDRI owner : console entité (modèles), pas édition infra / suppression
+        if (isEntityConsoleServer(s)) return false;
+        if (CURRENT_ENTITY_ID && s.owner_entity_id && String(s.owner_entity_id) === String(CURRENT_ENTITY_ID)) {
+            return true;
+        }
+        if (s.owner_user_id && CURRENT_USER_ID && String(s.owner_user_id) === String(CURRENT_USER_ID)) {
+            return true;
+        }
+        return false;
+    }
+
     function buildServerList() {
         const ul = document.getElementById('serverList');
         if (!ul) return;
@@ -212,47 +298,110 @@ $currentUserId = isset($_SESSION['user_id']) ? (string) $_SESSION['user_id'] : '
             const li = document.createElement('li');
             li.className = 'server-row';
             li.dataset.serverId = id;
-            const scopeLabel = s.scope === 'global' ? ' (offert par GDRI)' : (s.scope === 'entity' ? ' (entité)' : ' (perso)');
+            const ownedGdri = isEntityOwnedGdriServer(s);
+            const scopeLabel = ownedGdri
+                ? (' (votre serveur GDRI – ' + escapeHtml(s.mode || 'dédié') + ')')
+                : (s.scope === 'global' ? ' (offert par GDRI)' : (s.scope === 'entity' ? ' (entité)' : ' (perso)'));
+            var policyOnly = isPolicyOnlyServer(s);
+            var entityConsole = isEntityConsoleServer(s);
+            var userReadOnlyGdri = (IA_SERVERS_UI_MODE === 'user' && isPlatformServer(s));
             var extraTabs = '';
             var extraPanes = '';
-            if (IA_SERVERS_UI_MODE === 'entity') {
+            if (userReadOnlyGdri) {
                 extraTabs =
-                    '    <button type="button" class="server-tab-btn" data-tab="auth">Autorisations</button>' +
-                    '    <button type="button" class="server-tab-btn" data-tab="users">Utilisateurs</button>';
+                    '    <button type="button" class="server-tab-btn active" data-tab="overview">Aperçu</button>';
                 extraPanes =
-                    '  <div class="server-tab-pane server-tab-auth" style="display:none;"></div>' +
+                    '  <div class="server-tab-pane server-tab-overview">' +
+                    '    <div class="server-overview small text-muted"></div>' +
+                    '  </div>';
+            } else if (policyOnly) {
+                extraTabs =
+                    '    <button type="button" class="server-tab-btn active" data-tab="overview">Aperçu</button>' +
+                    '    <button type="button" class="server-tab-btn" data-tab="users">Accès aux modèles</button>' +
+                    '    <button type="button" class="server-tab-btn" data-tab="limits">Limites</button>';
+                extraPanes =
+                    '  <div class="server-tab-pane server-tab-overview">' +
+                    '    <div class="server-overview small text-muted"></div>' +
+                    '  </div>' +
+                    '  <div class="server-tab-pane server-tab-users" style="display:none;"></div>' +
+                    '  <div class="server-tab-pane server-tab-limits" style="display:none;"></div>';
+            } else if (entityConsole) {
+                extraTabs =
+                    '    <button type="button" class="server-tab-btn active" data-tab="overview">Aperçu</button>' +
+                    '    <button type="button" class="server-tab-btn" data-tab="llm">Modèles installés</button>' +
+                    '    <button type="button" class="server-tab-btn" data-tab="users">Accès aux modèles</button>' +
+                    '    <button type="button" class="server-tab-btn" data-tab="limits">Limites</button>';
+                extraPanes =
+                    '  <div class="server-tab-pane server-tab-overview">' +
+                    '    <div class="server-overview small text-muted"></div>' +
+                    '  </div>' +
+                    '  <div class="server-tab-pane server-tab-llm" style="display:none;">' +
+                    '    <div class="server-models"></div>' +
+                    '    <div class="server-msg small mt-2"></div>' +
+                    '  </div>' +
+                    '  <div class="server-tab-pane server-tab-users" style="display:none;"></div>' +
+                    '  <div class="server-tab-pane server-tab-limits" style="display:none;"></div>';
+            } else if (IA_SERVERS_UI_MODE === 'entity') {
+                extraTabs =
+                    '    <button type="button" class="server-tab-btn" data-tab="users">Accès aux modèles</button>';
+                extraPanes =
                     '  <div class="server-tab-pane server-tab-users" style="display:none;"></div>';
             }
+            var paramsTabActive = (policyOnly || entityConsole || userReadOnlyGdri) ? '' : ' active';
+            var paramsPaneStyle = (policyOnly || entityConsole || userReadOnlyGdri) ? ' style="display:none;"' : '';
             li.innerHTML =
                 '<div class="server-row-head">' +
-                '  <span class="server-row-icon">🖥️</span>' +
-                '  <h3>' + escapeHtml(s.name || s.provider || id) + scopeLabel + '</h3>' +
+                '  <div class="server-row-head-main">' +
+                '    <span class="server-row-icon">🖥️</span>' +
+                '    <h3>' + escapeHtml(s.name || s.provider || id) + scopeLabel + '</h3>' +
+                '  </div>' +
+                (canDeleteServer(s)
+                    ? '<button type="button" class="btn btn-sm btn-outline-danger server-head-delete" title="Supprimer ce serveur">Supprimer</button>'
+                    : '') +
                 '</div>' +
                 '<div class="server-row-body">' +
                 '  <button type="button" class="btn btn-sm btn-light server-modal-close" title="Fermer">✕</button>' +
                 '  <div class="server-tabs mb-2">' +
-                '    <button type="button" class="server-tab-btn active" data-tab="params">Serveur</button>' +
-                '    <button type="button" class="server-tab-btn" data-tab="advanced">Avancé</button>' +
-                '    <button type="button" class="server-tab-btn" data-tab="llm">LLM</button>' +
+                (policyOnly || entityConsole || userReadOnlyGdri
+                    ? ''
+                    : '    <button type="button" class="server-tab-btn' + paramsTabActive + '" data-tab="params">Serveur</button>' +
+                      '    <button type="button" class="server-tab-btn" data-tab="advanced">Avancé</button>' +
+                      '    <button type="button" class="server-tab-btn" data-tab="llm">LLM</button>') +
                 extraTabs +
                 '  </div>' +
-                '  <div class="server-tab-pane server-tab-params">' +
-                '    <div class="server-form" data-server-id="' + escapeHtml(id) + '"></div>' +
-                '    <div class="server-actions"></div>' +
-                '    <div class="server-msg small mt-2"></div>' +
-                '  </div>' +
-                '  <div class="server-tab-pane server-tab-advanced" style="display:none;">' +
-                '    <div class="server-advanced"></div>' +
-                '  </div>' +
-                '  <div class="server-tab-pane server-tab-llm" style="display:none;">' +
-                '    <div class="server-models"></div>' +
-                '  </div>' +
+                (policyOnly || entityConsole || userReadOnlyGdri
+                    ? ''
+                    : '  <div class="server-tab-pane server-tab-params"' + paramsPaneStyle + '>' +
+                      '    <div class="server-form" data-server-id="' + escapeHtml(id) + '"></div>' +
+                      '    <div class="server-actions"></div>' +
+                      '    <div class="server-msg small mt-2"></div>' +
+                      '  </div>' +
+                      '  <div class="server-tab-pane server-tab-advanced" style="display:none;">' +
+                      '    <div class="server-advanced"></div>' +
+                      '  </div>' +
+                      '  <div class="server-tab-pane server-tab-llm" style="display:none;">' +
+                      '    <div class="server-models"></div>' +
+                      '  </div>') +
                 extraPanes +
                 '</div>';
             ul.appendChild(li);
         });
         document.querySelectorAll('#serverList .server-row').forEach(function(row) {
-            row.querySelector('.server-row-head').onclick = function() {
+            var serverId = row.dataset.serverId;
+            var headDelete = row.querySelector('.server-head-delete');
+            if (headDelete) {
+                headDelete.onclick = function(e) {
+                    e.stopPropagation();
+                    var msgEl = document.getElementById('serversApiMessage');
+                    if (msgEl) {
+                        msgEl.style.display = 'block';
+                        msgEl.className = 'alert alert-info small mb-3';
+                    }
+                    doDelete(serverId, msgEl);
+                };
+            }
+            row.querySelector('.server-row-head').onclick = function(e) {
+                if (e.target && e.target.closest('.server-head-delete')) return;
                 row.classList.toggle('open');
                 if (row.classList.contains('open')) renderServerForm(row.dataset.serverId);
                 updateOverlayVisibility();
@@ -275,6 +424,74 @@ $currentUserId = isset($_SESSION['user_id']) ? (string) $_SESSION['user_id'] : '
         document.addEventListener('keydown', function(e) { if (e.key === 'Escape') closeAllServerModals(); });
     })();
 
+    function renderLimitsPane(row, serverId) {
+        const limitsPane = row.querySelector('.server-tab-limits');
+        if (!limitsPane) return;
+        limitsPane.innerHTML = '<p class="text-muted small">Chargement des limites…</p>';
+        fetch(withEntityQuery(API_BASE + '/servers/' + encodeURIComponent(serverId) + '/entity-policy'), { headers: headers() })
+            .then(function(r) { return parseJson(r); })
+            .then(function(res) {
+                if (!res || !res.success) {
+                    limitsPane.innerHTML = '<p class="text-danger small">Impossible de charger les limites.</p>';
+                    return;
+                }
+                var p = res.policy || {};
+                var usageLine = '';
+                if (p.tokens_used_this_month != null) {
+                    usageLine = '<p class="text-muted small">Consommation ce mois (' + escapeHtml(p.usage_month || '') + ') : <strong>' +
+                        escapeHtml(String(p.tokens_used_this_month)) + '</strong>' +
+                        (p.max_tokens_per_month != null ? ' / ' + escapeHtml(String(p.max_tokens_per_month)) : '') +
+                        ' tokens estimés</p>';
+                }
+                limitsPane.innerHTML =
+                    '<div class="mb-2"><strong>Limites de consommation (entité)</strong></div>' +
+                    '<p class="text-muted small">Plafonds appliqués aux utilisateurs de votre entité sur ce serveur.</p>' +
+                    usageLine +
+                    '<div class="form-group mb-2">' +
+                    '  <label class="d-flex align-items-center gap-2">' +
+                    '    <input type="checkbox" class="form-check-input policy-enabled" ' + (p.enabled !== false ? 'checked' : '') + '>' +
+                    '    <span>Serveur activé pour l\'entité</span>' +
+                    '  </label>' +
+                    '</div>' +
+                    '<div class="form-group">' +
+                    '  <label class="small">Tokens max / mois (vide = illimité)</label>' +
+                    '  <input type="number" min="0" step="1000" class="form-control form-control-sm policy-max-month" style="max-width:240px" value="' + (p.max_tokens_per_month != null ? escapeHtml(String(p.max_tokens_per_month)) : '') + '">' +
+                    '</div>' +
+                    '<div class="form-group">' +
+                    '  <label class="small">Tokens max / requête (vide = défaut modèle)</label>' +
+                    '  <input type="number" min="0" step="100" class="form-control form-control-sm policy-max-request" style="max-width:240px" value="' + (p.max_tokens_per_request != null ? escapeHtml(String(p.max_tokens_per_request)) : '') + '">' +
+                    '</div>' +
+                    '<button type="button" class="btn btn-sm btn-primary btn-save-policy">Enregistrer les limites</button>' +
+                    '<div class="policy-msg small mt-2 text-muted"></div>';
+                var saveBtn = limitsPane.querySelector('.btn-save-policy');
+                var msgEl = limitsPane.querySelector('.policy-msg');
+                if (saveBtn) {
+                    saveBtn.onclick = function() {
+                        var body = {
+                            enabled: !!limitsPane.querySelector('.policy-enabled')?.checked,
+                            max_tokens_per_month: limitsPane.querySelector('.policy-max-month')?.value.trim() || null,
+                            max_tokens_per_request: limitsPane.querySelector('.policy-max-request')?.value.trim() || null
+                        };
+                        setMsg(msgEl, 'Enregistrement…', 'muted');
+                        fetch(withEntityQuery(API_BASE + '/servers/' + encodeURIComponent(serverId) + '/entity-policy'), {
+                            method: 'PUT',
+                            headers: headers(),
+                            body: JSON.stringify(body)
+                        })
+                            .then(function(r) { return parseJson(r); })
+                            .then(function(saveRes) {
+                                if (saveRes && saveRes.success) setMsg(msgEl, 'Limites enregistrées.', 'success');
+                                else setMsg(msgEl, (saveRes && saveRes.message) || 'Erreur', 'error');
+                            })
+                            .catch(function(e) { setMsg(msgEl, 'Erreur: ' + (e.message || e), 'error'); });
+                    };
+                }
+            })
+            .catch(function() {
+                limitsPane.innerHTML = '<p class="text-danger small">Erreur réseau.</p>';
+            });
+    }
+
     function renderServerForm(serverId) {
         const s = servers.find(function(x) { return x._id === serverId; });
         if (!s) return;
@@ -283,18 +500,51 @@ $currentUserId = isset($_SESSION['user_id']) ? (string) $_SESSION['user_id'] : '
         const body = row.querySelector('.server-row-body');
         if (body) body.addEventListener('click', function(e) { e.stopPropagation(); }, { once: true });
 
+        var policyOnly = isPolicyOnlyServer(s);
+        var entityConsole = isEntityConsoleServer(s);
+        var userReadOnlyGdri = (IA_SERVERS_UI_MODE === 'user' && isPlatformServer(s));
+
+        if (policyOnly || entityConsole || userReadOnlyGdri) {
+            const overviewPane = row.querySelector('.server-tab-overview');
+            if (overviewPane) {
+                const ov = overviewPane.querySelector('.server-overview');
+                if (ov) {
+                    var dedicatedMods = Array.isArray(s.dedicated_module_ids) ? s.dedicated_module_ids : (s.dedicated_module_id ? [s.dedicated_module_id] : []);
+                    ov.innerHTML =
+                        '<p><strong>' + escapeHtml(s.name || s.provider || serverId) + '</strong></p>' +
+                        (userReadOnlyGdri
+                            ? '<p class="text-muted small">Serveur géré par votre entité / GDRI. Contactez un administrateur pour les droits d’accès aux modèles.</p>'
+                            : ('<p>Mode : <strong>' + escapeHtml(s.mode || '—') + '</strong> — infra maintenue par GDRI</p>')) +
+                        '<p>Fournisseur : ' + escapeHtml(s.provider || '—') + '</p>' +
+                        (entityConsole ? '<p class="text-muted small">Utilisez l’onglet <strong>Modèles installés</strong> pour gérer les LLM, et <strong>Accès aux modèles</strong> pour les droits utilisateurs.</p>' : '') +
+                        (policyOnly ? '<p class="text-muted small">Qui peut ajouter des LLM : page <strong>Utilisateurs &amp; Permissions</strong> (admin du service IA).</p>' : '') +
+                        (dedicatedMods.length ? '<p>Apps liées : ' + dedicatedMods.map(escapeHtml).join(', ') + '</p>' : '') +
+                        '<p class="mb-0">Modèle par défaut : ' + escapeHtml(s.defaultModel || '—') + '</p>';
+                }
+            }
+            row.querySelectorAll('.server-tab-pane').forEach(function(p) { p.style.display = 'none'; });
+            var overviewPaneFirst = row.querySelector('.server-tab-overview');
+            if (overviewPaneFirst) overviewPaneFirst.style.display = 'block';
+            row.querySelectorAll('.server-tab-btn').forEach(function(b) {
+                b.classList.toggle('active', (b.dataset.tab || '') === 'overview');
+            });
+            renderLimitsPane(row, serverId);
+        }
+
         const formDiv = row.querySelector('.server-form');
         const actionsDiv = row.querySelector('.server-actions');
         const advancedDiv = row.querySelector('.server-advanced');
         const modelsDiv = row.querySelector('.server-models');
-        const msgDiv = row.querySelector('.server-msg');
-        if (!formDiv || !actionsDiv || !advancedDiv || !modelsDiv || !msgDiv) return;
-
-        var readOnly = (s.scope === 'global' && s.entity_id == null && s.owner_user_id == null);
-        if (IA_SERVERS_UI_MODE === 'user') {
-            var mineUser = (s.scope === 'user') || (s.owner_user_id && String(s.owner_user_id) === String(CURRENT_USER_ID));
-            if (!mineUser) readOnly = true;
+        const msgDiv = row.querySelector('.server-msg') || row.querySelector('.server-tab-llm .server-msg');
+        if (!policyOnly && !entityConsole && !userReadOnlyGdri && (!formDiv || !actionsDiv || !advancedDiv || !modelsDiv || !msgDiv)) return;
+        if ((policyOnly || entityConsole || userReadOnlyGdri) && !formDiv) {
+            // autorisations / utilisateurs / limites (+ modèles si console entité)
+        } else if (!formDiv) {
+            return;
         }
+
+        var readOnly = !canManageServer(s);
+        if (formDiv) {
         formDiv.innerHTML =
             '<div class="form-group"><label>Nom</label><input type="text" class="form-control form-control-sm server-name" value="' + escapeHtml(s.name || '') + '" style="max-width:320px" ' + (readOnly ? 'readonly' : '') + '></div>' +
             '<div class="form-group"><label>URL de base</label><input type="url" class="form-control form-control-sm server-baseUrl" value="' + escapeHtml(s.baseUrl || '') + '" style="max-width:320px" ' + (readOnly ? 'readonly' : '') + '></div>' +
@@ -314,92 +564,31 @@ $currentUserId = isset($_SESSION['user_id']) ? (string) $_SESSION['user_id'] : '
             advHtml += '<tr><td>' + escapeHtml(k) + '</td><td><input type="text" class="form-control form-control-sm endpoint-val" data-key="' + escapeHtml(k) + '" value="' + escapeHtml(endpoints[k] || '') + '" style="min-width:200px" ' + (readOnly ? 'readonly' : '') + '></td></tr>';
         });
         advHtml += '</tbody></table>';
-        advancedDiv.innerHTML = advHtml;
+        if (advancedDiv) advancedDiv.innerHTML = advHtml;
 
         var isOllama = s.provider === 'ollama_server' || s.provider === 'ollama_direct';
         var actionsHtml = '<button type="button" class="btn btn-sm btn-outline btn-test">Tester</button>';
         if (isOllama) actionsHtml += '<button type="button" class="btn btn-sm btn-outline btn-list-models">Lister les modèles</button>';
         if (!readOnly) {
             actionsHtml += '<button type="button" class="btn btn-sm btn-primary btn-save">Enregistrer</button>';
-            actionsHtml += '<button type="button" class="btn btn-sm btn-outline-danger btn-delete">Supprimer</button>';
+            if (canDeleteServer(s)) {
+                actionsHtml += '<button type="button" class="btn btn-sm btn-outline-danger btn-delete">Supprimer</button>';
+            }
         }
-        actionsDiv.innerHTML = actionsHtml;
+        if (actionsDiv) actionsDiv.innerHTML = actionsHtml;
 
+        if (modelsDiv) {
         modelsDiv.style.display = 'none';
         modelsDiv.innerHTML = '<p class="text-muted small mb-2">Chargement des modèles…</p>';
-
-        // Pane Autorisations (dans le modal)
-        const authPane = row.querySelector('.server-tab-auth');
-        if (authPane) {
-            var isGlobal = s.scope === 'global';
-            var isOwner = !!(CURRENT_ENTITY_ID && s.owner_entity_id && String(s.owner_entity_id) === String(CURRENT_ENTITY_ID));
-            var isPrivate = (s.mode === 'private');
-            var ownerCanAdd = (s.allow_owner_add_llm === true);
-
-            // Règle demandée :
-            // - sur serveur global : afficher l'ajout LLM seulement si on est owner (mode privé + allow_owner_add_llm)
-            // - sur serveur non global : l'admin entité peut gérer normalement
-            var showServerAddToggle = !isGlobal || (isOwner && isPrivate && ownerCanAdd);
-            var disabled = readOnly || (isGlobal && !showServerAddToggle);
-            // Serveur plateforme + pas owner : pas de garde-fou entité ni bouton enregistrer
-            var showEntityGuardSection = !isGlobal || isOwner;
-            authPane.innerHTML =
-                '<div class="mb-2"><strong>Autorisations (par serveur)</strong></div>' +
-                (s.scope === 'global'
-                    ? ('<p class="small text-muted mb-2">Serveur plateforme. ' +
-                       (isOwner
-                           ? ('Vous êtes <strong>owner</strong>. Mode: <strong>' + (escapeHtml(s.mode || '—')) + '</strong>. ' +
-                              (ownerCanAdd ? 'Ajout LLM <strong>autorisé</strong> pour l’owner.' : 'Ajout LLM <strong>désactivé</strong> pour l’owner.'))
-                           : ('Vous n’êtes pas owner. Mode: <strong>' + (escapeHtml(s.mode || '—')) + '</strong>. Ajout LLM <strong>non autorisé</strong>.')) +
-                       '</p>')
-                    : '') +
-                (showServerAddToggle
-                    ? ('<div class="form-group mb-2">' +
-                       '  <label class="d-flex align-items-center gap-2">' +
-                       '    <input type="checkbox" class="form-check-input server-canAddLlm" ' + (s.canAddLlm ? 'checked' : '') + ' ' + (disabled ? 'disabled' : '') + '>' +
-                       '    <span>Autoriser l’ajout de LLM sur ce serveur</span>' +
-                       '  </label>' +
-                       '</div>')
-                    : '') +
-                (showEntityGuardSection
-                    ? ('<hr class="my-3">' +
-                       '<div class="mb-2"><strong>Règle entité (garde-fou)</strong></div>' +
-                       '<div class="text-muted small mb-2">Définissez qui peut ajouter des LLM (si l’ajout est autorisé sur le serveur).</div>' +
-                       '<div class="form-group mb-2">' +
-                       '  <label class="d-flex align-items-center gap-2">' +
-                       '    <input type="checkbox" class="form-check-input entityAllowUsersAddLlm">' +
-                       '    <span>Activer l’autorisation d’ajout de LLM côté entité</span>' +
-                       '  </label>' +
-                       '</div>' +
-                       '<div class="row">' +
-                       '  <div class="col-md-5">' +
-                       '    <div class="form-group mb-2">' +
-                       '      <label class="small">Rôles</label>' +
-                       '      <input type="text" class="form-control form-control-sm entityAddLlmRoleSearch" placeholder="Rechercher un rôle…">' +
-                       '      <div class="border rounded p-2 mt-2 entityAddLlmRolesList" style="max-height:180px;overflow-y:auto;background:#fff;"></div>' +
-                       '      <div class="text-muted small mt-1">Règle globale par rôle (extensible plus tard aux rôles “service”).</div>' +
-                       '    </div>' +
-                       '  </div>' +
-                       '  <div class="col-md-7">' +
-                       '    <div class="form-group mb-2">' +
-                       '      <label class="small">Utilisateurs (cas par cas)</label>' +
-                       '      <input type="text" class="form-control form-control-sm entityAddLlmUserSearch" placeholder="Rechercher un utilisateur…">' +
-                       '      <div class="border rounded p-2 mt-2 entityAddLlmUsersList" style="max-height:180px;overflow-y:auto;background:#fff;"></div>' +
-                       '      <div class="text-muted small mt-1">Ces utilisateurs sont autorisés même si leur rôle ne l’est pas.</div>' +
-                       '    </div>' +
-                       '  </div>' +
-                       '</div>' +
-                       '<button type="button" class="btn btn-sm btn-primary btn-save-auth">Enregistrer les autorisations</button>' +
-                       '<span class="small ml-2 text-muted auth-msg"></span>')
-                    : '');
+        }
         }
 
-        // Pane Utilisateurs (dans le modal) : droits par user sur les LLMs de CE serveur
+        // Pane Accès aux modèles (admin entité)
         const usersPane = row.querySelector('.server-tab-users');
         if (usersPane) {
             usersPane.innerHTML =
-                '<div class="mb-2"><strong>Droits par rôle / utilisateur</strong></div>' +
-                '<div class="text-muted small mb-2">Sélectionnez un rôle ou un utilisateur, puis cochez les LLMs du serveur courant.</div>' +
+                '<div class="mb-2"><strong>Accès aux modèles</strong></div>' +
+                '<div class="text-muted small mb-2">Sélectionnez un rôle ou un utilisateur, puis cochez les modèles autorisés sur ce serveur.</div>' +
                 '<div class="row" style="margin:0 -6px;">' +
                 '  <div class="col-md-3" style="padding:0 6px;">' +
                 '    <div class="server-users-list">' +
@@ -434,13 +623,12 @@ $currentUserId = isset($_SESSION['user_id']) ? (string) $_SESSION['user_id'] : '
 
         var btnClose = row.querySelector('.server-modal-close');
         if (btnClose) btnClose.onclick = function(e) { e.stopPropagation(); closeAllServerModals(); };
-        row.querySelector('.btn-test').onclick = function() { doTest(serverId, msgDiv); };
-        if (row.querySelector('.btn-list-models')) row.querySelector('.btn-list-models').onclick = function() { doListModels(serverId, modelsDiv, msgDiv); };
-        if (row.querySelector('.btn-save')) row.querySelector('.btn-save').onclick = function() { doSave(serverId, row, msgDiv); };
-        if (row.querySelector('.btn-delete')) row.querySelector('.btn-delete').onclick = function() { doDelete(serverId, msgDiv); };
+        if (row.querySelector('.btn-test') && msgDiv) row.querySelector('.btn-test').onclick = function() { doTest(serverId, msgDiv); };
+        if (row.querySelector('.btn-list-models') && modelsDiv && msgDiv) row.querySelector('.btn-list-models').onclick = function() { doListModels(serverId, modelsDiv, msgDiv); };
+        if (row.querySelector('.btn-save') && msgDiv) row.querySelector('.btn-save').onclick = function() { doSave(serverId, row, msgDiv); };
+        if (row.querySelector('.btn-delete') && msgDiv) row.querySelector('.btn-delete').onclick = function() { doDelete(serverId, msgDiv); };
 
-        // Précharger les modèles dès l'ouverture du modal (et non au clic onglet LLM)
-        if (!modelsDiv.dataset.loaded) {
+        if (modelsDiv && msgDiv && !modelsDiv.dataset.loaded) {
             doListModels(serverId, modelsDiv, msgDiv);
             modelsDiv.dataset.loaded = '1';
         }
@@ -451,11 +639,13 @@ $currentUserId = isset($_SESSION['user_id']) ? (string) $_SESSION['user_id'] : '
                 e.stopPropagation();
                 var t = btn.dataset.tab || 'params';
                 row.querySelectorAll('.server-tab-pane').forEach(function(p) { p.style.display = 'none'; });
-                if (t === 'params') row.querySelector('.server-tab-params').style.display = 'block';
-                else if (t === 'advanced') row.querySelector('.server-tab-advanced').style.display = 'block';
-                else if (t === 'llm') { row.querySelector('.server-tab-llm').style.display = 'block'; }
+                if (t === 'params') { var pp = row.querySelector('.server-tab-params'); if (pp) pp.style.display = 'block'; }
+                else if (t === 'advanced') { var ad = row.querySelector('.server-tab-advanced'); if (ad) ad.style.display = 'block'; }
+                else if (t === 'llm') { var lp = row.querySelector('.server-tab-llm'); if (lp) lp.style.display = 'block'; }
+                else if (t === 'overview') { var op = row.querySelector('.server-tab-overview'); if (op) op.style.display = 'block'; }
                 else if (t === 'auth') { var ap = row.querySelector('.server-tab-auth'); if (ap) ap.style.display = 'block'; }
                 else if (t === 'users') { var up = row.querySelector('.server-tab-users'); if (up) up.style.display = 'block'; }
+                else if (t === 'limits') { var lp2 = row.querySelector('.server-tab-limits'); if (lp2) lp2.style.display = 'block'; }
                 row.querySelectorAll('.server-tab-btn').forEach(function(b) { b.classList.toggle('active', b.dataset.tab === t); });
             };
         });
@@ -522,167 +712,6 @@ $currentUserId = isset($_SESSION['user_id']) ? (string) $_SESSION['user_id'] : '
             };
         }
 
-        // Autorisations (mode entité uniquement)
-        if (IA_SERVERS_UI_MODE === 'entity') { (function bindAuthTab() {
-            var authPane = row.querySelector('.server-tab-auth');
-            if (!authPane) return;
-            var sAuth = servers.find(function(x) { return x._id === serverId; }) || {};
-            var isGlobalAuth = sAuth.scope === 'global';
-            var isOwnerAuth = !!(CURRENT_ENTITY_ID && sAuth.owner_entity_id && String(sAuth.owner_entity_id) === String(CURRENT_ENTITY_ID));
-            if (isGlobalAuth && !isOwnerAuth) return;
-            var chkServer = authPane.querySelector('.server-canAddLlm');
-            var chkEntity = authPane.querySelector('.entityAllowUsersAddLlm');
-            var selRole = authPane.querySelector('.entityAllowUsersAddLlmRole');
-            var roleSearch = authPane.querySelector('.entityAddLlmRoleSearch');
-            var rolesList = authPane.querySelector('.entityAddLlmRolesList');
-            var userSearch = authPane.querySelector('.entityAddLlmUserSearch');
-            var usersList = authPane.querySelector('.entityAddLlmUsersList');
-            var btnSave = authPane.querySelector('.btn-save-auth');
-            var msg = authPane.querySelector('.auth-msg');
-            var selectedRoleIds = new Set();
-            var selectedUserIds = new Set();
-            var allUsers = [];
-            // Pour l'instant on propose les rôles connus. Plus tard: rôles “service” par entité.
-            var allRoles = [
-                { id: 'ADMIN_ENTITY', label: 'ADMIN_ENTITY' },
-                { id: 'USER_ENTITY', label: 'USER_ENTITY' }
-            ];
-
-            fetch(API_BASE + '/entity-settings', { headers: headers() })
-                .then(function(r) { return parseJson(r); })
-                .then(function(data) {
-                    if (data && data.success) {
-                        if (chkEntity) chkEntity.checked = data.allowUsersToAddLlm === true;
-                        if (selRole) selRole.value = data.allowUsersToAddLlmRole === 'all' ? 'all' : 'admin';
-                        if (Array.isArray(data.allowUsersToAddLlmRoleIds)) {
-                            selectedRoleIds = new Set(data.allowUsersToAddLlmRoleIds.map(String));
-                        }
-                        if (Array.isArray(data.allowUsersToAddLlmUserIds)) {
-                            selectedUserIds = new Set(data.allowUsersToAddLlmUserIds.map(String));
-                        }
-                    }
-                });
-
-            function renderRolesList() {
-                if (!rolesList) return;
-                var q = (roleSearch && roleSearch.value ? roleSearch.value : '').trim().toLowerCase();
-                var visible = allRoles.filter(function(r) {
-                    var label = (r.label || r.id || '').toLowerCase();
-                    return !q || label.indexOf(q) !== -1;
-                });
-                rolesList.innerHTML = '';
-                if (!visible.length) {
-                    rolesList.innerHTML = '<div class="text-muted small">Aucun rôle.</div>';
-                    return;
-                }
-                visible.forEach(function(r) {
-                    var id = String(r.id);
-                    var chkId = 'allowAddLlmRole_' + serverId + '_' + id;
-                    var checked = selectedRoleIds.has(id) ? ' checked' : '';
-                    rolesList.innerHTML +=
-                        '<div class="form-check small">' +
-                        '  <label class="form-check-label" for="' + escapeHtml(chkId) + '">' + escapeHtml(r.label || r.id) + '</label>' +
-                        '  <input class="form-check-input allowAddLlmRoleCb" type="checkbox" id="' + escapeHtml(chkId) + '" value="' + escapeHtml(id) + '"' + checked + '>' +
-                        '</div>';
-                });
-                rolesList.querySelectorAll('.allowAddLlmRoleCb').forEach(function(cb) {
-                    cb.addEventListener('change', function() {
-                        var id = String(cb.value);
-                        if (cb.checked) selectedRoleIds.add(id);
-                        else selectedRoleIds.delete(id);
-                    });
-                });
-            }
-            if (rolesList) renderRolesList();
-            if (roleSearch) roleSearch.addEventListener('input', renderRolesList);
-
-            function renderUsersList() {
-                if (!usersList) return;
-                var q = (userSearch && userSearch.value ? userSearch.value : '').trim().toLowerCase();
-                var visible = allUsers.filter(function(u) {
-                    var label = ((u.name || '') + ' ' + (u.email || '')).toLowerCase();
-                    return !q || label.indexOf(q) !== -1;
-                });
-                usersList.innerHTML = '';
-                if (!visible.length) {
-                    usersList.innerHTML = '<div class="text-muted small">Aucun utilisateur.</div>';
-                    return;
-                }
-                visible.forEach(function(u) {
-                    var id = String(u._id);
-                    var chkId = 'allowAddLlm_' + serverId + '_' + id;
-                    var checked = selectedUserIds.has(id) ? ' checked' : '';
-                    usersList.innerHTML +=
-                        '<div class="form-check small">' +
-                        '  <label class="form-check-label" for="' + escapeHtml(chkId) + '">' + escapeHtml(u.name || u.email || id) + '</label>' +
-                        '  <input class="form-check-input allowAddLlmUserCb" type="checkbox" id="' + escapeHtml(chkId) + '" value="' + escapeHtml(id) + '"' + checked + '>' +
-                        '</div>';
-                });
-                usersList.querySelectorAll('.allowAddLlmUserCb').forEach(function(cb) {
-                    cb.addEventListener('change', function() {
-                        var id = String(cb.value);
-                        if (cb.checked) selectedUserIds.add(id);
-                        else selectedUserIds.delete(id);
-                    });
-                });
-            }
-
-            // Charger users entité pour la colonne "user"
-            if (usersList) {
-                fetch(API_BASE + '/entity-users', { headers: headers() })
-                    .then(function(r) { return r.ok ? r.json() : {}; })
-                    .then(function(data) {
-                        allUsers = (data && data.success && Array.isArray(data.users)) ? data.users : [];
-                        renderUsersList();
-                    })
-                    .catch(function() { usersList.innerHTML = '<div class="text-muted small">Impossible de charger les utilisateurs.</div>'; });
-            }
-            if (userSearch) userSearch.addEventListener('input', renderUsersList);
-
-            if (btnSave) {
-                btnSave.onclick = function(e) {
-                    e.stopPropagation();
-                    if (msg) { msg.textContent = 'Enregistrement…'; msg.className = 'small ml-2 text-muted auth-msg'; }
-                    var save1 = Promise.resolve(true);
-                    if (chkServer && !chkServer.disabled) {
-                        save1 = fetch(API_BASE + '/servers/' + serverId, {
-                            method: 'PUT',
-                            headers: headers(),
-                            body: JSON.stringify({ canAddLlm: chkServer.checked })
-                        }).then(function(r) { return parseJson(r); }).then(function(res) {
-                            if (res && res.success && res.server) {
-                                var idx = servers.findIndex(function(x) { return x._id === serverId; });
-                                if (idx >= 0) servers[idx].canAddLlm = res.server.canAddLlm === true;
-                            }
-                            return true;
-                        });
-                    }
-                    var save2 = fetch(API_BASE + '/entity-settings', {
-                        method: 'PUT',
-                        headers: headers(),
-                        body: JSON.stringify({
-                            allowUsersToAddLlm: chkEntity ? chkEntity.checked : false,
-                            allowUsersToAddLlmRole: selRole ? selRole.value : 'admin',
-                            allowUsersToAddLlmRoleIds: Array.from(selectedRoleIds),
-                            allowUsersToAddLlmUserIds: Array.from(selectedUserIds)
-                        })
-                    }).then(function(r) { return parseJson(r); });
-
-                    Promise.all([save1, save2]).then(function(results) {
-                        var r2 = results[1];
-                        if (r2 && r2.success) {
-                            if (msg) { msg.textContent = 'Enregistré.'; msg.className = 'small ml-2 text-success auth-msg'; }
-                            loadServers(); // refresh list labels if needed
-                        } else {
-                            if (msg) { msg.textContent = (r2 && r2.message) || 'Erreur'; msg.className = 'small ml-2 text-danger auth-msg'; }
-                        }
-                    }).catch(function(err) {
-                        if (msg) { msg.textContent = 'Erreur: ' + (err.message || err); msg.className = 'small ml-2 text-danger auth-msg'; }
-                    });
-                };
-            }
-        })(); }
-
         if (IA_SERVERS_UI_MODE === 'entity') { (function bindUsersTab() {
             var usersPane = row.querySelector('.server-tab-users');
             if (!usersPane) return;
@@ -701,7 +730,7 @@ $currentUserId = isset($_SESSION['user_id']) ? (string) $_SESSION['user_id'] : '
             var currentSelectionType = null; // 'role' | 'user'
             var currentSelectionId = null;
             var users = [];
-            var roles = [];
+            var entityRoles = [];
             var modelsForServer = [];
             var serversById = {};
             var currentAllowedAll = []; // noms de modèles accordés pour la sélection courante
@@ -754,24 +783,45 @@ $currentUserId = isset($_SESSION['user_id']) ? (string) $_SESSION['user_id'] : '
                     .catch(function(e) { setUserMsg('Erreur: ' + (e.message || e), true); });
             }
 
+            function formatUserRolesLabel(user) {
+                if (!user) return '';
+                var parts = [];
+                if (Array.isArray(user.entity_roles) && user.entity_roles.length) {
+                    user.entity_roles.forEach(function(key) {
+                        var found = entityRoles.find(function(r) { return String(r.key) === String(key); });
+                        parts.push(found ? found.label : key);
+                    });
+                } else if (user.membership_role || user.role) {
+                    var mk = String(user.membership_role || user.role);
+                    var foundM = entityRoles.find(function(r) { return String(r.key) === mk; });
+                    parts.push(foundM ? foundM.label : (mk === 'admin' ? 'Administrateur' : (mk === 'user' ? 'Utilisateur' : mk)));
+                }
+                return parts.length ? parts.join(', ') : 'Utilisateur';
+            }
+
             function renderRolesList() {
                 if (!roleListEl) return;
                 var q = (roleSearchEl && roleSearchEl.value ? roleSearchEl.value : '').trim().toLowerCase();
-                var visible = roles.filter(function(r) { return !q || String(r).toLowerCase().indexOf(q) !== -1; });
+                var visible = entityRoles.filter(function(r) {
+                    var label = (r.label || r.key || '').toLowerCase();
+                    var key = (r.key || '').toLowerCase();
+                    return !q || label.indexOf(q) !== -1 || key.indexOf(q) !== -1;
+                });
                 roleListEl.innerHTML = '';
                 if (!visible.length) {
-                    roleListEl.innerHTML = '<li class="list-group-item">Aucun rôle.</li>';
+                    roleListEl.innerHTML = '<li class="list-group-item">Aucun rôle métier.</li>';
                     return;
                 }
-                visible.forEach(function(role) {
+                visible.forEach(function(roleDef) {
+                    var roleKey = String(roleDef.key);
                     var li = document.createElement('li');
                     li.className = 'list-group-item';
-                    li.textContent = role;
+                    li.textContent = roleDef.label || roleKey;
                     li.onclick = function() {
                         if (listEl) listEl.querySelectorAll('.list-group-item').forEach(function(x) { x.classList.remove('active'); });
                         roleListEl.querySelectorAll('.list-group-item').forEach(function(x) { x.classList.remove('active'); });
                         li.classList.add('active');
-                        loadRightsForSelection('role', role, 'Role: ' + role);
+                        loadRightsForSelection('role', roleKey, 'Rôle : ' + (roleDef.label || roleKey));
                     };
                     roleListEl.appendChild(li);
                 });
@@ -781,7 +831,7 @@ $currentUserId = isset($_SESSION['user_id']) ? (string) $_SESSION['user_id'] : '
                 if (!listEl) return;
                 var q = (userSearchEl && userSearchEl.value ? userSearchEl.value : '').trim().toLowerCase();
                 var visible = users.filter(function(u) {
-                    var txt = ((u.name || '') + ' ' + (u.email || '') + ' ' + (u.role || '')).toLowerCase();
+                    var txt = ((u.name || '') + ' ' + (u.email || '') + ' ' + formatUserRolesLabel(u)).toLowerCase();
                     return !q || txt.indexOf(q) !== -1;
                 });
                 listEl.innerHTML = '';
@@ -793,7 +843,7 @@ $currentUserId = isset($_SESSION['user_id']) ? (string) $_SESSION['user_id'] : '
                     var li = document.createElement('li');
                     li.className = 'list-group-item';
                     li.dataset.uid = user._id;
-                    li.textContent = (user.name || user.email || user._id) + (user.role ? ' (' + user.role + ')' : '');
+                    li.textContent = (user.name || user.email || user._id) + ' (' + formatUserRolesLabel(user) + ')';
                     li.onclick = function() {
                         if (roleListEl) roleListEl.querySelectorAll('.list-group-item').forEach(function(x) { x.classList.remove('active'); });
                         listEl.querySelectorAll('.list-group-item').forEach(function(x) { x.classList.remove('active'); });
@@ -827,6 +877,13 @@ $currentUserId = isset($_SESSION['user_id']) ? (string) $_SESSION['user_id'] : '
                     var m = results[1];
                     var sres = results[2];
                     users = (u && u.ok && u.data && u.data.success && Array.isArray(u.data.users)) ? u.data.users : [];
+                    entityRoles = (u && u.ok && u.data && u.data.success && Array.isArray(u.data.entity_roles)) ? u.data.entity_roles : [];
+                    if (!entityRoles.length) {
+                        entityRoles = [
+                            { key: 'admin', label: 'Administrateur' },
+                            { key: 'user', label: 'Utilisateur' }
+                        ];
+                    }
                     modelsForServer = (m && m.ok && m.data && m.data.success && Array.isArray(m.data.models)) ? normalizeModels(m.data.models) : [];
                     var srv = (sres && sres.ok && sres.data && sres.data.success && Array.isArray(sres.data.servers)) ? sres.data.servers : [];
                     serversById = {};
@@ -844,7 +901,6 @@ $currentUserId = isset($_SESSION['user_id']) ? (string) $_SESSION['user_id'] : '
                         modelsForServer = modelsForServer.filter(function(name) { return enabledSet.has(String(name)); });
                     }
 
-                    roles = Array.from(new Set(users.map(function(u) { return (u && u.role) ? String(u.role) : ''; }).filter(Boolean))).sort();
                     if ((!modelsForServer || modelsForServer.length === 0) && msgEl) {
                         setUserMsg('Aucun LLM trouvé pour ce serveur.', true);
                     }
@@ -1003,15 +1059,38 @@ $currentUserId = isset($_SESSION['user_id']) ? (string) $_SESSION['user_id'] : '
             .catch(function(e) { setMsg(msgEl, 'Erreur: ' + (e.message || e), 'error'); });
     }
     function doDelete(serverId, msgEl) {
-        if (!confirm('Supprimer ce serveur ?')) return;
+        var s = servers.find(function(x) { return String(x._id) === String(serverId); });
+        if (s && isMutualizedPlatformServer(s)) {
+            setMsg(msgEl, 'Ce serveur mutualisé GDRI ne peut pas être supprimé.', 'error');
+            if (msgEl && msgEl.classList) {
+                msgEl.style.display = 'block';
+                msgEl.className = 'alert alert-danger small mb-3';
+            }
+            return;
+        }
+        if (!confirm('Supprimer ce serveur ? Cette action est irréversible.')) return;
         setMsg(msgEl, 'Suppression…', 'muted');
+        if (msgEl && msgEl.classList) {
+            msgEl.style.display = 'block';
+            msgEl.className = 'alert alert-info small mb-3';
+        }
         fetch(API_BASE + '/servers/' + serverId, { method: 'DELETE', headers: headers() })
             .then(function(r) { return parseJson(r); })
             .then(function(res) {
-                if (res && res.success) { setMsg(msgEl, 'Supprimé.', 'success'); loadServers(); closeAllServerModals(); }
-                else setMsg(msgEl, (res && res.message) || 'Erreur', 'error');
+                if (res && res.success) {
+                    setMsg(msgEl, 'Serveur supprimé.', 'success');
+                    if (msgEl && msgEl.classList) msgEl.className = 'alert alert-success small mb-3';
+                    loadServers();
+                    closeAllServerModals();
+                } else {
+                    setMsg(msgEl, (res && res.message) || 'Erreur', 'error');
+                    if (msgEl && msgEl.classList) msgEl.className = 'alert alert-danger small mb-3';
+                }
             })
-            .catch(function(e) { setMsg(msgEl, 'Erreur: ' + (e.message || e), 'error'); });
+            .catch(function(e) {
+                setMsg(msgEl, 'Erreur: ' + (e.message || e), 'error');
+                if (msgEl && msgEl.classList) msgEl.className = 'alert alert-danger small mb-3';
+            });
     }
     function loadServers() {
         var msgEl = document.getElementById('serversApiMessage');
@@ -1047,15 +1126,18 @@ $currentUserId = isset($_SESSION['user_id']) ? (string) $_SESSION['user_id'] : '
                 }
             });
     }
-    document.getElementById('btnAddServer').onclick = function() {
+    var btnAddServer = document.getElementById('btnAddServer');
+    if (btnAddServer) btnAddServer.onclick = function() {
         document.getElementById('addServerBlock').style.display = 'block';
         document.getElementById('addName').value = '';
         document.getElementById('addBaseUrl').value = '';
         document.getElementById('addAuthValue').value = '';
         loadPresets();
     };
-    document.getElementById('btnCancelAdd').onclick = function() { document.getElementById('addServerBlock').style.display = 'none'; };
-    document.getElementById('addPresetId').onchange = function() {
+    var btnCancelAdd = document.getElementById('btnCancelAdd');
+    if (btnCancelAdd) btnCancelAdd.onclick = function() { document.getElementById('addServerBlock').style.display = 'none'; };
+    var addPresetId = document.getElementById('addPresetId');
+    if (addPresetId) addPresetId.onchange = function() {
         var presetId = this.value;
         var preset = presets.find(function(p) { return p.id === presetId; });
         if (preset && preset.defaults && preset.defaults.baseUrl) {
@@ -1063,7 +1145,8 @@ $currentUserId = isset($_SESSION['user_id']) ? (string) $_SESSION['user_id'] : '
             document.getElementById('addBaseUrl').placeholder = preset.defaults.baseUrl;
         }
     };
-    document.getElementById('btnCreateServer').onclick = function() {
+    var btnCreateServer = document.getElementById('btnCreateServer');
+    if (btnCreateServer) btnCreateServer.onclick = function() {
         var presetId = document.getElementById('addPresetId').value.trim();
         var name = document.getElementById('addName').value.trim();
         var baseUrl = document.getElementById('addBaseUrl').value.trim();
@@ -1073,6 +1156,7 @@ $currentUserId = isset($_SESSION['user_id']) ? (string) $_SESSION['user_id'] : '
         var body = { presetId: presetId, name: name || (preset && preset.label) || presetId, baseUrl: baseUrl || (preset && preset.defaults && preset.defaults.baseUrl) || '' };
         if (authValue) body.auth = preset && ['openai','anthropic','deepseek'].indexOf(preset.provider) >= 0 ? { type: 'bearer', apiKey: authValue } : { type: 'bearer', serviceToken: authValue };
         if (IA_SERVERS_UI_MODE === 'user') body.scope = 'user';
+        else if (IA_SERVERS_ENTITY_MODE) body.scope = 'entity';
         fetch(API_BASE + '/servers', { method: 'POST', headers: headers(), body: JSON.stringify(body) })
             .then(function(r) { return parseJson(r); })
             .then(function(res) {

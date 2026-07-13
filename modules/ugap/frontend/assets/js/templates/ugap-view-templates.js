@@ -11,7 +11,7 @@
         import: 'Import',
         famille: 'Famille',
         categorie: 'Catégorie',
-        'template-bateau': 'Template bateau',
+        'template-bateau': 'Templates de base',
         models: 'Modèles',
         categories: 'Vues métier',
         options: 'Options'
@@ -25,7 +25,7 @@
     const LC_CREATE_BUTTON_LABELS = {
         famille: 'Créer une famille',
         categorie: 'Créer une catégorie',
-        'template-bateau': 'Créer un template bateau',
+        'template-bateau': 'Créer un template de base',
         'vue-metier': 'Créer une vue métier',
         categories: 'Créer une vue métier',
         template: 'Créer un template',

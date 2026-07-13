@@ -1,0 +1,16 @@
+{
+  "enabled": true,
+  "defaultPage": {
+    "format": "A4",
+    "widthMm": 210,
+    "heightMm": 297,
+    "margins": { "top": 15, "right": 15, "bottom": 15, "left": 15 }
+  },
+  "snap": {
+    "enabled": true,
+    "thresholdMm": 1.5,
+    "snapToPage": true,
+    "snapToGuides": true,
+    "snapToNodes": true
+  }
+}

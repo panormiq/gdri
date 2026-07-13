@@ -2,6 +2,7 @@ const express = require('express');
 const { ObjectId } = require('mongodb');
 const { authenticateJWT } = require('../config/jwt');
 const database = require('../config/database');
+const { findEntityMemberUsers, getActiveEntityRoles, normalizeMembershipRole, isStructuralRoleKey } = require('../core/entity-member-users');
 
 const router = express.Router();
 
@@ -33,6 +34,43 @@ function parseModuleZonePermissionsMap(raw) {
   return out;
 }
 
+function dedupeEntityServices(services) {
+  const uniqueServices = [];
+  const seenBySlug = new Map();
+  const seenByName = new Map();
+
+  for (const service of services) {
+    const slugKey = service?.slug ? String(service.slug).trim().toLowerCase() : '';
+    const nameKey = service?.name
+      ? String(service.name).trim().toLowerCase().replace(/\s+/g, ' ')
+      : '';
+
+    let existingKey = null;
+    if (slugKey && seenBySlug.has(slugKey)) {
+      existingKey = seenBySlug.get(slugKey);
+    } else if (nameKey && seenByName.has(nameKey)) {
+      existingKey = seenByName.get(nameKey);
+    }
+
+    if (existingKey !== null) {
+      const existing = uniqueServices[existingKey];
+      const currentStatus = existing?.status || '';
+      const newStatus = service?.status || '';
+      if (existing && newStatus === 'active' && currentStatus !== 'active') {
+        uniqueServices[existingKey] = service;
+      }
+      continue;
+    }
+
+    const key = slugKey || (nameKey ? nameKey.replace(/\s+/g, '-') : String(service?._id || `service_${uniqueServices.length}`));
+    uniqueServices[key] = service;
+    if (slugKey) seenBySlug.set(slugKey, key);
+    if (nameKey) seenByName.set(nameKey, key);
+  }
+
+  return Object.values(uniqueServices);
+}
+
 function resolveEntityId(req, res) {
   if (req.user.role !== 'ADMIN_GDRI' && req.user.role !== 'ADMIN_ENTITY') {
     res.status(403).json({ success: false, message: 'Acces refuse' });
@@ -60,14 +98,21 @@ router.get('/', authenticateJWT, async (req, res) => {
     const entity = await entitiesCollection.findOne({ _id: new ObjectId(entityId), status: 'active' });
     if (!entity) return res.status(404).json({ success: false, message: 'Entite introuvable ou inactive' });
 
-    const authorizedIds = Array.isArray(entity.services_authorized) ? entity.services_authorized : [];
-    const services = authorizedIds.length
+    const authorizedIds = Array.from(new Set(
+      (Array.isArray(entity.services_authorized) ? entity.services_authorized : [])
+        .map((id) => String(id))
+        .filter((id) => /^[a-f0-9]{24}$/i.test(id))
+    )).map((id) => new ObjectId(id));
+
+    const servicesRaw = authorizedIds.length
       ? await servicesCollection.find({ _id: { $in: authorizedIds } }).toArray()
       : [];
+    const services = dedupeEntityServices(servicesRaw).filter((service) => {
+      const slug = String(service?.slug || '').trim().toLowerCase();
+      return slug !== 'prompt' && slug !== 'ia' && slug !== 'serveria';
+    });
 
-    const users = await usersCollection.find({
-      entreprises: { $elemMatch: { entrepriseId: new ObjectId(entityId) } }
-    }).project({ email: 1, status: 1, entreprises: 1, entity_roles: 1 }).toArray();
+    const members = await findEntityMemberUsers(usersCollection, entityId);
 
     let entrepriseUsersDocs = [];
     try {
@@ -88,10 +133,7 @@ router.get('/', authenticateJWT, async (req, res) => {
       if (ugap.length > 0) ugapPermissionsByUserId.set(uid, ugap);
     });
 
-    const roles = await rolesCollection
-      .find({ entity_id: entityId, isActive: { $ne: false } })
-      .sort({ isSystem: -1, label: 1 })
-      .toArray();
+    const roles = await getActiveEntityRoles(db, entityId);
 
     const ownerUserId = entity?.ownerUserId ? String(entity.ownerUserId) : '';
     const roleDefaults = entity?.default_module_permissions || {};
@@ -103,20 +145,27 @@ router.get('/', authenticateJWT, async (req, res) => {
     const zoneDefaults = entity?.default_module_zone_permissions || {};
     const defaultZoneAdmin = parseModuleZonePermissionsMap(zoneDefaults.admin);
     const defaultZoneUser = parseModuleZonePermissionsMap(zoneDefaults.user);
-    const dataUsers = users.map((u) => {
-      const ent = (u.entreprises || []).find((e) => String(e.entrepriseId) === entityId);
-      return {
-        id: String(u._id),
-        email: u.email || '',
-        status: u.status || 'active',
-        role: (ent && ent.role) || 'user',
-        isOwner: ownerUserId && String(u._id) === ownerUserId,
-        services_authorized: servicesByUserId.get(String(u._id)) || [],
-        ugap_permissions: ugapPermissionsByUserId.get(String(u._id)) || [],
+    const dataUsers = [];
+    const seenUserIds = new Set();
+    members.forEach((m) => {
+      const userId = m.userId;
+      if (seenUserIds.has(userId)) return;
+      seenUserIds.add(userId);
+      const u = m.doc;
+      dataUsers.push({
+        id: userId,
+        email: m.email,
+        status: m.status,
+        role: m.membershipRole,
+        membership_role: m.membershipRole,
+        isOwner: ownerUserId && userId === ownerUserId,
+        services_authorized: servicesByUserId.get(userId) || [],
+        ugap_permissions: ugapPermissionsByUserId.get(userId) || [],
         module_zone_permissions: parseModuleZonePermissionsMap(u?.module_zone_permissions),
-        entity_roles: Array.isArray(u.entity_roles) ? u.entity_roles : []
-      };
-    }).sort((a, b) => a.email.localeCompare(b.email));
+        entity_roles: m.entity_roles
+      });
+    });
+    dataUsers.sort((a, b) => a.email.localeCompare(b.email));
 
     res.json({
       success: true,
@@ -197,8 +246,10 @@ router.put('/user/:userId', authenticateJWT, async (req, res) => {
     const validRoleKeys = Array.isArray(postedRoles)
       ? postedRoles
         .map((r) => String(r || '').trim())
-        .filter((r) => r && allowedRoleKeys.has(r))
-      : (Array.isArray(user.entity_roles) ? user.entity_roles : []);
+        .filter((r) => r && allowedRoleKeys.has(r) && !isStructuralRoleKey(r))
+      : (Array.isArray(user.entity_roles) ? user.entity_roles : [])
+        .map((r) => String(r || '').trim())
+        .filter((r) => r && !isStructuralRoleKey(r));
 
     try {
       const entrepriseDb = await database.getEntrepriseDb(entityId);

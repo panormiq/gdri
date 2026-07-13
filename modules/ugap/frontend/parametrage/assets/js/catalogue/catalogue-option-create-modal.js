@@ -416,7 +416,8 @@
             hint.textContent = `L’option sera liée à « ${catalogObject.label || catalogObject.id} » avec le tag « ${tagLabel} ». Cochez les postes concernés.`;
         }
 
-        global.document.getElementById('ugap-catalogue-create-name').value = '';
+        const suggestedName = String(context?.suggestedName || catalogObject.label || '').trim();
+        global.document.getElementById('ugap-catalogue-create-name').value = suggestedName;
         global.document.getElementById('ugap-catalogue-create-details').value = '';
         global.document.getElementById('ugap-catalogue-create-ref').value = '';
         global.document.getElementById('ugap-catalogue-create-price').value = '0';

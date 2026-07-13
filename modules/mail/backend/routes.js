@@ -13,6 +13,50 @@ const mailModule = require('./index');
 const mail = mailModule.getMailService();
 
 const PROVIDERS_COLLECTION = 'mail_providers';
+const DEPENDENCIES_COLLECTION = 'mail_module_dependencies';
+
+async function getConfigDoc(configCollection, moduleName, entityId) {
+  return configCollection.findOne({
+    module_name: moduleName,
+    entity_id: entityId
+  });
+}
+
+async function registerDependency(entityId, moduleName, dependsOn) {
+  const deps = database.getCollection(DEPENDENCIES_COLLECTION);
+  await deps.updateOne(
+    { entity_id: entityId, module_name: moduleName, depends_on: dependsOn },
+    {
+      $set: {
+        entity_id: entityId,
+        module_name: moduleName,
+        depends_on: dependsOn,
+        updated_at: new Date()
+      },
+      $setOnInsert: { created_at: new Date() }
+    },
+    { upsert: true }
+  );
+}
+
+function mergeModuleConfigWithFallback(moduleConfig, fallbackConfig) {
+  if (!fallbackConfig) return moduleConfig || null;
+  if (!moduleConfig) return fallbackConfig;
+  const merged = { ...fallbackConfig, ...moduleConfig };
+  const arrayKeys = ['profils_imap', 'profils_smtp', 'comptes', 'routing_rules'];
+  arrayKeys.forEach((key) => {
+    if (!Array.isArray(moduleConfig[key]) || moduleConfig[key].length === 0) {
+      merged[key] = Array.isArray(fallbackConfig[key]) ? fallbackConfig[key] : [];
+    }
+  });
+  if (
+    (!moduleConfig.smtp_profiles || Object.keys(moduleConfig.smtp_profiles).length === 0) &&
+    fallbackConfig.smtp_profiles
+  ) {
+    merged.smtp_profiles = fallbackConfig.smtp_profiles;
+  }
+  return merged;
+}
 
 /** Middleware : réservé à ADMIN_GDRI */
 function requireAdminGdri(req, res, next) {
@@ -45,6 +89,51 @@ function resolveImapConfig(config) {
       mailbox: compte.imap_mailbox || 'INBOX'
     };
   }
+  return null;
+}
+
+/**
+ * Résout la config IMAP pour un compte précis (ancien ou nouveau format)
+ */
+function resolveImapConfigForAccount(config, accountId) {
+  if (!config || accountId == null || accountId === '') return null;
+  const id = String(accountId);
+
+  const profiles = config.smtp_profiles;
+  if (profiles && profiles[id]) {
+    const p = profiles[id];
+    const imap = p.imap || config.imap_config;
+    const user = p.smtp?.auth?.user;
+    const password = p.smtp?.auth?.pass;
+    if (imap?.host && user && password) {
+      return {
+        host: imap.host,
+        port: parseInt(imap.port, 10) || 993,
+        secure: imap.secure !== false,
+        user,
+        password,
+        mailbox: 'INBOX'
+      };
+    }
+  }
+
+  if (Array.isArray(config.profils_imap) && Array.isArray(config.comptes)) {
+    const byId = (arr) => (arr || []).reduce((acc, p) => { acc[p.id] = p; return acc; }, {});
+    const imapById = byId(config.profils_imap);
+    const compte = config.comptes.find((c) => String(c.id) === id);
+    if (!compte?.profil_imap_id || !imapById[compte.profil_imap_id]) return null;
+    const profil = imapById[compte.profil_imap_id];
+    if (!compte.email || !compte.password) return null;
+    return {
+      host: profil.host,
+      port: parseInt(profil.port, 10) || 993,
+      secure: profil.secure !== false,
+      user: compte.email,
+      password: compte.password,
+      mailbox: compte.imap_mailbox || 'INBOX'
+    };
+  }
+
   return null;
 }
 
@@ -220,7 +309,6 @@ router.delete('/admin/providers/:id', authenticateJWT, requireAdminGdri, async (
 router.get('/config/:moduleName', authenticateJWT, async (req, res) => {
   try {
     const { moduleName } = req.params;
-    const { role } = req.user;
     const entityId = req.user.currentEntrepriseId || req.user.entrepriseId || req.user.entity_id || null;
 
     // ADMIN_GDRI peut avoir entity_id null, utiliser une valeur par défaut ou une logique spéciale
@@ -240,12 +328,25 @@ router.get('/config/:moduleName', authenticateJWT, async (req, res) => {
     // TODO : Revenir aux bases d'entités quand les permissions MongoDB seront configurées
     const configCollection = database.getCollection('mail_configs');
 
-    const config = await configCollection.findOne({
-      module_name: moduleName,
-      entity_id: entityId
-    });
+    const config = await getConfigDoc(configCollection, moduleName, entityId);
+    const fallbackConfig = moduleName !== 'mail'
+      ? await getConfigDoc(configCollection, 'mail', entityId)
+      : null;
+
+    if (moduleName !== 'mail') {
+      await registerDependency(entityId, moduleName, 'mail');
+    }
 
     if (!config) {
+      if (fallbackConfig?.config) {
+        return res.json({
+          success: true,
+          config: null,
+          effective_config: fallbackConfig.config,
+          inherited_from: 'mail',
+          message: 'Configuration héritée du module mail'
+        });
+      }
       return res.json({
         success: true,
         config: null,
@@ -253,9 +354,21 @@ router.get('/config/:moduleName', authenticateJWT, async (req, res) => {
       });
     }
 
+    const effectiveConfig = mergeModuleConfigWithFallback(config.config || null, fallbackConfig?.config || null);
+    const inheritedFrom =
+      moduleName !== 'mail' &&
+      fallbackConfig?.config &&
+      effectiveConfig &&
+      ((!config.config?.comptes || config.config.comptes.length === 0) &&
+        (!config.config?.smtp_profiles || Object.keys(config.config.smtp_profiles).length === 0))
+        ? 'mail'
+        : null;
+
     res.json({
       success: true,
-      config: config.config || null
+      config: config.config || null,
+      effective_config: effectiveConfig,
+      inherited_from: inheritedFrom
     });
 
   } catch (error) {
@@ -314,10 +427,19 @@ router.post('/config/:moduleName', authenticateJWT, async (req, res) => {
     }
 
     if (!hasSmtp && !hasImap) {
-      return res.status(400).json({
-        success: false,
-        message: 'Configuration Mail requise : profils SMTP + comptes, ou au moins un profil IMAP utilisé par un compte'
-      });
+      if (moduleName === 'mail') {
+        return res.status(400).json({
+          success: false,
+          message: 'Configuration Mail requise : profils SMTP + comptes, ou au moins un profil IMAP utilisé par un compte'
+        });
+      }
+      const mailDefaultDoc = await getConfigDoc(database.getCollection('mail_configs'), 'mail', entityId);
+      if (!mailDefaultDoc?.config) {
+        return res.status(400).json({
+          success: false,
+          message: 'Aucune configuration mail par défaut trouvée. Configurez d’abord le module "mail".'
+        });
+      }
     }
 
     const configCollection = database.getCollection('mail_configs');
@@ -346,6 +468,19 @@ router.post('/config/:moduleName', authenticateJWT, async (req, res) => {
       ...config
     });
 
+    if (moduleName !== 'mail') {
+      await registerDependency(entityId, moduleName, 'mail');
+    }
+
+    if (moduleName === 'mail' && config) {
+      try {
+        const { syncMailAccountConnectors } = require('../../../backend/core/connectors/mail-account-connector-sync');
+        await syncMailAccountConnectors(database, entityId, config);
+      } catch (syncErr) {
+        console.warn('Sync connecteurs mail:', syncErr.message);
+      }
+    }
+
     res.json({
       success: true,
       message: 'Configuration sauvegardée avec succès'
@@ -357,6 +492,28 @@ router.post('/config/:moduleName', authenticateJWT, async (req, res) => {
       success: false,
       message: 'Erreur serveur'
     });
+  }
+});
+
+/**
+ * GET /api/mail/dependencies
+ * Liste des dépendances mail pour l'entité courante
+ */
+router.get('/dependencies', authenticateJWT, async (req, res) => {
+  try {
+    const entityId = req.user.currentEntrepriseId || req.user.entrepriseId || req.user.entity_id || null;
+    if (!entityId) {
+      return res.status(400).json({ success: false, message: 'entity_id requis' });
+    }
+    const rows = await database
+      .getCollection(DEPENDENCIES_COLLECTION)
+      .find({ entity_id: entityId })
+      .sort({ module_name: 1, depends_on: 1 })
+      .toArray();
+    res.json({ success: true, dependencies: rows });
+  } catch (error) {
+    console.error('Erreur dépendances mail:', error);
+    res.status(500).json({ success: false, message: error.message || 'Erreur serveur' });
   }
 });
 
@@ -426,7 +583,7 @@ router.post('/test/send', authenticateJWT, async (req, res) => {
 
 /**
  * GET /api/mail/test/verify/:profile
- * Vérifie la connexion SMTP d'un profil
+ * Vérifie SMTP (+ IMAP si configuré) pour un compte enregistré
  */
 router.get('/test/verify/:profile', authenticateJWT, async (req, res) => {
   try {
@@ -434,37 +591,141 @@ router.get('/test/verify/:profile', authenticateJWT, async (req, res) => {
     const entityId = req.user.currentEntrepriseId || req.user.entrepriseId || req.user.entity_id || null;
     const { module_name = 'mail' } = req.query;
 
-    // TEMPORAIRE : Charger la config depuis la base principale
-    const configCollection = database.getCollection('mail_configs');
-    const savedConfig = await configCollection.findOne({
-      module_name: module_name,
-      entity_id: entityId
-    });
+    if (!entityId) {
+      return res.status(400).json({ success: false, message: 'entity_id requis' });
+    }
 
-    if (!savedConfig || !savedConfig.config) {
+    const configCollection = database.getCollection('mail_configs');
+    const savedConfig = await getConfigDoc(configCollection, module_name, entityId);
+    const fallbackConfig = module_name !== 'mail'
+      ? await getConfigDoc(configCollection, 'mail', entityId)
+      : null;
+    const effective = mergeModuleConfigWithFallback(savedConfig?.config || null, fallbackConfig?.config || null);
+
+    if (!effective) {
       return res.status(404).json({
         success: false,
         message: 'Configuration non trouvée'
       });
     }
 
-    // Initialiser le service
     mail.initModule({
       module_name: module_name,
-      ...savedConfig.config
+      ...effective
     });
 
-    // Vérifier la connexion
     const smtpManager = mail.getSMTPManager();
-    const isValid = await smtpManager.verifyConnection(profile);
+    let smtpOk = false;
+    let smtpMsg = 'Connexion SMTP échouée';
+    try {
+      if (!smtpManager.getProfileKeys().includes(profile)) {
+        smtpMsg = `Compte « ${profile} » introuvable dans la configuration`;
+      } else {
+        smtpOk = await smtpManager.verifyConnection(profile);
+        smtpMsg = smtpOk ? 'Connexion SMTP OK' : 'Connexion SMTP échouée (vérifiez identifiants / serveur)';
+      }
+    } catch (error) {
+      smtpMsg = error.message || smtpMsg;
+    }
+
+    const imapConfig = resolveImapConfigForAccount(effective, profile);
+    let imapPart = null;
+    if (imapConfig) {
+      const imapService = mail.getImapService();
+      const imapResult = await imapService.testConnection(imapConfig);
+      imapPart = { success: imapResult.success, message: imapResult.message };
+    }
+
+    const imapOk = !imapPart || imapPart.success;
+    const message = imapPart
+      ? `SMTP: ${smtpMsg} | IMAP: ${imapPart.message}`
+      : `SMTP: ${smtpMsg}`;
 
     res.json({
-      success: isValid,
-      message: isValid ? 'Connexion SMTP OK' : 'Connexion SMTP échouée'
+      success: smtpOk && imapOk,
+      message,
+      smtp: { success: smtpOk, message: smtpMsg },
+      imap: imapPart
     });
 
   } catch (error) {
     console.error('Erreur vérification SMTP:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message || 'Erreur serveur'
+    });
+  }
+});
+
+/**
+ * POST /api/mail/test/account
+ * Teste SMTP (+ IMAP) à partir des champs du formulaire, sans enregistrer
+ */
+router.post('/test/account', authenticateJWT, async (req, res) => {
+  try {
+    const nodemailer = require('nodemailer');
+    const { module_name = 'mail', account } = req.body || {};
+
+    if (!account?.email || !account?.smtp?.host) {
+      return res.status(400).json({
+        success: false,
+        message: 'Email et serveur SMTP requis pour le test'
+      });
+    }
+
+    const password = account.password || '';
+    if (!password) {
+      return res.status(400).json({
+        success: false,
+        message: 'Mot de passe requis pour tester la connexion'
+      });
+    }
+
+    const transporter = nodemailer.createTransport({
+      host: account.smtp.host,
+      port: parseInt(account.smtp.port, 10) || 587,
+      secure: account.smtp.secure === true,
+      auth: { user: account.email, pass: password }
+    });
+
+    let smtpOk = false;
+    let smtpMsg = 'Connexion SMTP échouée';
+    try {
+      await transporter.verify();
+      smtpOk = true;
+      smtpMsg = 'Connexion SMTP OK';
+    } catch (error) {
+      smtpMsg = error.message || smtpMsg;
+    } finally {
+      transporter.close();
+    }
+
+    let imapPart = null;
+    if (account.imap?.host) {
+      const imapService = mail.getImapService();
+      imapPart = await imapService.testConnection({
+        host: account.imap.host,
+        port: parseInt(account.imap.port, 10) || 993,
+        secure: account.imap.secure !== false,
+        user: account.email,
+        password,
+        mailbox: account.imap_mailbox || 'INBOX'
+      });
+    }
+
+    const imapOk = !imapPart || imapPart.success;
+    const message = imapPart
+      ? `SMTP: ${smtpMsg} | IMAP: ${imapPart.message}`
+      : `SMTP: ${smtpMsg}`;
+
+    res.json({
+      success: smtpOk && imapOk,
+      message,
+      smtp: { success: smtpOk, message: smtpMsg },
+      imap: imapPart
+    });
+  } catch (error) {
+    console.error('Erreur test compte mail:', error);
     res.status(500).json({
       success: false,
       message: error.message || 'Erreur serveur'

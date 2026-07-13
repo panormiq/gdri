@@ -51,9 +51,21 @@
             _boatTemplateResolved: null,
             importBaseProducts: [],
             devisName: '',
+            devisPrintTemplates: [],
+            devisDisplayOptions: {
+                showIncludedLines: false
+            },
             openedSavedDevisId: null,
             savedDevisVersions: [],
             savedDevisFilters: { name: '', dateOrder: 'desc' },
+            selectedClientId: null,
+            clientInfo: null,
+            commercialId: null,
+            devisContext: null,
+            clients: [],
+            showNewClientForm: false,
+            clientFormIsEdit: false,
+            _devisMetaLoaded: false,
             _catalogueOptionByIdMap: null,
             _validatedFamiliesPrepared: null,
             _categoryTableRowsCache: null,
@@ -63,6 +75,40 @@
         let ugapZones = { use: false, configure: false };
         const SAVED_DEVIS_STORAGE_KEY = 'ugap.configurateur.savedDevis.v1';
         const SAVED_DEVIS_MIGRATED_KEY = 'ugap.configurateur.savedDevis.migrated.v1';
+        const DEVIS_PRINT_ICON_SVG = '<svg class="ugap-devis-print-icon" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false"><path fill="currentColor" d="M6 19v2h12v-2H6zm12-8c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2H6C4.9 3 4 3.9 4 5v4c0 1.1.9 2 2 2h1v4h10v-4h1zm-2 0H6V5h12v6zm-8 4h8v2h-8v-2z"/></svg>';
+
+        function resolveConfiguratorApiBase() {
+            return API_BASE;
+        }
+
+        function normalizeDevisDisplayOptions(raw) {
+            const src = raw && typeof raw === 'object' ? raw : {};
+            return {
+                showIncludedLines: src.showIncludedLines === true
+            };
+        }
+
+        function getDevisDisplayOptions() {
+            state.devisDisplayOptions = normalizeDevisDisplayOptions(state.devisDisplayOptions);
+            return state.devisDisplayOptions;
+        }
+
+        function resolveTemplateQuickPrintLabel(template) {
+            const tpl = template && typeof template === 'object' ? template : {};
+            const shortName = String(tpl.shortName || '').trim();
+            if (shortName) return shortName;
+            return String(tpl.name || tpl.namespace || 'Modèle').trim() || 'Modèle';
+        }
+
+        function getDevisTemplateByNamespace(namespace) {
+            const ns = String(namespace || '').trim();
+            if (!ns) return null;
+            return (state.devisPrintTemplates || []).find((t) => String(t?.namespace || '') === ns) || null;
+        }
+
+        function templateShowsIncludedLines(template) {
+            return template?.showIncludedLines === true;
+        }
 
         // API helper
         async function apiCall(endpoint, options = {}) {
@@ -132,6 +178,7 @@
                 }
                 invalidateConfiguratorCaches();
                 await loadSavedDevisFromApi();
+                await loadDevisPrintTemplates();
                 await tryMigrateLocalStorageOnce();
                 render();
                 renderSavedDevisChoices();
@@ -178,10 +225,14 @@
             updateStepIndicator();
             
             if (state.step === 1) {
-                renderStep1();
+                if (window.UgapConfiguratorClientStep?.render) {
+                    void window.UgapConfiguratorClientStep.render(state);
+                }
             } else if (state.step === 2) {
-                renderStep2();
+                renderStep1();
             } else if (state.step === 3) {
+                renderStep2();
+            } else if (state.step === 4) {
                 renderStep3();
             }
             if (typeof scheduleParentEmbedResize === 'function') scheduleParentEmbedResize();
@@ -241,7 +292,7 @@
             if (window.UgapConfiguratorTemplateTree?.onModelSelected) {
                 window.UgapConfiguratorTemplateTree.onModelSelected(state);
             }
-            goToStep(2);
+            goToStep(3);
         }
 
         function getTemplateTreeHooks() {
@@ -352,20 +403,77 @@
                 .filter(Boolean);
         }
 
-        // Step 2: Configurations
+        // Step 2: Configurations (presets paramétrage → uiState.modelConfigurations)
+        function resolveConfiguratorConfigsForModel(model) {
+            const mid = String(model?.id || '').trim();
+            if (!mid) return [];
+
+            const rawList = state.uiState?.modelConfigurations?.[mid];
+            if (Array.isArray(rawList) && rawList.length) {
+                const MBO = window.UgapModelBaseOptions;
+                return rawList.map((c) => {
+                    const id = String(c?.id || '').trim();
+                    if (!id) return null;
+                    const label = String(c?.label || 'Configuration').trim() || 'Configuration';
+                    let description = c.isDefault ? 'Configuration par défaut' : 'Preset paramétré';
+                    if (MBO?.getConfigurationStatus) {
+                        const st = MBO.getConfigurationStatus(model, id);
+                        const filled = Number(st?.filledCount) || 0;
+                        const total = Number(st?.totalSlots) || 0;
+                        if (total > 0) {
+                            description = `${filled}/${total} option${total !== 1 ? 's' : ''} préconfigurée${filled !== 1 ? 's' : ''}`;
+                            if (c.isDefault) description += ' · par défaut';
+                        }
+                    }
+                    return {
+                        id,
+                        name: label,
+                        description,
+                        image: null,
+                        slotPicks: c.slotPicks && typeof c.slotPicks === 'object' ? { ...c.slotPicks } : {},
+                        isDefault: c.isDefault === true,
+                    };
+                }).filter(Boolean);
+            }
+
+            const legacy = Array.isArray(model?.configurations) ? model.configurations : [];
+            if (legacy.length) {
+                return legacy.map((c) => ({
+                    id: String(c?.id || '').trim(),
+                    name: String(c?.name || c?.label || 'Configuration').trim() || 'Configuration',
+                    description: String(c?.description || '').trim(),
+                    image: c?.image || null,
+                    slotPicks: c?.slotPicks && typeof c.slotPicks === 'object' ? { ...c.slotPicks } : undefined,
+                })).filter((c) => c.id);
+            }
+
+            const picks = state.uiState?.modelBaseSlotPicks?.[mid];
+            if (picks && typeof picks === 'object' && Object.keys(picks).length) {
+                return [{
+                    id: `cfg_default_${mid}`,
+                    name: 'UGAP',
+                    description: 'Options de base du catalogue.',
+                    image: null,
+                    slotPicks: { ...picks },
+                    isDefault: true,
+                }];
+            }
+            return [];
+        }
+
         function renderStep2() {
             document.getElementById('selected-model-name').textContent = state.selectedModel?.name || '-';
             
             const container = document.getElementById('configs-container');
             container.innerHTML = '';
 
-            // Utiliser les vraies configurations du modèle
-            const configs = state.selectedModel?.configurations || [];
+            syncConfiguratorModelBaseContext();
+            const configs = resolveConfiguratorConfigsForModel(state.selectedModel);
             const fallbackConfig = {
                 id: 'default-config',
                 name: 'Configuration par défaut',
-                description: 'Aucune configuration spécifique définie pour ce modèle.',
-                image: null
+                description: 'Aucune configuration définie — paramétrez-les dans Modèles.',
+                image: null,
             };
             const configsToRender = configs.length > 0 ? configs : [fallbackConfig];
 
@@ -386,11 +494,18 @@
         }
 
         function selectConfig(config) {
-            state.selectedConfig = config;
+            state.selectedConfig = config && typeof config === 'object' ? { ...config } : config;
+            state.selectedOptions.clear();
+            state.fivePercentOptions.clear();
+            invalidateBillableDerivationCache();
+            state._categoryTableRowsCache = null;
+            state._categoryTableRowsCacheKey = '';
+            state._modelBaseDefaultsAppliedForModelId = '';
+            syncConfiguratorModelBaseContext();
             if (!String(state.devisName || '').trim()) {
                 state.devisName = buildDefaultDevisName();
             }
-            goToStep(3);
+            goToStep(4);
         }
 
         function mergeBoatTemplatesForConfigurator(serverList) {
@@ -3064,7 +3179,11 @@
             syncConfiguratorModelBaseContext();
             applyConfiguratorDefaultsFromModelBase(true);
 
-            const hasBaseBoat = !!String(state.selectedModel?.boatTemplateId || '').trim();
+            const MBO = window.UgapModelBaseOptions;
+            const resolvedTemplateId = MBO?.resolveBoatTemplateIdForModel && state.selectedModel
+                ? String(MBO.resolveBoatTemplateIdForModel(state.selectedModel) || '').trim()
+                : String(state.selectedModel?.boatTemplateId || '').trim();
+            const hasBaseBoat = !!resolvedTemplateId;
             if (!hasBaseBoat) {
                 setStep3ParcoursHint(true, 'missing_template');
                 state.optionTabs = [];
@@ -3484,7 +3603,7 @@
 
         function closeSubCategoryModal() {
             const hadCatalogPicker = !!state._templateTreeModalGroup;
-            const tplMode = state.step === 3
+            const tplMode = state.step === 4
                 && window.UgapConfiguratorTemplateTree?.shouldUseTemplateTree?.(state);
             if (tplMode && hadCatalogPicker) {
                 window.UgapConfiguratorTemplateTree.closeTemplateTreeModal(state, getTemplateTreeHooks());
@@ -3498,7 +3617,7 @@
                 if (typeof closeUgapModal === 'function') closeUgapModal(modal);
                 else modal.classList.remove('active');
             }
-            if (state.step === 3 && state.optionTabs.length > 0) {
+            if (state.step === 4 && state.optionTabs.length > 0) {
                 renderCategoryOptions(currentCategoryIndex);
             } else if (hadCatalogPicker) {
                 refreshCategoryTableIfVisible();
@@ -3747,6 +3866,16 @@
             return ids;
         }
 
+        /** Toutes les lignes parcours (incluses + facturables) pour l'affichage / PDF détaillé. */
+        function collectConfiguratorDisplayOptionIds() {
+            const Tpl = window.UgapConfiguratorTemplateTree;
+            const hooks = getTemplateTreeHooks();
+            if (typeof Tpl?.collectParcoursOrderedDisplayOptionIds === 'function') {
+                return Tpl.collectParcoursOrderedDisplayOptionIds(state, hooks);
+            }
+            return Array.from(collectConfiguratorBillableOptionIds());
+        }
+
         /** Sous-total récap : prix bateau + options devis + mino/majo si remplacement IBP (IBP = 0 €). */
         function computeConfiguratorSubtotal() {
             let subtotal = state.selectedModel?.basePrice || 0;
@@ -3908,7 +4037,7 @@
 
         function scheduleDeferredCategoryTable() {
             const run = () => {
-                if (state.step !== 3 || state.showEntryScreen) return;
+                if (state.step !== 4 || state.showEntryScreen) return;
                 const container = document.getElementById('options-container');
                 if (!container) return;
                 if (window.UgapConfiguratorTemplateTree?.shouldUseTemplateTree?.(state)) {
@@ -3983,32 +4112,368 @@
             }
         }
 
+        async function loadDevisPrintTemplates() {
+            try {
+                const result = await apiCall('/devis/templates');
+                state.devisPrintTemplates = Array.isArray(result?.data?.templates)
+                    ? result.data.templates
+                    : [];
+            } catch (error) {
+                console.warn('[UGAP] Modèles devis indisponibles:', error?.message || error);
+                state.devisPrintTemplates = [];
+            }
+        }
+
+        function getQuickPrintTemplates() {
+            return (state.devisPrintTemplates || []).filter((t) => t.quickPrint === true);
+        }
+
+        function buildRenderPayloadFromSavedEntry(entry, templateNamespace) {
+            const payload = entry?.payload && typeof entry.payload === 'object' ? entry.payload : {};
+            const tpl = getDevisTemplateByNamespace(templateNamespace);
+            const showIncludedLines = templateShowsIncludedLines(tpl)
+                || payload.devisDisplayOptions?.showIncludedLines === true;
+            return {
+                modelId: payload.modelId,
+                configId: payload.configId,
+                selectedOptions: Array.isArray(payload.selectedOptions) ? payload.selectedOptions : [],
+                fivePercentOptions: Array.isArray(payload.fivePercentOptions) ? payload.fivePercentOptions : [],
+                fivePercentCustomOptions: Array.isArray(payload.fivePercentCustomOptions)
+                    ? payload.fivePercentCustomOptions
+                    : [],
+                use5Percent: payload.use5Percent !== false,
+                devisName: String(payload.devisName || entry?.name || '').trim(),
+                configName: String(payload.devisName || entry?.name || '').trim(),
+                clientId: payload.clientId || null,
+                clientInfo: payload.clientInfo || null,
+                commercialId: payload.commercialId || null,
+                templateNamespace: String(templateNamespace || '').trim() || undefined,
+                showIncludedLines,
+                displayOptionIds: showIncludedLines && Array.isArray(payload.displayOptionIds)
+                    ? payload.displayOptionIds
+                    : [],
+                billableOptionIds: Array.isArray(payload.billableOptionIds) ? payload.billableOptionIds : undefined,
+                devisOptionCategories: payload.devisOptionCategories || undefined,
+                devisModelCategory: payload.devisModelCategory || undefined
+            };
+        }
+
+        async function downloadDevisPdf(payload) {
+            const response = await fetch(`${resolveConfiguratorApiBase()}/devis/render`, {
+                method: 'POST',
+                credentials: 'include',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+
+            if (!response.ok) {
+                const contentType = response.headers.get('content-type') || '';
+                if (contentType.includes('application/json')) {
+                    const err = await response.json();
+                    throw new Error(err.message || `Erreur HTTP ${response.status}`);
+                }
+                const raw = await response.text().catch(() => '');
+                if (response.status === 502) {
+                    throw new Error(
+                        'Le serveur a interrompu la génération PDF (502). '
+                        + 'Vérifiez que le backend GDRI tourne sur le port 3000, que Google Chrome est installé, '
+                        + 'puis relancez le backend. Détail : '
+                        + (raw || 'proxy Apache / timeout').slice(0, 180)
+                    );
+                }
+                throw new Error(raw ? raw.slice(0, 220) : `Erreur HTTP ${response.status}`);
+            }
+
+            const blob = await response.blob();
+            const numero = response.headers.get('X-Ugap-Devis-Numero') || payload.devisName || 'devis';
+            const safeName = String(numero).replace(/[^a-zA-Z0-9._-]+/g, '_').slice(0, 80);
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = `${safeName}.pdf`;
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+            URL.revokeObjectURL(url);
+        }
+
+        function ensurePrintTemplateModal() {
+            let modal = document.getElementById('ugap-print-template-modal');
+            if (modal) return modal;
+            modal = document.createElement('div');
+            modal.id = 'ugap-print-template-modal';
+            modal.className = 'ugap-print-template-modal hidden';
+            modal.innerHTML = `
+                <div class="ugap-print-template-modal__panel" role="dialog" aria-modal="true" aria-labelledby="ugap-print-template-title">
+                    <div class="ugap-print-template-modal__head">
+                        <h3 id="ugap-print-template-title">Choisir le modèle de devis</h3>
+                        <button type="button" class="ugap-print-template-modal__close" data-print-template-close aria-label="Fermer">&times;</button>
+                    </div>
+                    <div id="ugap-print-template-list" class="ugap-print-template-list"></div>
+                    <label class="ugap-print-template-default">
+                        <input type="checkbox" id="ugap-print-template-save-default">
+                        Utiliser comme modèle par défaut
+                    </label>
+                    <div class="ugap-print-template-modal__actions">
+                        <button type="button" class="btn btn-outline" data-print-template-close>Annuler</button>
+                        <button type="button" class="btn btn-primary" id="ugap-print-template-confirm">Imprimer</button>
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(modal);
+            if (window.UgapEmbedLayout?.portalUgapModalToBody) {
+                window.UgapEmbedLayout.portalUgapModalToBody(modal);
+            }
+            return modal;
+        }
+
+        function pickPrintTemplate() {
+            const templates = Array.isArray(state.devisPrintTemplates) ? state.devisPrintTemplates : [];
+            if (!templates.length) {
+                return Promise.resolve({
+                    namespace: 'ugap:devis:default',
+                    saveAsDefault: false
+                });
+            }
+            if (templates.length === 1) {
+                return Promise.resolve({
+                    namespace: templates[0].namespace,
+                    saveAsDefault: false
+                });
+            }
+
+            return new Promise((resolve) => {
+                const modal = ensurePrintTemplateModal();
+                const listEl = document.getElementById('ugap-print-template-list');
+                const saveDefaultEl = document.getElementById('ugap-print-template-save-default');
+                const confirmBtn = document.getElementById('ugap-print-template-confirm');
+                const defaultNs = templates.find((t) => t.isDefaultPrint)?.namespace
+                    || templates.find((t) => t.isActive)?.namespace
+                    || templates[0].namespace;
+                let settled = false;
+
+                const finish = (result) => {
+                    if (settled) return;
+                    settled = true;
+                    modal.classList.add('hidden');
+                    resolve(result);
+                };
+
+                listEl.innerHTML = templates.map((t) => `
+                    <label class="ugap-print-template-option">
+                        <input type="radio" name="ugap-print-template-choice" value="${escapeHtml(t.namespace)}"${t.namespace === defaultNs ? ' checked' : ''}>
+                        <span>${escapeHtml(t.name || t.namespace)}</span>
+                    </label>
+                `).join('');
+                if (saveDefaultEl) saveDefaultEl.checked = !!templates.find((t) => t.namespace === defaultNs)?.isDefaultPrint;
+
+                const onConfirm = () => {
+                    const selected = listEl.querySelector('input[name="ugap-print-template-choice"]:checked');
+                    const namespace = String(selected?.value || defaultNs || '').trim();
+                    if (!namespace) {
+                        finish(null);
+                        return;
+                    }
+                    finish({
+                        namespace,
+                        saveAsDefault: !!saveDefaultEl?.checked
+                    });
+                };
+
+                const onClose = (ev) => {
+                    if (ev.target === modal || ev.target.closest('[data-print-template-close]')) {
+                        finish(null);
+                    }
+                };
+
+                confirmBtn?.addEventListener('click', onConfirm, { once: true });
+                modal.addEventListener('click', onClose, { once: true });
+                modal.classList.remove('hidden');
+            });
+        }
+
+        async function maybeSaveDefaultPrintTemplate(namespace, saveAsDefault) {
+            if (!saveAsDefault || !namespace) return;
+            try {
+                await apiCall(`/devis/templates/${encodeURIComponent(namespace)}/prefs`, {
+                    method: 'PATCH',
+                    body: JSON.stringify({ isDefaultPrint: true })
+                });
+                await loadDevisPrintTemplates();
+            } catch (error) {
+                console.warn('[UGAP] Modèle par défaut non enregistré:', error?.message || error);
+            }
+        }
+
+        async function quickPrintSavedDevis(savedId, templateNamespace, triggerBtn) {
+            const id = String(savedId || '').trim();
+            const ns = String(templateNamespace || '').trim();
+            if (!id || !ns) return;
+            const entry = (getSavedDevisStore().versions || []).find((item) => String(item?.id || '') === id);
+            if (!entry?.payload) {
+                alert('Devis introuvable.');
+                return;
+            }
+            const btn = triggerBtn instanceof HTMLElement ? triggerBtn : null;
+            const prevHtml = btn?.innerHTML || '';
+            if (btn) {
+                btn.disabled = true;
+                btn.innerHTML = 'Génération…';
+            }
+            try {
+                const payload = buildRenderPayloadFromSavedEntry(entry, ns);
+                await downloadDevisPdf(payload);
+            } catch (error) {
+                alert(`Erreur impression : ${error.message || 'Erreur inconnue'}`);
+            } finally {
+                if (btn) {
+                    btn.disabled = false;
+                    btn.innerHTML = prevHtml;
+                }
+            }
+        }
+
+        function buildDevisGenerationPayload() {
+            const billableOptionIds = Array.from(collectConfiguratorBillableOptionIds());
+            const displayOptions = getDevisDisplayOptions();
+            const Tpl = window.UgapConfiguratorTemplateTree;
+            const hooks = getTemplateTreeHooks();
+            const devisOptionCategories = typeof Tpl?.collectDevisOptionCategoryMap === 'function'
+                ? Tpl.collectDevisOptionCategoryMap(state, hooks)
+                : {};
+            const devisModelCategory = typeof Tpl?.collectDevisModelCategory === 'function'
+                ? Tpl.collectDevisModelCategory(state, hooks)
+                : '';
+
+            const selectedOptionsArray = Array.from(new Set([
+                ...Array.from(state.selectedOptions || []),
+                ...billableOptionIds
+            ]));
+            if (state.use5Percent) {
+                Array.from(state.fivePercentOptions || []).forEach((id) => {
+                    if (!selectedOptionsArray.includes(id)) selectedOptionsArray.push(id);
+                });
+            }
+            const displayOptionIds = displayOptions.showIncludedLines
+                ? collectConfiguratorDisplayOptionIds()
+                : [];
+
+            return {
+                modelId: state.selectedModel.id,
+                configId: state.selectedConfig?.id,
+                configName: String(state.selectedConfig?.name || '').trim(),
+                selectedOptions: selectedOptionsArray,
+                billableOptionIds,
+                displayOptionIds,
+                showIncludedLines: displayOptions.showIncludedLines === true,
+                devisDisplayOptions: { ...displayOptions },
+                devisOptionCategories,
+                devisModelCategory,
+                fivePercentOptions: Array.from(state.fivePercentOptions || []),
+                fivePercentCustomOptions: Array.isArray(state.fivePercentCustomOptions)
+                    ? state.fivePercentCustomOptions
+                    : [],
+                use5Percent: state.use5Percent !== false,
+                devisName: String(state.devisName || '').trim() || buildDefaultDevisName()
+            };
+        }
+
+        async function persistCurrentDevisSilently() {
+            if (state.step !== 4 || !state.selectedModel || !state.selectedConfig) {
+                return { ok: false, error: new Error('Devis incomplet') };
+            }
+            const finalName = String(state.devisName || '').trim() || buildDefaultDevisName();
+            state.devisName = finalName;
+            const snapshot = buildDevisSnapshot();
+            try {
+                const result = await apiCall('/saved-devis', {
+                    method: 'POST',
+                    body: JSON.stringify({ name: finalName, payload: snapshot })
+                });
+                const entry = result?.data;
+                if (!entry?.id) {
+                    throw new Error('Réponse serveur invalide');
+                }
+                await loadSavedDevisFromApi();
+                state.openedSavedDevisId = entry.id;
+                renderSavedDevisChoices();
+                const input = document.getElementById('ugap-devis-name-input');
+                if (input) input.value = finalName;
+                return { ok: true, entry };
+            } catch (error) {
+                return { ok: false, error };
+            }
+        }
+
         async function generateDevis() {
-            if (!state.selectedModel) {
-                alert('Veuillez sélectionner un modèle');
+            if (state.step !== 4 || !state.selectedModel || !state.selectedConfig) {
+                alert('Sélectionnez d\'abord un modèle et une configuration.');
                 return;
             }
 
-            const selectedOptionsArray = Array.from(state.selectedOptions);
-            if (state.use5Percent) {
-                selectedOptionsArray.push(...Array.from(state.fivePercentOptions));
+            const saveResult = await persistCurrentDevisSilently();
+            if (!saveResult.ok) {
+                alert('Erreur lors de la sauvegarde du devis avant impression: ' + (saveResult.error?.message || 'Erreur inconnue'));
+                return;
+            }
+
+            if (!state.devisPrintTemplates.length) {
+                await loadDevisPrintTemplates();
+            }
+            const picked = await pickPrintTemplate();
+            if (!picked?.namespace) return;
+            await maybeSaveDefaultPrintTemplate(picked.namespace, picked.saveAsDefault);
+
+            const clientSnap = window.UgapConfiguratorClientStep?.buildSnapshot
+                ? window.UgapConfiguratorClientStep.buildSnapshot(state)
+                : {};
+
+            const payload = {
+                ...buildDevisGenerationPayload(),
+                clientId: clientSnap.clientId || null,
+                clientInfo: clientSnap.clientInfo || null,
+                commercialId: clientSnap.commercialId || null,
+                templateNamespace: picked.namespace
+            };
+
+            try {
+                await apiCall('/devis', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        modelId: payload.modelId,
+                        configId: payload.configId,
+                        selectedOptions: payload.selectedOptions,
+                        billableOptionIds: payload.billableOptionIds,
+                        devisOptionCategories: payload.devisOptionCategories,
+                        devisModelCategory: payload.devisModelCategory,
+                        fivePercentOptions: payload.fivePercentOptions,
+                        fivePercentCustomOptions: payload.fivePercentCustomOptions,
+                        use5Percent: payload.use5Percent,
+                        devisName: payload.devisName,
+                        configName: payload.configName
+                    })
+                });
+            } catch (syncErr) {
+                console.warn('[UGAP] Pré-calcul serveur avant PDF:', syncErr?.message || syncErr);
+            }
+
+            const btn = document.getElementById('ugap-generate-devis-btn')
+                || document.querySelector('[onclick="generateDevis()"]');
+            const prevLabel = btn ? btn.textContent : '';
+            if (btn) {
+                btn.disabled = true;
+                btn.textContent = 'Génération…';
             }
 
             try {
-                const result = await apiCall('/devis', {
-                    method: 'POST',
-                    body: JSON.stringify({
-                        modelId: state.selectedModel.id,
-                        configId: state.selectedConfig?.id,
-                        selectedOptions: selectedOptionsArray,
-                        use5Percent: state.use5Percent
-                    })
-                });
-
-                alert(`Devis généré avec succès !\nTotal: ${result.data.total.toFixed(2)} €`);
-                // TODO: Générer et télécharger le PDF
+                await downloadDevisPdf(payload);
             } catch (error) {
-                alert('Erreur lors de la génération du devis: ' + error.message);
+                alert('Erreur lors de la génération du devis: ' + (error.message || 'Erreur inconnue'));
+            } finally {
+                if (btn) {
+                    btn.disabled = false;
+                    btn.textContent = prevLabel || 'Générer le devis PDF';
+                }
             }
         }
 
@@ -4069,6 +4534,10 @@
         function buildDevisSnapshot() {
             const selectedOptions = Array.from(state.selectedOptions || []);
             const fivePercentOptions = Array.from(state.fivePercentOptions || []);
+            const displayOptions = getDevisDisplayOptions();
+            const clientSnap = window.UgapConfiguratorClientStep?.buildSnapshot
+                ? window.UgapConfiguratorClientStep.buildSnapshot(state)
+                : {};
             return {
                 modelId: state.selectedModel?.id || null,
                 configId: state.selectedConfig?.id || null,
@@ -4078,7 +4547,21 @@
                     ? state.fivePercentCustomOptions
                     : [],
                 use5Percent: !!state.use5Percent,
-                devisName: state.devisName || ''
+                devisName: state.devisName || '',
+                devisDisplayOptions: { ...displayOptions },
+                displayOptionIds: displayOptions.showIncludedLines
+                    ? collectConfiguratorDisplayOptionIds()
+                    : [],
+                billableOptionIds: Array.from(collectConfiguratorBillableOptionIds()),
+                devisOptionCategories: typeof window.UgapConfiguratorTemplateTree?.collectDevisOptionCategoryMap === 'function'
+                    ? window.UgapConfiguratorTemplateTree.collectDevisOptionCategoryMap(state, getTemplateTreeHooks())
+                    : {},
+                devisModelCategory: typeof window.UgapConfiguratorTemplateTree?.collectDevisModelCategory === 'function'
+                    ? window.UgapConfiguratorTemplateTree.collectDevisModelCategory(state, getTemplateTreeHooks())
+                    : '',
+                clientId: clientSnap.clientId || null,
+                clientInfo: clientSnap.clientInfo || null,
+                commercialId: clientSnap.commercialId || null
             };
         }
 
@@ -4117,17 +4600,51 @@
                 const dateLabel = Number.isNaN(savedDate.getTime()) ? '-' : savedDate.toLocaleString('fr-FR');
                 const count = versions.filter((v) => String(v?.name || '').trim() === String(entry.name || '').trim()).length;
                 const activeClass = state.openedSavedDevisId && state.openedSavedDevisId === entry.id ? 'active' : '';
+                const payload = entry.payload && typeof entry.payload === 'object' ? entry.payload : {};
+                const fullName = String(entry.name || payload.devisName || 'Sans nom').trim() || 'Sans nom';
+                const includedHint = payload?.devisDisplayOptions?.showIncludedLines === true
+                    ? ' · lignes incluses'
+                    : '';
+                const quickTemplates = getQuickPrintTemplates();
+                const quickBtns = quickTemplates.map((tpl) => {
+                    const printLabel = escapeHtml(resolveTemplateQuickPrintLabel(tpl));
+                    const title = `Imprimer avec le modèle « ${printLabel} »`;
+                    return `
+                    <button
+                        type="button"
+                        class="ugap-saved-devis-quick-print"
+                        data-saved-id="${escapeHtml(entry.id)}"
+                        data-template-ns="${escapeHtml(tpl.namespace)}"
+                        title="${title}"
+                        aria-label="${title}"
+                    >${DEVIS_PRINT_ICON_SVG}<span class="ugap-saved-devis-quick-print__label">${printLabel}</span></button>
+                `;
+                }).join('');
                 return `
                     <div class="ugap-entry-open-item ${activeClass}" data-saved-id="${escapeHtml(entry.id)}">
-                        <div class="ugap-entry-open-item-name">${escapeHtml(entry.name || 'Sans nom')}</div>
-                        <div class="ugap-entry-open-item-meta">Dernière version: v${escapeHtml(String(entry.version || 1))} - ${escapeHtml(dateLabel)} - ${escapeHtml(String(count))} version(s)</div>
+                        <div class="ugap-entry-open-item-main">
+                            <div class="ugap-entry-open-item-name">${escapeHtml(fullName)}</div>
+                            <div class="ugap-entry-open-item-meta">v${escapeHtml(String(entry.version || 1))} · ${escapeHtml(dateLabel)} · ${escapeHtml(String(count))} version(s)${includedHint}</div>
+                        </div>
+                        ${quickBtns ? `<div class="ugap-entry-open-item-actions">${quickBtns}</div>` : ''}
                     </div>
                 `;
             }).join('');
             listEl.querySelectorAll('[data-saved-id]').forEach((node) => {
-                node.addEventListener('click', () => {
+                node.addEventListener('click', (ev) => {
+                    if (ev.target.closest('.ugap-saved-devis-quick-print')) return;
                     state.openedSavedDevisId = String(node.getAttribute('data-saved-id') || '').trim();
                     renderSavedDevisChoices();
+                });
+            });
+            listEl.querySelectorAll('.ugap-saved-devis-quick-print').forEach((btn) => {
+                btn.addEventListener('click', (ev) => {
+                    ev.stopPropagation();
+                    void quickPrintSavedDevis(
+                        btn.getAttribute('data-saved-id'),
+                        btn.getAttribute('data-template-ns'),
+                        btn
+                    );
                 });
             });
         }
@@ -4151,8 +4668,28 @@
             state.fivePercentCustomOptions = [];
             state.use5Percent = false;
             state.devisName = '';
+            state.devisDisplayOptions = normalizeDevisDisplayOptions(null);
             state.openedSavedDevisId = null;
+            if (window.UgapConfiguratorClientStep?.reset) {
+                window.UgapConfiguratorClientStep.reset(state);
+            } else {
+                state.selectedClientId = null;
+                state.clientInfo = null;
+                state.commercialId = null;
+                state.showNewClientForm = false;
+                state.clientFormIsEdit = false;
+            }
             render();
+        }
+
+        function backToDevisEntry() {
+            state.showEntryScreen = true;
+            render();
+        }
+
+        function confirmClientStep() {
+            window.UgapConfiguratorClientStep?.syncFromForm?.(state);
+            goToStep(2);
         }
 
         function onSavedDevisFilterChange() {
@@ -4175,7 +4712,7 @@
         }
 
         function resolveSavedConfig(model, configId) {
-            const configs = Array.isArray(model?.configurations) ? model.configurations : [];
+            const configs = resolveConfiguratorConfigsForModel(model);
             const wanted = String(configId || '').trim();
             if (wanted) {
                 const exact = configs.find((c) => String(c?.id || '').trim() === wanted);
@@ -4185,11 +4722,12 @@
                 return {
                     id: 'default-config',
                     name: 'Configuration par défaut',
-                    description: 'Aucune configuration spécifique définie pour ce modèle.',
-                    image: null
+                    description: 'Aucune configuration définie pour ce modèle.',
+                    image: null,
                 };
             }
-            return configs[0] || null;
+            const def = configs.find((c) => c.isDefault) || configs[0];
+            return def || null;
         }
 
         function onDevisNameInput(event) {
@@ -4197,7 +4735,7 @@
         }
 
         async function saveCurrentDevis() {
-            if (state.step !== 3 || !state.selectedModel || !state.selectedConfig) {
+            if (state.step !== 4 || !state.selectedModel || !state.selectedConfig) {
                 alert('Sélectionnez d\'abord un modèle et une configuration.');
                 return;
             }
@@ -4284,9 +4822,17 @@
                 state.fivePercentCustomOptions = Array.isArray(payload.fivePercentCustomOptions) ? payload.fivePercentCustomOptions : [];
                 state.use5Percent = !!payload.use5Percent;
                 state.devisName = String(payload.devisName || entry.name || '').trim();
+                state.devisDisplayOptions = normalizeDevisDisplayOptions(payload.devisDisplayOptions);
+                if (window.UgapConfiguratorClientStep?.applyPayload) {
+                    window.UgapConfiguratorClientStep.applyPayload(state, payload);
+                } else {
+                    state.selectedClientId = payload.clientId || null;
+                    state.clientInfo = payload.clientInfo || null;
+                    state.commercialId = payload.commercialId || null;
+                }
                 state.openedSavedDevisId = entry.id;
                 state.showEntryScreen = false;
-                state.step = 3;
+                state.step = 4;
                 state._openDevisPerf = true;
                 render();
                 state._openDevisPerf = false;
@@ -4315,8 +4861,12 @@
         });
 
         window.startNewDevis = startNewDevis;
+        window.backToDevisEntry = backToDevisEntry;
+        window.confirmClientStep = confirmClientStep;
+        window.goToStep = goToStep;
         window.openSavedDevis = openSavedDevis;
         window.onSavedDevisFilterChange = onSavedDevisFilterChange;
         window.resetSavedDevisFilters = resetSavedDevisFilters;
         window.onDevisNameInput = onDevisNameInput;
+        window.generateDevis = generateDevis;
         window.saveCurrentDevis = saveCurrentDevis;

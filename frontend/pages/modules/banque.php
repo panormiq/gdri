@@ -18,7 +18,7 @@ $api_base_url = rtrim(getApiBaseUrl(), '/');
 <div class="container bank-page-wide" style="margin: 2rem auto; padding: 0 1rem;">
     <div style="display:flex;justify-content:space-between;align-items:center;gap:1rem;flex-wrap:wrap;margin-bottom:1rem;">
         <h1 style="margin:0;">Import releve bancaire vers Oxygene</h1>
-        <a href="<?= url('pages/modules.php') ?>" class="btn btn-outline">← Modules</a>
+        <a href="<?= url('pages/modules.php') ?>" class="btn btn-outline">← Applications</a>
     </div>
 
     <div class="alert alert-info" style="margin-bottom:1rem;">

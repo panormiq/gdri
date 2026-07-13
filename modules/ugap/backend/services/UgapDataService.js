@@ -3,6 +3,7 @@
  * Fichier : modules/ugap/backend/services/UgapDataService.js
  */
 const fs = require('fs');
+const path = require('path');
 const { ObjectId } = require('mongodb');
 const UgapImportAssignmentService = require('./UgapImportAssignmentService');
 const UgapExcelService = require('./UgapExcelService');
@@ -10,6 +11,11 @@ const resolveImportLineKind = require('./excel-detect/resolveImportLineKind');
 const buildBaseOptions = require('./excel-detect/buildBaseOptions');
 const isMotorBaseNonSupplyMinoration = require('./excel-detect/rules/isMotorBaseNonSupplyMinoration');
 const parseReplacementFromLabel = require('./excel-detect/rules/parseReplacementFromLabel');
+const { sanitizeUgapRefForDisplay } = require('./ugap-ref-display');
+const {
+  normalizeOptionLinkRules,
+  suggestHeuristicLinkRules,
+} = require('./option-link-rules');
 
 class UgapDataService {
   /** Familles validées : `families: []` est une valeur explicite (pas un fallback validatedFamilies). */
@@ -281,6 +287,7 @@ class UgapDataService {
       : [];
     const boatTemplates = UgapDataService.normalizeBoatTemplates(source.boatTemplates);
     const modelBaseSlotPicks = UgapDataService.normalizeModelBaseSlotPicks(source.modelBaseSlotPicks);
+    const modelConfigurations = UgapDataService.normalizeModelConfigurations(source.modelConfigurations);
     const catalog = UgapDataService.normalizeCatalog(source.catalog);
     return {
       families,
@@ -295,7 +302,103 @@ class UgapDataService {
       familleHeuristicRules,
       boatTemplates,
       modelBaseSlotPicks,
+      modelConfigurations,
       updatedAt: source.updatedAt || null
+    };
+  }
+
+  static normalizeModelConfigurations(raw) {
+    const source = raw && typeof raw === 'object' ? raw : {};
+    const out = {};
+    Object.entries(source).forEach(([modelId, configs]) => {
+      const mid = String(modelId || '').trim();
+      if (!mid || !Array.isArray(configs)) return;
+      const list = configs
+        .map((cfg) => {
+          const c = cfg && typeof cfg === 'object' ? cfg : {};
+          const id = String(c.id || '').trim();
+          if (!id) return null;
+          const slotMap = {};
+          const picks = c.slotPicks && typeof c.slotPicks === 'object' ? c.slotPicks : {};
+          Object.entries(picks).forEach(([key, optionId]) => {
+            const k = String(key || '').trim();
+            const val = UgapDataService.normalizeModelBaseSlotPickValue(optionId);
+            if (k && val != null) slotMap[k] = val;
+          });
+          const orderMap = {};
+          const rawOrder = c.catalogNodeOrder && typeof c.catalogNodeOrder === 'object' ? c.catalogNodeOrder : {};
+          Object.entries(rawOrder).forEach(([key, ids]) => {
+            const pid = String(key || '').trim();
+            const list = (Array.isArray(ids) ? ids : [])
+              .map((x) => String(x || '').trim())
+              .filter(Boolean);
+            if (pid && list.length) orderMap[pid] = list;
+          });
+          return {
+            id,
+            label: String(c.label || 'Configuration').trim() || 'Configuration',
+            isDefault: c.isDefault === true,
+            slotPicks: slotMap,
+            catalogNodeOrder: orderMap,
+          };
+        })
+        .filter(Boolean);
+      if (list.length) out[mid] = list;
+    });
+    return out;
+  }
+
+  static genModelConfigurationId() {
+    return `cfg_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  }
+
+  /**
+   * Garantit une configuration « UGAP » par défaut pour chaque modèle catalogue.
+   * Migre aussi les anciens modelBaseSlotPicks si aucune config n'existe encore.
+   */
+  static ensureDefaultModelConfigurations(uiState, models) {
+    const ui = uiState && typeof uiState === 'object' ? uiState : {};
+    const configs = { ...(ui.modelConfigurations || {}) };
+    const picks = ui.modelBaseSlotPicks && typeof ui.modelBaseSlotPicks === 'object'
+      ? ui.modelBaseSlotPicks
+      : {};
+    let changed = false;
+
+    const modelIds = (Array.isArray(models) ? models : [])
+      .map((m) => String(m?.id || '').trim())
+      .filter((mid) => mid && !mid.startsWith('__'));
+
+    modelIds.forEach((mid) => {
+      if (Array.isArray(configs[mid]) && configs[mid].length) {
+        if (!configs[mid].some((c) => c?.isDefault === true)) {
+          configs[mid] = configs[mid].map((c, idx) => ({
+            ...c,
+            isDefault: idx === 0,
+          }));
+          changed = true;
+        }
+        return;
+      }
+
+      const legacyPicks = picks[mid] && typeof picks[mid] === 'object' && !Array.isArray(picks[mid])
+        ? UgapDataService.normalizeModelBaseSlotPicks({ [mid]: picks[mid] })[mid]
+        : {};
+      configs[mid] = [{
+        id: UgapDataService.genModelConfigurationId(),
+        label: 'UGAP',
+        isDefault: true,
+        slotPicks: legacyPicks || {},
+      }];
+      changed = true;
+    });
+
+    if (!changed) return { uiState: ui, changed: false };
+    return {
+      uiState: {
+        ...ui,
+        modelConfigurations: UgapDataService.normalizeModelConfigurations(configs),
+      },
+      changed: true,
     };
   }
 
@@ -499,7 +602,21 @@ class UgapDataService {
       });
     }
 
-    return { categoryTree, categoryIds, baseOptionIds, catalogNodeOrder };
+    let catalogNodeFivePercentEnabled = {};
+    if (snap.catalogNodeFivePercentEnabled && typeof snap.catalogNodeFivePercentEnabled === 'object') {
+      Object.keys(snap.catalogNodeFivePercentEnabled).forEach((key) => {
+        const id = String(key || '').trim();
+        if (id) catalogNodeFivePercentEnabled[id] = snap.catalogNodeFivePercentEnabled[key] === true;
+      });
+    }
+
+    return {
+      categoryTree,
+      categoryIds,
+      baseOptionIds,
+      catalogNodeOrder,
+      catalogNodeFivePercentEnabled
+    };
   }
 
   static normalizeBoatTemplate(tpl) {
@@ -621,7 +738,9 @@ class UgapDataService {
           seenByOptionId.set(oid, normalized);
           return;
         }
-        Object.assign(existing, this.normalizeOption({ ...existing, ...normalized }));
+        const merged = this.patchExistingOptionFromImport(existing, normalized, { editorialSource: existing });
+        Object.assign(existing, merged);
+        seenByOptionId.set(oid, existing);
       });
       cat.options = dedupedOptions;
     });
@@ -761,6 +880,15 @@ class UgapDataService {
       .slice(0, 48) || String(row.id || '').replace(/[^a-zA-Z0-9_]/g, '_').slice(0, 40);
     const base = `opt_ibp_${keySlug}`;
     catalogId = base;
+    const existingBySlug = globalOptionById.get(base);
+    if (
+      existingBySlug?.importGeneratedFromBaseProduct === true
+      && String(existingBySlug?.importBaseProductId || '').trim() === bpId
+    ) {
+      allIds.add(base);
+      row.catalogOptionId = base;
+      return base;
+    }
     let n = 0;
     while (allIds.has(catalogId)) catalogId = `${base}_${++n}`;
     allIds.add(catalogId);
@@ -811,10 +939,11 @@ class UgapDataService {
       stagingById
     );
     products = this.ensureMotorImportBaseProductsFromModels(products, models, { dedupeByLabel: false });
+    products = this.consolidateImportBaseProductsForPublish(products, models);
 
     let categories = this.mergePublishedOptionsFromImportStaging(existingCategories, stagingOptions);
     categories = this.ensureStagingOptionsPresentInCategories(categories, stagingOptions);
-    categories = this.dissolveLegacyExcelAutoCategories(categories);
+    // Pas de dissolution des catégories existantes à la republication (nœuds / classement conservés).
     categories = this.stripCorruptImportBaseProductOptions(categories);
     categories = this.stripStalePublishedImportGeneratedOptions(categories, products);
 
@@ -927,6 +1056,9 @@ class UgapDataService {
     const inclusionKind = this.normalizeInclusionKind(source);
     const normalizedName = String(source.name || '').trim();
     const normalizedDetails = String(source.details || '').trim();
+    const normalizedImportExcelLabel = String(source.importExcelLabel || '').trim();
+    const normalizedRefUgap = String(source.refUgap || '').trim();
+    const normalizedBaseRefUgap = String(source.baseRefUgap || normalizedRefUgap).trim();
     const tags = Array.isArray(source.tags)
       ? source.tags.map((x) => String(x || '').trim()).filter(Boolean)
       : [];
@@ -934,8 +1066,10 @@ class UgapDataService {
       ...source,
       id: String(source.id || ''),
       name: normalizedName,
-      refUgap: String(source.refUgap || ''),
+      refUgap: normalizedRefUgap,
+      baseRefUgap: normalizedBaseRefUgap,
       details: normalizedDetails,
+      importExcelLabel: normalizedImportExcelLabel || normalizedDetails || normalizedName,
       inclusionKind,
       compatibleModels,
       catalogObjectId: String(source.catalogObjectId || '').trim(),
@@ -982,6 +1116,36 @@ class UgapDataService {
         };
       })
       .filter((rule) => rule.triggerOptionId && rule.autoSelectOptionIds.length > 0);
+  }
+
+  static normalizeOptionLinkRules(rules) {
+    return normalizeOptionLinkRules(rules);
+  }
+
+  static async updateLiaisonRules(db, entrepriseId, payload = {}) {
+    const collection = db.collection('ugap_data');
+    const document = await collection.findOne({ entrepriseId });
+    if (!document) throw new Error('Données non trouvées');
+
+    const body = payload && typeof payload === 'object' ? payload : {};
+    const $set = { updatedAt: new Date() };
+
+    if (Object.prototype.hasOwnProperty.call(body, 'optionLinkRules')) {
+      $set.optionLinkRules = this.normalizeOptionLinkRules(body.optionLinkRules);
+    }
+    if (Object.prototype.hasOwnProperty.call(body, 'dependencyRules')) {
+      $set.dependencyRules = this.normalizeDependencyRules(body.dependencyRules);
+    }
+    if (Object.keys($set).length <= 1) {
+      throw new Error('optionLinkRules ou dependencyRules requis');
+    }
+
+    await collection.updateOne({ entrepriseId }, { $set });
+    return this.getData(db, entrepriseId);
+  }
+
+  static suggestHeuristicOptionLinkRules(categories) {
+    return suggestHeuristicLinkRules(categories);
   }
 
   static normalizeSubCategory(subCategory) {
@@ -1041,6 +1205,9 @@ class UgapDataService {
       modelBaseSlotPicks: Object.keys(normalizedInputUiState.modelBaseSlotPicks || {}).length
         ? normalizedInputUiState.modelBaseSlotPicks
         : existingUiState.modelBaseSlotPicks,
+      modelConfigurations: Object.keys(normalizedInputUiState.modelConfigurations || {}).length
+        ? normalizedInputUiState.modelConfigurations
+        : existingUiState.modelConfigurations,
       familleHeuristicRules: normalizedInputUiState.familleHeuristicRules.length
         ? normalizedInputUiState.familleHeuristicRules
         : existingUiState.familleHeuristicRules,
@@ -1161,13 +1328,13 @@ class UgapDataService {
     const next = (Array.isArray(stagingModels) ? stagingModels : []).map((m) => {
       const id = String(m?.id || '').trim();
       const old = id ? (prevById.get(id) || {}) : {};
+      const patched = this.patchExistingModelFromImport(old, m);
       return {
-        ...old,
-        ...m,
-        importValidationStatus: id && validatedSet.has(id) ? 'validated' : 'to_validate',
-        configurations: Array.isArray(m?.configurations)
-          ? m.configurations
-          : (Array.isArray(old?.configurations) ? old.configurations : [])
+        ...patched,
+        importValidationStatus: id && validatedSet.has(id) ? 'validated' : (old.importValidationStatus || 'to_validate'),
+        configurations: Array.isArray(old?.configurations)
+          ? old.configurations
+          : (Array.isArray(m?.configurations) ? m.configurations : [])
       };
     });
 
@@ -1219,16 +1386,8 @@ class UgapDataService {
     }
 
     const rawCategories = document.categories || [];
-    const hadLegacyExcelCategories = rawCategories.some((c) => this.isLegacyExcelAutoCategory(c));
-    const catalogCategories = hadLegacyExcelCategories
-      ? this.dissolveLegacyExcelAutoCategories(rawCategories)
-      : rawCategories;
-    if (hadLegacyExcelCategories) {
-      await collection.updateOne(
-        { entrepriseId },
-        { $set: { categories: catalogCategories, updatedAt: new Date() } }
-      );
-    }
+    // Ne pas réécrire le catalogue en base à chaque GET /data (déplacement Motorisation → Non classées).
+    const catalogCategories = rawCategories;
 
     const categories = catalogCategories.map((rawCategory) => {
       const category = this.normalizeCategory(rawCategory);
@@ -1286,7 +1445,19 @@ class UgapDataService {
       categories,
       businessViews: Array.isArray(document.businessViews) ? document.businessViews.map((view) => this.normalizeBusinessView(view)) : [],
       dependencyRules: this.normalizeDependencyRules(document.dependencyRules),
-      uiState: this.normalizeUiState(document.uiState)
+      optionLinkRules: this.normalizeOptionLinkRules(document.optionLinkRules),
+      importBaseProducts: this.normalizeImportBaseProductsRows(document.importBaseProducts || []),
+      uiState: (() => {
+        const normalized = this.normalizeUiState(document.uiState);
+        const ensured = this.ensureDefaultModelConfigurations(normalized, document.models || []);
+        if (ensured.changed) {
+          void collection.updateOne(
+            { entrepriseId },
+            { $set: { 'uiState.modelConfigurations': ensured.uiState.modelConfigurations, updatedAt: new Date() } }
+          );
+        }
+        return ensured.uiState;
+      })(),
     };
   }
 
@@ -1337,6 +1508,7 @@ class UgapDataService {
     assignArrayIfNonEmpty('familyGroupTypes');
     assignObjectIfNonEmpty('optionFamilyStatuses');
     assignObjectIfNonEmpty('modelBaseSlotPicks');
+    assignObjectIfNonEmpty('modelConfigurations');
     assignArrayIfNonEmpty('familleHeuristicRules');
     assignArrayIfNonEmpty('boatTemplates');
     return this.normalizeUiState(next);
@@ -1775,7 +1947,7 @@ class UgapDataService {
       refUgap,
       baseRefUgap,
       details: String(option?.details || '').trim(),
-      importExcelLabel: String(option?.importExcelLabel || option?.details || '').trim(),
+      importExcelLabel: String(option?.importExcelLabel || option?.details || option?.name || '').trim(),
       familyLabel: String(option?.familyLabel || '').trim(),
       subFamily: String(option?.subFamily || '').trim(),
       priceClient: Number.isFinite(Number(option?.priceClient)) ? Number(option.priceClient) : 0,
@@ -1801,6 +1973,180 @@ class UgapDataService {
     );
 
     return { ok: result.modifiedCount > 0, id: optionId };
+  }
+
+  static familyRootLabel(family) {
+    const full = String(family?.familyLabel || '').trim();
+    if (!full) return '';
+    const parts = full.split('/').map((s) => s.trim()).filter(Boolean);
+    return parts[0] || full;
+  }
+
+  /**
+   * Ajoute un optionId au groupe famille (uiState.families) pour réutilisation configurateur.
+   */
+  static attachOptionToUiFamilyGroup(families, { familyLabel, groupId, componentId, sourceIndex, optionId }) {
+    const oid = String(optionId || '').trim();
+    const famLabel = String(familyLabel || '').trim();
+    const gid = String(groupId || '').trim();
+    const compId = String(componentId || '').trim();
+    if (!oid || !famLabel || !gid) {
+      throw new Error('Liaison famille/groupe impossible (données incomplètes).');
+    }
+
+    const list = (Array.isArray(families) ? families : []).map((row) => (
+      row && typeof row === 'object' ? { ...row } : row
+    ));
+    const famLower = famLabel.toLowerCase();
+    const idxNum = Number(sourceIndex);
+    let targetIdx = -1;
+
+    if (Number.isInteger(idxNum)) {
+      targetIdx = list.findIndex((f, i) => Number(f?.__idx) === idxNum || i === idxNum);
+    }
+    if (targetIdx < 0) {
+      targetIdx = list.findIndex((f) => {
+        const root = this.familyRootLabel(f).toLowerCase();
+        const lbl = String(f?.familyLabel || '').trim().toLowerCase();
+        return root === famLower || lbl === famLower || lbl.startsWith(`${famLower} /`) || lbl.includes(famLower);
+      });
+    }
+    if (targetIdx < 0) {
+      throw new Error(`Famille « ${famLabel} » introuvable dans le paramétrage.`);
+    }
+
+    const family = { ...list[targetIdx] };
+    family.optionIds = [...new Set([
+      ...(Array.isArray(family.optionIds) ? family.optionIds : []).map((x) => String(x || '').trim()).filter(Boolean),
+      oid
+    ])];
+
+    const groups = Array.isArray(family.decisionGroups)
+      ? family.decisionGroups
+      : (Array.isArray(family.groups) ? family.groups : []);
+    let groupMatched = false;
+    family.decisionGroups = groups.map((g) => {
+      const gObj = g && typeof g === 'object' ? { ...g } : g;
+      if (!gObj || typeof gObj !== 'object') return g;
+      const id = String(gObj.id || gObj.groupId || '').trim();
+      const gComp = String(gObj.componentId || '').trim();
+      if (id !== gid) return gObj;
+      if (compId && gComp && gComp !== compId) return gObj;
+      groupMatched = true;
+      return {
+        ...gObj,
+        optionIds: [...new Set([
+          ...(Array.isArray(gObj.optionIds) ? gObj.optionIds : []).map((x) => String(x || '').trim()).filter(Boolean),
+          oid
+        ])]
+      };
+    });
+    if (!groupMatched) {
+      throw new Error(`Groupe « ${gid} » introuvable pour la famille « ${famLabel} ».`);
+    }
+    delete family.components;
+
+    const next = [...list];
+    next[targetIdx] = family;
+    return next;
+  }
+
+  /**
+   * Crée une option catalogue 5% devis depuis le configurateur et la lie au nœud famille/groupe.
+   */
+  static async createConfiguratorFivePercentOption(db, entrepriseId, raw) {
+    const body = raw && typeof raw === 'object' ? raw : {};
+    const name = String(body.name || '').trim();
+    const price = Number(body.price);
+    const compatibleModels = (Array.isArray(body.compatibleModels) ? body.compatibleModels : [])
+      .map((x) => String(x || '').trim())
+      .filter(Boolean);
+    const categoryId = String(body.categoryId || '').trim();
+    let familyLabel = String(body.familyLabel || '').trim();
+    const groupId = String(body.groupId || '').trim();
+    const componentId = String(body.componentId || '').trim();
+    let catalogNodeId = String(body.catalogNodeId || '').trim();
+    let resolvedGroupId = groupId;
+    const refUgap = String(body.refUgap || body.ref || '').trim();
+
+    if (!name) throw new Error('Nom requis');
+    if (!Number.isFinite(price) || price <= 0) throw new Error('Prix valide requis');
+    if (!compatibleModels.length) throw new Error('Au moins un modèle requis');
+    if (!resolvedGroupId && catalogNodeId) resolvedGroupId = `cn_${catalogNodeId}`;
+    if (!catalogNodeId && resolvedGroupId.startsWith('cn_')) {
+      catalogNodeId = resolvedGroupId.slice(3);
+    }
+    if (!resolvedGroupId && !catalogNodeId) throw new Error('Groupe requis');
+    const isCatalogNodeGroup = Boolean(catalogNodeId)
+      || String(resolvedGroupId || '').startsWith('cn_');
+    if (!familyLabel && !catalogNodeId) {
+      throw new Error('Famille ou nœud catalogue requis');
+    }
+    if (isCatalogNodeGroup) familyLabel = '';
+
+    const collection = db.collection('ugap_data');
+    const document = await collection.findOne({ entrepriseId });
+    if (!document) throw new Error('Données non trouvées');
+
+    const categories = Array.isArray(document.categories) ? document.categories : [];
+    if (!categories.length) throw new Error('Aucune catégorie catalogue');
+
+    const targetCategory = categories.find((cat) => String(cat?.id || '') === categoryId) || categories[0];
+    if (!targetCategory) throw new Error('Catégorie cible introuvable');
+
+    const optionId = this.allocateNextOptionId(categories);
+    const finalRef = refUgap || `5PCT-${optionId}`;
+
+    const toCreate = this.normalizeOption({
+      id: optionId,
+      name,
+      refUgap: finalRef,
+      baseRefUgap: finalRef,
+      ...(familyLabel ? { familyLabel } : {}),
+      ...(catalogNodeId ? { catalogObjectId: catalogNodeId } : {}),
+      inclusionKind: 'devis_5pct',
+      priceUgap: price,
+      priceClient: price,
+      compatibleModels,
+      baseIncluded: false,
+      manualBaseOption: false,
+      isDivers: false,
+      importOptionLineKind: 'option'
+    });
+
+    const nextCategories = categories.map((cat) => {
+      if (String(cat?.id || '') !== String(targetCategory.id)) return cat;
+      const options = Array.isArray(cat.options) ? cat.options : [];
+      return { ...cat, options: [...options, toCreate] };
+    });
+
+    const ui = this.normalizeUiState(document.uiState);
+    let nextUi = ui;
+    if (familyLabel && !isCatalogNodeGroup) {
+      const families = this.attachOptionToUiFamilyGroup(this.resolveUiStateFamilies(ui), {
+        familyLabel,
+        groupId: resolvedGroupId,
+        componentId,
+        sourceIndex: body.sourceIndex,
+        optionId
+      });
+      nextUi = this.normalizeUiState({ ...ui, families, updatedAt: new Date() });
+    }
+
+    const result = await collection.updateOne(
+      { entrepriseId },
+      { $set: { categories: nextCategories, uiState: nextUi, updatedAt: new Date() } }
+    );
+    if (!result.modifiedCount) {
+      throw new Error('Échec de l’enregistrement de l’option 5%');
+    }
+
+    return {
+      optionId,
+      categoryId: String(targetCategory.id || ''),
+      option: toCreate,
+      uiState: nextUi
+    };
   }
 
   /**
@@ -3113,10 +3459,19 @@ Exemple de forme (ids fictifs) :
 
     models.push(newModel);
 
+    const uiState = this.normalizeUiState(document?.uiState || {});
+    const ensured = this.ensureDefaultModelConfigurations(uiState, models);
+
     if (document) {
       await collection.updateOne(
         { entrepriseId },
-        { $set: { models, updatedAt: now } }
+        {
+          $set: {
+            models,
+            'uiState.modelConfigurations': ensured.uiState.modelConfigurations,
+            updatedAt: now,
+          },
+        }
       );
     } else {
       await collection.insertOne({
@@ -3125,7 +3480,7 @@ Exemple de forme (ids fictifs) :
         categories: [],
         businessViews: [],
         dependencyRules: [],
-        uiState: this.normalizeUiState({}),
+        uiState: ensured.uiState,
         importBaseProducts: [],
         createdAt: now,
         updatedAt: now
@@ -3316,6 +3671,140 @@ Exemple de forme (ids fictifs) :
     );
   }
 
+  static remapOptionLinkRules(rules = [], idMap = new Map()) {
+    const seen = new Set();
+    const out = [];
+    (Array.isArray(rules) ? rules : []).forEach((rule, index) => {
+      const r = rule && typeof rule === 'object' ? rule : {};
+      const type = String(r.type || '').trim();
+      const mapList = (list) => [...new Set(
+        (Array.isArray(list) ? list : [])
+          .map((id) => this.remapOptionId(id, idMap))
+          .filter(Boolean)
+      )];
+      if (type === 'equivalent_base') {
+        const members = mapList([...(r.sourceOptionIds || []), ...(r.targetOptionIds || [])]);
+        if (members.length < 2) return;
+        const key = `equivalent_base|${members.sort().join('|')}`;
+        if (seen.has(key)) return;
+        seen.add(key);
+        out.push({
+          ...r,
+          id: String(r.id || '').trim() || `link_equiv_${index}_${Date.now()}`,
+          type: 'equivalent_base',
+          sourceOptionIds: [members[0]],
+          targetOptionIds: members.slice(1),
+        });
+        return;
+      }
+      const sourceOptionIds = mapList(r.sourceOptionIds);
+      const targetOptionIds = mapList(r.targetOptionIds);
+      if (!sourceOptionIds.length || !targetOptionIds.length) return;
+      const key = `${type}|${sourceOptionIds.sort().join(',')}|${targetOptionIds.sort().join(',')}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      out.push({ ...r, sourceOptionIds, targetOptionIds });
+    });
+    return normalizeOptionLinkRules(out);
+  }
+
+  static findCatalogOptionInDocument(document, optionId) {
+    const oid = String(optionId || '').trim();
+    if (!oid) return null;
+    for (const cat of Array.isArray(document?.categories) ? document.categories : []) {
+      const hit = (Array.isArray(cat?.options) ? cat.options : [])
+        .find((opt) => String(opt?.id || '').trim() === oid);
+      if (hit) return hit;
+    }
+    return null;
+  }
+
+  static applyOptionIdRemapToDocument(document, idMap = new Map()) {
+    if (!document || typeof document !== 'object' || !(idMap instanceof Map) || !idMap.size) return;
+
+    document.uiState = this.normalizeUiState(document.uiState);
+    document.uiState.families = this.remapUiStateFamilies(document.uiState.families, idMap);
+
+    const picks = document.uiState.modelBaseSlotPicks && typeof document.uiState.modelBaseSlotPicks === 'object'
+      ? { ...document.uiState.modelBaseSlotPicks }
+      : {};
+    Object.keys(picks).forEach((modelId) => {
+      const slots = picks[modelId];
+      if (!slots || typeof slots !== 'object' || Array.isArray(slots)) return;
+      const nextSlots = {};
+      Object.keys(slots).forEach((slotKey) => {
+        const mapped = this.remapOptionId(slots[slotKey], idMap);
+        if (mapped) nextSlots[slotKey] = mapped;
+      });
+      picks[modelId] = nextSlots;
+    });
+    document.uiState.modelBaseSlotPicks = picks;
+
+    document.dependencyRules = this.remapDependencyRules(document.dependencyRules, idMap);
+    document.optionLinkRules = this.remapOptionLinkRules(document.optionLinkRules, idMap);
+
+    document.categories = (Array.isArray(document.categories) ? document.categories : []).map((cat) => {
+      const options = (Array.isArray(cat?.options) ? cat.options : [])
+        .filter((opt) => {
+          const id = String(opt?.id || '').trim();
+          for (const [from, to] of idMap.entries()) {
+            if (id === from && id !== to) return false;
+          }
+          return true;
+        })
+        .map((opt) => {
+          const next = { ...opt };
+          const linked = String(next.linkedBaseCatalogOptionId || '').trim();
+          if (linked && idMap.has(linked)) {
+            next.linkedBaseCatalogOptionId = idMap.get(linked);
+          }
+          if (Array.isArray(next.importBaseProductSourceOptionIds)) {
+            next.importBaseProductSourceOptionIds = [...new Set(
+              next.importBaseProductSourceOptionIds
+                .map((oid) => this.remapOptionId(oid, idMap))
+                .filter(Boolean)
+            )];
+          }
+          return next;
+        });
+      const subCategories = (Array.isArray(cat?.subCategories) ? cat.subCategories : []).map((sc) => ({
+        ...sc,
+        optionIds: [...new Set(
+          (Array.isArray(sc?.optionIds) ? sc.optionIds : [])
+            .map((id) => this.remapOptionId(id, idMap))
+            .filter(Boolean)
+        )],
+      }));
+      return { ...cat, options, subCategories };
+    });
+
+    if (Array.isArray(document.importBaseProducts)) {
+      document.importBaseProducts = document.importBaseProducts.map((bp) => {
+        const next = { ...bp };
+        if (Array.isArray(next.optionIds)) {
+          next.optionIds = [...new Set(
+            next.optionIds
+              .map((id) => this.remapOptionId(id, idMap))
+              .filter(Boolean)
+          )];
+        }
+        const cid = String(next.catalogOptionId || '').trim();
+        if (cid && idMap.has(cid)) next.catalogOptionId = idMap.get(cid);
+        return next;
+      });
+    }
+  }
+
+  static pushUniqueAlias(list, value) {
+    const arr = Array.isArray(list) ? [...list] : [];
+    const next = String(value || '').replace(/\s+/g, ' ').trim();
+    if (!next) return arr;
+    const norm = next.toLowerCase();
+    if (arr.some((x) => String(x || '').trim().toLowerCase() === norm)) return arr;
+    arr.push(next);
+    return arr;
+  }
+
   static stripCategoriesForOptionsReset(categories = []) {
     return (Array.isArray(categories) ? categories : []).map((cat) => {
       const normalized = this.normalizeCategory(cat);
@@ -3388,6 +3877,10 @@ Exemple de forme (ids fictifs) :
         existing.compatibleModels = Array.from(mergedModels).filter(Boolean);
         if (!existing.refUgap && option?.refUgap) existing.refUgap = String(option.refUgap);
         if (!existing.name && option?.name) existing.name = String(option.name);
+        if (!String(existing.importExcelLabel || '').trim()) {
+          const excelSnap = String(option?.importExcelLabel || option?.name || '').trim();
+          if (excelSnap) existing.importExcelLabel = excelSnap;
+        }
         if (Number(option?.priceClient) > 0) existing.priceClient = Number(option.priceClient);
         if (Number(option?.priceUgap) > 0) existing.priceUgap = Number(option.priceUgap);
       });
@@ -3463,6 +3956,15 @@ Exemple de forme (ids fictifs) :
     };
   }
 
+  static serializeImportStagingForApi(doc) {
+    if (!doc || typeof doc !== 'object') return doc;
+    const next = this.normalizeImportStagingDocument(doc);
+    return {
+      ...next,
+      _id: String(next._id || '')
+    };
+  }
+
   static async persistStagingImportOptionsShape(db, doc) {
     if (!doc?._id || !doc._stagingShapeMigrated) return doc;
     const collection = db.collection('ugap_import_staging');
@@ -3513,22 +4015,373 @@ Exemple de forme (ids fictifs) :
   }
 
   /**
-   * Publication import : met à jour les options existantes par id ; nouvelles options → seau unique.
-   * Ne crée jamais de catégories Motorisation/Divers issus de l'Excel.
+   * Conserve la classification éditoriale du catalogue publié lors d'un re-import Excel.
+   * L'Excel ne porte pas catalogObjectId / inclusionKind (Devis 5 %) : le spread incoming écrasait prev.
+   */
+  static hasManualStagingImportWork(opt, incoming = null) {
+    const o = opt && typeof opt === 'object' ? opt : {};
+    if (o.manualMinorationAssignment === true) return true;
+    if (o.manualMajorationAssignment === true) return true;
+    if (o.manualCompatibleModelsAssignment === true) return true;
+    if (o.manualImportOptionLineKind === true) return true;
+    if (String(o.importOptionLabel || '').trim()) return true;
+    if (o.importExcludeFromBaseProduct === true) return true;
+    if (String(o.catalogObjectId || '').trim()) return true;
+    return this.stagingImportAssignmentDiffers(o, incoming);
+  }
+
+  static stagingImportAssignmentDiffers(prev, incoming) {
+    const p = prev && typeof prev === 'object' ? prev : {};
+    const inc = incoming && typeof incoming === 'object' ? incoming : {};
+    const prevCm = [...(Array.isArray(p.compatibleModels) ? p.compatibleModels : [])]
+      .map((x) => String(x || '').trim())
+      .filter(Boolean)
+      .sort()
+      .join('|');
+    const incCm = [...(Array.isArray(inc.compatibleModels) ? inc.compatibleModels : [])]
+      .map((x) => String(x || '').trim())
+      .filter(Boolean)
+      .sort()
+      .join('|');
+    if (prevCm && prevCm !== incCm) return true;
+    const prevKind = String(p.importOptionLineKind || '').trim().toLowerCase();
+    if (!prevKind) return false;
+    const incInferred = String(this.resolveEffectiveImportLineKind({
+      ...inc,
+      importOptionLineKind: '',
+      manualMinorationAssignment: false,
+      manualMajorationAssignment: false
+    }) || '').trim().toLowerCase();
+    return prevKind !== incInferred;
+  }
+
+  static applyExcelFieldsToMergedImportOption(merged, incoming, opts = {}) {
+    const inc = incoming && typeof incoming === 'object' ? incoming : {};
+    const next = merged && typeof merged === 'object' ? merged : {};
+    const keepName = opts?.keepName === true;
+    if (String(inc.refUgap || '').trim()) next.refUgap = String(inc.refUgap).trim();
+    if (String(inc.baseRefUgap || '').trim()) next.baseRefUgap = String(inc.baseRefUgap).trim();
+    if (Number.isFinite(Number(inc.priceClient))) next.priceClient = Number(inc.priceClient);
+    if (Number.isFinite(Number(inc.priceUgap))) next.priceUgap = Number(inc.priceUgap);
+    const excelLabel = String(inc.importExcelLabel || inc.name || '').trim();
+    if (excelLabel) next.importExcelLabel = excelLabel;
+    if (!keepName && String(inc.name || '').trim()) next.name = String(inc.name).trim();
+    if (inc.details != null && String(inc.details).trim()) next.details = String(inc.details).trim();
+    if (Number.isFinite(Number(inc.rowOrder))) next.rowOrder = Number(inc.rowOrder);
+    ['initialProduct', 'finalProduct', 'changeType'].forEach((field) => {
+      if (inc[field] != null && String(inc[field]).trim()) next[field] = inc[field];
+    });
+    return next;
+  }
+
+  /** Champs éditoriaux / assignations : jamais écrasés par l'Excel au ré-import. */
+  static copyPreservedImportOptionEditorialFields(target, source, opts = {}) {
+    if (!target || !source || typeof source !== 'object') return target;
+    const onlyIfEmpty = opts?.onlyIfEmpty !== false;
+    const next = target;
+    const canSet = (current) => {
+      if (!onlyIfEmpty) return true;
+      if (current == null) return true;
+      if (typeof current === 'string') return !String(current).trim();
+      if (Array.isArray(current)) return current.length === 0;
+      return false;
+    };
+    const copyString = (field) => {
+      const v = String(source[field] || '').trim();
+      if (!v || !canSet(next[field])) return;
+      next[field] = v;
+    };
+    [
+      'catalogObjectId',
+      'familyLabel',
+      'subFamily',
+      'importOptionLabel',
+      'importOptionLineKind',
+      'baseProductId',
+      'baseProductLabel',
+      'linkedBaseCatalogOptionId'
+    ].forEach(copyString);
+    if (Array.isArray(source.tags) && source.tags.length) {
+      next.tags = source.tags.map((x) => String(x || '').trim()).filter(Boolean);
+    }
+    const kind = String(source.inclusionKind || '').trim().toLowerCase();
+    if (kind && canSet(next.inclusionKind)) next.inclusionKind = kind;
+    if (Array.isArray(source.compatibleModels) && source.compatibleModels.length && canSet(next.compatibleModels)) {
+      next.compatibleModels = source.compatibleModels.map((x) => String(x || '').trim()).filter(Boolean);
+    }
+    [
+      'manualMinorationAssignment',
+      'manualMajorationAssignment',
+      'manualCompatibleModelsAssignment',
+      'manualImportOptionLineKind',
+      'manualBaseOption',
+      'importExcludeFromBaseProduct',
+      'baseIncluded',
+      'isMinoration',
+      'isMajoration',
+      'isSparePart',
+      'isDivers',
+      'isBaseOption'
+    ].forEach((flag) => {
+      if (source[flag] === true) next[flag] = true;
+    });
+    return next;
+  }
+
+  /**
+   * Option déjà connue : on garde tout tel quel, on ne met à jour que les champs Excel.
+   * editorialSource (catalogue publié) prime pour nœuds / familles / typage.
+   */
+  static patchExistingOptionFromImport(prev, incoming, opts = {}) {
+    const prevId = String(prev?.id || incoming?.id || '').trim();
+    if (!prevId) return this.normalizeOption(incoming);
+    const merged = { ...prev, id: prevId };
+    const editorial = opts?.editorialSource;
+    if (editorial && typeof editorial === 'object') {
+      this.copyPreservedImportOptionEditorialFields(merged, editorial, { onlyIfEmpty: false });
+    }
+    const keepName = !!String(merged.catalogObjectId || '').trim()
+      || !!String(merged.importOptionLabel || '').trim();
+    this.applyExcelFieldsToMergedImportOption(merged, incoming, { keepName });
+    return this.normalizeOption(merged);
+  }
+
+  /** @deprecated alias — utiliser patchExistingOptionFromImport */
+  static preserveStagingOptionOnReimportMerge(prev, incoming, publishedOpt = null) {
+    const base = (prev && String(prev?.id || '').trim()) ? prev : publishedOpt;
+    if (!base) return this.normalizeOption(incoming);
+    return this.patchExistingOptionFromImport(base, incoming);
+  }
+
+  static async loadPublishedOptionsById(db, entrepriseId) {
+    const published = await db.collection('ugap_data').findOne({ entrepriseId });
+    return this.buildOptionByIdFromCategories(published?.categories || []);
+  }
+
+  static patchExistingModelFromImport(prev, incoming) {
+    const id = String(prev?.id || incoming?.id || '').trim();
+    if (!id) return incoming && typeof incoming === 'object' ? { ...incoming } : {};
+    const inc = incoming && typeof incoming === 'object' ? incoming : {};
+    const next = { ...prev, id };
+    if (String(inc.refUgap || '').trim()) next.refUgap = String(inc.refUgap).trim();
+    if (Number.isFinite(Number(inc.basePrice)) && Number(inc.basePrice) > 0) next.basePrice = Number(inc.basePrice);
+    if (Number.isFinite(Number(inc.priceClient)) && Number(inc.priceClient) > 0) next.priceClient = Number(inc.priceClient);
+    if (Number.isFinite(Number(inc.priceUgap)) && Number(inc.priceUgap) > 0) next.priceUgap = Number(inc.priceUgap);
+    if (String(inc.name || '').trim()) next.name = String(inc.name).trim();
+    if (String(inc.motorizationBase || '').trim()) next.motorizationBase = String(inc.motorizationBase).trim();
+    if (Number.isFinite(Number(inc.posteNumber))) next.posteNumber = Number(inc.posteNumber);
+    if (String(inc.baseLabel || '').trim()) next.baseLabel = String(inc.baseLabel).trim();
+    if (inc.colIndex != null) next.colIndex = inc.colIndex;
+    return next;
+  }
+
+  static patchExistingImportBaseProductFromRefresh(prev, incoming) {
+    const prevRow = prev && typeof prev === 'object' ? prev : {};
+    const inc = incoming && typeof incoming === 'object' ? incoming : {};
+    const next = { ...prevRow };
+    if (Number.isFinite(Number(inc.priceClient))) next.priceClient = Number(inc.priceClient);
+    if (Number.isFinite(Number(inc.priceUgap))) next.priceUgap = Number(inc.priceUgap);
+    if (Number.isFinite(Number(inc.price))) next.price = Number(inc.price);
+    if (inc.pricesByModelId && typeof inc.pricesByModelId === 'object') {
+      next.pricesByModelId = { ...(prevRow.pricesByModelId || {}), ...inc.pricesByModelId };
+    }
+    if (String(inc.excelLabel || '').trim()) next.excelLabel = String(inc.excelLabel).trim();
+    if (String(inc.refUgap || '').trim()) next.refUgap = String(inc.refUgap).trim();
+    if (inc.pricingMode === 'per_model' || inc.pricingMode === 'fixed') next.pricingMode = inc.pricingMode;
+    if (prevRow.labelCustomized !== true) {
+      if (String(inc.label || '').trim()) next.label = String(inc.label).trim();
+      if (String(inc.baseOptionName || '').trim()) next.baseOptionName = String(inc.baseOptionName).trim();
+    }
+    if (Array.isArray(inc.optionIds) && inc.optionIds.length) {
+      next.optionIds = [...new Set([
+        ...(Array.isArray(prevRow.optionIds) ? prevRow.optionIds : []),
+        ...inc.optionIds.map((x) => String(x || '').trim()).filter(Boolean)
+      ])];
+    }
+    if (Array.isArray(inc.modelIds) && inc.modelIds.length) {
+      next.modelIds = inc.modelIds.map((x) => String(x || '').trim()).filter(Boolean);
+    }
+    return next;
+  }
+
+  /**
+   * Ré-import : met à jour en place tout le catalogue publié (modèles, options, IBP, importBaseProducts).
+   * Structure inchangée ; champs éditoriaux / nœuds / configurations conservés.
+   */
+  static async syncPublishedCatalogOnReimport(db, entrepriseId, staging = {}) {
+    const collection = db.collection('ugap_data');
+    const document = await collection.findOne({ entrepriseId });
+    if (!document) {
+      return { updatedCount: 0, ibpUpdatedCount: 0, modelsUpdatedCount: 0, baseProductsUpdatedCount: 0 };
+    }
+
+    const importOptions = Array.isArray(staging.importOptions) ? staging.importOptions : [];
+    const models = Array.isArray(staging.models) ? staging.models : [];
+    const stagingById = this.buildOptionByIdFromImportOptions(importOptions);
+    const stagingModelById = new Map(
+      models.map((m) => [String(m?.id || '').trim(), m]).filter(([id]) => id)
+    );
+
+    const origBpById = new Map(
+      (Array.isArray(document.importBaseProducts) ? document.importBaseProducts : [])
+        .map((bp) => [String(bp?.id || '').trim(), bp])
+        .filter(([id]) => id)
+    );
+    let importBaseProducts = this.prepareImportBaseProductsForPublish(
+      document.importBaseProducts || staging.importBaseProducts || [],
+      importOptions,
+      models,
+      stagingById
+    );
+    importBaseProducts = this.consolidateImportBaseProductsForPublish(importBaseProducts, models);
+    let baseProductsUpdatedCount = 0;
+    importBaseProducts = importBaseProducts.map((bp) => {
+      const id = String(bp?.id || '').trim();
+      const orig = id ? origBpById.get(id) : null;
+      if (!orig) return bp;
+      baseProductsUpdatedCount += 1;
+      const patched = this.patchExistingImportBaseProductFromRefresh(orig, bp);
+      if (String(orig.catalogOptionId || '').trim()) {
+        patched.catalogOptionId = String(orig.catalogOptionId).trim();
+      }
+      if (orig.labelCustomized === true) {
+        patched.labelCustomized = true;
+        patched.label = orig.label;
+        patched.baseOptionName = orig.baseOptionName;
+      }
+      return patched;
+    });
+
+    const globalById = this.buildOptionByIdFromCategories(document.categories || []);
+    const allIds = new Set(globalById.keys());
+    const ibpPayloadById = new Map();
+    importBaseProducts.forEach((bp) => {
+      const catalogId = this.allocatePublishedBaseProductOptionId(bp, globalById, allIds);
+      bp.catalogOptionId = catalogId;
+      const payload = this.buildCatalogOptionPayloadFromImportBaseProduct(
+        bp,
+        catalogId,
+        models,
+        stagingById
+      );
+      ibpPayloadById.set(catalogId, payload);
+      allIds.add(catalogId);
+    });
+
+    let updatedCount = 0;
+    let ibpUpdatedCount = 0;
+    const categories = (Array.isArray(document.categories) ? document.categories : []).map((cat) => {
+      const options = (Array.isArray(cat?.options) ? cat.options : []).map((opt) => {
+        const id = String(opt?.id || '').trim();
+        if (!id) return opt;
+        const isIbp = opt?.importGeneratedFromBaseProduct === true || id.startsWith('opt_ibp_');
+        if (isIbp) {
+          const payload = ibpPayloadById.get(id);
+          if (!payload) return opt;
+          ibpUpdatedCount += 1;
+          return this.patchExistingOptionFromImport(opt, payload, { editorialSource: opt });
+        }
+        const incoming = stagingById.get(id);
+        if (!incoming) return opt;
+        updatedCount += 1;
+        return this.patchExistingOptionFromImport(opt, incoming, { editorialSource: opt });
+      });
+      return { ...cat, options };
+    });
+
+    const publishedModels = Array.isArray(document.models) ? document.models : [];
+    let modelsUpdatedCount = 0;
+    const nextModels = publishedModels.map((pm) => {
+      const id = String(pm?.id || '').trim();
+      const inc = id ? stagingModelById.get(id) : null;
+      if (!inc) return pm;
+      modelsUpdatedCount += 1;
+      return this.patchExistingModelFromImport(pm, inc);
+    });
+    stagingModelById.forEach((inc, id) => {
+      if (!nextModels.some((m) => String(m?.id || '').trim() === id)) {
+        nextModels.push(inc);
+        modelsUpdatedCount += 1;
+      }
+    });
+
+    if (!updatedCount && !ibpUpdatedCount && !modelsUpdatedCount && !baseProductsUpdatedCount) {
+      return { updatedCount: 0, ibpUpdatedCount: 0, modelsUpdatedCount: 0, baseProductsUpdatedCount: 0 };
+    }
+    await collection.updateOne(
+      { entrepriseId },
+      {
+        $set: {
+          categories,
+          models: nextModels,
+          importBaseProducts,
+          updatedAt: new Date()
+        }
+      }
+    );
+    return { updatedCount, ibpUpdatedCount, modelsUpdatedCount, baseProductsUpdatedCount };
+  }
+
+  /** @deprecated — utiliser syncPublishedCatalogOnReimport */
+  static async syncPublishedOptionsExcelFieldsInPlace(db, entrepriseId, stagingOptions = []) {
+    return this.syncPublishedCatalogOnReimport(db, entrepriseId, { importOptions: stagingOptions });
+  }
+
+  static mergeStagingImportOptionsOnReimport(prevOptions = [], incomingOptions = [], publishedById = null) {
+    const prevById = new Map();
+    (Array.isArray(prevOptions) ? prevOptions : []).forEach((raw) => {
+      const prev = this.normalizeOption(raw);
+      const id = String(prev?.id || '').trim();
+      if (id) prevById.set(id, prev);
+    });
+    const pubMap = publishedById instanceof Map ? publishedById : null;
+    return (Array.isArray(incomingOptions) ? incomingOptions : [])
+      .map((raw) => {
+        const incoming = this.normalizeOption(raw);
+        const id = String(incoming?.id || '').trim();
+        if (!id) return null;
+        const prev = prevById.get(id);
+        const publishedOpt = pubMap?.get(id) || null;
+        const base = prev || publishedOpt;
+        if (!base) return incoming;
+        const editorialSource = publishedOpt || prev;
+        return this.patchExistingOptionFromImport(base, incoming, { editorialSource });
+      })
+      .filter(Boolean);
+  }
+
+  static mergeStagingModelsOnReimport(prevModels = [], incomingModels = [], sourceFilePathOrDoc = null) {
+    const prevById = new Map(
+      (Array.isArray(prevModels) ? prevModels : [])
+        .map((m) => [String(m?.id || '').trim(), m])
+        .filter(([id]) => id)
+    );
+    const enrichedIncoming = this.enrichStagingModelsFromSourceFile(
+      Array.isArray(incomingModels) ? incomingModels : [],
+      sourceFilePathOrDoc
+    );
+    return enrichedIncoming.map((inc) => {
+      const id = String(inc?.id || '').trim();
+      const prev = id ? prevById.get(id) : null;
+      if (!prev) return inc;
+      return this.patchExistingModelFromImport(prev, inc);
+    });
+  }
+
+  static preservePublishedOptionEditorialOnImportMerge(prev, incoming) {
+    return this.preserveStagingOptionOnReimportMerge(prev, incoming, null);
+  }
+
+  /**
+   * Publication : option existante → patch champs Excel in-place (catégorie inchangée).
+   * Nouvelles options seulement → seau « Non classées ».
    */
   static mergePublishedOptionsFromImportStaging(existingCategories = [], importOptions = []) {
-    const existing = this.dedupeCategoryOptionsById(existingCategories);
+    const existing = (Array.isArray(existingCategories) ? existingCategories : [])
+      .map((c) => this.normalizeCategory(c));
     const incoming = (Array.isArray(importOptions) ? importOptions : [])
-      // Les IBP générées sont matérialisées plus loin via importBaseProducts.
-      .filter((o) => o?.importGeneratedFromBaseProduct !== true)
-      .map((o) => {
-        const normalized = this.normalizeOption(o);
-        this.applyImportOptionLineKindToOption(
-          normalized,
-          this.resolveEffectiveImportLineKind(normalized)
-        );
-        return normalized;
-      });
+      .filter((o) => o?.importGeneratedFromBaseProduct !== true);
+
     const optIndex = new Map();
     existing.forEach((cat) => {
       (Array.isArray(cat.options) ? cat.options : []).forEach((opt) => {
@@ -3538,18 +4391,25 @@ Exemple de forme (ids fictifs) :
     });
 
     const orphans = [];
-    incoming.forEach((opt) => {
-      const id = String(opt?.id || '').trim();
+    incoming.forEach((raw) => {
+      const id = String(raw?.id || '').trim();
       if (!id) return;
       const hit = optIndex.get(id);
       if (hit) {
         const idx = hit.cat.options.findIndex((o) => String(o?.id || '').trim() === id);
         if (idx >= 0) {
-          hit.cat.options[idx] = this.normalizeOption({ ...hit.cat.options[idx], ...opt });
+          const prev = hit.cat.options[idx];
+          const inc = this.normalizeOption(raw);
+          hit.cat.options[idx] = this.patchExistingOptionFromImport(prev, inc, { editorialSource: prev });
         }
         return;
       }
-      orphans.push(opt);
+      const normalized = this.normalizeOption(raw);
+      this.applyImportOptionLineKindToOption(
+        normalized,
+        this.resolveEffectiveImportLineKind(normalized)
+      );
+      orphans.push(normalized);
     });
 
     if (orphans.length) {
@@ -3674,7 +4534,7 @@ Exemple de forme (ids fictifs) :
    */
   static async repairImportStagingMergedOptionsIfNeeded(db, doc) {
     if (!doc || !doc._id || doc.status === 'published') return doc;
-    const filePath = String(doc?.source?.sourceFilePath || '').trim();
+    const filePath = this.resolveImportSourceExcelPath(doc);
     if (!filePath || !fs.existsSync(filePath)) return doc;
 
     let extracted;
@@ -3694,8 +4554,13 @@ Exemple de forme (ids fictifs) :
     if (freshTotal <= currentTotal) return doc;
 
     const collection = db.collection('ugap_import_staging');
+    const publishedById = await this.loadPublishedOptionsById(db, doc.entrepriseId);
     const patch = {
-      importOptions: freshOptions,
+      importOptions: this.mergeStagingImportOptionsOnReimport(
+        this.getStagingImportOptions(doc),
+        freshOptions,
+        publishedById
+      ),
       categories: [],
       updatedAt: new Date()
     };
@@ -3768,6 +4633,118 @@ Exemple de forme (ids fictifs) :
     return { ...doc, ...patch };
   }
 
+  static resolveImportSourceExcelPath(docOrSource) {
+    const source = docOrSource?.source && typeof docOrSource.source === 'object'
+      ? docOrSource.source
+      : (docOrSource && typeof docOrSource === 'object' ? docOrSource : {});
+    const fileName = String(source.sourceFileName || '').trim();
+    const storedPath = String(source.sourceFilePath || '').trim();
+    const candidates = [];
+    if (storedPath) candidates.push(storedPath);
+    candidates.push(path.join(__dirname, '../../source/TARIF ALU UGAP 2024(6).xlsx'));
+    if (fileName) {
+      candidates.push(path.join(__dirname, '../../source', fileName));
+    }
+    const seen = new Set();
+    for (const candidate of candidates) {
+      const p = path.normalize(String(candidate || '').trim());
+      if (!p || seen.has(p.toLowerCase())) continue;
+      seen.add(p.toLowerCase());
+      try {
+        if (fs.existsSync(p)) return p;
+      } catch {
+        /* ignore */
+      }
+    }
+    return '';
+  }
+
+  static enrichStagingModelsFromSourceFile(models, sourceFilePathOrDoc) {
+    const list = Array.isArray(models) ? models : [];
+    const filePath = typeof sourceFilePathOrDoc === 'string'
+      ? String(sourceFilePathOrDoc || '').trim()
+      : this.resolveImportSourceExcelPath(sourceFilePathOrDoc);
+    if (!filePath || !fs.existsSync(filePath)) return list;
+
+    let extracted;
+    try {
+      extracted = UgapExcelService.extractData(filePath);
+    } catch {
+      return list;
+    }
+
+    const freshModels = Array.isArray(extracted?.models) ? extracted.models : [];
+    if (!freshModels.length) return list;
+
+    const byId = new Map(
+      freshModels
+        .map((m) => [String(m?.id || '').trim(), m])
+        .filter(([id]) => id)
+    );
+    const byCol = new Map(
+      freshModels
+        .filter((m) => Number.isFinite(Number(m?.colIndex)))
+        .map((m) => [Number(m.colIndex), m])
+    );
+
+    const mergeFresh = (model, fresh) => {
+      if (!fresh) return model;
+      const refUgap = String(fresh.refUgap || model.refUgap || '').trim();
+      const next = { ...model };
+      if (refUgap) next.refUgap = refUgap;
+      if (!String(next.baseLabel || '').trim() && String(fresh.baseLabel || '').trim()) {
+        next.baseLabel = String(fresh.baseLabel).trim();
+      }
+      if (fresh.colIndex != null && next.colIndex == null) next.colIndex = fresh.colIndex;
+      const basePrice = Number(fresh.basePrice ?? fresh.priceClient);
+      if (Number.isFinite(basePrice) && basePrice > 0) next.basePrice = basePrice;
+      const priceClient = Number(fresh.priceClient);
+      if (Number.isFinite(priceClient) && priceClient > 0) next.priceClient = priceClient;
+      const priceUgap = Number(fresh.priceUgap);
+      if (Number.isFinite(priceUgap) && priceUgap > 0) next.priceUgap = priceUgap;
+      if (!String(next.motorizationBase || '').trim() && String(fresh.motorizationBase || '').trim()) {
+        next.motorizationBase = String(fresh.motorizationBase).trim();
+      }
+      if (!Number.isFinite(Number(next.posteNumber)) && Number.isFinite(Number(fresh.posteNumber))) {
+        next.posteNumber = Number(fresh.posteNumber);
+      }
+      if (!String(next.name || '').trim() && String(fresh.name || '').trim()) {
+        next.name = String(fresh.name).trim();
+      }
+      return next;
+    };
+
+    if (!list.length) return freshModels;
+
+    return list.map((model) => {
+      const id = String(model?.id || '').trim();
+      const col = Number(model?.colIndex);
+      const fresh = byId.get(id)
+        || (Number.isFinite(col) ? byCol.get(col) : null)
+        || (id.match(/^model_(\d+)$/) ? byCol.get(Number(id.replace('model_', ''))) : null);
+      return mergeFresh(model, fresh);
+    });
+  }
+
+  static stagingModelsRefsDiffer(prevModels, nextModels) {
+    const prevById = new Map(
+      (Array.isArray(prevModels) ? prevModels : [])
+        .map((m) => [String(m?.id || '').trim(), m])
+        .filter(([id]) => id)
+    );
+    return (Array.isArray(nextModels) ? nextModels : []).some((model) => {
+      const id = String(model?.id || '').trim();
+      if (!id) return false;
+      const prev = prevById.get(id) || {};
+      if (String(model?.refUgap || '').trim() !== String(prev?.refUgap || '').trim()) return true;
+      const nextPrice = Number(model?.basePrice ?? model?.priceClient);
+      const prevPrice = Number(prev?.basePrice ?? prev?.priceClient);
+      if (Number.isFinite(nextPrice) && Number.isFinite(prevPrice) && nextPrice !== prevPrice) return true;
+      if (Number.isFinite(nextPrice) && nextPrice > 0 && !Number.isFinite(prevPrice)) return true;
+      return false;
+    });
+  }
+
   static async saveImportStaging(db, entrepriseId, payload) {
     const collection = db.collection('ugap_import_staging');
     const now = new Date();
@@ -3777,7 +4754,11 @@ Exemple de forme (ids fictifs) :
       ? await collection.findOne({ entrepriseId, 'source.sourceFileHash': sourceFileHash })
       : null;
 
-    const importOptions = this.importOptionsFromExtractedPayload(payload).map((opt) => {
+    const publishedById = existing
+      ? await this.loadPublishedOptionsById(db, entrepriseId)
+      : null;
+
+    const freshImportOptions = this.importOptionsFromExtractedPayload(payload).map((opt) => {
       const normalized = this.normalizeOption(opt);
       this.applyImportOptionLineKindToOption(
         normalized,
@@ -3785,6 +4766,30 @@ Exemple de forme (ids fictifs) :
       );
       return normalized;
     });
+    const sourceFilePath = String(source.sourceFilePath || '').trim();
+    const sourceDoc = sourceFilePath || { source };
+    const incomingModels = this.enrichStagingModelsFromSourceFile(
+      Array.isArray(payload?.models) ? payload.models : [],
+      sourceDoc
+    );
+    const importOptions = existing
+      ? this.mergeStagingImportOptionsOnReimport(
+        this.getStagingImportOptions(existing),
+        freshImportOptions,
+        publishedById
+      )
+      : freshImportOptions;
+    const models = existing
+      ? this.mergeStagingModelsOnReimport(existing.models, incomingModels, sourceDoc)
+      : incomingModels;
+    const excelStructure = payload?.structure && typeof payload.structure === 'object'
+      ? {
+        refUgapCol: Number(payload.structure.refUgapCol),
+        labelCol: Number(payload.structure.labelCol),
+        headerRowIndex: Number(payload.structure.headerRowIndex),
+        modelCols: Array.isArray(payload.structure.modelCols) ? payload.structure.modelCols : []
+      }
+      : null;
     const document = {
       entrepriseId,
       source: {
@@ -3800,12 +4805,19 @@ Exemple de forme (ids fictifs) :
       minorationsStatus: 'to_validate',
       majorationsStatus: 'to_validate',
       diversStatus: 'to_validate',
-      models: Array.isArray(payload?.models) ? payload.models : [],
+      models,
+      excelStructure,
       importOptions,
       categories: [],
-      businessViews: Array.isArray(payload?.businessViews) ? payload.businessViews : [],
-      dependencyRules: this.normalizeDependencyRules(payload?.dependencyRules),
-      uiState: this.normalizeUiState(payload?.uiState),
+      businessViews: Array.isArray(existing?.businessViews) && existing.businessViews.length
+        ? existing.businessViews
+        : (Array.isArray(payload?.businessViews) ? payload.businessViews : []),
+      dependencyRules: Array.isArray(existing?.dependencyRules) && existing.dependencyRules.length
+        ? this.normalizeDependencyRules(existing.dependencyRules)
+        : this.normalizeDependencyRules(payload?.dependencyRules),
+      uiState: existing?.uiState
+        ? this.normalizeUiState(existing.uiState)
+        : this.normalizeUiState(payload?.uiState),
       progress: {
         validatedModelIds: [],
         modelsCompleted: false,
@@ -3819,30 +4831,51 @@ Exemple de forme (ids fictifs) :
 
     if (existing) {
       document.createdAt = existing.createdAt || now;
-      // Réimport du même fichier: repartir sur une validation modèles propre
-      // pour éviter de réinjecter d'anciens validatedModelIds.
+      const modelIdSet = new Set(models.map((m) => String(m?.id || '').trim()).filter(Boolean));
+      const prevValidated = (Array.isArray(existing.progress?.validatedModelIds) ? existing.progress.validatedModelIds : [])
+        .map((x) => String(x || '').trim())
+        .filter((id) => id && modelIdSet.has(id));
       const prevProgress = {
         ...(existing.progress || {}),
-        validatedModelIds: [],
-        modelsCompleted: false,
-        optionsCompleted: false,
-        familiesCompleted: false,
-        viewsCompleted: false
+        validatedModelIds: prevValidated,
+        modelsCompleted: modelIdSet.size > 0 && prevValidated.length === modelIdSet.size,
+        optionsCompleted: !!existing.progress?.optionsCompleted,
+        familiesCompleted: !!existing.progress?.familiesCompleted,
+        viewsCompleted: !!existing.progress?.viewsCompleted,
+        optionsTriCompleted: !!existing.progress?.optionsTriCompleted
       };
-      const baseProg = this.normalizeStagingProgressForModels(document.models, prevProgress);
+      const baseProg = this.normalizeStagingProgressForModels(models, prevProgress);
       document.progress = this.coerceStagingProgressOptionsWithDocument(
         baseProg,
-        document
+        { ...existing, models, importOptions }
       );
       const computed = this.computeStagingStatuses(document.progress, document);
       document.status = computed.status;
       document.modelsStatus = computed.modelsStatus;
-      document.optionsStatus = 'to_validate';
-      document.baseOptionsStatus = 'to_validate';
-      document.minorationsStatus = 'to_validate';
-      document.majorationsStatus = 'to_validate';
-      document.diversStatus = 'to_validate';
-      document.importBaseProducts = [];
+      document.optionsStatus = String(existing.optionsStatus || '').toLowerCase() === 'validated'
+        ? 'validated'
+        : 'to_validate';
+      document.baseOptionsStatus = String(existing.baseOptionsStatus || '').toLowerCase() === 'validated'
+        ? 'validated'
+        : 'to_validate';
+      document.minorationsStatus = String(existing.minorationsStatus || '').toLowerCase() === 'validated'
+        ? 'validated'
+        : 'to_validate';
+      document.majorationsStatus = String(existing.majorationsStatus || '').toLowerCase() === 'validated'
+        ? 'validated'
+        : 'to_validate';
+      document.diversStatus = String(existing.diversStatus || '').toLowerCase() === 'validated'
+        ? 'validated'
+        : 'to_validate';
+      const stagingByIdForBp = this.buildOptionByIdFromImportOptions(importOptions);
+      document.importBaseProducts = this.prepareImportBaseProductsForPublish(
+        Array.isArray(existing.importBaseProducts) ? existing.importBaseProducts : [],
+        importOptions,
+        models,
+        stagingByIdForBp
+      );
+      document.importAssignmentsSummary = existing.importAssignmentsSummary || null;
+      document.importAssignmentsAppliedAt = existing.importAssignmentsAppliedAt || null;
       await collection.updateOne(
         { _id: existing._id },
         {
@@ -3850,6 +4883,11 @@ Exemple de forme (ids fictifs) :
           $unset: { _importBpSyncFingerprint: '' }
         }
       );
+      await this.syncPublishedCatalogOnReimport(db, entrepriseId, {
+        importOptions,
+        importBaseProducts: document.importBaseProducts,
+        models: document.models
+      });
       const out = this.normalizeImportStagingDocument({ ...document, _id: existing._id });
       delete out._stagingShapeMigrated;
       return { ...out, alreadyProcessed: true, alreadyValidated: existing.status === 'validated' || existing.status === 'published' };
@@ -3861,9 +4899,37 @@ Exemple de forme (ids fictifs) :
     return { ...out, alreadyProcessed: false, alreadyValidated: false };
   }
 
+  static async repairImportStagingModelRefsIfNeeded(db, doc) {
+    if (!doc || !doc._id || doc.status === 'published') return doc;
+    const filePath = this.resolveImportSourceExcelPath(doc);
+    if (!filePath) return doc;
+
+    const models = Array.isArray(doc.models) ? doc.models : [];
+    const nextModels = this.enrichStagingModelsFromSourceFile(models, filePath);
+    const changed = this.stagingModelsRefsDiffer(models, nextModels);
+    if (!changed) return doc;
+
+    const collection = db.collection('ugap_import_staging');
+    await collection.updateOne(
+      { _id: doc._id, entrepriseId: doc.entrepriseId },
+      {
+        $set: {
+          models: nextModels,
+          'source.sourceFilePath': String(doc?.source?.sourceFilePath || '').trim() || filePath,
+          updatedAt: new Date()
+        }
+      }
+    );
+    const source = doc?.source && typeof doc.source === 'object'
+      ? { ...doc.source, sourceFilePath: String(doc.source.sourceFilePath || '').trim() || filePath }
+      : { sourceFilePath: filePath };
+    return { ...doc, models: nextModels, source };
+  }
+
   static async finalizeImportStagingRead(db, doc) {
     if (!doc) return null;
     let next = await this.repairImportStagingMergedOptionsIfNeeded(db, doc);
+    next = await this.repairImportStagingModelRefsIfNeeded(db, next);
     next = await this.repairImportStagingMinorationsIfNeeded(db, next);
     next = await this.repairImportStagingModelProgressIfNeeded(db, next);
     next = this.normalizeImportStagingDocument(next);
@@ -4041,9 +5107,22 @@ Exemple de forme (ids fictifs) :
       { $set: setPayload },
       { returnDocument: 'after' }
     );
-    const resultDoc = updated?.value || {
+    const updatedDoc = updated && typeof updated === 'object'
+      ? (updated.value ?? updated)
+      : null;
+    const resultDoc = updatedDoc && updatedDoc._id ? updatedDoc : {
       ...assignedDoc,
-      ...setPayload,
+      models: nextModels,
+      importOptions: setPayload.importOptions || assignedDoc.importOptions || [],
+      importAssignmentsSummary: setPayload.importAssignmentsSummary,
+      importAssignmentsAppliedAt: setPayload.importAssignmentsAppliedAt,
+      modelsStatus: setPayload.modelsStatus,
+      status: setPayload.status,
+      optionsStatus: setPayload.optionsStatus ?? document.optionsStatus,
+      baseOptionsStatus: setPayload.baseOptionsStatus ?? document.baseOptionsStatus,
+      minorationsStatus: setPayload.minorationsStatus ?? document.minorationsStatus,
+      majorationsStatus: setPayload.majorationsStatus ?? document.majorationsStatus,
+      diversStatus: setPayload.diversStatus ?? document.diversStatus,
       progress: {
         ...(document.progress || {}),
         validatedModelIds: mergedFinal,
@@ -4052,18 +5131,24 @@ Exemple de forme (ids fictifs) :
       }
     };
 
+    let syncWarning = '';
     try {
-      await this.syncValidatedModelsToPublishedCatalog(
+      await this.syncAllStagingModelsToPublishedCatalog(
         db,
         entrepriseId,
         resultDoc.models || nextModels,
         mergedFinal
       );
     } catch (syncErr) {
-      console.warn('⚠️ UGAP syncValidatedModelsToPublishedCatalog:', syncErr.message || syncErr);
+      console.error('❌ UGAP syncAllStagingModelsToPublishedCatalog:', syncErr.message || syncErr);
+      syncWarning = `synchronisation catalogue échouée (${syncErr.message || syncErr})`;
     }
 
-    return resultDoc;
+    const finalized = await this.finalizeImportStagingRead(db, resultDoc);
+    return {
+      staging: this.serializeImportStagingForApi(finalized),
+      syncWarning
+    };
   }
 
   static normalizeImportBaseProductKey(label) {
@@ -4105,7 +5190,107 @@ Exemple de forme (ids fictifs) :
     if (!bp || typeof bp !== 'object') return false;
     if (this.isImportMotorBaseProductLabel(bp.label)) return true;
     const key = String(bp.key || '');
-    return /__p\d+$/.test(key) || /__[a-f0-9]{6,}$/i.test(key);
+    return /__p\d+$/i.test(key) || /__model_\d+$/i.test(key) || /__[a-f0-9]{6,}$/i.test(key);
+  }
+
+  static isMotorNonSupplyBaseProductRow(bp) {
+    if (!bp || typeof bp !== 'object') return false;
+    const label = String(bp.label || bp.baseOptionName || '').trim();
+    return /\bnon\s+fourniture\b/i.test(label) && /\bmoteur/i.test(label);
+  }
+
+  /**
+   * Fusionne les doublons moteur (même poste) avant matérialisation opt_ibp_*.
+   */
+  static consolidateImportBaseProductsForPublish(products, models = []) {
+    let out = this.dedupeImportMotorBaseProductsByModel(
+      this.normalizeImportBaseProductsRows(products)
+    );
+    if (!out.length) return out;
+
+    const modelById = new Map(
+      (Array.isArray(models) ? models : [])
+        .map((m) => [String(m?.id || '').trim(), m])
+        .filter(([id]) => id)
+    );
+    const motorKeeperByModel = new Map();
+    const removeIds = new Set();
+
+    out.forEach((bp) => {
+      const mids = [...new Set((bp.modelIds || []).map((x) => String(x || '').trim()).filter(Boolean))];
+      if (mids.length !== 1) return;
+      const mid = mids[0];
+      const model = modelById.get(mid);
+      if (!model) return;
+
+      const motorLabel = String(model.motorizationBase || '').trim();
+      const motorKey = motorLabel ? this.buildMotorBaseProductRegistryKey(motorLabel, model) : '';
+      const isMotorish = this.isImportMotorBaseProductRow(bp)
+        || this.isMotorNonSupplyBaseProductRow(bp)
+        || (motorKey && String(bp.key || '') === motorKey);
+      if (!isMotorish || !motorKey) return;
+
+      const keeper = motorKeeperByModel.get(mid);
+      if (!keeper) {
+        bp.key = motorKey;
+        if (motorLabel && bp.labelCustomized !== true) {
+          bp.label = motorLabel;
+          bp.baseOptionName = motorLabel;
+        }
+        motorKeeperByModel.set(mid, bp);
+        return;
+      }
+
+      const bpId = String(bp.id || '').trim();
+      if (bpId) removeIds.add(bpId);
+      keeper.optionIds = [...new Set([...(keeper.optionIds || []), ...(bp.optionIds || [])])];
+      Object.assign(keeper.pricesByModelId || {}, bp.pricesByModelId || {});
+      if (!keeper.catalogOptionId && bp.catalogOptionId) keeper.catalogOptionId = bp.catalogOptionId;
+      if (motorLabel && keeper.labelCustomized !== true) {
+        keeper.label = motorLabel;
+        keeper.baseOptionName = motorLabel;
+      }
+      keeper.key = motorKey;
+    });
+
+    if (removeIds.size) {
+      out = out.filter((bp) => !removeIds.has(String(bp.id || '').trim()));
+    }
+
+    const byRegistryKey = new Map();
+    const finalOut = [];
+    out.forEach((bp) => {
+      const mids = [...new Set((bp.modelIds || []).map((x) => String(x || '').trim()).filter(Boolean))];
+      const key = String(bp.key || '').trim();
+      const isSingleModelMotor = mids.length === 1 && (
+        this.isImportMotorBaseProductRow(bp) || this.isMotorNonSupplyBaseProductRow(bp)
+      );
+      if (!isSingleModelMotor || !key) {
+        finalOut.push(bp);
+        return;
+      }
+      const regKey = `${key}::${mids[0]}`;
+      const prev = byRegistryKey.get(regKey);
+      if (!prev) {
+        byRegistryKey.set(regKey, bp);
+        finalOut.push(bp);
+        return;
+      }
+      prev.optionIds = [...new Set([...(prev.optionIds || []), ...(bp.optionIds || [])])];
+      Object.assign(prev.pricesByModelId || {}, bp.pricesByModelId || {});
+      if (!prev.catalogOptionId && bp.catalogOptionId) prev.catalogOptionId = bp.catalogOptionId;
+    });
+
+    return finalOut;
+  }
+
+  static clearImportGeneratedBaseCatalogOptions(categories) {
+    const catId = this.IMPORT_BASE_PRODUCTS_CATEGORY_ID;
+    (Array.isArray(categories) ? categories : []).forEach((cat) => {
+      if (String(cat?.id || '') !== catId || !Array.isArray(cat?.options)) return;
+      cat.options = cat.options.filter((opt) => opt?.importGeneratedFromBaseProduct !== true);
+    });
+    return categories;
   }
 
   /** Placeholders parsing Excel — pas un nom d'option de base affichable. */
@@ -4146,7 +5331,15 @@ Exemple de forme (ids fictifs) :
     if (!opt || typeof opt !== 'object') return 'de base';
 
     const custom = String(opt.importOptionLabel || '').trim();
-    if (custom && !this.isGenericBasePlaceholderLabel(custom)) return custom;
+    const parsedEarly = UgapExcelService.parseBaseReplacementProducts(opt?.name);
+    const finalEarly = String(parsedEarly?.finalProduct || opt?.finalProduct || '').trim();
+    const initialEarly = String(parsedEarly?.initialProduct || opt?.initialProduct || '').trim();
+    if (custom && !this.isGenericBasePlaceholderLabel(custom)) {
+      if (finalEarly && initialEarly && custom === initialEarly && !this.isGenericBasePlaceholderLabel(finalEarly)) {
+        return finalEarly;
+      }
+      return custom;
+    }
 
     if (isMotorBaseNonSupplyMinoration(opt?.name)) {
       const modelList = Array.isArray(models) ? models : [];
@@ -4168,13 +5361,19 @@ Exemple de forme (ids fictifs) :
     const parsed = UgapExcelService.parseBaseReplacementProducts(opt?.name);
     const finalP = String(parsed?.finalProduct || '').trim();
     const initialP = String(parsed?.initialProduct || '').trim();
-    // initial = équipement de base remplacé ; final = nouveau (ligne « en remplacement de »).
+    // initial = équipement de base remplacé ; final = nouveau (ligne « en lieu et place de »).
+    if (finalP && initialP) {
+      if (!this.isGenericBasePlaceholderLabel(finalP)) return finalP;
+    }
     if (initialP && !this.isGenericBasePlaceholderLabel(initialP)) return initialP;
     if (finalP && !this.isGenericBasePlaceholderLabel(finalP)) return finalP;
 
     const rep = parseReplacementFromLabel(opt?.name);
     const newO = String(rep?.newObject || '').trim();
     const repO = String(rep?.replacedObject || '').trim();
+    if (newO && repO) {
+      if (!this.isGenericBasePlaceholderLabel(newO)) return newO;
+    }
     if (repO && !this.isGenericBasePlaceholderLabel(repO)) return repO;
     if (newO && !this.isGenericBasePlaceholderLabel(newO)) return newO;
 
@@ -4185,6 +5384,43 @@ Exemple de forme (ids fictifs) :
     if (name && !this.isGenericBasePlaceholderLabel(name)) return name;
 
     return 'de base';
+  }
+
+  static isSyntheticBaseProductRef(ref) {
+    const r = String(ref || '').trim();
+    if (!r) return true;
+    return /^(IBP-|BASE-|bp_src_|opt_ibp_)/i.test(r);
+  }
+
+  static resolveImportBaseProductRefUgap(bp, models = [], stagingMap = null) {
+    const row = bp && typeof bp === 'object' ? bp : {};
+    const candidates = [];
+
+    const explicit = sanitizeUgapRefForDisplay(String(row.refUgap || '').trim());
+    if (explicit) candidates.push(explicit);
+
+    (row.optionIds || []).forEach((oid) => {
+      const opt = stagingMap instanceof Map ? stagingMap.get(String(oid)) : null;
+      const ref = sanitizeUgapRefForDisplay(String(opt?.refUgap || '').trim());
+      if (ref) candidates.push(ref);
+    });
+
+    const modelIds = this.resolveImportBaseProductModelIds(row, models, stagingMap);
+    modelIds.forEach((mid) => {
+      const model = (models || []).find((m) => String(m?.id || '').trim() === String(mid));
+      const ref = sanitizeUgapRefForDisplay(String(model?.refUgap || '').trim());
+      if (ref) candidates.push(ref);
+    });
+
+    const seen = new Set();
+    for (let i = 0; i < candidates.length; i += 1) {
+      const ref = candidates[i];
+      const key = ref.toUpperCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      return ref;
+    }
+    return '';
   }
 
   static enrichImportBaseProductRowFromSourceOption(bp, sourceOpt, models = []) {
@@ -4199,6 +5435,10 @@ Exemple de forme (ids fictifs) :
     }
     if (!String(bp.excelLabel || '').trim() && sourceOpt.name) {
       bp.excelLabel = String(sourceOpt.name).trim();
+    }
+    if (!String(bp.refUgap || '').trim()) {
+      const srcRef = sanitizeUgapRefForDisplay(String(sourceOpt.refUgap || '').trim());
+      if (srcRef) bp.refUgap = srcRef;
     }
     return bp;
   }
@@ -4291,6 +5531,11 @@ Exemple de forme (ids fictifs) :
         bp.baseOptionName = motor;
       }
       if (!bp.modelIds.includes(mid)) bp.modelIds.push(mid);
+
+      const modelRef = sanitizeUgapRefForDisplay(String(model?.refUgap || '').trim());
+      if (modelRef && !String(bp.refUgap || '').trim()) {
+        bp.refUgap = modelRef;
+      }
 
       const boatBase = Number(model?.basePrice);
       if (Number.isFinite(boatBase) && boatBase > 0 && bp.pricesByModelId[mid] == null) {
@@ -4413,6 +5658,14 @@ Exemple de forme (ids fictifs) :
     };
     addKey(bp?.label);
     addKey(bp?.baseOptionName);
+    (Array.isArray(bp?.aliases) ? bp.aliases : []).forEach(addKey);
+    (Array.isArray(bp?.mergedCatalogOptionIds) ? bp.mergedCatalogOptionIds : []).forEach((cid) => {
+      const mergedOpt = optionById.get(String(cid || '').trim());
+      if (mergedOpt) {
+        addKey(mergedOpt.name);
+        addKey(mergedOpt.importExcelLabel || mergedOpt.details);
+      }
+    });
     if (sourceOpt && typeof sourceOpt === 'object') {
       const parsed = UgapExcelService.parseBaseReplacementProducts(sourceOpt.name);
       addKey(parsed?.initialProduct);
@@ -4570,7 +5823,11 @@ Exemple de forme (ids fictifs) :
         optionIds: Array.isArray(row?.optionIds) ? row.optionIds.map((x) => String(x || '').trim()).filter(Boolean) : [],
         modelIds: Array.isArray(row?.modelIds) ? row.modelIds.map((x) => String(x || '').trim()).filter(Boolean) : [],
         aliases: Array.isArray(row?.aliases) ? row.aliases.map((x) => String(x || '').trim()).filter(Boolean) : [],
-        catalogOptionId: String(row?.catalogOptionId || '').trim()
+        mergedCatalogOptionIds: Array.isArray(row?.mergedCatalogOptionIds)
+          ? row.mergedCatalogOptionIds.map((x) => String(x || '').trim()).filter(Boolean)
+          : [],
+        catalogOptionId: String(row?.catalogOptionId || '').trim(),
+        refUgap: String(row?.refUgap || '').trim()
       };
     }).filter((row) => {
       const hasName = String(row.label || row.baseOptionName || '').trim();
@@ -4645,7 +5902,7 @@ Exemple de forme (ids fictifs) :
           bySourceOpt.set(oid, gen);
         }
       });
-      return saved.map((bp) => {
+      const prepared = saved.map((bp) => {
         const next = { ...bp };
         const srcOid = String((next.optionIds || [])[0] || '').trim();
         const srcOpt = srcOid ? stagingMap.get(srcOid) : null;
@@ -4657,9 +5914,10 @@ Exemple de forme (ids fictifs) :
         if (!String(next.baseOptionName || '').trim()) next.baseOptionName = next.label;
         return next;
       });
+      return this.consolidateImportBaseProductsForPublish(prepared, list);
     }
 
-    return onePerLine;
+    return this.consolidateImportBaseProductsForPublish(onePerLine, list);
   }
 
   /** 1 importBaseProducts par ligne mino/majo (clé src_opt_N), aligné onglet Détection. */
@@ -4706,6 +5964,7 @@ Exemple de forme (ids fictifs) :
         label: baseOptionName,
         baseOptionName,
         excelLabel,
+        refUgap: String(row.refUgap || '').trim(),
         pricingMode: 'fixed',
         price: null,
         pricesByModelId: {},
@@ -4783,13 +6042,15 @@ Exemple de forme (ids fictifs) :
     const linkedMinorationOptions = this.buildLinkedMinorationSnapshots(row, stagingMap);
     const sourceOptionIds = linkedMinorationOptions.map((x) => x.optionId).filter(Boolean);
     const details = excelLabel && excelLabel !== displayName ? excelLabel : '';
+    const resolvedRefUgap = this.resolveImportBaseProductRefUgap(row, models, stagingMap);
 
     const payload = {
       id: catalogId,
       name: displayName,
       details,
       importExcelLabel: excelLabel,
-      refUgap: `IBP-${String(row.id).slice(0, 32)}`,
+      refUgap: resolvedRefUgap,
+      baseRefUgap: resolvedRefUgap,
       compatibleModels,
       priceUgap,
       priceClient,
@@ -4815,11 +6076,22 @@ Exemple de forme (ids fictifs) :
 
   static IMPORT_BASE_PRODUCTS_CATEGORY_ID = 'cat_options_de_base_import';
 
+  static replaceOptionInCategories(categories, optionId, nextOpt) {
+    const id = String(optionId || '').trim();
+    if (!id) return categories;
+    return (Array.isArray(categories) ? categories : []).map((cat) => {
+      const options = (Array.isArray(cat?.options) ? cat.options : []).map((opt) => (
+        String(opt?.id || '').trim() === id ? nextOpt : opt
+      ));
+      return { ...cat, options };
+    });
+  }
+
   /**
    * Crée ou met à jour une option de base publiée (opt_ibp_*) pour chaque importBaseProducts.
    */
   static materializeImportBaseProductsAsCatalogOptions(categories, importBaseProducts, stagingById, models = []) {
-    const cats = Array.isArray(categories) ? categories : [...categories];
+    let cats = Array.isArray(categories) ? categories.map((c) => this.normalizeCategory(c)) : [];
     const products = this.normalizeImportBaseProductsRows(importBaseProducts);
     const stagingMap = stagingById instanceof Map
       ? stagingById
@@ -4843,7 +6115,7 @@ Exemple de forme (ids fictifs) :
       cats.push(targetCat);
     }
 
-    const options = Array.isArray(targetCat.options) ? targetCat.options : [];
+    const options = Array.isArray(targetCat.options) ? [...targetCat.options] : [];
     const globalOptionById = this.buildOptionByIdFromCategories(cats);
     const allIds = new Set(
       cats.flatMap((c) => (Array.isArray(c?.options) ? c.options : []))
@@ -4863,19 +6135,44 @@ Exemple de forme (ids fictifs) :
         stagingMap
       );
 
-      const existingIbp = options.find((o) => String(o?.id || '').trim() === catalogId);
-      if (existingIbp) {
-        const merged = this.normalizeOption({ ...existingIbp, ...payload });
-        Object.assign(existingIbp, merged);
-        globalOptionById.set(catalogId, existingIbp);
+      const existingIbp = globalOptionById.get(catalogId);
+      if (existingIbp?.importGeneratedFromBaseProduct === true) {
+        const patched = this.patchExistingOptionFromImport(existingIbp, payload, { editorialSource: existingIbp });
+        cats = this.replaceOptionInCategories(cats, catalogId, patched);
+        globalOptionById.set(catalogId, patched);
+        const targetIdx = cats.findIndex((c) => String(c?.id || '') === catId);
+        if (targetIdx >= 0) {
+          const bucket = cats[targetIdx];
+          const bucketOpts = Array.isArray(bucket.options) ? [...bucket.options] : [];
+          const bi = bucketOpts.findIndex((o) => String(o?.id || '').trim() === catalogId);
+          if (bi < 0) bucketOpts.push(patched);
+          else bucketOpts[bi] = patched;
+          cats[targetIdx] = { ...bucket, options: bucketOpts };
+        }
       } else {
         const normalized = this.normalizeOption(payload);
         options.push(normalized);
         globalOptionById.set(catalogId, normalized);
+        allIds.add(catalogId);
       }
     });
 
-    targetCat.options = options;
+    const targetIdx = cats.findIndex((c) => String(c?.id || '') === catId);
+    if (targetIdx >= 0) {
+      const existingIds = new Set(
+        (Array.isArray(cats[targetIdx].options) ? cats[targetIdx].options : [])
+          .map((o) => String(o?.id || '').trim())
+          .filter(Boolean)
+      );
+      options.forEach((opt) => {
+        const oid = String(opt?.id || '').trim();
+        if (oid && !existingIds.has(oid)) {
+          cats[targetIdx].options = [...(cats[targetIdx].options || []), opt];
+          existingIds.add(oid);
+        }
+      });
+    }
+
     return { categories: cats, importBaseProducts: products };
   }
 
@@ -4922,11 +6219,13 @@ Exemple de forme (ids fictifs) :
         ? bp.modelIds.map((x) => String(x || '').trim()).filter(Boolean)
         : [];
       const pricing = this.resolveImportBaseProductMaterializedPricing(bp);
+      const resolvedRefUgap = this.resolveImportBaseProductRefUgap(bp, [], optionById);
 
       const payload = {
         id: catalogId,
         name: String(bp.label || '').trim() || 'Option de base',
-        refUgap: `IBP-${String(bp.id).slice(0, 32)}`,
+        refUgap: resolvedRefUgap,
+        baseRefUgap: resolvedRefUgap,
         compatibleModels,
         priceUgap: pricing.priceUgap,
         priceClient: 0,
@@ -4948,7 +6247,11 @@ Exemple de forme (ids fictifs) :
       }
 
       if (existing) {
-        Object.assign(existing, payload);
+        const patched = this.patchExistingOptionFromImport(existing, payload, { editorialSource: existing });
+        optionById.set(catalogId, patched);
+        const idx = options.findIndex((o) => String(o?.id || '').trim() === catalogId);
+        if (idx >= 0) options[idx] = patched;
+        else options.push(patched);
       } else {
         const normalized = this.normalizeOption(payload);
         options.push(normalized);
@@ -5127,6 +6430,154 @@ Exemple de forme (ids fictifs) :
     };
   }
 
+  /**
+   * Fusionne deux options de base : une entrée catalogue, alias conservés pour le ré-import.
+   */
+  static async mergeBaseCatalogOptions(db, entrepriseId, payload = {}) {
+    const collection = db.collection('ugap_data');
+    const document = await collection.findOne({ entrepriseId });
+    if (!document) throw new Error('Données non trouvées');
+
+    const primaryOptionId = String(payload?.primaryOptionId || '').trim();
+    const secondaryOptionId = String(payload?.secondaryOptionId || '').trim();
+    const primaryName = String(payload?.primaryName || '').replace(/\s+/g, ' ').trim();
+    if (!primaryOptionId || !secondaryOptionId || primaryOptionId === secondaryOptionId) {
+      throw new Error('Deux options de base distinctes requises');
+    }
+    if (!primaryName) throw new Error('Nom principal requis');
+
+    const primaryOpt = this.findCatalogOptionInDocument(document, primaryOptionId);
+    const secondaryOpt = this.findCatalogOptionInDocument(document, secondaryOptionId);
+    if (!primaryOpt) throw new Error(`Option principale introuvable: ${primaryOptionId}`);
+    if (!secondaryOpt) throw new Error(`Option secondaire introuvable: ${secondaryOptionId}`);
+    if (!this.isPublishedImportBaseCatalogOption(primaryOpt)) {
+      throw new Error('L’option principale doit être une option de base');
+    }
+    if (!this.isPublishedImportBaseCatalogOption(secondaryOpt)) {
+      throw new Error('L’option secondaire doit être une option de base');
+    }
+
+    const idMap = new Map([[secondaryOptionId, primaryOptionId]]);
+    let products = this.normalizeImportBaseProductsRows(document.importBaseProducts || []);
+    const primaryBp = this.findImportBaseProductForCatalogOption(products, primaryOptionId)
+      || products.find((bp) => String(bp?.id || '').trim() === String(primaryOpt.importBaseProductId || '').trim())
+      || null;
+    const secondaryBp = this.findImportBaseProductForCatalogOption(products, secondaryOptionId)
+      || products.find((bp) => String(bp?.id || '').trim() === String(secondaryOpt.importBaseProductId || '').trim())
+      || null;
+
+    const secondaryNames = [
+      String(secondaryOpt.name || '').trim(),
+      String(secondaryOpt.importExcelLabel || secondaryOpt.details || '').trim(),
+      String(secondaryOpt.baseProductLabel || '').trim(),
+    ].filter(Boolean);
+
+    if (primaryBp) {
+      if (secondaryBp && String(secondaryBp.id || '').trim() !== String(primaryBp.id || '').trim()) {
+        primaryBp.optionIds = [...new Set([
+          ...(primaryBp.optionIds || []),
+          ...(secondaryBp.optionIds || []),
+        ].map((x) => String(x || '').trim()).filter(Boolean))];
+        primaryBp.modelIds = [...new Set([
+          ...(primaryBp.modelIds || []),
+          ...(secondaryBp.modelIds || []),
+        ].map((x) => String(x || '').trim()).filter(Boolean))];
+        primaryBp.pricesByModelId = {
+          ...(secondaryBp.pricesByModelId || {}),
+          ...(primaryBp.pricesByModelId || {}),
+        };
+        (secondaryBp.aliases || []).forEach((alias) => {
+          primaryBp.aliases = this.pushUniqueAlias(primaryBp.aliases, alias);
+        });
+        products = products.filter((bp) => String(bp?.id || '').trim() !== String(secondaryBp.id || '').trim());
+      }
+      primaryBp.label = primaryName;
+      primaryBp.baseOptionName = primaryName;
+      primaryBp.catalogOptionId = primaryOptionId;
+      secondaryNames.forEach((label) => {
+        primaryBp.aliases = this.pushUniqueAlias(primaryBp.aliases, label);
+      });
+      primaryBp.mergedCatalogOptionIds = [...new Set([
+        ...(primaryBp.mergedCatalogOptionIds || []),
+        secondaryOptionId,
+      ])];
+    } else if (secondaryBp) {
+      secondaryBp.label = primaryName;
+      secondaryBp.baseOptionName = primaryName;
+      secondaryBp.catalogOptionId = primaryOptionId;
+      secondaryNames.forEach((label) => {
+        secondaryBp.aliases = this.pushUniqueAlias(secondaryBp.aliases, label);
+      });
+      secondaryBp.mergedCatalogOptionIds = [...new Set([
+        ...(secondaryBp.mergedCatalogOptionIds || []),
+        secondaryOptionId,
+      ])];
+    } else {
+      products.push({
+        id: String(primaryOpt.importBaseProductId || '').trim() || `bp_merge_${Date.now()}`,
+        label: primaryName,
+        baseOptionName: primaryName,
+        catalogOptionId: primaryOptionId,
+        optionIds: [],
+        modelIds: Array.isArray(primaryOpt.compatibleModels)
+          ? primaryOpt.compatibleModels.map((x) => String(x || '').trim()).filter(Boolean)
+          : [],
+        aliases: secondaryNames,
+        mergedCatalogOptionIds: [secondaryOptionId],
+        pricingMode: 'fixed',
+        price: null,
+        pricesByModelId: {},
+      });
+    }
+
+    document.importBaseProducts = products;
+
+    primaryOpt.name = primaryName;
+    primaryOpt.importBaseProductId = String(
+      (primaryBp || secondaryBp)?.id
+      || primaryOpt.importBaseProductId
+      || ''
+    ).trim() || primaryOpt.importBaseProductId;
+    const mergedSourceIds = [...new Set([
+      ...(Array.isArray(primaryOpt.importBaseProductSourceOptionIds) ? primaryOpt.importBaseProductSourceOptionIds : []),
+      ...(Array.isArray(secondaryOpt.importBaseProductSourceOptionIds) ? secondaryOpt.importBaseProductSourceOptionIds : []),
+    ].map((x) => String(x || '').trim()).filter(Boolean))];
+    if (mergedSourceIds.length) primaryOpt.importBaseProductSourceOptionIds = mergedSourceIds;
+
+    if (primaryBp) {
+      primaryBp.optionIds = [...new Set([
+        ...(Array.isArray(primaryBp.optionIds) ? primaryBp.optionIds : []),
+        ...(Array.isArray(secondaryOpt.importBaseProductSourceOptionIds) ? secondaryOpt.importBaseProductSourceOptionIds : []),
+      ].map((x) => String(x || '').trim()).filter(Boolean))];
+    } else if (secondaryBp) {
+      secondaryBp.optionIds = [...new Set([
+        ...(Array.isArray(secondaryBp.optionIds) ? secondaryBp.optionIds : []),
+        ...(Array.isArray(secondaryOpt.importBaseProductSourceOptionIds) ? secondaryOpt.importBaseProductSourceOptionIds : []),
+        ...(Array.isArray(primaryOpt.importBaseProductSourceOptionIds) ? primaryOpt.importBaseProductSourceOptionIds : []),
+      ].map((x) => String(x || '').trim()).filter(Boolean))];
+    }
+
+    this.applyOptionIdRemapToDocument(document, idMap);
+    this.purgeOptionIdFromDocument(document, secondaryOptionId);
+    this.applyImportBaseProductsToCategories(document.categories || [], document.importBaseProducts);
+
+    await collection.updateOne(
+      { entrepriseId },
+      {
+        $set: {
+          categories: document.categories,
+          uiState: document.uiState,
+          importBaseProducts: document.importBaseProducts,
+          dependencyRules: document.dependencyRules || [],
+          optionLinkRules: document.optionLinkRules || [],
+          updatedAt: new Date(),
+        },
+      }
+    );
+
+    return this.getData(db, entrepriseId);
+  }
+
   static applyImportBaseProductsToCategories(categories, importBaseProducts) {
     const optionToBase = new Map();
     const catalogByBaseId = new Map();
@@ -5177,6 +6628,7 @@ Exemple de forme (ids fictifs) :
       stagingById
     );
     products = this.ensureMotorImportBaseProductsFromModels(products, models, { dedupeByLabel: false });
+    products = this.consolidateImportBaseProductsForPublish(products, models);
     await collection.updateOne(
       { _id: document._id, entrepriseId },
       {
@@ -5190,11 +6642,14 @@ Exemple de forme (ids fictifs) :
     return await collection.findOne({ _id: document._id, entrepriseId });
   }
 
-  static applyImportOptionLineKindToOption(opt, kind) {
+  static applyImportOptionLineKindToOption(opt, kind, opts = {}) {
+    const markManual = opts?.markManual === true;
+    const preserveCompatibleModels = opts?.preserveCompatibleModels === true;
     const k = String(kind || '').trim().toLowerCase();
     if (!opt || typeof opt !== 'object') return;
     if (k !== 'minoration' && k !== 'majoration' && k !== 'option' && k !== 'pr') return;
     opt.importOptionLineKind = k;
+    if (markManual) opt.manualImportOptionLineKind = true;
     if (k === 'minoration') {
       opt.isMinoration = true;
       opt.isSparePart = false;
@@ -5206,7 +6661,9 @@ Exemple de forme (ids fictifs) :
     if (k === 'majoration') {
       opt.isMinoration = false;
       opt.isSparePart = false;
-      opt.isDivers = Array.isArray(opt.compatibleModels) ? opt.compatibleModels.length === 0 : true;
+      if (!preserveCompatibleModels) {
+        opt.isDivers = Array.isArray(opt.compatibleModels) ? opt.compatibleModels.length === 0 : true;
+      }
       opt.manualMajorationAssignment = true;
       delete opt.manualMinorationAssignment;
       return;
@@ -5215,14 +6672,16 @@ Exemple de forme (ids fictifs) :
       opt.isMinoration = false;
       opt.isSparePart = true;
       opt.isDivers = false;
-      opt.compatibleModels = [];
+      if (!preserveCompatibleModels) opt.compatibleModels = [];
       delete opt.manualMajorationAssignment;
       delete opt.manualMinorationAssignment;
       return;
     }
     opt.isMinoration = false;
     opt.isSparePart = false;
-    opt.isDivers = Array.isArray(opt.compatibleModels) ? opt.compatibleModels.length === 0 : true;
+    if (!preserveCompatibleModels) {
+      opt.isDivers = Array.isArray(opt.compatibleModels) ? opt.compatibleModels.length === 0 : true;
+    }
     delete opt.manualMajorationAssignment;
     delete opt.manualMinorationAssignment;
   }
@@ -5256,6 +6715,7 @@ Exemple de forme (ids fictifs) :
       if (!patchByOptionId.has(id)) return;
       const patch = patchByOptionId.get(id);
       opt.compatibleModels = Array.isArray(patch.compatibleModels) ? patch.compatibleModels : [];
+      opt.manualCompatibleModelsAssignment = true;
       const label = String(patch.importOptionLabel || '').trim();
       if (label) opt.importOptionLabel = label;
       else delete opt.importOptionLabel;
@@ -5265,7 +6725,7 @@ Exemple de forme (ids fictifs) :
         delete opt.baseProductLabel;
       }
       if (patch.importOptionLineKind) {
-        this.applyImportOptionLineKindToOption(opt, patch.importOptionLineKind);
+        this.applyImportOptionLineKindToOption(opt, patch.importOptionLineKind, { markManual: true });
       }
     });
 
@@ -5316,6 +6776,7 @@ Exemple de forme (ids fictifs) :
         opt.compatibleModels = patch;
       } else if (patch && typeof patch === 'object') {
         opt.compatibleModels = Array.isArray(patch.compatibleModels) ? patch.compatibleModels : [];
+        opt.manualCompatibleModelsAssignment = true;
         const label = String(patch.importOptionLabel || '').trim();
         if (label) opt.importOptionLabel = label;
         else delete opt.importOptionLabel;
@@ -5326,7 +6787,7 @@ Exemple de forme (ids fictifs) :
           delete opt.linkedBaseCatalogOptionId;
         }
         if (patch.importOptionLineKind) {
-          UgapDataService.applyImportOptionLineKindToOption(opt, patch.importOptionLineKind);
+          UgapDataService.applyImportOptionLineKindToOption(opt, patch.importOptionLineKind, { markManual: true });
         }
       }
       if (assignScope === 'minoration' && UgapImportAssignmentService.isMinorationLine(opt?.name, opt?.refUgap)) {
@@ -5566,6 +7027,7 @@ Exemple de forme (ids fictifs) :
     importBaseProducts = this.ensureMotorImportBaseProductsFromModels(importBaseProducts, models, {
       dedupeByLabel: false
     });
+    importBaseProducts = this.consolidateImportBaseProductsForPublish(importBaseProducts, models);
 
     this.logPublishCatalogSummary('2 — importBaseProducts pour publication', {
       importOptions,
@@ -5594,6 +7056,25 @@ Exemple de forme (ids fictifs) :
       importId: importIdStr
     });
 
+    const publishedBpById = new Map(
+      (Array.isArray(published?.importBaseProducts) ? published.importBaseProducts : [])
+        .map((bp) => [String(bp?.id || '').trim(), bp])
+        .filter(([id]) => id)
+    );
+    const mergedImportBaseProducts = (finalized.importBaseProducts || importBaseProducts || []).map((bp) => {
+      const id = String(bp?.id || '').trim();
+      const orig = id ? publishedBpById.get(id) : null;
+      if (!orig) return bp;
+      const patched = this.patchExistingImportBaseProductFromRefresh(orig, bp);
+      if (String(orig.catalogOptionId || '').trim()) patched.catalogOptionId = String(orig.catalogOptionId).trim();
+      if (orig.labelCustomized === true) {
+        patched.labelCustomized = true;
+        patched.label = orig.label;
+        patched.baseOptionName = orig.baseOptionName;
+      }
+      return patched;
+    });
+
     // Publication import : modèles + fusion options (pas de coquilles Motorisation/Divers Excel).
     const payload = {
       models: (Array.isArray(doc.models) ? doc.models : []).map((m) => {
@@ -5601,10 +7082,16 @@ Exemple de forme (ids fictifs) :
         if (!id) return { ...m };
         const prev = (Array.isArray(published?.models) ? published.models : [])
           .find((pm) => String(pm?.id || '').trim() === id) || {};
-        return { ...prev, ...m };
+        return {
+          ...this.patchExistingModelFromImport(prev, m),
+          importValidationStatus: prev.importValidationStatus || m.importValidationStatus,
+          configurations: Array.isArray(prev?.configurations)
+            ? prev.configurations
+            : (Array.isArray(m?.configurations) ? m.configurations : [])
+        };
       }),
       categories: mergedCategories,
-      importBaseProducts: finalized.importBaseProducts || importBaseProducts || [],
+      importBaseProducts: mergedImportBaseProducts,
       businessViews: Array.isArray(published?.businessViews) && published.businessViews.length
         ? published.businessViews
         : (Array.isArray(doc.businessViews) ? doc.businessViews : []),

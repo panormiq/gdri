@@ -44,7 +44,7 @@ if ($isLoggedIn) {
     // Pas de fallback Mongo côté PHP: source de vérité = API Node.
 }
 
-$hasEntrepriseDropdown = ($isLoggedIn && count($userEntreprises) > 1);
+$hasEntrepriseDropdown = canOpenEntrepriseSelector($userEntreprises);
 $entrepriseSelectorLabel = 'Changer entreprise';
 if ($currentEntreprise) {
     $entrepriseName = $currentEntreprise['name'] ?? '';
@@ -52,6 +52,20 @@ if ($currentEntreprise) {
     if (strcasecmp(trim($entrepriseName), trim($siteName)) !== 0) {
         $entrepriseSelectorLabel = $entrepriseName ?: 'Entreprise';
     }
+}
+
+$showAdminSidebar = shouldShowAdminSidebar();
+syncGdriAdminNavModeFromPage();
+$gdriNavMode = getGdriAdminNavMode(!empty($currentEntreprise));
+$userEmail = trim((string) ($_SESSION['user_email'] ?? ''));
+$userInitials = getUserInitials();
+if ($showAdminSidebar) {
+    $GLOBALS['gdri_admin_shell_open'] = true;
+}
+
+$displayEntrepriseName = '';
+if ($currentEntreprise) {
+    $displayEntrepriseName = trim((string) ($currentEntreprise['name'] ?? ''));
 }
 ?>
 <!DOCTYPE html>
@@ -66,6 +80,7 @@ if ($currentEntreprise) {
     <link rel="stylesheet" href="<?php echo url('assets/css/main.css'); ?>">
     <link rel="stylesheet" href="<?php echo url('assets/css/modal.css'); ?>">
     <link rel="stylesheet" href="<?php echo url('assets/css/responsive.css'); ?>">
+    <link rel="stylesheet" href="<?php echo url('assets/css/admin-shell.css'); ?>">
     <?php if (!empty($extra_styles) && is_array($extra_styles)): ?>
         <?php foreach ($extra_styles as $stylePath): ?>
             <link rel="stylesheet" href="<?php echo htmlspecialchars($stylePath); ?>">
@@ -91,8 +106,9 @@ if ($currentEntreprise) {
         (async function() {
             const jwtToken = <?= json_encode($jwt_token, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
             const apiBaseUrl = <?= json_encode($api_base_url, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
-            
-            if (jwtToken) {
+
+            window.gdriJwtReady = (async function syncGdriJwtCookie() {
+                if (!jwtToken) return false;
                 try {
                     const response = await fetch(`${apiBaseUrl}/auth/set-cookie-from-gdr`, {
                         method: 'POST',
@@ -100,15 +116,17 @@ if ($currentEntreprise) {
                         credentials: 'include',
                         body: JSON.stringify({ token: jwtToken })
                     });
-                    
                     const data = await response.json();
                     if (data.success) {
-                        console.log('✅ Cookie JWT défini automatiquement par GDRI');
+                        window.GDRI_JWT = jwtToken;
+                        console.log('✅ Cookie JWT synchronisé');
+                        return true;
                     }
                 } catch (error) {
-                    console.warn('⚠️ Impossible de définir le cookie JWT automatiquement:', error);
+                    console.warn('⚠️ Impossible de synchroniser le cookie JWT:', error);
                 }
-            }
+                return false;
+            })();
         })();
         <?php endif; ?>
         <?php endif; ?>
@@ -123,169 +141,105 @@ if ($currentEntreprise) {
         <?php endif; ?>
     </script>
 </head>
-<body>
-    <!-- Header / Navigation -->
-    <header class="header" id="header">
-        <div class="container">
+<body<?php echo !empty($showAdminSidebar) ? ' class="has-admin-sidebar"' : ''; ?>>
+    <header class="header header--minimal" id="header">
+        <div class="container header-container">
             <div class="header-content">
-                <!-- Logo GDRI -->
-                <div class="logo">
-                    <a href="<?php echo url('index.php'); ?>">
-                        <img src="<?php echo url('assets/images/logo-gdri.png'); ?>" alt="GDR-Innovation Logo">
-                        <span class="logo-text">GDR-Innovation</span>
-                    </a>
-                </div>
-                
-                <!-- Logo Entreprise Active (si connectÃ©) -->
-                <?php if ($isLoggedIn && $currentEntreprise && strtolower(trim($currentEntreprise['name'] ?? '')) !== strtolower(trim(defined('SITE_NAME') ? SITE_NAME : ''))): ?>
-                <div class="entreprise-logo">
-                    <?php if (!empty($currentEntreprise['logo'])): ?>
-                        <img src="<?php echo htmlspecialchars($currentEntreprise['logo']); ?>" 
-                             alt="<?php echo htmlspecialchars($currentEntreprise['name'] ?? 'Entreprise'); ?>" 
-                             class="entreprise-logo-img">
-                    <?php else: ?>
-                        <div class="entreprise-logo-placeholder">
-                            <?php echo htmlspecialchars(mb_substr($currentEntreprise['name'] ?? 'E', 0, 1)); ?>
-                        </div>
+                <div class="header-zone header-zone--left">
+                    <?php if ($showAdminSidebar): ?>
+                    <button class="sidebar-toggle" id="sidebarToggle" type="button" aria-label="Menu">☰</button>
                     <?php endif; ?>
-                    <?php if (empty($hasEntrepriseDropdown)): ?>
-                    <span class="entreprise-name"><?php echo htmlspecialchars($currentEntreprise['name'] ?? 'Entreprise'); ?></span>
-                    <?php endif; ?>
+                    <div class="logo header-logo">
+                        <a href="<?php echo htmlspecialchars(getGdriLogoHomeUrl()); ?>">
+                            <img src="<?php echo url('assets/images/logo-gdri.png'); ?>" alt="GDR-Innovation Logo">
+                            <span class="logo-text">GDR-Innovation</span>
+                        </a>
+                    </div>
                 </div>
-                <?php endif; ?>
 
-                <?php if ($hasEntrepriseDropdown): ?>
-                <div class="entreprise-selector">
-                    <button class="entreprise-selector-btn" id="entrepriseSelectorBtn" type="button">
-                        <span class="entreprise-selector-label"><?php echo htmlspecialchars($entrepriseSelectorLabel); ?></span>
-                        <span class="entreprise-selector-action">Changer</span>
-                    </button>
-                </div>
-                <?php endif; ?>
-
-                <!-- Navigation -->
-                <nav class="nav" id="nav">
-                    <ul class="nav-list">
-                        <?php if ($isLoggedIn): ?>
-                            <?php if ($userRole === 'ADMIN_GDRI'): ?>
-                                <!-- Navigation Admin GDRI : Modules = usage user, Configuration (entité) = sous-menu Modules / Utilisateurs, Administration = plateforme -->
-                                <li><a href="<?php echo url('pages/dashboard.php'); ?>" class="nav-link">Accueil</a></li>
-                                <li><a href="<?php echo url('pages/modules.php'); ?>" class="nav-link">Modules</a></li>
-                                <?php if (!empty($currentEntreprise)): ?>
-                                <li class="nav-item-dropdown">
-                                    <div class="dropdown">
-                                        <button class="dropdown-toggle" id="configMenuDropdown" type="button" aria-haspopup="true" aria-expanded="false">
-                                            <span class="dropdown-text">Configuration</span>
-                                            <span class="dropdown-arrow">v</span>
-                                        </button>
-                                        <ul class="dropdown-menu" id="configMenuDropdownMenu">
-                                            <li><a href="<?php echo url('pages/entity-config.php'); ?>" class="dropdown-item">Modules</a></li>
-                                            <li><a href="<?php echo url('pages/users.php'); ?>" class="dropdown-item">Utilisateurs</a></li>
-                                            <li><a href="<?php echo url('pages/modules/entity-roles.php'); ?>" class="dropdown-item">Roles</a></li>
-                                        </ul>
-                                    </div>
-                                </li>
-                                <?php endif; ?>
-                                <li class="nav-item-dropdown">
-                                    <div class="dropdown">
-                                        <button class="dropdown-toggle" id="adminMenuDropdown" type="button" aria-haspopup="true" aria-expanded="false">
-                                            <span class="dropdown-text">Administration</span>
-                                            <span class="dropdown-arrow">v</span>
-                                        </button>
-                                        <ul class="dropdown-menu" id="adminMenuDropdownMenu">
-                                            <li><a href="<?php echo url('pages/entities.php'); ?>" class="dropdown-item">Entites</a></li>
-                                            <li><a href="<?php echo url('pages/users.php'); ?>" class="dropdown-item">Utilisateurs</a></li>
-                                            <li><a href="<?php echo url('pages/user-activity.php'); ?>" class="dropdown-item">Suivi utilisateurs</a></li>
-                                            <li><a href="<?php echo url('pages/admin-modules.php'); ?>" class="dropdown-item">Modules</a></li>
-                                        </ul>
-                                    </div>
-                                </li>
-                                <li class="nav-item-dropdown">
-                                    <div class="dropdown">
-                                        <button class="dropdown-toggle" id="accountMenuDropdown" type="button" aria-haspopup="true" aria-expanded="false">
-                                            <span class="dropdown-text">Mon compte</span>
-                                            <span class="dropdown-arrow">v</span>
-                                        </button>
-                                        <ul class="dropdown-menu" id="accountMenuDropdownMenu">
-                                            <li><a href="<?php echo url('pages/account-modules.php'); ?>" class="dropdown-item">Configurer mes modules</a></li>
-                                            <li><a href="<?php echo url('pages/account-profile.php'); ?>" class="dropdown-item">Mes données</a></li>
-                                            <li><a href="<?php echo url('pages/account-notifications.php'); ?>" class="dropdown-item">Mes notifications</a></li>
-                                        </ul>
-                                    </div>
-                                </li>
-                                <li><a href="<?php echo url('auth/logout.php'); ?>" class="nav-link">Deconnexion</a></li>
-                            <?php elseif ($userRole === 'ADMIN_ENTITY'): ?>
-                                <!-- Navigation Admin Entity : Modules = usage user, Configuration = sous-menu Modules / Utilisateurs -->
-                                <li><a href="<?php echo url('pages/dashboard.php'); ?>" class="nav-link">Accueil</a></li>
-                                <li><a href="<?php echo url('pages/modules.php'); ?>" class="nav-link">Modules</a></li>
-                                <li class="nav-item-dropdown">
-                                    <div class="dropdown">
-                                        <button class="dropdown-toggle" id="configMenuDropdown" type="button" aria-haspopup="true" aria-expanded="false">
-                                            <span class="dropdown-text">Configuration</span>
-                                            <span class="dropdown-arrow">v</span>
-                                        </button>
-                                        <ul class="dropdown-menu" id="configMenuDropdownMenu">
-                                            <li><a href="<?php echo url('pages/entity-config.php'); ?>" class="dropdown-item">Modules</a></li>
-                                            <li><a href="<?php echo url('pages/users.php'); ?>" class="dropdown-item">Utilisateurs</a></li>
-                                            <li><a href="<?php echo url('pages/modules/entity-roles.php'); ?>" class="dropdown-item">Roles</a></li>
-                                        </ul>
-                                    </div>
-                                </li>
-                                <li class="nav-item-dropdown">
-                                    <div class="dropdown">
-                                        <button class="dropdown-toggle" id="accountMenuDropdown" type="button" aria-haspopup="true" aria-expanded="false">
-                                            <span class="dropdown-text">Mon compte</span>
-                                            <span class="dropdown-arrow">v</span>
-                                        </button>
-                                        <ul class="dropdown-menu" id="accountMenuDropdownMenu">
-                                            <li><a href="<?php echo url('pages/account-modules.php'); ?>" class="dropdown-item">Configurer mes modules</a></li>
-                                            <li><a href="<?php echo url('pages/account-profile.php'); ?>" class="dropdown-item">Mes données</a></li>
-                                            <li><a href="<?php echo url('pages/account-notifications.php'); ?>" class="dropdown-item">Mes notifications</a></li>
-                                        </ul>
-                                    </div>
-                                </li>
-                                <li><a href="<?php echo url('auth/logout.php'); ?>" class="nav-link">Deconnexion</a></li>
-                            <?php else: ?>
-                                <!-- Navigation User Entity -->
-                                <li><a href="<?php echo url('pages/dashboard.php'); ?>" class="nav-link">Accueil</a></li>
-                                <li><a href="<?php echo url('pages/modules.php'); ?>" class="nav-link">Modules</a></li>
-                                <li class="nav-item-dropdown">
-                                    <div class="dropdown">
-                                        <button class="dropdown-toggle" id="accountMenuDropdown" type="button" aria-haspopup="true" aria-expanded="false">
-                                            <span class="dropdown-text">Mon compte</span>
-                                            <span class="dropdown-arrow">v</span>
-                                        </button>
-                                        <ul class="dropdown-menu" id="accountMenuDropdownMenu">
-                                            <li><a href="<?php echo url('pages/account-modules.php'); ?>" class="dropdown-item">Configurer mes modules</a></li>
-                                            <li><a href="<?php echo url('pages/account-profile.php'); ?>" class="dropdown-item">Mes données</a></li>
-                                            <li><a href="<?php echo url('pages/account-notifications.php'); ?>" class="dropdown-item">Mes notifications</a></li>
-                                        </ul>
-                                    </div>
-                                </li>
-                                <li><a href="<?php echo url('auth/logout.php'); ?>" class="nav-link">Deconnexion</a></li>
+                <?php if ($isLoggedIn): ?>
+                <div class="header-zone header-zone--center">
+                    <?php if ($displayEntrepriseName !== ''): ?>
+                        <?php if ($hasEntrepriseDropdown): ?>
+                        <button type="button" class="header-context-card header-context-card--clickable<?php echo ($gdriNavMode === 'platform' && hasRole(ROLE_ADMIN_GDRI)) ? ' header-context-card--platform-active' : ''; ?>" id="entrepriseSelectorBtn">
+                            <span class="header-context-card__label">Espace de travail</span>
+                            <?php if ($gdriNavMode === 'platform' && hasRole(ROLE_ADMIN_GDRI)): ?>
+                            <span class="header-context-card__mode-tag">Console active</span>
                             <?php endif; ?>
+                            <span class="header-context-card__value"><?php echo htmlspecialchars($displayEntrepriseName); ?></span>
+                            <span class="header-context-card__action">Changer</span>
+                        </button>
                         <?php else: ?>
-                            <!-- Navigation publique -->
+                        <div class="header-context-card<?php echo ($gdriNavMode === 'platform' && hasRole(ROLE_ADMIN_GDRI)) ? ' header-context-card--platform-active' : ''; ?>">
+                            <span class="header-context-card__label">Espace de travail</span>
+                            <?php if ($gdriNavMode === 'platform' && hasRole(ROLE_ADMIN_GDRI)): ?>
+                            <span class="header-context-card__mode-tag">Console active</span>
+                            <?php endif; ?>
+                            <span class="header-context-card__value"><?php echo htmlspecialchars($displayEntrepriseName); ?></span>
+                        </div>
+                        <?php endif; ?>
+                    <?php elseif (hasRole(ROLE_ADMIN_GDRI) && $gdriNavMode === 'platform'): ?>
+                        <?php if ($hasEntrepriseDropdown): ?>
+                        <button type="button" class="header-context-card header-context-card--clickable header-context-card--platform" id="entrepriseSelectorBtn">
+                            <span class="header-context-card__label">Console éditeur</span>
+                            <span class="header-context-card__value">Plateforme GDRI</span>
+                            <span class="header-context-card__action">Entité</span>
+                        </button>
+                        <?php else: ?>
+                        <div class="header-context-card header-context-card--platform">
+                            <span class="header-context-card__label">Console éditeur</span>
+                            <span class="header-context-card__value">Plateforme GDRI</span>
+                        </div>
+                        <?php endif; ?>
+                    <?php elseif ($hasEntrepriseDropdown): ?>
+                        <button type="button" class="header-context-card header-context-card--clickable" id="entrepriseSelectorBtn">
+                            <span class="header-context-card__label">Espace de travail</span>
+                            <span class="header-context-card__value">Choisir une entité</span>
+                            <span class="header-context-card__action">Changer</span>
+                        </button>
+                    <?php endif; ?>
+                </div>
+                <?php endif; ?>
+
+                <div class="header-zone header-zone--right">
+                    <?php if ($isLoggedIn): ?>
+                    <div class="dropdown user-panel">
+                        <button class="user-panel-btn dropdown-toggle" id="userPanelDropdown" type="button" aria-haspopup="true" aria-expanded="false">
+                            <span class="user-avatar"><?php echo htmlspecialchars($userInitials); ?></span>
+                            <?php if ($userEmail !== ''): ?>
+                            <span class="user-panel-email"><?php echo htmlspecialchars($userEmail); ?></span>
+                            <?php endif; ?>
+                        </button>
+                        <ul class="dropdown-menu dropdown-menu--right" id="userPanelDropdownMenu">
+                            <?php if (!hasRole(ROLE_ADMIN_GDRI) && !hasRole(ROLE_ADMIN_ENTITY)): ?>
+                            <li><a href="<?php echo url('pages/modules.php'); ?>" class="dropdown-item">Applications</a></li>
+                            <?php endif; ?>
+                            <li><a href="<?php echo url('pages/account-modules.php'); ?>" class="dropdown-item">Mes applications</a></li>
+                            <li><a href="<?php echo url('pages/account-profile.php'); ?>" class="dropdown-item">Mes données</a></li>
+                            <li><a href="<?php echo url('pages/account-notifications.php'); ?>" class="dropdown-item">Mes notifications</a></li>
+                            <li><a href="<?php echo url('auth/logout.php'); ?>" class="dropdown-item">Déconnexion</a></li>
+                        </ul>
+                    </div>
+                    <?php else: ?>
+                    <nav class="nav nav--public" id="nav">
+                        <ul class="nav-list">
                             <li><a href="<?php echo url('index.php'); ?>" class="nav-link">Accueil</a></li>
                             <li><a href="<?php echo url('pages/agents.php'); ?>" class="nav-link">Nos Agents</a></li>
                             <li><a href="<?php echo url('pages/contact.php'); ?>" class="nav-link">Contact</a></li>
                             <li><button id="loginBtn" class="btn btn-primary">Connexion</button></li>
-                        <?php endif; ?>
-                    </ul>
-                </nav>
-
-                <!-- Menu Toggle (Mobile) -->
-                <button class="menu-toggle" id="menuToggle" aria-label="Menu">
-                    <span></span>
-                    <span></span>
-                    <span></span>
-                </button>
+                        </ul>
+                    </nav>
+                    <button class="menu-toggle" id="menuToggle" aria-label="Menu">
+                        <span></span><span></span><span></span>
+                    </button>
+                    <?php endif; ?>
+                </div>
             </div>
         </div>
     </header>
 
     <!-- Espace pour le header fixe -->
-    <div style="height: var(--header-height);"></div>
+    <div class="header-spacer"></div>
 
     <!-- Bandeau de developpement (visible uniquement en mode dev) -->
     <?php if (ENVIRONMENT === 'development'): ?>
@@ -414,15 +368,29 @@ async function changeEntreprise(entrepriseId) {
         const data = await response.json();
         
         if (data.success) {
-            // 2. Synchroniser la session PHP
+            // 2. Synchroniser la session PHP (+ JWT frais)
             const syncUrl = '<?php echo url('auth/sync-entreprise.php'); ?>';
-            await fetch(syncUrl, {
+            const syncRes = await fetch(syncUrl, {
                 method: 'GET',
                 credentials: 'include'
             });
-            
-            // 3. Recharger la page pour mettre a jour l'affichage
-            window.location.reload();
+            const syncData = await syncRes.json().catch(() => ({}));
+
+            // 3. Aligner le cookie HttpOnly (prioritaire côté API Node)
+            const tokenToSet = syncData.jwt || data.data?.token || null;
+            if (tokenToSet) {
+                await fetch(window.API_BASE_URL + '/auth/set-cookie-from-gdr', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    credentials: 'include',
+                    body: JSON.stringify({ token: tokenToSet })
+                });
+            }
+
+            // 4. Rechargement complet (évite le cache navigateur / bfcache)
+            const url = new URL(window.location.href);
+            url.searchParams.set('_ent', String(Date.now()));
+            window.location.replace(url.toString());
         } else {
             alert('Erreur lors du changement d\'entreprise: ' + (data.message || 'Erreur inconnue'));
         }
@@ -432,12 +400,10 @@ async function changeEntreprise(entrepriseId) {
     }
 }
 
-// Gestion du menu deroulant
+// Gestion des menus header
 document.addEventListener('DOMContentLoaded', function() {
     const dropdownPairs = [
-        { buttonId: 'adminMenuDropdown', menuId: 'adminMenuDropdownMenu' },
-        { buttonId: 'configMenuDropdown', menuId: 'configMenuDropdownMenu' },
-        { buttonId: 'accountMenuDropdown', menuId: 'accountMenuDropdownMenu' }
+        { buttonId: 'userPanelDropdown', menuId: 'userPanelDropdownMenu' }
     ];
 
     dropdownPairs.forEach(({ buttonId, menuId }) => {
@@ -452,7 +418,6 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     });
 
-    // Fermer les menus si on clique ailleurs
     document.addEventListener('click', function() {
         dropdownPairs.forEach(({ buttonId, menuId }) => {
             const dropdown = document.getElementById(buttonId);
@@ -462,6 +427,34 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     });
 
+    const sidebar = document.getElementById('adminSidebar');
+    const sidebarToggle = document.getElementById('sidebarToggle');
+    const sidebarBackdrop = document.getElementById('adminSidebarBackdrop');
+
+    function closeSidebar() {
+        if (sidebar) sidebar.classList.remove('is-open');
+        if (sidebarBackdrop) sidebarBackdrop.hidden = true;
+    }
+
+    function openSidebar() {
+        if (sidebar) sidebar.classList.add('is-open');
+        if (sidebarBackdrop) sidebarBackdrop.hidden = false;
+    }
+
+    if (sidebarToggle) {
+        sidebarToggle.addEventListener('click', function() {
+            if (sidebar && sidebar.classList.contains('is-open')) {
+                closeSidebar();
+            } else {
+                openSidebar();
+            }
+        });
+    }
+    if (sidebarBackdrop) {
+        sidebarBackdrop.addEventListener('click', closeSidebar);
+    }
+
+    const sidebarEntrepriseBtn = document.getElementById('sidebarEntrepriseBtn');
     const entrepriseBtn = document.getElementById('entrepriseSelectorBtn');
     const entrepriseModal = document.getElementById('entrepriseModal');
     const entrepriseModalClose = document.getElementById('entrepriseModalClose');
@@ -506,6 +499,9 @@ document.addEventListener('DOMContentLoaded', function() {
     if (entrepriseBtn) {
         entrepriseBtn.addEventListener('click', openEntrepriseModal);
     }
+    if (sidebarEntrepriseBtn) {
+        sidebarEntrepriseBtn.addEventListener('click', openEntrepriseModal);
+    }
     if (entrepriseModal) {
         entrepriseModal.addEventListener('click', function(event) {
             if (event.target === entrepriseModal) {
@@ -534,4 +530,10 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 });
 </script>
+<?php endif; ?>
+
+<?php if (!empty($showAdminSidebar)): ?>
+<div class="app-shell">
+    <?php require __DIR__ . '/admin-sidebar.php'; ?>
+    <main class="app-main">
 <?php endif; ?>

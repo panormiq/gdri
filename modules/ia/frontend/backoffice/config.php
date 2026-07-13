@@ -10,7 +10,7 @@ if (!hasRole(ROLE_ADMIN_GDRI)) {
     redirect(url('pages/dashboard.php'));
 }
 
-$page_title = 'IA – Serveurs';
+$page_title = 'Console GDRI – Serveurs IA';
 require_once GDRI_ROOT . '/frontend/includes/header.php';
 
 $jwt_token = getJWTToken();
@@ -19,9 +19,9 @@ $api_base_url = rtrim(getApiBaseUrl(), '/');
 
 <section class="section">
     <div class="container">
-        <h1 class="mb-4">Serveurs IA</h1>
-        <p class="text-muted small mb-1">Les serveurs sont enregistrés en base. Utilisez &laquo;&nbsp;Ajouter un serveur&nbsp;&raquo; pour créer un serveur depuis un preset (backendIA, Ollama local, etc.). Test et liste des modèles s’appuient sur le backend Node (proxy <code>/api</code>).</p>
-        <p class="text-muted small mb-3">Le bouton &laquo;&nbsp;Tester&nbsp;&raquo; vérifie uniquement que l’URL du serveur répond. Le bouton &laquo;&nbsp;Lister les modèles&nbsp;&raquo; vérifie en plus le token (IA_SERVICE_TOKEN / clé API) et renverra 401 si le token est invalide.</p>
+        <h1 class="mb-4">Console GDRI – Serveurs IA</h1>
+        <p class="text-muted small mb-1">Créez et maintenez les serveurs distribués aux entités (URL, clés, presets, mode mutualisé/privé/dédié).</p>
+        <p class="text-muted small mb-3">Les entités configurent leurs propres clés (Anthropic, OpenAI…) dans Paramètres → Structurel. Ici : serveurs <strong>distribués plateforme</strong>.</p>
 
         <div id="serversApiMessage" class="alert alert-info small mb-3" style="display:none;"></div>
         <div class="mb-4">
@@ -190,6 +190,19 @@ $api_base_url = rtrim(getApiBaseUrl(), '/');
         el.className = 'small mt-2 ' + (type === 'error' ? 'text-danger' : type === 'success' ? 'text-success' : 'text-muted');
     }
 
+    function isMutualizedPlatformServer(s) {
+        if (!s || s.scope !== 'global') return false;
+        var mode = s.mode ? String(s.mode).trim() : '';
+        if (mode === 'mutualized') return true;
+        var hasOwner = !!(s.owner_entity_id && String(s.owner_entity_id).trim());
+        if (!hasOwner && mode !== 'private' && mode !== 'dedicated') return true;
+        return false;
+    }
+
+    function canDeleteServer(s) {
+        return !isMutualizedPlatformServer(s);
+    }
+
     function buildServerList() {
         const ul = document.getElementById('serverList');
         ul.innerHTML = '';
@@ -350,7 +363,7 @@ $api_base_url = rtrim(getApiBaseUrl(), '/');
         actionsDiv.innerHTML =
             '<button type="button" class="btn btn-sm btn-outline btn-test">Tester</button>' +
             '<button type="button" class="btn btn-sm btn-primary btn-save">Enregistrer</button>' +
-            '<button type="button" class="btn btn-sm btn-outline-danger btn-delete">Supprimer</button>';
+            (canDeleteServer(s) ? '<button type="button" class="btn btn-sm btn-outline-danger btn-delete">Supprimer</button>' : '');
 
         modelsDiv.innerHTML = '<p class="text-muted small mb-2">Chargement des modèles disponibles…</p>';
         if (entitiesDiv) entitiesDiv.innerHTML = '';
@@ -1128,6 +1141,11 @@ $api_base_url = rtrim(getApiBaseUrl(), '/');
     }
 
     function doDelete(serverId, msgEl) {
+        var s = servers.find(function(x) { return String(x._id) === String(serverId); });
+        if (s && isMutualizedPlatformServer(s)) {
+            setMsg(msgEl, 'Ce serveur mutualisé GDRI ne peut pas être supprimé.', 'error');
+            return;
+        }
         if (!confirm('Supprimer ce serveur ?')) return;
         setMsg(msgEl, 'Suppression…', 'muted');
         fetch(API_BASE + '/servers/' + serverId, { method: 'DELETE', headers: headers() })

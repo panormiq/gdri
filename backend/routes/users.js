@@ -6,13 +6,17 @@
 const express = require('express');
 const router = express.Router();
 const database = require('../config/database');
-const { authenticateJWT } = require('../config/jwt');
+const { authenticateJWT, signToken, setAuthTokenCookie } = require('../config/jwt');
 const Entity = require('../models/Entity');
 const { ObjectId } = require('mongodb');
 const bcrypt = require('bcrypt');
 const crypto = require('crypto');
 const path = require('path');
 const mailModule = require(path.join(__dirname, '../../modules/mail/backend'));
+const {
+  resolveInitialUserServiceIds,
+  resolveUserEntityServices
+} = require('../core/entity-user-services');
 
 const TOKEN_INVITE_TTL_HOURS = 48;
 const TOKEN_RESET_TTL_HOURS = 2;
@@ -347,6 +351,7 @@ router.post('/', authenticateJWT, async (req, res) => {
 
       try {
         const entrepriseDb = await database.getEntrepriseDb(entityId);
+        const initialServiceIds = resolveInitialUserServiceIds(entity, roleInEntity);
         const entrepriseUsersCollection = entrepriseDb.collection('users');
         await entrepriseUsersCollection.updateOne(
           { userId: new ObjectId(existingUser._id) },
@@ -355,6 +360,7 @@ router.post('/', authenticateJWT, async (req, res) => {
               userId: new ObjectId(existingUser._id),
               email: normalizedEmail,
               role: roleInEntity,
+              services_authorized: initialServiceIds.map((id) => new ObjectId(id)),
               addedAt: now,
               updatedAt: now
             }
@@ -413,6 +419,7 @@ router.post('/', authenticateJWT, async (req, res) => {
 
     try {
       const entrepriseDb = await database.getEntrepriseDb(entityId);
+      const initialServiceIds = resolveInitialUserServiceIds(entity, roleInEntity);
       const entrepriseUsersCollection = entrepriseDb.collection('users');
       await entrepriseUsersCollection.updateOne(
         { userId: new ObjectId(newUserId) },
@@ -421,6 +428,7 @@ router.post('/', authenticateJWT, async (req, res) => {
             userId: new ObjectId(newUserId),
             email: normalizedEmail,
             role: roleInEntity,
+            services_authorized: initialServiceIds.map((id) => new ObjectId(id)),
             addedAt: now,
             updatedAt: now
           }
@@ -792,29 +800,28 @@ router.get('/me/header-context', authenticateJWT, async (req, res) => {
     }
 
     let userEntreprises = [];
-    if (req.user.role === 'ADMIN_GDRI') {
-      userEntreprises = await entitiesCollection.find({ status: 'active' }).toArray();
-    } else {
-      const userEntreprisesList = user.entreprises || [];
-      const entrepriseIds = [];
-      userEntreprisesList.forEach((ue) => {
-        if (ue && ue.entrepriseId) entrepriseIds.push(new ObjectId(String(ue.entrepriseId)));
-      });
-      if (entrepriseIds.length > 0) {
-        userEntreprises = await entitiesCollection.find({
-          _id: { $in: entrepriseIds },
-          status: 'active'
-        }).toArray();
-      }
+    const userEntreprisesList = user.entreprises || [];
+    const entrepriseIds = [];
+    userEntreprisesList.forEach((ue) => {
+      if (ue && ue.entrepriseId) entrepriseIds.push(new ObjectId(String(ue.entrepriseId)));
+    });
+    if (entrepriseIds.length > 0) {
+      userEntreprises = await entitiesCollection.find({
+        _id: { $in: entrepriseIds },
+        status: 'active'
+      }).toArray();
     }
 
     let currentEntreprise = null;
     const currentEntrepriseId = user.currentEntrepriseId ? String(user.currentEntrepriseId) : null;
     if (currentEntrepriseId) {
-      currentEntreprise = await entitiesCollection.findOne({
-        _id: new ObjectId(currentEntrepriseId),
-        status: 'active'
-      });
+      const isMember = entrepriseIds.some((id) => String(id) === currentEntrepriseId);
+      if (isMember) {
+        currentEntreprise = await entitiesCollection.findOne({
+          _id: new ObjectId(currentEntrepriseId),
+          status: 'active'
+        });
+      }
     }
     if (!currentEntreprise && userEntreprises.length > 0) {
       currentEntreprise = userEntreprises[0];
@@ -857,51 +864,23 @@ router.get('/me/services-context', authenticateJWT, async (req, res) => {
     const currentEntrepriseId = req.user.currentEntrepriseId || req.user.entrepriseId || null;
 
     const db = await database.connect();
-    const usersCollection = db.collection('users');
-    const entitiesCollection = db.collection('entities');
     const servicesCollection = db.collection('services');
-
-    const user = await usersCollection.findOne({ _id: new ObjectId(userId) });
-    if (!user) return res.status(404).json({ success: false, message: 'Utilisateur non trouvé' });
 
     let services = [];
     if (role === 'ADMIN_GDRI' && !currentEntrepriseId) {
-      services = await servicesCollection.find({}).toArray();
+      services = await servicesCollection.find({ status: 'active' }).toArray();
     } else {
       if (!currentEntrepriseId || !/^[a-f0-9]{24}$/i.test(String(currentEntrepriseId))) {
         return res.json({ success: true, data: { services: [] } });
       }
-      const entity = await entitiesCollection.findOne({ _id: new ObjectId(String(currentEntrepriseId)) });
-      const authorizedIds = Array.isArray(entity?.services_authorized) ? entity.services_authorized : [];
-      if (authorizedIds.length > 0) {
-        services = await servicesCollection.find({ _id: { $in: authorizedIds } }).toArray();
-      }
 
-      // Permissions par défaut par rôle (admin/user) au niveau entité.
-      const roleKey = role === 'ADMIN_ENTITY' ? 'admin' : 'user';
-      const defaultsRaw = Array.isArray(entity?.default_module_permissions?.[roleKey])
-        ? entity.default_module_permissions[roleKey]
-        : null;
-      if (Array.isArray(defaultsRaw)) {
-        const defaultSet = new Set(defaultsRaw.map((x) => String(x)));
-        services = services.filter((s) => defaultSet.has(String(s._id)));
-      }
-
-      // Restriction complémentaire user (services_authorized dans base entreprise)
-      if (role === 'USER_ENTITY' || role === 'ADMIN_ENTITY') {
-        try {
-          const entrepriseDb = await database.getEntrepriseDb(String(currentEntrepriseId));
-          const userRef = await entrepriseDb.collection('users').findOne({ userId: new ObjectId(userId) });
-          const hasUserSpecificRules = Array.isArray(userRef?.services_authorized);
-          const userAllowed = hasUserSpecificRules ? userRef.services_authorized.map((x) => String(x)) : null;
-          if (hasUserSpecificRules) {
-            const allowSet = new Set(userAllowed);
-            services = services.filter((s) => allowSet.has(String(s._id)));
-          }
-        } catch (e) {
-          // On conserve la vue entité si la base entreprise n'est pas accessible.
-        }
-      }
+      const resolved = await resolveUserEntityServices(db, {
+        userId: String(userId),
+        entityId: String(currentEntrepriseId),
+        jwtRole: role,
+        bypassUserRestrictions: role === 'ADMIN_GDRI'
+      });
+      services = resolved.services;
     }
 
     res.json({
@@ -914,6 +893,10 @@ router.get('/me/services-context', authenticateJWT, async (req, res) => {
           description: s.description || '',
           icon: s.icon || '🧩',
           status: s.status || 'inactive',
+          catalog_type: s.catalog_type || 'app',
+          catalog_visibility: s.catalog_visibility || 'public',
+          catalog_parent_app: s.catalog_parent_app || null,
+          catalog_entry_url: s.catalog_entry_url || null,
           created_at: s.created_at || null
         }))
       }
@@ -932,7 +915,6 @@ router.put('/me/current-entreprise', authenticateJWT, async (req, res) => {
   try {
     const userId = req.user.user_id;
     const { entrepriseId } = req.body;
-    const isAdminGdri = req.user.role === 'ADMIN_GDRI';
     
     if (!entrepriseId) {
       return res.status(400).json({
@@ -965,7 +947,7 @@ router.put('/me/current-entreprise', authenticateJWT, async (req, res) => {
       return eId === entrepriseIdStr;
     });
     
-    if (!hasEntreprise && !isAdminGdri) {
+    if (!hasEntreprise) {
       return res.status(403).json({
         success: false,
         message: 'Vous n\'avez pas accès à cette entreprise'
@@ -993,29 +975,26 @@ router.put('/me/current-entreprise', authenticateJWT, async (req, res) => {
       }
     };
 
-    if (isAdminGdri && !hasEntreprise) {
-      updateDoc.$push = {
-        entreprises: {
-          entrepriseId: new ObjectId(entrepriseId),
-          role: 'admin',
-          joinedAt: new Date()
-        }
-      };
-    }
-
     await usersCollection.updateOne(
       { _id: new ObjectId(userId) },
       updateDoc
     );
-    
-    // ⚠️ NOTE : La session PHP sera mise à jour lors du prochain rechargement de page
-    // car le JWT sera régénéré avec le nouveau currentEntrepriseId depuis MongoDB
+
+    const freshToken = signToken({
+      user_id: String(userId),
+      currentEntrepriseId: entrepriseIdStr,
+      entrepriseId: entrepriseIdStr,
+      role: user.role || req.user.role || 'USER_ENTITY',
+      email: user.email || req.user.email || ''
+    });
+    setAuthTokenCookie(req, res, freshToken);
     
     res.json({
       success: true,
       message: 'Entreprise active mise à jour',
       data: {
         currentEntrepriseId: entrepriseId,
+        token: freshToken,
         entreprise: {
           _id: entreprise._id.toString(),
           name: entreprise.name,

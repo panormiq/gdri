@@ -333,32 +333,6 @@ Analyse maintenant le(s) message(s) suivant(s) :</textarea>
                         </small>
                     </div>
 
-                    <!-- Test dataset 1000 emails -->
-                    <div class="form-group dataset-test-section">
-                        <h3>Test de détection d'intention (dataset)</h3>
-                        <p class="form-text text-muted" style="margin-bottom: 12px;">
-                            Lance l'analyse IA sur le fichier de test de 1000 emails (aucun mail n'est envoyé).
-                            Les résultats incluent l'identifiant, les intentions détectées et le pourcentage de confiance.
-                        </p>
-                        <div id="datasetTestProgressWrap" class="dataset-test-progress" style="display: none;">
-                            <div class="dataset-test-progress-bar">
-                                <div id="datasetTestProgressBar" class="dataset-test-progress-fill"></div>
-                            </div>
-                            <p id="datasetTestProgressText" class="dataset-test-progress-text">0 / 0</p>
-                        </div>
-                        <div class="form-actions" style="margin-top: 0;">
-                            <button type="button" class="btn btn-outline" id="testDataset10Btn">
-                                🧪 Tester 10 emails
-                            </button>
-                            <button type="button" class="btn btn-outline" id="testDatasetBtn">
-                                📧 Tester 1000 emails
-                            </button>
-                            <button type="button" class="btn btn-primary" id="downloadDatasetResultsBtn" style="display: none;">
-                                ⬇️ Télécharger les résultats JSON
-                            </button>
-                        </div>
-                    </div>
-
                     <!-- Boutons d'action -->
                     <div class="form-actions">
                         <button type="submit" class="btn btn-primary">
@@ -1610,7 +1584,7 @@ async function loadAgentConfig(options) {
     const silent = !!(options && options.silent);
     try {
         const pageId = getSelectedPageId();
-        const url = pageId ? `${API_BASE_URL}/analyse/agent-config?pageId=${encodeURIComponent(pageId)}` : `${API_BASE_URL}/analyse/agent-config`;
+        const url = pageId ? `${API_BASE_URL}/facebook/agent-config?pageId=${encodeURIComponent(pageId)}` : `${API_BASE_URL}/facebook/agent-config`;
         console.log('🔍 Chargement config - URL:', url);
         console.log('🔍 Token JWT présent:', JWT_TOKEN ? 'Oui' : 'Non');
         
@@ -1918,7 +1892,7 @@ document.getElementById('agentConfigForm').addEventListener('submit', async (e) 
     };
     
     try {
-        const response = await fetch(`${API_BASE_URL}/analyse/agent-config`, {
+        const response = await fetch(`${API_BASE_URL}/facebook/agent-config`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -1940,185 +1914,10 @@ document.getElementById('agentConfigForm').addEventListener('submit', async (e) 
     }
 });
 
-let datasetTestResults = [];
-let datasetTestRunning = false;
-
-async function fetchDatasetTestJson(url, options = {}, retries = 3) {
-    for (let attempt = 0; attempt <= retries; attempt++) {
-        const response = await fetch(url, options);
-        const contentType = response.headers.get('content-type') || '';
-
-        if (response.status === 429 && attempt < retries) {
-            const waitSec = parseInt(response.headers.get('retry-after') || '60', 10);
-            await new Promise((resolve) => setTimeout(resolve, Math.min(waitSec, 60) * 1000));
-            continue;
-        }
-
-        const raw = await response.text();
-        if (!contentType.includes('application/json')) {
-            const preview = raw.trim().slice(0, 200);
-            throw new Error(`Réponse non-JSON (${response.status}) : ${preview || 'réponse vide'}`);
-        }
-
-        let data;
-        try {
-            data = JSON.parse(raw);
-        } catch (e) {
-            throw new Error('Réponse JSON invalide : ' + raw.trim().slice(0, 200));
-        }
-
-        if (!response.ok && !data.success) {
-            throw new Error(data.message || `Erreur HTTP ${response.status}`);
-        }
-
-        return data;
-    }
-
-    throw new Error('Trop de requêtes. Réessayez dans une minute.');
-}
-
-function updateDatasetTestProgress(processed, total) {
-    const wrap = document.getElementById('datasetTestProgressWrap');
-    const bar = document.getElementById('datasetTestProgressBar');
-    const text = document.getElementById('datasetTestProgressText');
-    if (!wrap || !bar || !text) return;
-
-    wrap.style.display = 'block';
-    const pct = total > 0 ? Math.round((processed / total) * 100) : 0;
-    bar.style.width = pct + '%';
-    text.textContent = `${processed} / ${total} emails analysés (${pct}%)`;
-}
-
-function setDatasetTestButtonsDisabled(disabled, runningLabel) {
-    const btn10 = document.getElementById('testDataset10Btn');
-    const btnAll = document.getElementById('testDatasetBtn');
-    if (btn10) {
-        btn10.disabled = disabled;
-        if (!disabled) btn10.textContent = '🧪 Tester 10 emails';
-        else if (runningLabel) btn10.textContent = runningLabel;
-    }
-    if (btnAll) {
-        btnAll.disabled = disabled;
-        if (!disabled) btnAll.textContent = '📧 Tester 1000 emails';
-        else if (runningLabel) btnAll.textContent = runningLabel;
-    }
-}
-
-function downloadDatasetResultsJson() {
-    if (!datasetTestResults.length) {
-        alert('Aucun résultat à télécharger.');
-        return;
-    }
-
-    const payload = {
-        generatedAt: new Date().toISOString(),
-        total: datasetTestResults.length,
-        results: datasetTestResults
-    };
-    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
-    link.href = url;
-    link.download = `analyse-intention-${datasetTestResults.length}-emails-${stamp}.json`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
-}
-
-async function runDatasetTest(maxEmails = 1000) {
-    if (datasetTestRunning) return;
-
-    const isQuickTest = maxEmails <= 10;
-    const confirmed = confirm(
-        isQuickTest
-            ? 'Lancer l\'analyse de 10 emails de test ?\n\nAucun mail ne sera envoyé.'
-            : 'Lancer l\'analyse de 1000 emails ?\n\nAucun mail ne sera envoyé. L\'opération peut prendre du temps selon le BackendIA.'
-    );
-    if (!confirmed) return;
-
-    const downloadBtn = document.getElementById('downloadDatasetResultsBtn');
-    const pageSelect = document.getElementById('facebookPageSelect');
-    const pageId = pageSelect && pageSelect.value ? pageSelect.value : null;
-
-    datasetTestRunning = true;
-    datasetTestResults = [];
-    setDatasetTestButtonsDisabled(true, '⏳ Analyse en cours...');
-    if (downloadBtn) downloadBtn.style.display = 'none';
-
-    let datasetTotal = maxEmails;
-    let offset = 0;
-    const batchSize = isQuickTest ? 5 : 10;
-
-    try {
-        const infoData = await fetchDatasetTestJson(`${API_BASE_URL}/analyse/test-dataset`, {
-            headers: { 'Authorization': `Bearer ${JWT_TOKEN}` }
-        });
-        if (infoData.success && infoData.data && infoData.data.total) {
-            datasetTotal = isQuickTest
-                ? Math.min(maxEmails, infoData.data.total)
-                : infoData.data.total;
-        }
-    } catch (e) {
-        console.warn('Impossible de charger les infos dataset, total par défaut =', maxEmails, e);
-    }
-
-    const total = datasetTotal;
-    updateDatasetTestProgress(0, total);
-
-    try {
-        while (offset < total) {
-            const data = await fetchDatasetTestJson(`${API_BASE_URL}/analyse/test-dataset`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${JWT_TOKEN}`
-                },
-                body: JSON.stringify({ offset, limit: batchSize, pageId })
-            });
-
-            if (!data.success) {
-                throw new Error(data.message || 'Erreur lors de l\'analyse du dataset');
-            }
-
-            if (Array.isArray(data.results)) {
-                datasetTestResults.push(...data.results);
-            }
-
-            offset += data.processed || batchSize;
-            updateDatasetTestProgress(Math.min(offset, total), total);
-
-            if (data.done || (data.processed || 0) === 0 || offset >= total) break;
-        }
-
-        if (downloadBtn) downloadBtn.style.display = 'inline-block';
-        alert(`✅ Analyse terminée : ${datasetTestResults.length} email(s) traité(s).\nVous pouvez télécharger le JSON des résultats.`);
-    } catch (error) {
-        console.error('Erreur test dataset:', error);
-        alert('❌ Erreur pendant le test dataset : ' + error.message);
-        if (datasetTestResults.length && downloadBtn) {
-            downloadBtn.style.display = 'inline-block';
-        }
-    } finally {
-        datasetTestRunning = false;
-        setDatasetTestButtonsDisabled(false);
-    }
-}
-
-const testDataset10Btn = document.getElementById('testDataset10Btn');
-if (testDataset10Btn) testDataset10Btn.addEventListener('click', () => runDatasetTest(10));
-
-const testDatasetBtn = document.getElementById('testDatasetBtn');
-if (testDatasetBtn) testDatasetBtn.addEventListener('click', () => runDatasetTest(1000));
-
-const downloadDatasetResultsBtn = document.getElementById('downloadDatasetResultsBtn');
-if (downloadDatasetResultsBtn) downloadDatasetResultsBtn.addEventListener('click', downloadDatasetResultsJson);
-
 // Tester la connexion BackendIA
 document.getElementById('testConnectionBtn').addEventListener('click', async () => {
     try {
-        const response = await fetch(`${API_BASE_URL}/analyse/test`, {
+        const response = await fetch(`${API_BASE_URL}/facebook/agent/test`, {
             headers: {
                 'Authorization': `Bearer ${JWT_TOKEN}`
             }
@@ -2342,37 +2141,6 @@ window.addEventListener('load', async () => {
     color: var(--color-gray);
     font-style: italic;
     padding: var(--spacing-md);
-}
-
-.dataset-test-section {
-    margin-top: 24px;
-    padding-top: 20px;
-    border-top: 1px solid #eee;
-}
-
-.dataset-test-progress {
-    margin-bottom: 12px;
-}
-
-.dataset-test-progress-bar {
-    width: 100%;
-    height: 10px;
-    background: #eef2f7;
-    border-radius: 999px;
-    overflow: hidden;
-}
-
-.dataset-test-progress-fill {
-    height: 100%;
-    width: 0;
-    background: linear-gradient(90deg, #4c8bf5, #2f6fed);
-    transition: width 0.25s ease;
-}
-
-.dataset-test-progress-text {
-    margin: 8px 0 0;
-    font-size: 0.9rem;
-    color: var(--color-gray);
 }
 
 /* Modal styles */

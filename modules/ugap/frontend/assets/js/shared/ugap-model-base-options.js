@@ -6,13 +6,34 @@
 
     /** Contexte optionnel (configurateur) — ne pas écraser les globals paramétrage. */
     let runtimeContext = null;
+    /** Session édition preset (paramétrage Modèles) — conservée à travers syncConfiguratorBridge. */
+    let presetEditModelId = '';
+    let presetEditConfigId = '';
+
+    function mergePresetEditLayer(ctx) {
+        const mid = String(presetEditModelId || '').trim();
+        const cid = String(presetEditConfigId || '').trim();
+        if (!ctx || !mid || !cid || ctx.presetExplicitOnly) return ctx;
+        return {
+            ...ctx,
+            presetExplicitOnly: true,
+            getModelBaseSlotPicks: () => {
+                const cfg = resolveConfigurationById(mid, cid);
+                const picks = cfg?.slotPicks && typeof cfg.slotPicks === 'object' ? cfg.slotPicks : {};
+                return { [mid]: { ...picks } };
+            },
+        };
+    }
 
     function setConfiguratorContext(ctx) {
-        runtimeContext = ctx && typeof ctx === 'object' ? ctx : null;
+        const base = ctx && typeof ctx === 'object' ? ctx : null;
+        runtimeContext = mergePresetEditLayer(base);
     }
 
     function clearConfiguratorContext() {
         runtimeContext = null;
+        presetEditModelId = '';
+        presetEditConfigId = '';
     }
 
     function resolveData() {
@@ -117,6 +138,27 @@
     function getTemplateLabel(templateId) {
         const tpl = getTemplateById(templateId);
         return String(tpl?.label || templateId || '').trim();
+    }
+
+    /**
+     * Résout le parcours effectif d’un modèle (premier parcours disponible si non assigné).
+     */
+    function resolveBoatTemplateIdForModel(model) {
+        const pool = getTemplates()
+            .slice()
+            .sort((a, b) => String(a?.label || '').localeCompare(String(b?.label || ''), 'fr', { sensitivity: 'base' }));
+        const stored = String(model?.boatTemplateId || '').trim();
+        if (stored && pool.some((t) => String(t?.id || '').trim() === stored)) {
+            return stored;
+        }
+        const first = pool[0];
+        return first ? String(first.id || '').trim() : '';
+    }
+
+    function resolveBoatTemplateForModel(model) {
+        const id = resolveBoatTemplateIdForModel(model);
+        if (!id) return null;
+        return getTemplateById(id) || null;
     }
 
     function findOptionRecord(optionId) {
@@ -470,7 +512,7 @@
     }
 
     /**
-     * Un slot par nœud catalogue — même parcours que l’onglet Bateau de base (ordre template + arbre Catalogue).
+     * Un slot par nœud catalogue — même parcours que l’onglet Ordre des options (ordre template + arbre Catalogue).
      */
     function enumerateCatalogParcoursSlots(tpl) {
         if (!tpl) return [];
@@ -665,6 +707,9 @@
     function getAssignedOptionIds(modelId, slot) {
         const mid = String(modelId || '').trim();
         if (!mid || !slot) return [];
+        if (runtimeContext?.presetExplicitOnly) {
+            return getExplicitPickIds(mid, slot);
+        }
         const explicit = getExplicitPickIds(mid, slot);
         if (explicit.length) return explicit;
         const defaults = defaultBaseOptionIdsInSlot(mid, slot);
@@ -775,7 +820,29 @@
         const snap = tpl?.snapshot && typeof tpl.snapshot === 'object' ? tpl.snapshot : {};
         const catalogNodes = resolveCatalogNodesForRuntime();
         const Tree = global.UgapBoatTemplateTree;
+        const templateId = String(tpl?.id || '').trim();
+        const St = global.UgapBateauBaseLcState;
+        const variants = Array.isArray(tpl?.variants) ? tpl.variants : [];
+        const stdVariant = variants.find((v) => v?.isDefault === true
+            || String(v?.label || '').trim().toLowerCase() === 'standard');
+        if (templateId && stdVariant?.id && St?.getMergedTemplateVariantCatalogNodeOrder) {
+            const merged = St.getMergedTemplateVariantCatalogNodeOrder(templateId, stdVariant.id);
+            if (merged?.order && Object.keys(merged.order).length) {
+                return {
+                    catalogNodes: merged.catalogNodes?.length ? merged.catalogNodes : catalogNodes,
+                    order: merged.order,
+                    included: merged.included,
+                };
+            }
+        }
+        const hasExplicitIncluded = Array.isArray(snap.includedCatalogNodeIds)
+            && snap.includedCatalogNodeIds.length > 0;
         let order = Tree?.normalizeCatalogNodeOrder?.(snap.catalogNodeOrder) || {};
+        if (hasExplicitIncluded && Tree?.applyStoredCatalogNodeOrder) {
+            const included = Tree.resolveIncludedCatalogNodeIds(snap, catalogNodes, order);
+            order = Tree.applyStoredCatalogNodeOrder(catalogNodes, order, included);
+            return { catalogNodes, order, included };
+        }
         if (!Object.keys(order).length && Tree?.defaultCatalogNodeOrder) {
             order = Tree.defaultCatalogNodeOrder(catalogNodes);
         } else if (Tree?.mergeCatalogNodeOrder) {
@@ -784,14 +851,51 @@
         return { catalogNodes, order };
     }
 
+    function resolveParcoursOrderForModel(model, tpl) {
+        const mid = String(model?.id || '').trim();
+        if (presetEditModelId && presetEditConfigId && mid === presetEditModelId) {
+            return getConfigurationCatalogParcoursOrder(model, presetEditConfigId, tpl);
+        }
+        return getTemplateCatalogParcours(tpl).order;
+    }
+
+    /** Ordre parcours d’un parcours personnalisé (configuration) : template de base + surcharge utilisateur. */
+    function getConfigurationCatalogParcoursOrder(model, configId, tpl) {
+        const St = global.UgapBateauBaseLcState;
+        const mid = String(model?.id || '').trim();
+        const cid = String(configId || '').trim();
+        if (mid && cid && St?.getMergedConfigurationCatalogNodeOrder) {
+            const merged = St.getMergedConfigurationCatalogNodeOrder(mid, cid);
+            if (merged?.order) return merged.order;
+        }
+        const baseOrder = getTemplateCatalogParcours(tpl).order;
+        const cfg = resolveConfigurationById(mid, cid);
+        const override = cfg?.catalogNodeOrder;
+        if (!override || typeof override !== 'object' || !Object.keys(override).length) {
+            return baseOrder;
+        }
+        const Tree = global.UgapBoatTemplateTree;
+        let order = Tree?.normalizeCatalogNodeOrder?.({ ...baseOrder }) || { ...baseOrder };
+        Object.keys(override).forEach((pid) => {
+            if (Array.isArray(override[pid]) && override[pid].length) {
+                order[pid] = override[pid].slice();
+            }
+        });
+        if (Tree?.mergeCatalogNodeOrder) {
+            const { catalogNodes } = getTemplateCatalogParcours(tpl);
+            order = Tree.mergeCatalogNodeOrder(catalogNodes, order);
+        }
+        return order;
+    }
+
     /**
-     * Arbre parcours = miroir onglet Bateau de base (catalogNodeOrder + nœuds catalogue).
+     * Arbre parcours = miroir onglet Ordre des options (catalogNodeOrder + nœuds catalogue).
      * Réutilisable par le configurateur (même structure, choix différents).
      */
     function buildModelBaseEditorTree(model) {
         const status = getStatus(model);
         const slots = Array.isArray(status.slots) ? status.slots : [];
-        const templateId = String(model?.boatTemplateId || '').trim();
+        const templateId = resolveBoatTemplateIdForModel(model);
         const tpl = getTemplateById(templateId);
         if (!tpl || !slots.length) {
             return { roots: [], orphanSlots: slots };
@@ -809,7 +913,8 @@
             slotsByCatalogId.get(cnId).push(slot);
         });
 
-        const { catalogNodes, order } = getTemplateCatalogParcours(tpl);
+        const { catalogNodes, order: baseOrder } = getTemplateCatalogParcours(tpl);
+        const order = resolveParcoursOrderForModel(model, tpl) || baseOrder;
         const Core = global.UgapCatalogueNodesCore;
         if (!Core?.getChildren) {
             return { roots: [], orphanSlots: [...orphans, ...slots] };
@@ -857,7 +962,7 @@
 
     function getStatus(model) {
         const modelId = String(model?.id || '').trim();
-        const templateId = String(model?.boatTemplateId || '').trim();
+        const templateId = resolveBoatTemplateIdForModel(model, { userOnly: false });
         if (!templateId) {
             return { hasTemplate: false, isComplete: true, missingCount: 0, slots: [] };
         }
@@ -1081,6 +1186,132 @@
         if (tasks.length) await Promise.all(tasks);
     }
 
+    function resolveConfigurationById(modelId, configId) {
+        const mid = String(modelId || '').trim();
+        const cid = String(configId || '').trim();
+        if (!mid || !cid) return null;
+        const fromState = global.UgapBateauBaseLcState?.getConfigurationById?.(mid, cid);
+        if (fromState) return fromState;
+        const data = getData();
+        const list = data?.uiState?.modelConfigurations?.[mid];
+        if (!Array.isArray(list)) return null;
+        const hit = list.find((c) => String(c?.id || '').trim() === cid);
+        if (!hit) return null;
+        return {
+            id: cid,
+            label: String(hit.label || 'Configuration').trim() || 'Configuration',
+            isDefault: hit.isDefault === true,
+            slotPicks: hit.slotPicks && typeof hit.slotPicks === 'object' ? hit.slotPicks : {},
+            catalogNodeOrder: hit.catalogNodeOrder && typeof hit.catalogNodeOrder === 'object' ? hit.catalogNodeOrder : {},
+        };
+    }
+
+    function setPresetEditContext(modelId, configId) {
+        const mid = String(modelId || '').trim();
+        const cid = String(configId || '').trim();
+        if (!mid || !cid) {
+            presetEditModelId = '';
+            presetEditConfigId = '';
+            return;
+        }
+        presetEditModelId = mid;
+        presetEditConfigId = cid;
+        runtimeContext = mergePresetEditLayer(runtimeContext) || {
+            presetExplicitOnly: true,
+            getModelBaseSlotPicks: () => {
+                const cfg = resolveConfigurationById(mid, cid);
+                const picks = cfg?.slotPicks && typeof cfg.slotPicks === 'object' ? cfg.slotPicks : {};
+                return { [mid]: { ...picks } };
+            },
+        };
+    }
+
+    function getConfigurationStatus(model, configId) {
+        const modelId = String(model?.id || '').trim();
+        const status = getStatus(model);
+        const cfg = resolveConfigurationById(modelId, configId);
+        if (!cfg) {
+            return { filledCount: 0, totalSlots: status.slots.length, label: '' };
+        }
+        const picks = cfg.slotPicks && typeof cfg.slotPicks === 'object' ? cfg.slotPicks : {};
+        let filledCount = 0;
+        status.slots.forEach((slot) => {
+            const key = getSlotKey(slot);
+            const raw = picks[key];
+            const ids = Array.isArray(raw) ? raw : (raw ? [raw] : []);
+            if (ids.map((id) => String(id || '').trim()).filter(Boolean).length) filledCount += 1;
+        });
+        return {
+            filledCount,
+            totalSlots: status.slots.length,
+            label: cfg.label,
+            isDefault: cfg.isDefault === true,
+        };
+    }
+
+    async function pickPresetOption(modelId, configId, slotIdx, optionId) {
+        const st = global.UgapBateauBaseLcState;
+        const mid = String(modelId || '').trim();
+        const cid = String(configId || '').trim();
+        const data = getData();
+        const model = (Array.isArray(data?.models) ? data.models : []).find((m) => String(m?.id) === mid);
+        const status = getStatus(model);
+        const slot = status.slots[Number(slotIdx)];
+        const oid = String(optionId || '').trim();
+        if (!model || !slot || !oid || !cid) return;
+
+        setPresetEditContext(mid, cid);
+        if (isMultiChoiceSlot(slot)) {
+            let current = getExplicitPickIds(mid, slot);
+            if (current.includes(oid)) return;
+            st?.setConfigurationSlotPick?.(mid, cid, getSlotKey(slot), [...current, oid]);
+        } else {
+            st?.setConfigurationSlotPick?.(mid, cid, getSlotKey(slot), oid);
+        }
+        if (st?.persistModelConfigurationsOnly) {
+            const ok = await st.persistModelConfigurationsOnly();
+            if (!ok) throw new Error('Les choix n’ont pas pu être enregistrés.');
+        }
+    }
+
+    async function togglePresetOption(modelId, configId, slotIdx, optionId, selected) {
+        const st = global.UgapBateauBaseLcState;
+        const mid = String(modelId || '').trim();
+        const cid = String(configId || '').trim();
+        const data = getData();
+        const model = (Array.isArray(data?.models) ? data.models : []).find((m) => String(m?.id) === mid);
+        const status = getStatus(model);
+        const slot = status.slots[Number(slotIdx)];
+        const oid = String(optionId || '').trim();
+        if (!model || !slot || !oid || !cid || !isMultiChoiceSlot(slot)) return;
+
+        setPresetEditContext(mid, cid);
+        let current = getExplicitPickIds(mid, slot);
+        if (selected) {
+            if (current.includes(oid)) return;
+            st?.setConfigurationSlotPick?.(mid, cid, getSlotKey(slot), [...current, oid]);
+        } else {
+            st?.setConfigurationSlotPick?.(mid, cid, getSlotKey(slot), current.filter((id) => id !== oid));
+        }
+        if (st?.persistModelConfigurationsOnly) {
+            const ok = await st.persistModelConfigurationsOnly();
+            if (!ok) throw new Error('Les choix n’ont pas pu être enregistrés.');
+        }
+    }
+
+    async function clearPresetSlotPick(modelId, configId, slot) {
+        const st = global.UgapBateauBaseLcState;
+        const mid = String(modelId || '').trim();
+        const cid = String(configId || '').trim();
+        const key = getSlotKey(slot);
+        if (!mid || !cid || !key) return;
+        st?.setConfigurationSlotPick?.(mid, cid, key, []);
+        if (st?.persistModelConfigurationsOnly) {
+            const ok = await st.persistModelConfigurationsOnly();
+            if (!ok) throw new Error('Les choix n’ont pas pu être enregistrés.');
+        }
+    }
+
     async function pickBaseOption(modelId, slotIdx, optionId) {
         const st = global.UgapBateauBaseLcState;
         let needFullUiPersist = false;
@@ -1176,7 +1407,7 @@
         if (!model || !slot || !name) throw new Error('Données invalides.');
         const catalogNodeId = catalogNodeIdFromSlot(slot);
         if (!catalogNodeId) {
-            throw new Error('Groupe non lié au catalogue — enregistrez le template bateau (parcours catalogue).');
+            throw new Error('Groupe non lié au catalogue — enregistrez l’ordre des options (parcours catalogue).');
         }
         const categoryId = String(data?.categories?.[0]?.id || '').trim();
         if (!categoryId) throw new Error('Aucune catégorie import (données /data).');
@@ -1250,8 +1481,11 @@
         getTemplates,
         getTemplateLabel,
         getTemplateById,
+        resolveBoatTemplateIdForModel,
+        resolveBoatTemplateForModel,
         getAssignableGroupsForFamily,
         getStatus,
+        getConfigurationStatus,
         getChoiceRows,
         getAssignedOptionId,
         getAssignedOptionIds,
@@ -1263,15 +1497,21 @@
         buildModelBaseEditorTree,
         enumerateCatalogParcoursSlots,
         getTemplateCatalogParcours,
+        getConfigurationCatalogParcoursOrder,
+        resolveParcoursOrderForModel,
         getOrderedCatalogSiblingIds,
         assignBoatTemplate,
         pickBaseOption,
+        pickPresetOption,
+        togglePresetOption,
+        clearPresetSlotPick,
         toggleBaseOption,
         createBaseOption,
         reloadData,
         getSlotKey,
         formatSlotTitle,
         setConfiguratorContext,
+        setPresetEditContext,
         clearConfiguratorContext,
         isMotorTarifName,
         isImportGeneratedBaseOption,

@@ -41,7 +41,6 @@ require_once '../../includes/header.php';
     <div class="container">
         <div class="section-title" style="display:flex; justify-content:space-between; align-items:center; gap:10px; margin-bottom:14px;">
             <h2 style="margin:0;">Module UGAP</h2>
-            <a class="btn btn-secondary" href="<?= url('pages/modules.php') ?>">Retour modules</a>
         </div>
 
         <div class="ugap-tabs">

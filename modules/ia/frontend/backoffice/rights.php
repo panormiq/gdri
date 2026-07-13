@@ -14,6 +14,8 @@ require_once GDRI_ROOT . '/frontend/includes/header.php';
 
 $jwt_token = getJWTToken();
 $api_base_url = rtrim(getApiBaseUrl(), '/');
+$currentEntrepriseId = $_SESSION['currentEntrepriseId'] ?? ($_SESSION['entrepriseId'] ?? null);
+$isAdminGdri = hasRole(ROLE_ADMIN_GDRI);
 
 $ia_entity_current_tab = 'rights';
 require_once __DIR__ . '/entity-tabs.php';
@@ -72,7 +74,17 @@ require_once __DIR__ . '/entity-tabs.php';
 (function() {
     const API_BASE = '<?= addslashes($api_base_url) ?>/ia';
     const JWT = '<?= addslashes($jwt_token) ?>';
+    const CURRENT_ENTITY_ID = '<?= addslashes((string)($currentEntrepriseId ?? '')) ?>';
+    const IS_ADMIN_GDRI = <?= $isAdminGdri ? 'true' : 'false' ?>;
     const headers = () => ({ 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + JWT });
+
+    function withEntityQuery(path) {
+        if (IS_ADMIN_GDRI && CURRENT_ENTITY_ID) {
+            var sep = path.indexOf('?') === -1 ? '?' : '&';
+            return path + sep + 'entity_id=' + encodeURIComponent(CURRENT_ENTITY_ID);
+        }
+        return path;
+    }
 
     let users = [];
     let servers = [];
@@ -99,7 +111,7 @@ require_once __DIR__ . '/entity-tabs.php';
     }
 
     function loadUsers() {
-        return fetch(API_BASE + '/entity-users', { headers: headers() })
+        return fetch(withEntityQuery(API_BASE + '/entity-users'), { headers: headers() })
             .then(r => { if (!r.ok) return handleIaUnavailable(r); return r.json(); })
             .then(data => {
                 if (!data || !data.success) return;

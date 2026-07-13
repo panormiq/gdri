@@ -1,16 +1,21 @@
 /**
- * Section Paramétrage > Modèles (vue LC + options de base).
+ * Section Paramétrage > Modèles — template de base + parcours personnalisés.
  */
 (function initUgapModelesTab(global) {
     'use strict';
 
     const MOUNT_ID = 'ugap-modeles-lc-mount';
-    const EDITOR_ID = 'ugap-modeles-base-editor';
+    const EDITOR_MODAL_ID = 'ugap-modeles-editor-modal';
     const MBO = () => global.UgapModelBaseOptions;
+    const CFG = () => global.UgapBateauBaseLcState;
+    const PL = () => global.UgapParcoursLabels || {};
 
     const state = {
         editingModelId: '',
+        editingConfigId: '',
+        editMode: '', // 'preset' | 'diagnostic'
         createContext: null,
+        searchQuery: '',
     };
 
     function esc(v) {
@@ -61,266 +66,344 @@
         return Number.isFinite(n) && n >= 0 ? n : 0;
     }
 
-    function getRows() {
-        return getModels().map((model, idx) => {
-            const modelId = String(model?.id || '').trim();
-            const templateId = String(model?.boatTemplateId || '').trim();
-            return {
-                __idx: idx,
-                _modelId: modelId,
-                poste: model?.posteNumber != null ? String(model.posteNumber) : '—',
-                name: String(model?.name || model?.label || '—').trim() || '—',
-                motorization: String(model?.motorizationBase || model?.motorization || '—').trim() || '—',
-                priceClient: fmtMoney(model?.priceClient ?? model?.basePrice),
-                priceUgap: fmtMoney(model?.priceUgap ?? model?.ugapPrice),
-                templateSelect: templateSelectHtml(modelId, templateId),
-                _actionsHtml: `
-                    <button type="button" class="btn btn-primary" style="font-size:12px;padding:4px 10px;"
-                        data-modeles-base="${esc(modelId)}">Définir options de base</button>
-                `,
-            };
+    function getFilteredModels() {
+        const q = String(state.searchQuery || '').trim().toLowerCase();
+        let list = getModels().slice().sort(compareCatalogModelsByPoste);
+        if (!q) return list;
+        return list.filter((m) => {
+            const hay = [
+                m?.posteNumber,
+                m?.name,
+                m?.label,
+                m?.motorizationBase,
+                m?.motorization,
+            ].map((x) => String(x || '').toLowerCase()).join(' ');
+            return hay.includes(q);
         });
     }
 
-    function templateSelectHtml(modelId, selectedId) {
-        const mid = esc(modelId);
-        const selected = String(selectedId || '').trim();
+    function resolveModelParcoursLabel(model) {
+        const tpl = MBO()?.resolveBoatTemplateForModel?.(model);
+        if (tpl) return String(tpl.label || tpl.id || '').trim() || '—';
         const templates = MBO()?.getTemplates?.() || [];
-        const opts = templates.map((tpl) => {
-            const id = String(tpl?.id || '').trim();
-            const label = String(tpl?.label || id).trim();
-            return `<option value="${esc(id)}" ${id === selected ? 'selected' : ''}>${esc(label)}</option>`;
-        }).join('');
-        return `<select class="ugap-modeles-template-select" data-model-id="${mid}" style="width:100%;max-width:240px;padding:6px 8px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;">
-            <option value="">— Choisir un bateau de base —</option>${opts}
-        </select>`;
+        if (!templates.length) return 'Aucun parcours';
+        return '—';
     }
 
-    function templateOptionsHtml(selectedId) {
-        const selected = String(selectedId || '').trim();
-        const templates = MBO()?.getTemplates?.() || [];
-        const opts = templates.map((tpl) => {
-            const id = String(tpl?.id || '').trim();
-            const label = String(tpl?.label || id).trim();
-            return `<option value="${esc(id)}" ${id === selected ? 'selected' : ''}>${esc(label)}</option>`;
-        }).join('');
-        return `<option value="">— Choisir un bateau de base —</option>${opts}`;
-    }
-
-    function isCatalogNodeSlot(slot) {
-        return !!String(slot?.catalogNodeId || '').trim();
-    }
-
-    function isTechnicalCatalogRef(ref) {
-        const r = String(ref || '').trim();
-        if (!r) return false;
-        return /^(BASE-|IBP-|bp_src_|opt_ibp_)/i.test(r);
-    }
-
-    function slotChoiceCount(model, slot) {
-        return (MBO()?.getChoiceRows?.(model, slot, { baseOnly: true }) || []).length;
-    }
-
-    function renderCompactAddBtn(mid, slot) {
-        const slotIdx = slot.__idx;
-        return `<button type="button" class="btn btn-outline ugap-model-base-add ugap-model-base-add--compact" data-model-id="${esc(mid)}" data-slot-idx="${slotIdx}" title="Créer une option de base">+</button>`;
-    }
-
-    function renderBaseSlotHtml(mid, model, slot) {
-        const slotIdx = slot.__idx;
-        const choices = MBO()?.getChoiceRows?.(model, slot, { baseOnly: true }) || [];
-        const isMulti = MBO()?.isMultiChoiceSlot?.(slot) === true;
-        const assignedSet = new Set(MBO()?.getAssignedOptionIds?.(mid, slot) || []);
-        const catalogNode = isCatalogNodeSlot(slot);
-        if (!choices.length && catalogNode) {
-            return '';
-        }
-        const emptyHint = !choices.length
-            ? `<p class="ugap-model-base-slot__empty">Aucune <strong>option de base</strong> pour ce poste sur ce nœud — cochez le modèle dans l’onglet <strong>Options</strong>, marquez la ligne en type <strong>Base</strong>, ou créez-en une avec <strong>+</strong>.</p>`
-            : '';
-        const modeHint = isMulti
-            ? '<p class="ugap-model-base-slot__mode-hint">Choix multiple sur ce nœud</p>'
-            : '<p class="ugap-model-base-slot__mode-hint">Choix unique sur ce nœud</p>';
-
-        if (isMulti) {
-            const checks = choices.map((row) => {
-                const checked = assignedSet.has(row.id) ? ' checked' : '';
-                const baseCls = row.isBaseOption ? ' ugap-model-base-multi-pick__item--base' : '';
-                const baseTag = row.isBaseOption ? '<span class="ugap-model-base-pick__base-tag">base</span>' : '';
-                const ref = row.refUgap && !isTechnicalCatalogRef(row.refUgap)
-                    ? ` <span class="ugap-model-base-multi-pick__ref">${esc(row.refUgap)}</span>`
-                    : '';
-                const det = row.details && row.details !== row.name
-                    && !isTechnicalCatalogRef(row.details)
-                    ? ` <span class="ugap-model-base-multi-pick__det">${esc(row.details)}</span>`
-                    : '';
-                return `
-                    <label class="ugap-model-base-multi-pick__item${baseCls}">
-                        <input type="checkbox" class="ugap-model-base-multi-pick"
-                            data-model-id="${esc(mid)}" data-slot-idx="${slotIdx}" data-option-id="${esc(row.id)}"${checked}>
-                        <span class="ugap-model-base-multi-pick__label">${esc(row.name)}${baseTag}${ref}${det}</span>
-                    </label>`;
-            }).join('');
-            return `
-                <div class="ugap-model-base-slot ugap-model-base-slot--multi${catalogNode ? ' ugap-model-base-slot--catalog-node' : ''}">
-                    ${catalogNode ? '' : `<div class="ugap-model-base-slot__title">${esc(MBO()?.formatSlotTitle?.(slot) || slot.groupLabel || '')}</div>`}
-                    ${modeHint}
-                    <div class="ugap-model-base-multi-pick__list">${checks}</div>
-                    <div class="ugap-model-base-slot__row">
-                        <button type="button" class="btn btn-outline ugap-model-base-add" data-model-id="${esc(mid)}" data-slot-idx="${slotIdx}" title="Créer une option de base">+ Créer</button>
-                    </div>
-                    ${emptyHint}
-                </div>`;
-        }
-
-        const assigned = assignedSet.size ? [...assignedSet][0] : '';
-        const opts = choices.map((row) => {
-            const sel = assigned === row.id ? ' selected' : '';
-            const ref = row.refUgap ? ` — ${row.refUgap}` : '';
-            const det = row.details ? ` (${row.details})` : '';
-            const baseMark = row.isBaseOption ? ' ★' : '';
-            return `<option value="${esc(row.id)}"${sel} data-is-base="${row.isBaseOption ? '1' : '0'}">${esc(row.name)}${esc(baseMark)}${esc(ref)}${esc(det)}</option>`;
-        }).join('');
-        const placeholderSelected = assigned ? '' : ' selected';
-        return `
-            <div class="ugap-model-base-slot${catalogNode ? ' ugap-model-base-slot--catalog-node' : ''}">
-                ${catalogNode ? '' : `<div class="ugap-model-base-slot__title">${esc(MBO()?.formatSlotTitle?.(slot) || slot.groupLabel || '')}</div>`}
-                ${modeHint}
-                <div class="ugap-model-base-slot__row">
-                    <select class="ugap-model-base-pick" data-model-id="${esc(mid)}" data-slot-idx="${slotIdx}" ${choices.length ? '' : 'disabled'}>
-                        <option value=""${placeholderSelected}>— Choisir une option —</option>
-                        ${opts}
-                    </select>
-                    <button type="button" class="btn btn-outline ugap-model-base-add" data-model-id="${esc(mid)}" data-slot-idx="${slotIdx}" title="Créer une option de base">+</button>
-                </div>
-                ${emptyHint}
-            </div>`;
-    }
-
-    function renderBaseTreeNodeHtml(treeNode, mid, model) {
-        const slots = Array.isArray(treeNode.slots) ? treeNode.slots : [];
-        const childrenHtml = (Array.isArray(treeNode.children) ? treeNode.children : [])
-            .map((child) => renderBaseTreeNodeHtml(child, mid, model))
-            .join('');
-        const assignedTotal = slots.reduce(
-            (n, s) => n + (MBO()?.getAssignedOptionIds?.(mid, s) || []).length,
-            0
-        );
-        const linkedPool = slots.reduce((n, s) => n + slotChoiceCount(model, s), 0);
-        const badge = assignedTotal
-            ? `<span class="ugap-catalogue-tree__count ugap-catalogue-tree__count--choice">${assignedTotal} choisi(s)</span>`
-            : (linkedPool
-                ? `<span class="ugap-catalogue-tree__count">${linkedPool} opt.</span>`
-                : '');
-        const emptyAddBtns = slots
-            .filter((s) => !slotChoiceCount(model, s))
-            .map((s) => renderCompactAddBtn(mid, s))
-            .join('');
-        const kids = childrenHtml
-            ? `<div class="ugap-catalogue-tree__children">${childrenHtml}</div>`
-            : '';
-        const bodyHtml = slots
-            .map((slot) => renderBaseSlotHtml(mid, model, slot))
-            .filter(Boolean)
-            .join('');
-        const bodyBlock = bodyHtml
-            ? `<div class="ugap-model-base-tree__node-body">${bodyHtml}</div>`
-            : '';
-        return `
-            <div class="ugap-catalogue-tree__item ugap-model-base-tree__item">
-                <div class="ugap-catalogue-tree__row ugap-model-base-tree__node-head">
-                    <span class="ugap-catalogue-tree__label">${esc(treeNode.label || 'Nœud')}</span>
-                    ${emptyAddBtns}
-                    ${badge}
-                </div>
-                ${bodyBlock}
-                ${kids}
-            </div>`;
-    }
-
-    function renderBaseEditorBodyHtml(model) {
+    function renderTemplateSelectHtml(model) {
         const mid = String(model?.id || '').trim();
-        const status = MBO()?.getStatus?.(model) || { slots: [] };
-        if (!status.slots.length) {
-            const catalogNodes = global.UgapGroupCatalog?.resolveCatalogNodes?.({}) || [];
-            if (!catalogNodes.length) {
-                return `<p class="ugap-param-placeholder">Aucun nœud dans l’onglet <strong>Catalogue</strong> — créez l’arborescence, puis réouvrez cette fenêtre.</p>`;
-            }
-            const templateId = String(model?.boatTemplateId || '').trim();
-            const tpl = templateId ? MBO()?.getTemplateById?.(templateId) : null;
-            if (!tpl) {
-                return `<p class="ugap-param-placeholder">Bateau de base introuvable — choisissez-en un autre dans la liste ci-dessus.</p>`;
-            }
-            return `<p class="ugap-param-placeholder">Impossible d’afficher le parcours (rechargez la page). Si le problème persiste, ouvrez <strong>Bateau de base</strong> et cliquez sur <strong>Enregistrer</strong> une fois.</p>`;
+        const templates = MBO()?.getTemplates?.() || [];
+        const current = MBO()?.resolveBoatTemplateIdForModel?.(model, { userOnly: false }) || '';
+        const ML = PL().modele || {};
+        if (!templates.length) {
+            return `<span class="ugap-modeles-card__parcours-value ugap-modeles-card__parcours-value--missing">${esc(ML.templateMissing || 'Aucun template de base.')}</span>`;
         }
+        const options = [`<option value="">${esc(ML.templateSelectPlaceholder || '— Choisir un template de base —')}</option>`]
+            .concat(templates.map((tpl) => {
+                const id = String(tpl?.id || '').trim();
+                const label = String(tpl?.label || id).trim();
+                const sel = id === current ? ' selected' : '';
+                return `<option value="${esc(id)}"${sel}>${esc(label)}</option>`;
+            }));
+        return `<select class="ugap-modeles-template-select" data-modeles-template="${esc(mid)}" title="Template de base du modèle">${options.join('')}</select>`;
+    }
 
-        const tree = MBO()?.buildModelBaseEditorTree?.(model) || { roots: [], orphanSlots: status.slots };
-        const rootsHtml = (tree.roots || []).map((node) => renderBaseTreeNodeHtml(node, mid, model)).join('');
-        const orphanHtml = (tree.orphanSlots || []).length
-            ? `<section class="ugap-model-base-tree__orphans">
-                    <h4 class="ugap-model-base-tree__orphans-title">Autres nœuds</h4>
-                    ${tree.orphanSlots.map((slot) => renderBaseSlotHtml(mid, model, slot)).join('')}
-               </section>`
-            : '';
-
-        if (!rootsHtml && !orphanHtml) {
-            return `<p class="ugap-param-placeholder">Aucun nœud catalogue dans ce template.</p>`;
+    function renderConfigurationsHtml(model) {
+        const mid = String(model?.id || '').trim();
+        const configs = CFG()?.getConfigurationsForModel?.(mid) || [];
+        const PP = PL().parcoursPerso || {};
+        if (!configs.length) {
+            return `<p class="ugap-modeles-config-empty">${esc(PP.empty || 'Aucun parcours personnalisé.')}</p>`;
         }
+        return configs.map((cfg) => {
+            const st = MBO()?.getConfigurationStatus?.(model, cfg.id) || { filledCount: 0, totalSlots: 0 };
+            const filled = Number(st.filledCount) || 0;
+            const total = Number(st.totalSlots) || 0;
+            const complete = total > 0 && filled >= total;
+            return `
+                <div class="ugap-modeles-config-row" data-config-id="${esc(cfg.id)}">
+                    <div class="ugap-modeles-config-row__main">
+                        <input type="text" class="ugap-modeles-config-name" data-model-id="${esc(mid)}" data-config-id="${esc(cfg.id)}"
+                            value="${esc(cfg.label)}" title="Nom du parcours personnalisé">
+                        <span class="ugap-modeles-config-status ${complete ? 'is-complete' : 'is-partial'}">
+                            ${filled}/${total} option${total !== 1 ? 's' : ''}
+                        </span>
+                        ${cfg.isDefault ? '<span class="ugap-modeles-config-default-badge">Par défaut</span>' : ''}
+                    </div>
+                    <div class="ugap-modeles-config-row__actions">
+                        <button type="button" class="btn btn-primary btn-sm" data-modeles-preset="${esc(mid)}" data-config-id="${esc(cfg.id)}">
+                            ${esc(PP.pickOptions || 'Choisir les options')}
+                        </button>
+                        ${!cfg.isDefault ? `<button type="button" class="btn btn-outline btn-sm" data-modeles-set-default="${esc(mid)}" data-config-id="${esc(cfg.id)}">Défaut</button>` : ''}
+                        <button type="button" class="btn btn-outline btn-sm ugap-modeles-config-delete" data-model-id="${esc(mid)}" data-config-id="${esc(cfg.id)}" title="Supprimer">×</button>
+                    </div>
+                </div>`;
+        }).join('');
+    }
 
+    function renderModelCard(model) {
+        const mid = String(model?.id || '').trim();
+        const ML = PL().modele || {};
+        const PP = PL().parcoursPerso || {};
+        const baseStatus = MBO()?.getStatus?.(model) || { missingCount: 0, slots: [] };
+        const missing = Number(baseStatus.missingCount) || 0;
         return `
-            <div class="ugap-model-base-tree ugap-catalogue-tree">
-                ${rootsHtml || orphanHtml}
-                ${rootsHtml && orphanHtml ? orphanHtml : ''}
+            <article class="ugap-modeles-card card" data-model-id="${esc(mid)}">
+                <header class="ugap-modeles-card__head">
+                    <div class="ugap-modeles-card__title">
+                        <span class="ugap-modeles-card__poste">${esc(model?.posteNumber != null ? `P${model.posteNumber}` : '—')}</span>
+                        <h3>${esc(model?.name || model?.label || '—')}</h3>
+                    </div>
+                    <div class="ugap-modeles-card__meta">
+                        <span>${esc(model?.motorizationBase || model?.motorization || '—')}</span>
+                        <span>Client ${fmtMoney(model?.priceClient ?? model?.basePrice)}</span>
+                        <span>UGAP ${fmtMoney(model?.priceUgap ?? model?.ugapPrice)}</span>
+                    </div>
+                </header>
+                <div class="ugap-modeles-card__parcours">
+                    <span class="ugap-modeles-card__label">${esc(ML.templateField || 'Template de base')}</span>
+                    ${renderTemplateSelectHtml(model)}
+                </div>
+                <div class="ugap-modeles-card__configs">
+                    <div class="ugap-modeles-card__configs-head">
+                        <strong>${esc(PP.title || 'Parcours personnalisés')}</strong>
+                        <button type="button" class="btn btn-outline btn-sm" data-modeles-add-config="${esc(mid)}">+ ${esc(PP.create || 'Ajouter')}</button>
+                    </div>
+                    <div class="ugap-modeles-config-list">${renderConfigurationsHtml(model)}</div>
+                </div>
+                <footer class="ugap-modeles-card__foot">
+                    <button type="button" class="btn btn-outline btn-sm" data-modeles-diagnostic="${esc(mid)}">
+                        Vérifier options de base${missing > 0 ? ` (${missing} manquante${missing > 1 ? 's' : ''})` : ''}
+                    </button>
+                </footer>
+            </article>`;
+    }
+
+    function renderCardsShell() {
+        const models = getFilteredModels();
+        const count = models.length;
+        const total = getModels().length;
+        return `
+            <div class="ugap-modeles-cards-shell" data-ugap-modeles-cards="1">
+                <div class="ugap-modeles-cards-toolbar">
+                    <div>
+                        <h2 style="margin:0 0 4px;">Modèles</h2>
+                        <p style="margin:0;font-size:13px;color:#64748b;">
+                            Catalogue importé par poste. Choisissez un <strong>template de base</strong>, puis créez des <strong>parcours personnalisés</strong> (options par configuration).
+                        </p>
+                    </div>
+                    <input type="search" id="ugap-modeles-search" class="ugap-modeles-search" placeholder="Modèle, motorisation…"
+                        value="${esc(state.searchQuery)}">
+                </div>
+                <p class="ugap-modeles-cards-count">${count} modèle${count !== 1 ? 's' : ''}${count !== total ? ` / ${total}` : ''}</p>
+                ${count
+                    ? `<div class="ugap-modeles-cards">${models.map(renderModelCard).join('')}</div>`
+                    : `<p class="ugap-param-placeholder">${total ? 'Aucun modèle ne correspond à la recherche.' : 'Aucun modèle en base — validez un import d’abord.'}</p>`}
             </div>`;
     }
 
-    function renderBaseEditor(modelId) {
-        const root = global.document.getElementById(EDITOR_ID);
-        if (!root) return;
-        const model = getModelById(modelId);
-        if (!model) {
-            root.hidden = true;
+    function refreshCards() {
+        const mount = global.document.getElementById(MOUNT_ID);
+        if (!mount) return;
+        const search = mount.querySelector('#ugap-modeles-search');
+        const hadFocus = search && global.document.activeElement === search;
+        const selStart = hadFocus ? search.selectionStart : null;
+        const selEnd = hadFocus ? search.selectionEnd : null;
+        mount.innerHTML = renderCardsShell();
+        if (hadFocus) {
+            const nextSearch = mount.querySelector('#ugap-modeles-search');
+            if (nextSearch) {
+                nextSearch.focus();
+                if (selStart != null && selEnd != null) {
+                    try { nextSearch.setSelectionRange(selStart, selEnd); } catch (_e) { /* ignore */ }
+                }
+            }
+        }
+    }
+
+    function renderEditorBodyHtml(model) {
+        const mid = String(model?.id || '').trim();
+        const status = MBO()?.getStatus?.(model) || { slots: [], templateLabel: '' };
+        if (!status.slots.length) {
+            const tpl = MBO()?.resolveBoatTemplateForModel?.(model);
+            const TB = PL().templateDeBase || {};
+            if (!tpl) {
+                return `<p class="ugap-param-placeholder">Aucun template de base — créez-en un dans <strong>${esc(TB.title || 'Templates de base')}</strong>.</p>`;
+            }
+            return `<p class="ugap-param-placeholder">Impossible d’afficher le parcours (rechargez la page). Si le problème persiste, ouvrez <strong>${esc(TB.title || 'Templates de base')}</strong> et cliquez sur <strong>Enregistrer</strong> une fois.</p>`;
+        }
+        return `<div id="ugap-modeles-parcours-mount" data-model-id="${esc(mid)}"></div>`;
+    }
+
+    function refreshEditorParcours() {
+        const model = getModelById(state.editingModelId);
+        if (!model) return;
+        mountEditorParcours(model);
+    }
+
+    function mountEditorParcours(model) {
+        const mount = global.document.getElementById('ugap-modeles-parcours-mount');
+        if (!mount) return;
+        const bridge = global.UgapParametrageParcoursBridge;
+        const onChanged = () => {
+            refreshCards();
+            refreshEditorParcours();
+        };
+        const mid = String(model?.id || '').trim();
+        if (state.editMode === 'preset' && state.editingConfigId) {
+            MBO()?.setPresetEditContext?.(mid, state.editingConfigId);
+            if (!bridge?.renderModelPresetParcours) {
+                mount.innerHTML = '<p class="ugap-param-placeholder">Éditeur preset indisponible.</p>';
+                return;
+            }
+            bridge.renderModelPresetParcours(model, state.editingConfigId, mount, { onChanged });
             return;
         }
-        const mid = String(modelId || '').trim();
-        const status = MBO()?.getStatus?.(model) || { slots: [], templateLabel: '' };
-        const templateId = String(model?.boatTemplateId || '').trim();
-
-        let bodyHtml = '';
-        if (!templateId) {
-            bodyHtml = `<p class="ugap-param-placeholder">Choisissez un bateau de base pour afficher l’arbre des nœuds (comme le catalogue) et les groupes dans l’ordre du parcours.</p>`;
-        } else {
-            bodyHtml = renderBaseEditorBodyHtml(model);
+        MBO()?.clearConfiguratorContext?.();
+        if (!bridge?.renderModelBaseParcours) {
+            mount.innerHTML = '<p class="ugap-param-placeholder">Tableau parcours indisponible.</p>';
+            return;
         }
-
-        root.innerHTML = `
-            <div class="ugap-model-base-editor card">
-                <div class="ugap-model-base-editor__head">
-                    <div>
-                        <h3 style="margin:0 0 4px;">Options de base — ${esc(model.name || mid)}</h3>
-                        <p style="margin:0;font-size:13px;color:#64748b;">Poste ${esc(model.posteNumber ?? '—')} · ${esc(model.motorizationBase || '—')}</p>
-                    </div>
-                    <button type="button" class="btn btn-outline" id="ugap-modeles-base-close">Fermer</button>
-                </div>
-                <label style="display:block;margin:12px 0 8px;font-size:12px;color:#64748b;">Bateau de base</label>
-                <select id="ugap-modeles-base-template" style="width:100%;max-width:420px;padding:8px;border:1px solid #d1d5db;border-radius:6px;">
-                    ${templateOptionsHtml(templateId)}
-                </select>
-                ${templateId ? `<p style="margin:10px 0 0;font-size:13px;color:#1e40af;">Bateau de base « ${esc(status.templateLabel || templateId)} » — même arbre que l’onglet <strong>Bateau de base</strong>. Pour chaque nœud : toutes les options compatibles avec ce <strong>poste</strong> (nom comme à l’import), ou créez une option de base avec <strong>+</strong>.</p>` : ''}
-                <div class="ugap-model-base-editor__body">${bodyHtml}</div>
-            </div>
-        `;
-        root.hidden = false;
-        root.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        bridge.renderModelBaseParcours(model, mount, { onChanged });
     }
 
-    function closeBaseEditor() {
-        state.editingModelId = '';
-        const root = global.document.getElementById(EDITOR_ID);
-        if (root) {
-            root.hidden = true;
-            root.innerHTML = '';
+    function ensureEditorModal() {
+        let modal = global.document.getElementById(EDITOR_MODAL_ID);
+        if (modal) {
+            if (!modal.querySelector('.ugap-modeles-editor-modal__foot')) {
+                const panel = modal.querySelector('.ugap-modeles-editor-panel');
+                if (panel) {
+                    panel.insertAdjacentHTML('beforeend', `
+                        <div class="ugap-modeles-editor-modal__foot">
+                            <span class="ugap-modeles-editor-save-hint">Enregistrement automatique à chaque sélection.</span>
+                            <div class="ugap-modeles-editor-modal__actions">
+                                <button type="button" class="btn btn-outline" id="ugap-modeles-base-close">Fermer</button>
+                                <button type="button" class="btn btn-primary" id="ugap-modeles-editor-save">Enregistrer et fermer</button>
+                            </div>
+                        </div>`);
+                }
+            }
+            return modal;
         }
+        const wrap = global.document.createElement('div');
+        wrap.innerHTML = `
+            <div id="${EDITOR_MODAL_ID}" hidden class="ugap-model-base-modal ugap-modeles-editor-modal"
+                role="dialog" aria-modal="true" aria-labelledby="ugap-modeles-editor-title">
+                <div class="ugap-model-base-modal__panel card ugap-modeles-editor-panel">
+                    <div class="ugap-model-base-modal__head ugap-modeles-editor-modal__head">
+                        <div id="ugap-modeles-editor-title-wrap"></div>
+                    </div>
+                    <div id="ugap-modeles-editor-hint" class="ugap-modeles-editor-modal__hint"></div>
+                    <div id="ugap-modeles-editor-body" class="ugap-modeles-editor-modal__body"></div>
+                    <div class="ugap-modeles-editor-modal__foot">
+                        <span class="ugap-modeles-editor-save-hint">Enregistrement automatique à chaque sélection.</span>
+                        <div class="ugap-modeles-editor-modal__actions">
+                            <button type="button" class="btn btn-outline" id="ugap-modeles-base-close">Fermer</button>
+                            <button type="button" class="btn btn-primary" id="ugap-modeles-editor-save">Enregistrer et fermer</button>
+                        </div>
+                    </div>
+                </div>
+            </div>`;
+        global.document.body.appendChild(wrap.firstElementChild);
+        return global.document.getElementById(EDITOR_MODAL_ID);
+    }
+
+    function openEditor(modelId, mode, configId) {
+        const model = getModelById(modelId);
+        if (!model) {
+            closeEditor();
+            return;
+        }
+        const modal = ensureEditorModal();
+        const titleWrap = global.document.getElementById('ugap-modeles-editor-title-wrap');
+        const hintEl = global.document.getElementById('ugap-modeles-editor-hint');
+        const bodyEl = global.document.getElementById('ugap-modeles-editor-body');
+        if (!titleWrap || !hintEl || !bodyEl) return;
+
+        const mid = String(modelId || '').trim();
+        state.editingModelId = mid;
+        state.editMode = mode === 'preset' ? 'preset' : 'diagnostic';
+        state.editingConfigId = state.editMode === 'preset'
+            ? String(configId || '').trim()
+            : '';
+
+        const resolvedTemplateId = MBO()?.resolveBoatTemplateIdForModel?.(model, { userOnly: false }) || '';
+        const cfg = state.editingConfigId
+            ? CFG()?.getConfigurationById?.(mid, state.editingConfigId)
+            : null;
+        const PP = PL().parcoursPerso || {};
+        const TB = PL().templateDeBase || {};
+        let title = 'Diagnostic options de base';
+        if (state.editMode === 'preset') {
+            title = `${PP.singular ? PP.singular[0].toUpperCase() + PP.singular.slice(1) : 'Parcours'} « ${esc(cfg?.label || state.editingConfigId)} » — options`;
+        }
+
+        let bodyHtml = '';
+        if (!resolvedTemplateId) {
+            bodyHtml = `<p class="ugap-param-placeholder">Aucun template de base — créez-en un dans <strong>${esc(TB.title || 'Templates de base')}</strong>.</p>`;
+        } else {
+            bodyHtml = renderEditorBodyHtml(model);
+        }
+
+        titleWrap.innerHTML = `
+            <div>
+                <h3 id="ugap-modeles-editor-title" style="margin:0 0 4px;">${title}</h3>
+                <p style="margin:0;font-size:13px;color:#64748b;">
+                    ${esc(model.name || mid)} · Poste ${esc(model.posteNumber ?? '—')} · ${esc(model.motorizationBase || '—')}
+                </p>
+            </div>`;
+        hintEl.innerHTML = state.editMode === 'preset'
+            ? esc(PP.pickHint || 'Cliquez sur une ligne pour choisir une option.')
+            : 'Slots sans option de base détectée — diagnostic uniquement.';
+        bodyEl.innerHTML = bodyHtml;
+
+        modal.hidden = false;
+        global.document.body.classList.add('ugap-modeles-editor-open');
+        if (resolvedTemplateId) mountEditorParcours(model);
+        if (typeof global.scheduleParentEmbedResize === 'function') {
+            global.scheduleParentEmbedResize();
+            requestAnimationFrame(() => global.scheduleParentEmbedResize());
+        }
+    }
+
+    async function saveEditorAndClose() {
+        try {
+            if (state.editMode === 'preset' && state.editingConfigId) {
+                const ok = await CFG()?.persistModelConfigurationsOnly?.();
+                if (ok === false) return;
+            } else if (CFG()?.persistModelBaseSlotPicksOnly) {
+                await CFG().persistModelBaseSlotPicksOnly();
+            }
+            global.showAlert?.('Parcours enregistré.', 'success');
+            refreshCards();
+            closeEditor();
+        } catch (err) {
+            global.showAlert?.(err?.message || 'Erreur enregistrement', 'error');
+        }
+    }
+
+    function closeEditor() {
+        state.editingModelId = '';
+        state.editingConfigId = '';
+        state.editMode = '';
+        global.UgapParametrageParcoursBridge?.clearConfiguratorBridge?.();
+        MBO()?.clearConfiguratorContext?.();
+        const modal = global.document.getElementById(EDITOR_MODAL_ID);
+        const bodyEl = global.document.getElementById('ugap-modeles-editor-body');
+        if (bodyEl) bodyEl.innerHTML = '';
+        if (modal) modal.hidden = true;
+        global.document.body.classList.remove('ugap-modeles-editor-open');
+        if (typeof global.scheduleParentEmbedResize === 'function') {
+            global.scheduleParentEmbedResize();
+        }
+    }
+
+    function promptConfigurationName(defaultName) {
+        const PP = PL().parcoursPerso || {};
+        const name = global.prompt(`Nom du ${PP.singular || 'parcours personnalisé'} :`, defaultName || 'UGAP');
+        if (name == null) return null;
+        const trimmed = String(name).trim();
+        return trimmed || null;
     }
 
     function ensureCreateModal() {
@@ -343,28 +426,6 @@
                         <textarea id="ugap-model-base-create-details" rows="2" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:6px;margin-bottom:10px;resize:vertical;"></textarea>
                         <label style="display:block;font-size:12px;margin-bottom:4px;">Réf. UGAP (optionnel)</label>
                         <input id="ugap-model-base-create-ref" type="text" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:6px;margin-bottom:12px;">
-                        <div style="margin-bottom:12px;">
-                            <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-bottom:6px;">
-                                <label style="font-size:12px;font-weight:600;color:#334155;">Postes à assigner</label>
-                                <div style="display:flex;gap:6px;">
-                                    <button type="button" class="btn btn-outline" id="ugap-model-base-create-postes-all" style="font-size:12px;padding:4px 8px;">Tout cocher</button>
-                                    <button type="button" class="btn btn-outline" id="ugap-model-base-create-postes-none" style="font-size:12px;padding:4px 8px;">Tout décocher</button>
-                                </div>
-                            </div>
-                            <div id="ugap-model-base-create-postes-list" class="ugap-model-base-create-postes-list"></div>
-                        </div>
-                        <label style="display:flex;align-items:center;gap:8px;font-size:13px;margin-bottom:10px;cursor:pointer;">
-                            <input type="checkbox" id="ugap-model-base-create-per-poste-price">
-                            <span>Prix différent selon le poste</span>
-                        </label>
-                        <div id="ugap-model-base-create-price-single-wrap">
-                            <label style="display:block;font-size:12px;margin-bottom:4px;">Prix inclus (€)</label>
-                            <input id="ugap-model-base-create-price" type="number" step="0.01" min="0" value="0" style="width:160px;padding:8px;border:1px solid #ddd;border-radius:6px;">
-                        </div>
-                        <div id="ugap-model-base-create-price-per-poste-wrap" hidden style="margin-top:4px;">
-                            <p style="margin:0 0 8px;font-size:12px;color:#64748b;">Prix inclus pour chaque poste coché :</p>
-                            <div id="ugap-model-base-create-price-per-poste-list"></div>
-                        </div>
                         <div style="margin-top:14px;display:flex;gap:8px;justify-content:flex-end;">
                             <button type="button" class="btn btn-outline" id="ugap-model-base-create-cancel2">Annuler</button>
                             <button type="button" class="btn btn-primary" id="ugap-model-base-create-submit">Créer et associer</button>
@@ -373,64 +434,6 @@
                 </div>
             </div>`;
         global.document.body.appendChild(wrap.firstElementChild);
-    }
-
-    function renderCreateModalPostesList(currentModelId) {
-        const list = global.document.getElementById('ugap-model-base-create-postes-list');
-        if (!list) return;
-        const midCurrent = String(currentModelId || '').trim();
-        const models = getModels().slice().sort(compareCatalogModelsByPoste);
-        list.innerHTML = models.map((m) => {
-            const mid = String(m?.id || '').trim();
-            if (!mid) return '';
-            const checked = mid === midCurrent ? 'checked' : '';
-            return `
-                <label class="ugap-model-base-create-poste-row">
-                    <input type="checkbox" data-base-create-model-id="${esc(mid)}" ${checked}>
-                    <span>${esc(formatCatalogModelLabel(m))}</span>
-                </label>`;
-        }).join('');
-        syncCreateModalPerPostePriceRows();
-    }
-
-    function getCheckedCreateModalModelIds() {
-        const list = global.document.getElementById('ugap-model-base-create-postes-list');
-        if (!list) return [];
-        return Array.from(list.querySelectorAll('input[type="checkbox"][data-base-create-model-id]:checked'))
-            .map((el) => String(el.getAttribute('data-base-create-model-id') || '').trim())
-            .filter(Boolean);
-    }
-
-    function syncCreateModalPerPostePriceRows() {
-        const perPoste = global.document.getElementById('ugap-model-base-create-per-poste-price');
-        const wrap = global.document.getElementById('ugap-model-base-create-price-per-poste-wrap');
-        const singleWrap = global.document.getElementById('ugap-model-base-create-price-single-wrap');
-        const list = global.document.getElementById('ugap-model-base-create-price-per-poste-list');
-        const enabled = !!perPoste?.checked;
-        if (singleWrap) singleWrap.hidden = enabled;
-        if (wrap) wrap.hidden = !enabled;
-        if (!enabled || !list) return;
-        const defaultPrice = parseMoneyInput(global.document.getElementById('ugap-model-base-create-price')?.value);
-        const checkedIds = new Set(getCheckedCreateModalModelIds());
-        list.innerHTML = getModels().slice().sort(compareCatalogModelsByPoste)
-            .filter((m) => checkedIds.has(String(m?.id || '').trim()))
-            .map((m) => {
-                const mid = String(m?.id || '').trim();
-                const existing = list.querySelector(`[data-base-create-price-model-id="${mid}"]`);
-                const prev = existing ? parseMoneyInput(existing.value) : defaultPrice;
-                return `
-                    <div class="ugap-model-base-create-price-row">
-                        <span class="ugap-model-base-create-price-row__label">${esc(formatCatalogModelLabel(m))}</span>
-                        <input type="number" step="0.01" min="0" value="${esc(String(prev))}"
-                            data-base-create-price-model-id="${esc(mid)}"
-                            style="width:120px;padding:6px 8px;border:1px solid #ddd;border-radius:6px;">
-                        <span style="font-size:12px;color:#64748b;">€</span>
-                    </div>`;
-            }).join('');
-    }
-
-    function toggleCreateModalPriceMode() {
-        syncCreateModalPerPostePriceRows();
     }
 
     function openCreateModal(modelId, slotIdx) {
@@ -443,26 +446,15 @@
         state.createContext = { modelId: mid, slotIdx: Number(slotIdx) };
         const modal = global.document.getElementById('ugap-model-base-create-modal');
         const hint = global.document.getElementById('ugap-model-base-create-hint');
-        const perPosteCb = global.document.getElementById('ugap-model-base-create-per-poste-price');
-        const priceInput = global.document.getElementById('ugap-model-base-create-price');
-        if (perPosteCb) perPosteCb.checked = false;
-        if (priceInput) priceInput.value = '0';
         const nameEl = global.document.getElementById('ugap-model-base-create-name');
         const refEl = global.document.getElementById('ugap-model-base-create-ref');
         const detEl = global.document.getElementById('ugap-model-base-create-details');
         if (nameEl) nameEl.value = '';
         if (refEl) refEl.value = '';
         if (detEl) detEl.value = '';
-        renderCreateModalPostesList(mid);
-        toggleCreateModalPriceMode();
         if (hint) {
-            const nodeLabel = String(
-                slot.catalogNodeLabel || slot.categoryName || slot.groupLabel || 'Nœud'
-            ).trim();
-            const mode = MBO()?.isMultiChoiceSlot?.(slot) ? 'choix multiple' : 'choix unique';
-            hint.innerHTML = `
-                <strong>Nœud : ${esc(nodeLabel)}</strong>
-                <span style="display:block;margin-top:4px;color:#64748b;">${esc(mode)} · l’option sera liée via <code>catalogObjectId</code></span>`;
+            const nodeLabel = String(slot.catalogNodeLabel || slot.categoryName || slot.groupLabel || 'Nœud').trim();
+            hint.innerHTML = `<strong>Nœud : ${esc(nodeLabel)}</strong>`;
         }
         if (modal) modal.hidden = false;
     }
@@ -473,173 +465,155 @@
         if (modal) modal.hidden = true;
     }
 
-    function collectCreateModalPricingPayload() {
-        const compatibleModelIds = getCheckedCreateModalModelIds();
-        if (!compatibleModelIds.length) {
-            throw new Error('Sélectionnez au moins un poste (modèle).');
-        }
-        const perPoste = !!global.document.getElementById('ugap-model-base-create-per-poste-price')?.checked;
-        const pricesByModelId = {};
-        if (perPoste) {
-            compatibleModelIds.forEach((mid) => {
-                const input = global.document.querySelector(
-                    `[data-base-create-price-model-id="${CSS.escape(mid)}"]`
-                );
-                pricesByModelId[mid] = parseMoneyInput(input?.value);
-            });
-        } else {
-            const single = parseMoneyInput(global.document.getElementById('ugap-model-base-create-price')?.value);
-            compatibleModelIds.forEach((mid) => {
-                pricesByModelId[mid] = single;
-            });
-        }
-        const distinct = [...new Set(Object.values(pricesByModelId).map((v) => Number(v.toFixed(2))))];
-        const pricingMode = perPoste && distinct.length > 1 ? 'per_model' : 'fixed';
-        const baseIncludedPrice = distinct.length === 1 ? distinct[0] : (pricesByModelId[compatibleModelIds[0]] ?? 0);
-        return {
-            compatibleModelIds,
-            perPostePricing: perPoste,
-            pricingMode,
-            pricesByModelId,
-            price: baseIncludedPrice,
-        };
-    }
-
     async function submitCreateModal() {
         const ctx = state.createContext;
         if (!ctx) return;
         try {
-            const pricing = collectCreateModalPricingPayload();
             await MBO()?.createBaseOption?.(ctx.modelId, ctx.slotIdx, {
                 name: global.document.getElementById('ugap-model-base-create-name')?.value,
                 details: global.document.getElementById('ugap-model-base-create-details')?.value,
                 refUgap: global.document.getElementById('ugap-model-base-create-ref')?.value,
-                price: pricing.price,
-                compatibleModelIds: pricing.compatibleModelIds,
-                pricingMode: pricing.pricingMode,
-                pricesByModelId: pricing.pricesByModelId,
+                price: 0,
+                compatibleModelIds: [ctx.modelId],
+                pricingMode: 'fixed',
+                pricesByModelId: { [ctx.modelId]: 0 },
             });
             closeCreateModal();
-            renderBaseEditor(ctx.modelId);
-            refreshList();
+            openEditor(ctx.modelId, 'diagnostic');
+            refreshCards();
             global.showAlert?.('Option créée et associée.', 'success');
         } catch (err) {
             global.showAlert?.(err?.message || 'Erreur création option', 'error');
         }
     }
 
-    function refreshList() {
-        const mount = global.document.getElementById(MOUNT_ID);
-        if (mount && global.UgapTemplates?.refreshVueLCList) {
-            global.UgapTemplates.refreshVueLCList('modeles', mount);
-        }
-    }
-
     function bindListActions(mount) {
         if (!mount || mount.dataset.modelesBound === '1') return;
         mount.dataset.modelesBound = '1';
-        mount.addEventListener('click', (ev) => {
-            const btn = ev.target.closest('[data-modeles-base]');
-            if (!btn) return;
-            ev.stopPropagation();
-            state.editingModelId = String(btn.getAttribute('data-modeles-base') || '').trim();
-            void (async () => {
-                try {
-                    await ensureLoaded();
-                    renderBaseEditor(state.editingModelId);
-                } catch (err) {
-                    global.showAlert?.(err?.message || 'Erreur chargement options de base', 'error');
-                }
-            })();
-        });
+
         mount.addEventListener('change', (ev) => {
             const sel = ev.target.closest('.ugap-modeles-template-select');
             if (!sel) return;
-            ev.stopPropagation();
-            const modelId = String(sel.getAttribute('data-model-id') || '').trim();
+            const mid = String(sel.getAttribute('data-modeles-template') || '').trim();
+            const tid = String(sel.value || '').trim();
             void (async () => {
                 try {
-                    await MBO()?.assignBoatTemplate?.(modelId, sel.value);
-                    refreshList();
-                    if (state.editingModelId === modelId) renderBaseEditor(modelId);
-                    global.showAlert?.('Bateau de base assigné.', 'success');
+                    await MBO()?.assignBoatTemplate?.(mid, tid);
+                    refreshCards();
+                    global.showAlert?.('Template de base associé.', 'success');
                 } catch (err) {
-                    global.showAlert?.(err?.message || 'Erreur assignation template', 'error');
-                    refreshList();
+                    global.showAlert?.(err?.message || 'Erreur association template', 'error');
+                    refreshCards();
                 }
             })();
+        });
+
+        mount.addEventListener('input', (ev) => {
+            const search = ev.target.closest('#ugap-modeles-search');
+            if (search) {
+                state.searchQuery = search.value;
+                refreshCards();
+                return;
+            }
+            const input = ev.target.closest('.ugap-modeles-config-name');
+            if (!input) return;
+            const mid = String(input.getAttribute('data-model-id') || '').trim();
+            const cid = String(input.getAttribute('data-config-id') || '').trim();
+            if (!mid || !cid) return;
+            if (input.dataset.renameTimer) clearTimeout(Number(input.dataset.renameTimer));
+            input.dataset.renameTimer = String(setTimeout(() => {
+                CFG()?.renameConfiguration?.(mid, cid, input.value);
+            }, 400));
+        });
+
+        mount.addEventListener('click', (ev) => {
+            const addBtn = ev.target.closest('[data-modeles-add-config]');
+            if (addBtn) {
+                const mid = String(addBtn.getAttribute('data-modeles-add-config') || '').trim();
+                const name = promptConfigurationName('');
+                if (!name) return;
+                try {
+                    const cfg = CFG()?.createConfiguration?.(mid, name);
+                    refreshCards();
+                    if (cfg?.id) openEditor(mid, 'preset', cfg.id);
+                    global.showAlert?.('Parcours personnalisé créé.', 'success');
+                } catch (err) {
+                    global.showAlert?.(err?.message || 'Erreur création configuration', 'error');
+                }
+                return;
+            }
+
+            const presetBtn = ev.target.closest('[data-modeles-preset]');
+            if (presetBtn) {
+                void (async () => {
+                    try {
+                        await ensureLoaded();
+                        openEditor(
+                            String(presetBtn.getAttribute('data-modeles-preset') || '').trim(),
+                            'preset',
+                            String(presetBtn.getAttribute('data-config-id') || '').trim()
+                        );
+                    } catch (err) {
+                        global.showAlert?.(err?.message || 'Erreur chargement', 'error');
+                    }
+                })();
+                return;
+            }
+
+            const diagBtn = ev.target.closest('[data-modeles-diagnostic]');
+            if (diagBtn) {
+                void (async () => {
+                    try {
+                        await ensureLoaded();
+                        openEditor(String(diagBtn.getAttribute('data-modeles-diagnostic') || '').trim(), 'diagnostic');
+                    } catch (err) {
+                        global.showAlert?.(err?.message || 'Erreur chargement diagnostic', 'error');
+                    }
+                })();
+                return;
+            }
+
+            const defaultBtn = ev.target.closest('[data-modeles-set-default]');
+            if (defaultBtn) {
+                CFG()?.setDefaultConfiguration?.(
+                    String(defaultBtn.getAttribute('data-modeles-set-default') || '').trim(),
+                    String(defaultBtn.getAttribute('data-config-id') || '').trim()
+                );
+                refreshCards();
+                return;
+            }
+
+            const delBtn = ev.target.closest('.ugap-modeles-config-delete');
+            if (delBtn) {
+                const mid = String(delBtn.getAttribute('data-model-id') || '').trim();
+                const cid = String(delBtn.getAttribute('data-config-id') || '').trim();
+                if (!global.confirm('Supprimer ce parcours personnalisé ?')) return;
+                CFG()?.deleteConfiguration?.(mid, cid);
+                if (state.editingConfigId === cid) closeEditor();
+                refreshCards();
+            }
         });
     }
 
     function bindEditorEvents() {
-        const root = global.document.getElementById(EDITOR_ID);
-        if (!root || root.dataset.bound === '1') return;
-        root.dataset.bound = '1';
-        root.addEventListener('click', (ev) => {
-            if (ev.target.closest('#ugap-modeles-base-close')) {
-                closeBaseEditor();
+        if (global.document.body.dataset.ugapModelesEditorBound === '1') return;
+        global.document.body.dataset.ugapModelesEditorBound = '1';
+        global.document.addEventListener('click', (ev) => {
+            if (ev.target?.closest?.('#ugap-modeles-base-close')) {
+                closeEditor();
                 return;
             }
-            const addBtn = ev.target.closest('.ugap-model-base-add');
-            if (addBtn) {
-                openCreateModal(addBtn.getAttribute('data-model-id'), addBtn.getAttribute('data-slot-idx'));
+            if (ev.target?.closest?.('#ugap-modeles-editor-save')) {
+                void saveEditorAndClose();
+                return;
             }
+            const modal = global.document.getElementById(EDITOR_MODAL_ID);
+            if (modal && !modal.hidden && ev.target === modal) closeEditor();
         });
-        root.addEventListener('change', (ev) => {
-            const sel = ev.target;
-            if (sel?.id === 'ugap-modeles-base-template') {
-                void (async () => {
-                    if (!state.editingModelId) return;
-                    try {
-                        await MBO()?.assignBoatTemplate?.(state.editingModelId, sel.value);
-                        renderBaseEditor(state.editingModelId);
-                        refreshList();
-                        global.showAlert?.('Bateau de base assigné.', 'success');
-                    } catch (err) {
-                        global.showAlert?.(err?.message || 'Erreur assignation template', 'error');
-                    }
-                })();
-                return;
-            }
-            const multiCb = sel?.matches?.('.ugap-model-base-multi-pick') ? sel : null;
-            if (multiCb) {
-                const modelId = multiCb.getAttribute('data-model-id');
-                const slotIdx = multiCb.getAttribute('data-slot-idx');
-                const optionId = multiCb.getAttribute('data-option-id');
-                const row = multiCb.closest('.ugap-model-base-multi-pick__item');
-                if (row) row.style.opacity = '0.55';
-                multiCb.disabled = true;
-                void (async () => {
-                    try {
-                        await MBO()?.toggleBaseOption?.(modelId, slotIdx, optionId, multiCb.checked);
-                        refreshList();
-                    } catch (err) {
-                        multiCb.checked = !multiCb.checked;
-                        global.showAlert?.(err?.message || 'Erreur association', 'error');
-                    } finally {
-                        multiCb.disabled = false;
-                        if (row) row.style.opacity = '';
-                    }
-                })();
-                return;
-            }
-            if (sel?.matches?.('.ugap-model-base-pick')) {
-                const modelId = sel.getAttribute('data-model-id');
-                const slotIdx = sel.getAttribute('data-slot-idx');
-                const optionId = sel.value;
-                if (!optionId) return;
-                void (async () => {
-                    try {
-                        await MBO()?.pickBaseOption?.(modelId, slotIdx, optionId);
-                        renderBaseEditor(modelId);
-                        refreshList();
-                        global.showAlert?.('Option de base associée.', 'success');
-                    } catch (err) {
-                        global.showAlert?.(err?.message || 'Erreur association', 'error');
-                        renderBaseEditor(modelId);
-                    }
-                })();
-            }
+        global.document.addEventListener('keydown', (ev) => {
+            if (ev.key !== 'Escape') return;
+            const modal = global.document.getElementById(EDITOR_MODAL_ID);
+            if (modal && !modal.hidden) closeEditor();
         });
     }
 
@@ -654,33 +628,13 @@
             if (ev.target?.id === 'ugap-model-base-create-submit') {
                 void submitCreateModal();
             }
-            if (ev.target?.id === 'ugap-model-base-create-postes-all') {
-                global.document.querySelectorAll('#ugap-model-base-create-postes-list input[type="checkbox"]')
-                    .forEach((el) => { el.checked = true; });
-                syncCreateModalPerPostePriceRows();
-            }
-            if (ev.target?.id === 'ugap-model-base-create-postes-none') {
-                global.document.querySelectorAll('#ugap-model-base-create-postes-list input[type="checkbox"]')
-                    .forEach((el) => { el.checked = false; });
-                syncCreateModalPerPostePriceRows();
-            }
             const modal = global.document.getElementById('ugap-model-base-create-modal');
             if (modal && ev.target === modal) closeCreateModal();
-        });
-        global.document.addEventListener('change', (ev) => {
-            const t = ev.target;
-            if (t?.id === 'ugap-model-base-create-per-poste-price') {
-                toggleCreateModalPriceMode();
-                return;
-            }
-            if (t?.matches?.('#ugap-model-base-create-postes-list input[type="checkbox"][data-base-create-model-id]')) {
-                syncCreateModalPerPostePriceRows();
-            }
         });
     }
 
     async function ensureLoaded() {
-        global.UgapModelBaseOptions?.clearConfiguratorContext?.();
+        MBO()?.clearConfiguratorContext?.();
         await global.UgapCatalogueLcState?.loadFromServer?.();
         await global.UgapBateauBaseLcState?.loadFromServer?.();
         const payload = await global.UgapCatalogueLcState?.refreshOptionsFromServer?.();
@@ -708,49 +662,15 @@
             return;
         }
 
-        if (mountEl.querySelector('[data-ugap-vue-lc="modeles"]')) {
-            refreshList();
-            if (state.editingModelId) renderBaseEditor(state.editingModelId);
-            return;
-        }
-
-        if (!global.UgapTemplates?.renderVueLC) {
-            mountEl.innerHTML = '<p class="ugap-param-placeholder">Module d’affichage indisponible.</p>';
-            return;
-        }
-
-        const config = {
-            elementKey: 'modeles',
-            elementLabel: 'modèle',
-            title: 'Modèles',
-            description: 'Catalogue importé par poste. Assignez un bateau de base et l’option de base par nœud catalogue.',
-            hideCreateButton: true,
-            columns: [
-                { key: 'poste', label: 'Poste' },
-                { key: 'name', label: 'Modèle' },
-                { key: 'motorization', label: 'Motorisation' },
-                { key: 'priceClient', label: 'Prix client', type: 'html' },
-                { key: 'priceUgap', label: 'Prix UGAP', type: 'html' },
-                { key: 'templateSelect', label: 'Bateau de base', type: 'html' },
-                { key: '_actionsHtml', label: 'Actions', type: 'html' },
-            ],
-            getRows,
-            listToolbar: {
-                sortKey: 'poste',
-                searchKeys: ['name', 'motorization'],
-                searchPlaceholder: 'Modèle, motorisation…',
-            },
-            countLabel: 'modèle(s)',
-            emptyMessage: 'Aucun modèle en base — validez un import d’abord.',
-        };
-
-        mountEl.innerHTML = global.UgapTemplates.renderVueLC(config);
-        global.UgapTemplates.bindVueLC(mountEl, config);
-        bindListActions(mountEl);
         bindEditorEvents();
         bindModalEvents();
-        refreshList();
+        bindListActions(mountEl);
+        refreshCards();
+        if (state.editingModelId) {
+            openEditor(state.editingModelId, state.editMode, state.editingConfigId);
+        }
     }
 
     global.UgapModelesTab = { mount: mountModelesSection, refresh: mountModelesSection };
+    global.openUgapModelBaseCreateModal = openCreateModal;
 })(window);

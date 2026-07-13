@@ -8,9 +8,38 @@
         .step-number { width: 40px; height: 40px; border-radius: 50%; background: #ddd; color: #666; display: flex; align-items: center; justify-content: center; font-weight: bold; }
         .step.active .step-number { background: var(--primary-color, #007bff); color: white; }
         .step.completed .step-number { background: #28a745; color: white; }
-        
+        .step-indicator .step.is-clickable { cursor: pointer; }
+        .step-indicator .step.is-clickable:hover .step-number,
+        .step-indicator .step.is-clickable:focus-visible .step-number {
+            box-shadow: 0 0 0 3px rgba(0, 123, 255, 0.25);
+        }
+        .step-indicator .step.is-clickable:focus { outline: none; }
+
+        .step-indicator .step.has-warning .step-number {
+            box-shadow: 0 0 0 2px #fff, 0 0 0 4px #f59e0b;
+        }
+        .ugap-step-warning {
+            margin-left: 6px;
+            padding: 2px 7px;
+            border-radius: 999px;
+            font-size: 10px;
+            font-weight: 700;
+            letter-spacing: 0.02em;
+            text-transform: uppercase;
+            color: #b45309;
+            background: #fffbeb;
+            border: 1px solid #fcd34d;
+            white-space: nowrap;
+        }
+        .ugap-step-warning[hidden] { display: none !important; }
+
         .step-content { display: none; }
         .step-content.active { display: block; }
+        /* Ne pas hériter de l’animation scroll GDRI (main.js) sur .card */
+        #ugap-configurator-app .card.step-content {
+            opacity: 1 !important;
+            transform: none !important;
+        }
         
         .models-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 20px; }
         .model-card { border: 2px solid #eee; border-radius: 8px; padding: 20px; cursor: pointer; transition: all 0.2s; }
@@ -32,6 +61,38 @@
         .options-list { display: flex; flex-direction: column; gap: 10px; }
         .option-item { display: flex; justify-content: space-between; align-items: center; padding: 15px; border: 1px solid #eee; border-radius: 6px; }
         .option-item:hover { background: #f9f9f9; }
+        .option-item.ugap-link--recommended,
+        tr.ugap-link--recommended { background: #ecfdf5; border-color: #6ee7b7; }
+        .option-item.ugap-link--incompatible,
+        tr.ugap-link--incompatible { background: #fef2f2; border-color: #fca5a5; opacity: 0.92; }
+        .option-item.ugap-link--neutral,
+        tr.ugap-link--neutral { /* défaut */ }
+        .option-item.ugap-link--selected,
+        tr.ugap-link--selected { background: #f0f7ff; border-color: #93c5fd; }
+
+        .ugap-model-base-modal {
+            position: fixed;
+            inset: 0;
+            z-index: 10050;
+            background: rgba(0, 0, 0, 0.45);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 16px;
+        }
+        .ugap-model-base-modal[hidden] { display: none !important; }
+        .ugap-model-base-modal__panel {
+            width: min(520px, 96vw);
+            max-height: 90vh;
+            overflow: auto;
+        }
+        .ugap-model-base-modal__head {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px 14px;
+            border-bottom: 1px solid #e5e7eb;
+        }
         .option-item input[type="checkbox"] { width: 20px; height: 20px; cursor: pointer; }
         .option-item label { flex: 1; margin-left: 10px; cursor: pointer; }
         .option-item .price { font-weight: 600; color: #333; }
@@ -126,10 +187,138 @@
         
         .five-percent-section { background: #fff3cd; border: 2px solid #ffc107; border-radius: 8px; padding: 20px; margin-top: 20px; }
         .five-percent-section h3 { margin-top: 0; color: #856404; }
-        .five-percent-section input[type="checkbox"] { width: 20px; height: 20px; margin-right: 10px; }
-        .five-percent-options { margin-top: 15px; display: none; }
-        .five-percent-options.active { display: block; }
-        
+        .five-percent-options { margin-top: 4px; display: block; font-size: 14px; line-height: 1.6; color: #856404; }
+        .five-pct-modal-block {
+            background: #fff3cd;
+            border: 2px solid #ffc107;
+            border-radius: 8px;
+            padding: 14px;
+            margin-top: 16px;
+            color: #856404;
+        }
+        .five-pct-modal-block__title { font-weight: 600; margin: 0 0 10px; font-size: 14px; }
+        .five-pct-modal-block__empty { margin: 0 0 12px; font-size: 13px; color: #92400e; }
+        .five-pct-modal-block__list { margin: 0 0 12px; padding: 0; list-style: none; }
+        .five-pct-modal-block__list li {
+            display: flex;
+            justify-content: space-between;
+            align-items: baseline;
+            gap: 10px;
+            padding: 7px 0;
+            border-bottom: 1px solid #f1dca7;
+            font-size: 13px;
+        }
+        .five-pct-modal-block__list li:last-child { border-bottom: none; }
+        .five-pct-modal-block__ref { font-size: 11px; color: #a16207; margin-top: 2px; }
+        .five-pct-modal-add-btn {
+            width: 100%;
+            padding: 8px 14px;
+            background: #fff3cd;
+            border: 2px solid #ffc107;
+            border-radius: 6px;
+            color: #856404;
+            font-weight: 600;
+            font-size: 13px;
+            cursor: pointer;
+        }
+        .five-pct-modal-add-btn:hover { background: #ffe69c; }
+        .five-pct-modal-form-panel {
+            display: none;
+            margin-top: 12px;
+            padding-top: 12px;
+            border-top: 1px solid #f1dca7;
+        }
+        .five-pct-modal-form-panel.is-open { display: block; }
+        .five-pct-modal-form-panel label {
+            display: block;
+            font-size: 12px;
+            font-weight: 600;
+            color: #856404;
+            margin-bottom: 4px;
+        }
+        .five-pct-modal-form-panel input {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #f1dca7;
+            border-radius: 4px;
+            margin-bottom: 10px;
+            box-sizing: border-box;
+        }
+        .five-pct-modal-models {
+            max-height: 140px;
+            overflow: auto;
+            border: 1px solid #f1dca7;
+            border-radius: 4px;
+            padding: 8px;
+            margin-bottom: 10px;
+            background: #fffbeb;
+        }
+        .five-pct-modal-models label {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-weight: normal;
+            margin: 0 0 6px;
+            font-size: 13px;
+            cursor: pointer;
+        }
+        .five-pct-picker-sep {
+            margin: 14px 0 8px;
+            padding-top: 12px;
+            border-top: 1px dashed #f1dca7;
+            font-size: 12px;
+            font-weight: 600;
+            color: #856404;
+        }
+        .ugap-five-pct-badge {
+            margin-left: 6px;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 600;
+            white-space: nowrap;
+            background: #ffe08a;
+            color: #856404;
+        }
+        .option-item.five-pct-custom-pick--selected { background: #fef3c7; border-left: 3px solid #ffc107; }
+        .five-pct-ref { font-size: 11px; color: #92400e; margin-top: 2px; display: block; }
+        /* Choix unique (hors 5%) — bleu, distinct du jaune 5% */
+        .tpl-config-single-pick--unique {
+            border-color: #93c5fd !important;
+            background: #f8fafc !important;
+        }
+        .tpl-config-single-pick--unique.tpl-config-single-pick--empty {
+            border-color: #fcd34d !important;
+            background: #fff !important;
+        }
+        .option-item.tpl-single-choice-option {
+            border-left: 3px solid transparent;
+        }
+        .option-item.tpl-single-choice-option--selected {
+            background: #eff6ff !important;
+            border-left-color: #3b82f6 !important;
+        }
+        .option-item.tpl-single-choice-option--base {
+            border-left-color: #059669;
+        }
+        .ugap-devis-pick-btn.tpl-config-single-pick--unique {
+            border: 1px solid #93c5fd;
+            background: #f8fafc;
+            border-radius: 6px;
+        }
+        .five-pct-modal-validate-btn {
+            width: 100%;
+            padding: 8px 14px;
+            background: #ffc107;
+            border: none;
+            border-radius: 6px;
+            color: #856404;
+            font-weight: 600;
+            font-size: 13px;
+            cursor: pointer;
+        }
+        .five-pct-modal-validate-btn:hover { background: #e0a800; }
+
         .loader { border: 4px solid #f3f3f3; border-top: 4px solid #3498db; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; margin: 20px auto; }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
 
@@ -204,6 +393,51 @@
         
         .hidden { display: none !important; }
 
+        .ugap-devis-update-status {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            margin: 0 0 12px;
+            padding: 8px 12px;
+            border-radius: 8px;
+            background: #fffbeb;
+            border: 1px solid #fcd34d;
+            color: #92400e;
+            font-size: 13px;
+            font-weight: 600;
+        }
+        .ugap-devis-update-status.hidden {
+            display: none !important;
+        }
+        .ugap-devis-update-hourglass {
+            width: 14px;
+            height: 18px;
+            position: relative;
+            flex-shrink: 0;
+            animation: ugap-hourglass-flip 2s ease-in-out infinite;
+        }
+        .ugap-devis-update-hourglass::before,
+        .ugap-devis-update-hourglass::after {
+            content: '';
+            position: absolute;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 0;
+            height: 0;
+            border-left: 7px solid transparent;
+            border-right: 7px solid transparent;
+        }
+        .ugap-devis-update-hourglass::before {
+            top: 0;
+            border-bottom: 9px solid #f59e0b;
+        }
+        .ugap-devis-update-hourglass::after {
+            bottom: 0;
+            border-top: 9px solid #d97706;
+            opacity: 0.55;
+            animation: ugap-hourglass-sand 2s ease-in-out infinite;
+        }
+
         .excel-options-wrap { margin-top: 8px; border: 1px solid #e5e7eb; border-radius: 8px; overflow: hidden; background: #fff; }
         .excel-options-table { width: 100%; border-collapse: collapse; font-size: 14px; }
         .excel-options-table thead { background: #f8fafc; position: sticky; top: 0; z-index: 1; }
@@ -268,8 +502,21 @@
         .ugap-devis-table-wrap {
             margin-top: 4px;
         }
+        .ugap-devis-table-wrap .excel-options-scroll {
+            overflow-x: hidden;
+            overflow-y: auto;
+            max-height: min(65vh, 720px);
+            -webkit-overflow-scrolling: touch;
+        }
+        .ugap-gdri-embed.ugap-configurateur-embed .ugap-devis-table-wrap .excel-options-scroll,
+        body.ugap-embedded-mode .ugap-devis-table-wrap .excel-options-scroll {
+            overflow-x: hidden;
+            overflow-y: auto;
+            max-height: min(65vh, 720px);
+        }
         .ugap-devis-options-table {
             width: 100%;
+            table-layout: fixed;
             border-collapse: collapse;
         }
         .ugap-devis-options-table thead th {
@@ -288,21 +535,55 @@
         }
         .ugap-devis-th-price {
             text-align: right !important;
-            width: 110px;
+            width: 8%;
         }
-        .ugap-devis-th-categorie {
-            width: 22%;
-            min-width: 140px;
-        }
-        .ugap-devis-th-sous-noeud {
+        .ugap-devis-th-categorie,
+        .ugap-devis-td-categorie {
             width: 18%;
-            min-width: 120px;
+        }
+        .ugap-devis-td-categorie--merged,
+        .ugap-devis-td-node--merged {
+            vertical-align: top;
+            background: #f8fafc;
+            border-right: 1px solid #e2e8f0;
+        }
+        .ugap-devis-td-categorie--merged .ugap-devis-categorie,
+        .ugap-devis-td-node--merged .ugap-devis-categorie,
+        .ugap-devis-td-node--merged .ugap-devis-sous-noeud {
+            white-space: normal;
+        }
+        .ugap-devis-th-sous-noeud,
+        .ugap-devis-td-sous-noeud {
+            width: 17%;
+        }
+        .ugap-devis-th-ref,
+        .ugap-devis-td-ref {
+            width: 13%;
+        }
+        .ugap-devis-th-option,
+        .ugap-devis-td-option {
+            width: 32%;
+            overflow: hidden;
+        }
+        .ugap-devis-ref {
+            font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+            font-size: 12px;
+            color: #475569;
+            word-break: break-word;
+        }
+        .ugap-devis-ref--muted {
+            color: #94a3b8;
         }
         .ugap-devis-options-table tbody td {
             padding: 10px 12px;
             border-bottom: 1px solid #e2e8f0;
             vertical-align: middle;
             font-size: 14px;
+        }
+        .ugap-devis-options-table tbody td.ugap-devis-td-categorie,
+        .ugap-devis-options-table tbody td.ugap-devis-td-sous-noeud,
+        .ugap-devis-options-table tbody td.ugap-devis-td-sous-feuille {
+            vertical-align: top;
         }
         .ugap-devis-options-table tbody tr:hover {
             background: #f8fafc;
@@ -316,10 +597,18 @@
         .ugap-devis-noeud {
             font-weight: 700;
             color: #0f172a;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            display: block;
         }
         .ugap-devis-sous-noeud {
             font-weight: 600;
             color: #334155;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            display: block;
         }
         .ugap-devis-td-option .tpl-config-single-pick,
         .ugap-devis-pick-btn {
@@ -361,7 +650,11 @@
             color: #0f172a;
             overflow: hidden;
             text-overflow: ellipsis;
-            white-space: nowrap;
+            white-space: normal;
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            word-break: break-word;
         }
         .ugap-devis-row--multi-line {
             cursor: default;
@@ -372,6 +665,11 @@
         .ugap-devis-opt-name {
             font-weight: 600;
             color: #0f172a;
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+            word-break: break-word;
         }
         .ugap-devis-pick-chevron {
             color: #94a3b8;
@@ -386,9 +684,15 @@
             color: var(--primary-color, #007bff);
             border-style: dashed;
         }
+        .ugap-devis-linked-adj {
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
         .ugap-devis-td-price {
             text-align: right;
             white-space: nowrap;
+            width: 8%;
         }
         .ugap-devis-price {
             font-weight: 700;
@@ -450,6 +754,16 @@
             color: #475569;
             cursor: pointer;
             list-style: none;
+            user-select: none;
+        }
+        .ugap-devis-excel-fold__summary::after {
+            content: '▸';
+            float: right;
+            color: #94a3b8;
+            transition: transform 0.15s ease;
+        }
+        .ugap-devis-excel-fold[open] .ugap-devis-excel-fold__summary::after {
+            transform: rotate(90deg);
         }
         .ugap-devis-excel-fold__summary::-webkit-details-marker { display: none; }
         .ugap-devis-excel-fold__body {
@@ -763,8 +1077,15 @@ body.ugap-embedded-mode .ugap-gdri-embed.ugap-configurateur-embed .ugap-containe
 }
 
 .ugap-entry-open h3 {
-    margin: 0 0 10px;
+    margin: 0 0 6px;
     font-size: 16px;
+}
+
+.ugap-entry-open-hint {
+    margin: 0 0 10px;
+    font-size: 12px;
+    line-height: 1.45;
+    color: #64748b;
 }
 
 .ugap-entry-open-row {
@@ -809,12 +1130,16 @@ body.ugap-embedded-mode .ugap-gdri-embed.ugap-configurateur-embed .ugap-containe
 .ugap-entry-open-list {
     border: 1px solid #e5e7eb;
     border-radius: 8px;
-    max-height: 260px;
+    max-height: 320px;
     overflow: auto;
     background: #fff;
 }
 
 .ugap-entry-open-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
     padding: 10px 12px;
     border-bottom: 1px solid #f1f5f9;
     cursor: pointer;
@@ -831,23 +1156,251 @@ body.ugap-embedded-mode .ugap-gdri-embed.ugap-configurateur-embed .ugap-containe
 .ugap-entry-open-item.active {
     background: #eff6ff;
     outline: 1px solid #93c5fd;
+    outline-offset: -1px;
+}
+
+.ugap-entry-open-item-main {
+    flex: 1;
+    min-width: 0;
 }
 
 .ugap-entry-open-item-name {
     font-weight: 600;
     color: #0f172a;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .ugap-entry-open-item-meta {
-    margin-top: 3px;
+    margin-top: 2px;
     font-size: 12px;
     color: #64748b;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.ugap-entry-open-item-actions {
+    display: flex;
+    flex-shrink: 0;
+    align-items: center;
+    gap: 6px;
+}
+
+.ugap-saved-devis-quick-print {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 10px;
+    border: 1px solid #cbd5e1;
+    border-radius: 8px;
+    background: #fff;
+    color: #0f766e;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    line-height: 1;
+    max-width: 160px;
+}
+
+.ugap-saved-devis-quick-print:hover {
+    background: #ecfeff;
+    border-color: #0891b2;
+}
+
+.ugap-devis-print-icon {
+    flex-shrink: 0;
+}
+
+.ugap-saved-devis-quick-print__label {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.ugap-entry-open-item-quick {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 8px;
+}
+
+.ugap-print-template-modal {
+    position: fixed;
+    inset: 0;
+    z-index: 12000;
+    background: rgba(15, 23, 42, 0.45);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+}
+
+.ugap-print-template-modal.hidden {
+    display: none !important;
+}
+
+.ugap-print-template-modal__panel {
+    width: min(420px, 96vw);
+    background: #fff;
+    border-radius: 10px;
+    padding: 16px;
+    box-shadow: 0 16px 40px rgba(15, 23, 42, 0.18);
+}
+
+.ugap-print-template-modal__head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 12px;
+}
+
+.ugap-print-template-modal__head h3 {
+    margin: 0;
+    font-size: 18px;
+}
+
+.ugap-print-template-modal__close {
+    border: none;
+    background: transparent;
+    font-size: 24px;
+    line-height: 1;
+    cursor: pointer;
+    color: #64748b;
+}
+
+.ugap-print-template-list {
+    display: grid;
+    gap: 8px;
+    margin-bottom: 12px;
+}
+
+.ugap-print-template-option {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 10px;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    cursor: pointer;
+}
+
+.ugap-print-template-default {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    color: #334155;
+    margin-bottom: 12px;
+}
+
+.ugap-print-template-modal__actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
 }
 
 .ugap-entry-open-empty {
     padding: 12px;
     color: #64748b;
     font-size: 13px;
+}
+
+.ugap-devis-header-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: 12px 16px;
+    margin: 8px 0 14px;
+}
+
+.ugap-devis-name-field,
+.ugap-devis-short-name-field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 0;
+}
+
+.ugap-devis-name-field {
+    flex: 1 1 280px;
+}
+
+.ugap-devis-name-field--solo {
+    flex: 1 1 100%;
+    max-width: 560px;
+}
+
+.ugap-devis-short-name-field {
+    flex: 0 1 180px;
+}
+
+.ugap-devis-name-field label,
+.ugap-devis-short-name-field label {
+    font-size: 13px;
+    font-weight: 600;
+    color: #334155;
+}
+
+.ugap-devis-name-field input,
+.ugap-devis-short-name-field input {
+    width: 100%;
+    box-sizing: border-box;
+    min-height: 40px;
+    border: 1px solid #d1d5db;
+    border-radius: 6px;
+    padding: 8px 10px;
+}
+
+.ugap-devis-display-toggles {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: 8px;
+    flex: 0 0 auto;
+    padding-bottom: 2px;
+}
+
+.ugap-devis-display-toggles-label {
+    font-size: 13px;
+    font-weight: 600;
+    color: #334155;
+    padding-bottom: 10px;
+}
+
+.ugap-devis-display-toggle {
+    border: 1px solid #cbd5e1;
+    background: #fff;
+    color: #334155;
+    border-radius: 999px;
+    padding: 9px 14px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.ugap-devis-display-toggle.is-active {
+    background: #ecfeff;
+    border-color: #0891b2;
+    color: #0e7490;
+}
+
+.ugap-devis-display-toggle:hover {
+    border-color: #94a3b8;
+}
+
+.ugap-entry-open-item-short {
+    display: inline-block;
+    margin-left: 8px;
+    padding: 1px 8px;
+    border-radius: 999px;
+    background: #f1f5f9;
+    color: #64748b;
+    font-size: 11px;
+    font-weight: 600;
+    vertical-align: middle;
 }
 
 .ugap-devis-name-row {
@@ -869,4 +1422,71 @@ body.ugap-embedded-mode .ugap-gdri-embed.ugap-configurateur-embed .ugap-containe
     border: 1px solid #d1d5db;
     border-radius: 6px;
     padding: 8px 10px;
+}
+
+.ugap-devis-view-tabs {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin: 0 0 14px;
+}
+
+.ugap-devis-view-tab {
+    border: 1px solid #cbd5e1;
+    background: #fff;
+    color: #334155;
+    border-radius: 999px;
+    padding: 8px 14px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.ugap-devis-view-tab.is-active {
+    background: #0f766e;
+    border-color: #0f766e;
+    color: #fff;
+}
+
+.ugap-devis-versions-panel {
+    margin: 8px 0 18px;
+    padding: 14px;
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+    background: #f8fafc;
+}
+
+.ugap-devis-versions-lead {
+    margin: 0 0 12px;
+    font-size: 13px;
+    color: #475569;
+    line-height: 1.45;
+}
+
+.ugap-devis-versions-empty {
+    margin: 0;
+    font-size: 13px;
+    color: #64748b;
+    line-height: 1.5;
+}
+
+.ugap-devis-versions-table {
+    width: 100%;
+    background: #fff;
+}
+
+.ugap-devis-versions-table tr.is-current td {
+    background: #ecfdf5;
+}
+
+.ugap-devis-versions-badge {
+    display: inline-block;
+    margin-left: 6px;
+    padding: 2px 8px;
+    border-radius: 999px;
+    background: #d1fae5;
+    color: #065f46;
+    font-size: 11px;
+    font-weight: 700;
+    vertical-align: middle;
 }

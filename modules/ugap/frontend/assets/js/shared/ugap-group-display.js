@@ -267,7 +267,7 @@
             </div>`;
     }
 
-    /** Ligne liste groupe (Bateau de base). */
+    /** Ligne liste groupe (Ordre des options). */
     function renderGroupListItemHtml(meta, options = {}) {
         const m = resolveGroupDisplayMeta(meta);
         const opts = options && typeof options === 'object' ? options : {};

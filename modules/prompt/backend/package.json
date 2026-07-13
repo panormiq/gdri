@@ -1,0 +1,16 @@
+{
+  "name": "prompt",
+  "displayName": "Module Prompt",
+  "version": "1.0.0",
+  "description": "Service partagé d'envoi de prompts vers l'IA (texte et JSON). Utilisé par Facebook, analyse-intention et les autres modules.",
+  "author": "GDR-Innovation",
+  "icon": "✍️",
+  "routes": ["/api/prompt"],
+  "dependencies": [],
+  "requiredServices": ["ia"],
+  "compatibleVersion": ">=1.0.0",
+  "catalog": {
+    "type": "extension",
+    "visibility": "hidden"
+  }
+}

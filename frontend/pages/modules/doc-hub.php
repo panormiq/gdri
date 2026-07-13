@@ -20,7 +20,7 @@ $api_base_url = rtrim(getApiBaseUrl(), '/');
         <h1>Doc-Hub</h1>
         <div class="doc-hub-header-actions">
             <button type="button" class="btn btn-outline btn-sm" id="btn-manage-tags">Gérer les tags</button>
-            <a href="<?= url('pages/modules.php') ?>" class="btn btn-outline btn-sm">← Modules</a>
+            <a href="<?= url('pages/modules.php') ?>" class="btn btn-outline btn-sm">← Applications</a>
         </div>
     </header>
 

@@ -20,16 +20,26 @@
     const showAlert = (m, t) => window.showAlert(m, t);
     const wf = () => window.importWorkflowState || (window.importWorkflowState = { step: 'models' });
 
+    function getImportModelsStepMount() {
+        return document.getElementById('import-workflow-content-models')
+            || document.getElementById('ugap-import-models-validate-mount');
+    }
+
+    function importModelsStepRootSelector() {
+        const mount = getImportModelsStepMount();
+        return mount?.id ? `#${mount.id}` : '#import-workflow-content-models';
+    }
+
     function importModelRowDisplayValidated(modelId, stagingValidatedIdSet) {
         const id = String(modelId || '').trim();
-        if (!id || !stagingValidatedIdSet.has(id)) return false;
-        const catalogIds = new Set(
-            (window.__lastLoadDataSnapshot?.models || [])
-                .map((m) => String(m?.id || '').trim())
-                .filter(Boolean)
-        );
-        if (!catalogIds.size) return true;
-        return catalogIds.has(id);
+        return Boolean(id && stagingValidatedIdSet.has(id));
+    }
+
+    function collectPendingImportModelIds(staging, validatedIds) {
+        const models = Array.isArray(staging?.models) ? staging.models : [];
+        return models
+            .map((m) => String(m?.id || '').trim())
+            .filter((id) => id && !importModelRowDisplayValidated(id, validatedIds));
     }
 
     function collectImportModelPriceUpdates() {
@@ -109,6 +119,7 @@
             return '<div style="color:#6b7280;">Aucun workflow import actif.</div>';
         }
         const models = Array.isArray(staging.models) ? staging.models : [];
+        const refsFound = models.filter((m) => String(m?.refUgap || '').trim()).length;
         const validatedIds = new Set((staging?.progress?.validatedModelIds || []).map((x) => String(x)));
         const statusFilter = String(wf().modelStatusFilter || 'to_validate');
         const visibleModels = models.filter((m) => {
@@ -120,6 +131,7 @@
 
         return `
             <div style="margin-bottom:10px; color:#4b5563;">Etape 1: valider les modeles detectes.</div>
+            ${refsFound < models.length && models.length ? `<div style="margin-bottom:10px; padding:8px 10px; background:#fff7ed; border:1px solid #fdba74; border-radius:6px; color:#9a3412; font-size:12px;">Réfs UGAP manquantes (${refsFound}/${models.length}). Relancez <strong>Import</strong> après redémarrage du serveur, ou rouvrez cet import pour recharger depuis l'Excel.</div>` : ''}
             <div style="margin-bottom:10px; display:flex; justify-content:flex-end; gap:8px;">
                 <button type="button" class="btn btn-outline" onclick="selectAllImportModelsVisible()" style="margin-right:auto;">Tout selectionner</button>
                 <label style="display:flex; align-items:center; gap:8px; font-size:12px; color:#4b5563;">
@@ -135,6 +147,7 @@
                     <tr style="background:#f8fafc;">
                         <th style="padding:8px; border-bottom:1px solid #e5e7eb; text-align:center; width:52px;">OK</th>
                         <th style="padding:8px; border-bottom:1px solid #e5e7eb; text-align:left;">Modele</th>
+                        <th style="padding:8px; border-bottom:1px solid #e5e7eb; text-align:left;">Réf. UGAP</th>
                         <th style="padding:8px; border-bottom:1px solid #e5e7eb; text-align:left;">Poste</th>
                         <th style="padding:8px; border-bottom:1px solid #e5e7eb; text-align:left; width:150px;">Prix</th>
                         <th style="padding:8px; border-bottom:1px solid #e5e7eb; text-align:left;">Etat</th>
@@ -145,11 +158,14 @@
                         const id = String(m?.id || '');
                         const encodedId = encodeURIComponent(id);
                         const displayOk = importModelRowDisplayValidated(id, validatedIds);
+                        const selectedSet = new Set((wf().selectedModelIds || []).map((x) => String(x).trim()));
+                        const defaultChecked = displayOk || selectedSet.has(id) || !displayOk;
                         return `<tr>
                             <td style="padding:8px; border-bottom:1px solid #f1f5f9; text-align:center;">
-                                <input type="checkbox" data-import-model-id="${encodedId}" ${displayOk ? 'checked' : ''} ${displayOk ? 'disabled' : ''} onchange="toggleImportModelSelection(decodeURIComponent('${encodedId}'), this.checked)">
+                                <input type="checkbox" data-import-model-id="${encodedId}" ${defaultChecked ? 'checked' : ''} ${displayOk ? 'disabled' : ''} onchange="toggleImportModelSelection(decodeURIComponent('${encodedId}'), this.checked)">
                             </td>
                             <td style="padding:8px; border-bottom:1px solid #f1f5f9;">${escapeHtml(String(m?.name || id || '-'))}</td>
+                            <td style="padding:8px; border-bottom:1px solid #f1f5f9;"><code style="font-size:12px;">${escapeHtml(String(m?.refUgap || '—'))}</code></td>
                             <td style="padding:8px; border-bottom:1px solid #f1f5f9;">${escapeHtml(String(m?.posteNumber ?? '-'))}</td>
                             <td style="padding:8px; border-bottom:1px solid #f1f5f9;">
                                 <div style="display:inline-flex; align-items:center; gap:6px; border:1px solid #ddd; border-radius:4px; padding:0 8px; background:#fff;">
@@ -159,7 +175,7 @@
                             </td>
                             <td style="padding:8px; border-bottom:1px solid #f1f5f9;">${displayOk ? '<span style="color:#16a34a; font-weight:600;">Valide</span>' : '<span style="color:#b45309;">A valider</span>'}</td>
                         </tr>`;
-                    }).join('') || '<tr><td colspan="5" style="padding:10px; color:#6b7280;">Aucun modele a afficher pour ce filtre.</td></tr>'}
+                    }).join('') || '<tr><td colspan="6" style="padding:10px; color:#6b7280;">Aucun modele a afficher pour ce filtre.</td></tr>'}
                 </tbody>
             </table>
             <div style="margin-top:12px; display:flex; justify-content:flex-end;">
@@ -177,17 +193,42 @@
         const validatedIds = new Set((staging?.progress?.validatedModelIds || []).map((x) => String(x)));
         const modelIdsPresent = new Set(models.map((m) => String(m?.id || '').trim()).filter(Boolean));
         const selectedFromDom = Array.from(
-            document.querySelectorAll('#import-workflow-content-models input[data-import-model-id]:checked:not(:disabled)')
+            document.querySelectorAll(`${importModelsStepRootSelector()} input[data-import-model-id]:checked:not(:disabled)`)
         ).map((el) => {
             const encodedId = String(el?.getAttribute('data-import-model-id') || '').trim();
             try { return String(decodeURIComponent(encodedId || '')).trim(); } catch (_) { return encodedId; }
         }).filter(Boolean);
-        const modelIds = selectedFromDom
+        let modelIds = selectedFromDom
             .map((id) => String(id || '').trim())
             .filter((id) => id && modelIdsPresent.has(id) && !importModelRowDisplayValidated(id, validatedIds));
-        const modelUpdates = collectImportModelPriceUpdates().filter((row) => modelIds.includes(String(row?.id || '').trim()));
         if (!modelIds.length) {
-            showAlert('Selectionnez au moins un modele "A valider" puis relancez la validation.', 'warning');
+            modelIds = collectPendingImportModelIds(staging, validatedIds)
+                .filter((id) => modelIdsPresent.has(id));
+        }
+        const modelUpdates = collectImportModelPriceUpdates().filter((row) => modelIds.includes(String(row?.id || '').trim()));
+        if (!modelUpdates.length && modelIds.length) {
+            const byId = new Map(models.map((m) => [String(m?.id || '').trim(), m]));
+            modelIds.forEach((id) => {
+                const m = byId.get(String(id || '').trim());
+                if (!m) return;
+                const price = Number(m?.basePrice ?? m?.priceClient);
+                modelUpdates.push({
+                    id: String(id),
+                    basePrice: Number.isFinite(price) ? price : 0
+                });
+            });
+        }
+        if (!modelIds.length) {
+            const allDone = models.length > 0 && collectPendingImportModelIds(staging, validatedIds).length === 0;
+            if (allDone) {
+                showAlert('Tous les modeles sont deja valides.', 'info');
+                if (typeof window.switchImportWorkflowStep === 'function') {
+                    window.switchImportWorkflowStep('minorations');
+                }
+                if (typeof window.renderImportWorkflow === 'function') window.renderImportWorkflow();
+                return;
+            }
+            showAlert('Aucun modele "A valider" disponible pour cette selection.', 'warning');
             return;
         }
         try {
@@ -215,12 +256,24 @@
             } catch (_e) {
                 if (typeof window.loadData === 'function') await window.loadData(true, true);
             }
-            showAlert(`${modelIds.length} modèle(s) enregistré(s).`, 'success');
+            const syncWarn = String(result?.syncWarning || result?.data?.syncWarning || '').trim();
+            showAlert(
+                syncWarn
+                    ? `${modelIds.length} modèle(s) enregistré(s). Attention : ${syncWarn}`
+                    : `${modelIds.length} modèle(s) enregistré(s).`,
+                syncWarn ? 'warning' : 'success'
+            );
             if (typeof window.renderImportStagingIndicator === 'function') {
                 window.renderImportStagingIndicator(window.currentImportStaging);
             }
             if (typeof window.renderImportWorkflow === 'function') window.renderImportWorkflow();
-            if (typeof window.switchImportWorkflowStep === 'function') window.switchImportWorkflowStep('families-tri');
+            const allValidated = collectPendingImportModelIds(
+                window.currentImportStaging,
+                new Set((window.currentImportStaging?.progress?.validatedModelIds || []).map((x) => String(x)))
+            ).length === 0;
+            if (typeof window.switchImportWorkflowStep === 'function') {
+                window.switchImportWorkflowStep(allValidated ? 'minorations' : 'models');
+            }
         } catch (error) {
             showAlert('Erreur validation modeles: ' + error.message, 'error');
         }
@@ -235,4 +288,11 @@
     window.formatImportModelMoneyInput = formatImportModelMoneyInput;
     window.focusImportModelMoneyInput = focusImportModelMoneyInput;
     window.validateImportModelsStep = validateImportModelsStep;
+    window.getImportModelsStepMount = getImportModelsStepMount;
+    window.renderImportModelsStepIntoMount = function renderImportModelsStepIntoMount(mountEl) {
+        const mount = mountEl || getImportModelsStepMount();
+        if (!mount || typeof renderImportModelsStepHtml !== 'function') return false;
+        mount.innerHTML = renderImportModelsStepHtml();
+        return true;
+    };
 })();

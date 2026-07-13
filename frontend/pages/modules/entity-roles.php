@@ -1,9 +1,8 @@
 <?php
 /**
  * Configuration > Roles d'entite
- * - Cree des roles metier (service_commercial, sav, etc.)
- * - Active/desactive/supprime des roles
- * - Base pour l'affectation user->roles (et droits par role)
+ * - Roles structurels : admin, user (toujours presents)
+ * - Roles fonctionnels : service_commercial, sav, etc. (ajoutables)
  */
 
 require_once __DIR__ . '/../../config/config.php';
@@ -24,6 +23,8 @@ $page_title = "Roles de l'entite";
 $successMessage = '';
 $errorMessage = '';
 $roles = [];
+$structuralRoles = [];
+$functionalRoles = [];
 
 function normalizeRoleKey($name) {
     $name = strtolower(trim((string) $name));
@@ -51,6 +52,44 @@ function callApi($method, $url, $token, $body = null) {
     return ['ok' => $code >= 200 && $code < 300, 'message' => $decoded['message'] ?? null, 'code' => $code, 'data' => $decoded];
 }
 
+function renderRoleCard(array $role): void {
+    $key = (string) ($role['key'] ?? '');
+    $label = (string) ($role['label'] ?? $key);
+    $description = (string) ($role['description'] ?? '');
+    $isSystem = (bool) ($role['isSystem'] ?? false);
+    $isActive = (bool) ($role['isActive'] ?? true);
+    ?>
+    <div class="card role-card">
+        <div class="role-head">
+            <h3><?= escape($label); ?></h3>
+            <span class="badge <?= $isActive ? 'badge-success' : 'badge-warning' ?>">
+                <?= $isActive ? 'Actif' : 'Inactif'; ?>
+            </span>
+        </div>
+        <p class="text-muted"><?= escape($description ?: 'Aucune description'); ?></p>
+        <p><strong>Cle:</strong> <code><?= escape($key); ?></code></p>
+        <?php if ($isSystem): ?>
+            <p class="small text-muted">Role structurel — toujours present, non supprimable.</p>
+        <?php endif; ?>
+
+        <div class="role-actions">
+            <?php if (!$isSystem): ?>
+                <form method="POST">
+                    <input type="hidden" name="action" value="toggle_role">
+                    <input type="hidden" name="role_key" value="<?= escape($key); ?>">
+                    <button type="submit" class="btn btn-outline"><?= $isActive ? 'Desactiver' : 'Activer'; ?></button>
+                </form>
+                <form method="POST" onsubmit="return confirm('Supprimer ce role ?');">
+                    <input type="hidden" name="action" value="delete_role">
+                    <input type="hidden" name="role_key" value="<?= escape($key); ?>">
+                    <button type="submit" class="btn btn-danger">Supprimer</button>
+                </form>
+            <?php endif; ?>
+        </div>
+    </div>
+    <?php
+}
+
 try {
     if (empty($currentEntrepriseId)) throw new Exception("Aucune entite active.");
     $token = getJWTToken();
@@ -69,7 +108,7 @@ try {
                 'description' => $description,
                 'key' => $key
             ]);
-            if ($resp['ok']) $successMessage = 'Role cree avec succes.';
+            if ($resp['ok']) $successMessage = 'Role fonctionnel cree avec succes.';
             else $errorMessage = $resp['message'] ?: 'Erreur creation role.';
         } elseif ($action === 'toggle_role') {
             $key = trim((string) ($_POST['role_key'] ?? ''));
@@ -87,6 +126,13 @@ try {
     $resp = callApi('GET', $apiBase . '/entity-roles' . $scopeQuery, $token);
     if (!$resp['ok']) throw new Exception($resp['message'] ?: "Impossible de charger les roles.");
     $roles = $resp['data']['data'] ?? [];
+    foreach ($roles as $role) {
+        if (!empty($role['isSystem'])) {
+            $structuralRoles[] = $role;
+        } else {
+            $functionalRoles[] = $role;
+        }
+    }
 } catch (Exception $e) {
     $errorMessage = $e->getMessage();
 }
@@ -98,7 +144,6 @@ require_once __DIR__ . '/../../includes/header.php';
     <div class="container">
         <div class="section-title" style="display:flex; justify-content:space-between; align-items:center; gap:10px;">
             <h2 style="margin:0;">Roles de l'entite</h2>
-            <a class="btn btn-secondary" href="<?= url('pages/entity-config.php') ?>">Retour configuration</a>
         </div>
 
         <?php if ($successMessage): ?>
@@ -109,70 +154,71 @@ require_once __DIR__ . '/../../includes/header.php';
         <?php endif; ?>
 
         <div class="card" style="margin-bottom: 14px;">
-            <h3 style="margin-top:0;">Nouveau role</h3>
-            <form method="POST" style="display:grid; gap:10px;">
-                <input type="hidden" name="action" value="create_role">
-                <div>
-                    <label for="label">Nom du role</label>
-                    <input id="label" name="label" class="form-control" placeholder="Ex: Service commercial" required>
-                </div>
-                <div>
-                    <label for="description">Description (optionnel)</label>
-                    <input id="description" name="description" class="form-control" placeholder="Ex: Traite les demandes commerciales">
-                </div>
-                <div>
-                    <button type="submit" class="btn btn-primary">Creer le role</button>
-                </div>
-            </form>
+            <p class="text-muted" style="margin-top:0;">
+                Les <strong>roles structurels</strong> definissent le niveau d'acces de base (administrateur ou utilisateur).
+                Les <strong>roles fonctionnels</strong> permettent d'affiner les droits metier (commercial, SAV, etc.).
+            </p>
         </div>
 
-        <div class="roles-grid">
-            <?php foreach ($roles as $role): ?>
-                <?php
-                $key = (string) ($role['key'] ?? '');
-                $label = (string) ($role['label'] ?? $key);
-                $description = (string) ($role['description'] ?? '');
-                $isSystem = (bool) ($role['isSystem'] ?? false);
-                $isActive = (bool) ($role['isActive'] ?? true);
-                ?>
-                <div class="card role-card">
-                    <div class="role-head">
-                        <h3><?= escape($label); ?></h3>
-                        <span class="badge <?= $isActive ? 'badge-success' : 'badge-warning' ?>">
-                            <?= $isActive ? 'Actif' : 'Inactif'; ?>
-                        </span>
-                    </div>
-                    <p class="text-muted"><?= escape($description ?: 'Aucune description'); ?></p>
-                    <p><strong>Cle:</strong> <code><?= escape($key); ?></code></p>
-                    <?php if ($isSystem): ?>
-                        <p class="small text-muted">Role systeme non supprimable.</p>
-                    <?php endif; ?>
+        <div class="roles-section">
+            <h3>Roles structurels</h3>
+            <p class="text-muted small">Toujours presents — utilises pour les permissions par defaut et l'appartenance a l'entite.</p>
+            <div class="hub-cards-grid">
+                <?php if (empty($structuralRoles)): ?>
+                    <div class="card role-card"><p class="text-muted">Chargement des roles structurels…</p></div>
+                <?php else: ?>
+                    <?php foreach ($structuralRoles as $role): ?>
+                        <?php renderRoleCard($role); ?>
+                    <?php endforeach; ?>
+                <?php endif; ?>
+            </div>
+        </div>
 
-                    <div class="role-actions">
-                        <form method="POST">
-                            <input type="hidden" name="action" value="toggle_role">
-                            <input type="hidden" name="role_key" value="<?= escape($key); ?>">
-                            <button type="submit" class="btn btn-outline"><?= $isActive ? 'Desactiver' : 'Activer'; ?></button>
-                        </form>
-                        <?php if (!$isSystem): ?>
-                            <form method="POST" onsubmit="return confirm('Supprimer ce role ?');">
-                                <input type="hidden" name="action" value="delete_role">
-                                <input type="hidden" name="role_key" value="<?= escape($key); ?>">
-                                <button type="submit" class="btn btn-danger">Supprimer</button>
-                            </form>
-                        <?php endif; ?>
+        <div class="roles-section">
+            <h3>Roles fonctionnels</h3>
+            <p class="text-muted small">Ajoutez des roles metier pour regrouper des utilisateurs et leurs droits (IA, modules, etc.).</p>
+
+            <div class="card" style="margin-bottom: 14px;">
+                <h4 style="margin-top:0;">Nouveau role fonctionnel</h4>
+                <form method="POST" style="display:grid; gap:10px;">
+                    <input type="hidden" name="action" value="create_role">
+                    <div>
+                        <label for="label">Nom du role</label>
+                        <input id="label" name="label" class="form-control" placeholder="Ex: Service commercial" required>
                     </div>
-                </div>
-            <?php endforeach; ?>
+                    <div>
+                        <label for="description">Description (optionnel)</label>
+                        <input id="description" name="description" class="form-control" placeholder="Ex: Traite les demandes commerciales">
+                    </div>
+                    <div>
+                        <button type="submit" class="btn btn-primary">Creer le role fonctionnel</button>
+                    </div>
+                </form>
+            </div>
+
+            <div class="hub-cards-grid">
+                <?php if (empty($functionalRoles)): ?>
+                    <div class="card role-card">
+                        <p class="text-muted" style="margin:0;">Aucun role fonctionnel pour le moment.</p>
+                    </div>
+                <?php else: ?>
+                    <?php foreach ($functionalRoles as $role): ?>
+                        <?php renderRoleCard($role); ?>
+                    <?php endforeach; ?>
+                <?php endif; ?>
+            </div>
         </div>
     </div>
 </section>
 
 <style>
-.roles-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-    gap: 12px;
+.roles-section {
+    margin-bottom: 24px;
+}
+.roles-section h3 {
+    margin-bottom: 4px;
+}
+.roles-section .hub-cards-grid {
     margin-top: 12px;
 }
 .role-card h3 { margin: 0; }

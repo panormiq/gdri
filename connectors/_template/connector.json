@@ -1,0 +1,40 @@
+{
+  "id": "my-connector",
+  "name": "Mon connecteur",
+  "version": "0.1.0",
+  "author": "Votre société",
+  "description": "Description courte du connecteur.",
+  "direction": "bidirectional",
+  "compatiblePlatform": ">=1.0.0",
+  "capabilities": [
+    "ingest.push",
+    "ingest.poll",
+    "emit.http"
+  ],
+  "credentials": {
+    "type": "api_key",
+    "fields": ["apiKey"]
+  },
+  "configSchema": {
+    "type": "object",
+    "properties": {
+      "pollIntervalMinutes": {
+        "type": "number",
+        "title": "Intervalle poll (min)",
+        "default": 5
+      },
+      "apiBaseUrl": {
+        "type": "string",
+        "title": "URL API",
+        "format": "uri"
+      }
+    },
+    "required": ["apiBaseUrl"]
+  },
+  "operations": {
+    "ingest.push": { "description": "Webhook entrant" },
+    "ingest.poll": { "description": "Poll HTTP" },
+    "emit.http": { "description": "POST sortant" }
+  },
+  "permissions": ["network"]
+}

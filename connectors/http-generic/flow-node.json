@@ -1,0 +1,66 @@
+{
+  "id": "http-generic",
+  "name": "HTTP sortant",
+  "version": "1.0.0",
+  "category": "connector",
+  "kind": "action",
+  "visibility": "orchestrator-only",
+  "description": "Envoie les données de l'étape précédente vers une URL distante (POST JSON).",
+  "canvas": {
+    "icon": "flow-node.svg",
+    "iconEmoji": "🌐",
+    "color": "#0891b2",
+    "borderRadius": 12,
+    "width": 220,
+    "inputs": [
+      { "id": "main", "label": "Entrée", "type": "main", "maxConnections": 1 }
+    ],
+    "outputs": [
+      { "id": "success", "label": "Succès", "type": "main" },
+      { "id": "failure", "label": "Échec", "type": "main" }
+    ]
+  },
+  "operations": {
+    "emit.http": {
+      "label": "POST HTTP",
+      "description": "Envoie un JSON vers un serveur distant (backup, webhook…).",
+      "configSchema": {
+        "type": "object",
+        "properties": {
+          "emitUrl": {
+            "type": "string",
+            "title": "URL de destination",
+            "format": "uri"
+          },
+          "emitMethod": {
+            "type": "string",
+            "title": "Méthode HTTP",
+            "enum": ["POST", "PUT", "PATCH"],
+            "default": "POST"
+          },
+          "bearerToken": {
+            "type": "string",
+            "title": "Bearer token (optionnel)"
+          },
+          "includeFileBase64": {
+            "type": "boolean",
+            "title": "Inclure le fichier précédent en base64",
+            "default": false
+          },
+          "includeMetadata": {
+            "type": "boolean",
+            "title": "Inclure les métadonnées de l'étape précédente",
+            "default": true
+          }
+        },
+        "required": ["emitUrl"]
+      },
+      "outputMessage": {
+        "type": "http-result",
+        "fields": ["status", "success"]
+      }
+    }
+  },
+  "permissions": ["network"],
+  "serviceRef": "connectors/http-generic"
+}

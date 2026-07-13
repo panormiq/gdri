@@ -17,6 +17,10 @@ __pycache__/
 .Python
 *.so
 
+# Sauvegardes MongoDB (fichiers générés)
+backend/storage/backups/**
+!backend/storage/backups/.gitkeep
+
 # Bases de données locales
 *.db
 *.sqlite
@@ -48,6 +52,13 @@ Thumbs.db
 *.tmp
 *.temp
 test-urls.php
+restore-*.txt
+restore-*.json
+restore-*.js
+
+# Uploads locaux (médias générés)
+backend/uploads/media-studio/**
+!backend/uploads/media-studio/.gitkeep
 
 # Certificats SSL (à ne pas commiter)
 ssl-certs/*.key

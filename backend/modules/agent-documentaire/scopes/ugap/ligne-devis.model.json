@@ -1,0 +1,12 @@
+{
+  "namespace": "ugap:ligne-devis",
+  "name": "Ligne devis UGAP",
+  "fields": [
+    { "key": "refUgap", "label": "Réf. UGAP", "type": "text" },
+    { "key": "libelle", "label": "Libellé UGAP", "type": "text" },
+    { "key": "libelleApp", "label": "Libellé", "type": "text" },
+    { "key": "categorie", "label": "Catégorie", "type": "text" },
+    { "key": "prix", "label": "Prix UGAP HT", "type": "currency" }
+  ],
+  "variants": []
+}

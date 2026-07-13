@@ -14,15 +14,15 @@ if (!hasRole(ROLE_ADMIN_GDRI)) {
     redirect(url('pages/dashboard.php'));
 }
 
-$page_title = 'Administration des Modules';
+$page_title = 'Console plateforme – Extensions';
 require_once '../includes/header.php';
 
 // Liste des modules administrables (id, titre, description, icône, url config) – réservé ADMIN_GDRI
 $admin_modules = [
     [
         'id' => 'ia',
-        'title' => 'Module IA – Serveurs',
-        'description' => 'Serveurs IA (backendIA, Ollama, OpenAI...).',
+        'title' => 'Console GDRI – Serveurs IA',
+        'description' => 'Infra IA distribuée : création, presets, entités autorisées.',
         'icon' => '🤖',
         'configUrl' => url('pages/modules/ia-config.php'),
         'configLabel' => 'Gérer les serveurs IA',
@@ -43,14 +43,22 @@ $admin_modules = [
         'configUrl' => url('pages/admin-modules-mail.php'),
         'configLabel' => 'Configurer les fournisseurs mail',
     ],
+    [
+        'id' => 'data-backup',
+        'title' => 'Sauvegarde des bases client',
+        'description' => 'Destinations, politiques globales et supervision des backups entités.',
+        'icon' => '💾',
+        'configUrl' => url('pages/admin-modules-backup.php'),
+        'configLabel' => 'Gérer les sauvegardes',
+    ],
 ];
 ?>
 
 <div class="container" style="max-width: 1200px; margin: 2rem auto; padding: 0 1rem;">
     <div style="margin-bottom: 2rem;">
-        <h1>Administration des Modules</h1>
+        <h1>Console plateforme – Extensions</h1>
         <p style="color: #666; font-size: 1.1em;">
-            Choisissez un module pour accéder à sa configuration
+            Configuration technique des extensions et services partagés (IA, mail, Facebook…).
         </p>
     </div>
 
@@ -59,12 +67,7 @@ $admin_modules = [
         <input type="text" id="adminModulesSearch" class="form-control" placeholder="Ex. mail, facebook..." autocomplete="off" />
     </div>
 
-    <div id="adminModulesList"
-         style="
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-            gap: 1.2rem;
-         ">
+    <div id="adminModulesList" class="hub-cards-grid">
         <?php foreach ($admin_modules as $mod): ?>
         <div class="card admin-module-card"
              style="cursor: pointer; border-radius: 10px; overflow: hidden; height: 100%;"

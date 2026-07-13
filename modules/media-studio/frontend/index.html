@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+  <title>Studio Média</title>
+  <link rel="stylesheet" href="/modules/media-studio/frontend/assets/css/studio.css?v=20260704k">
+</head>
+<body>
+  <header class="ms-topbar">
+    <div>
+      <h1>Studio Média</h1>
+      <p>Chat IA + génération Flux · éditeur multi-calques SVG</p>
+    </div>
+    <a href="/frontend/pages/modules.php" class="ms-btn ms-btn-secondary">Retour modules</a>
+  </header>
+
+  <nav class="ms-tabs" role="tablist">
+    <button type="button" class="ms-tab active" data-tab="simple" role="tab" aria-selected="true">Chat simple</button>
+    <button type="button" class="ms-tab" data-tab="scene" role="tab" aria-selected="false">Multi-calques</button>
+    <button type="button" class="ms-tab" data-tab="extract" role="tab" aria-selected="false">Extraction</button>
+    <button type="button" class="ms-tab" data-tab="animate" role="tab" aria-selected="false">Animation</button>
+  </nav>
+
+  <div class="ms-status" id="status">Initialisation…</div>
+
+  <!-- Onglet Chat simple -->
+  <div class="ms-tab-panel active" id="panel-simple" data-panel="simple">
+    <div class="ms-layout">
+      <section class="ms-chat-panel">
+        <div class="ms-messages" id="messages">
+          <div class="ms-msg bot">Bonjour ! Discutez avec l'IA ou décrivez une image à créer.
+
+Astuce : demandez une image dans le chat (ex. <strong>un coloriage de licornes</strong>), tapez <strong>/image un chat astronaute</strong>, ou utilisez le bouton Générer.</div>
+        </div>
+        <div class="typing" id="typing">En cours…</div>
+        <div class="ms-input-area">
+          <div class="ms-input-row">
+            <input type="text" id="userInput" placeholder="Message ou description d'image…" autocomplete="off">
+            <button type="button" id="sendBtn" class="ms-btn ms-btn-primary">Chat</button>
+            <button type="button" id="genBtn" class="ms-btn ms-btn-secondary">Générer</button>
+          </div>
+          <div class="ms-hints" id="modelHints">768×768 · Flux Schnell · ComfyUI local</div>
+        </div>
+      </section>
+
+      <aside class="ms-gallery-panel">
+        <div class="ms-gallery-header">Galerie</div>
+        <div class="ms-gallery" id="gallery">
+          <div class="ms-empty">Vos images apparaîtront ici</div>
+        </div>
+      </aside>
+    </div>
+  </div>
+
+  <!-- Onglet Multi-calques -->
+  <div class="ms-tab-panel" id="panel-scene" data-panel="scene">
+    <div class="ms-scene-layout">
+      <aside class="ms-scene-sidebar">
+        <div class="ms-scene-sidebar-head">
+          <span>Calques</span>
+          <div class="ms-scene-sidebar-btns">
+            <button type="button" id="sceneAddText" class="ms-btn ms-btn-ghost" title="Ajouter texte">+ Texte</button>
+            <button type="button" id="sceneAddCharacter" class="ms-btn ms-btn-ghost" title="Ajouter personnage (mesh)">+ Perso</button>
+          </div>
+        </div>
+        <ul class="ms-layer-list" id="layerList"></ul>
+        <div class="ms-scene-actions">
+          <button type="button" id="sceneRefineBtnSide" class="ms-btn ms-btn-secondary">2. Prompts</button>
+          <button type="button" id="sceneGenAllBtnSide" class="ms-btn ms-btn-primary">3. Générer</button>
+        </div>
+        <div class="ms-scene-actions">
+          <button type="button" id="sceneNewBtn" class="ms-btn ms-btn-secondary">Nouveau</button>
+          <button type="button" id="sceneExportSvg" class="ms-btn ms-btn-secondary">Export SVG</button>
+        </div>
+      </aside>
+
+      <main class="ms-scene-canvas-wrap">
+        <div class="ms-scene-toolbar">
+          <input type="text" id="sceneTitle" class="ms-scene-title" placeholder="Titre du projet">
+          <span class="ms-scene-canvas-size" id="canvasSizeLabel">1200 × 630</span>
+        </div>
+        <div class="ms-scene-viewport" id="sceneViewport">
+          <svg id="sceneSvg" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" class="ms-scene-svg"></svg>
+        </div>
+      </main>
+
+      <aside class="ms-scene-props" id="sceneProps">
+        <div class="ms-scene-props-head">Propriétés</div>
+        <div class="ms-scene-props-body" id="scenePropsBody">
+          <p class="ms-scene-props-empty">Sélectionnez un calque pour modifier ses propriétés ou discuter avec l'IA.</p>
+        </div>
+        <button type="button" id="sceneRegenBtn" class="ms-btn ms-btn-primary ms-scene-regen" disabled>Générer ce calque (Flux)</button>
+      </aside>
+    </div>
+
+    <section class="ms-scene-chat">
+      <div class="ms-scene-messages" id="sceneMessages">
+        <div class="ms-msg bot">Workflow en 3 étapes :
+
+1. **Brouillon** — l'IA découpe les calques (titres + emplacements), sans générer d'images.
+2. **Prompts Flux** — prompts précis par calque image (objet ou fond).
+3. **Générer** — Flux produit les images (détourage auto pour les objets).
+
+Le texte reste en calques SVG instantanés. Ajustez les positions à la souris entre chaque étape.</div>
+      </div>
+      <div class="typing" id="sceneTyping">En cours…</div>
+      <div class="ms-input-area ms-scene-input-area">
+        <div class="ms-layer-context" id="layerContext" hidden>
+          <span class="ms-layer-context-label">Calque actif</span>
+          <span class="ms-layer-chip" id="layerChip"></span>
+          <button type="button" id="layerContextClear" class="ms-btn ms-btn-ghost" title="Détacher le calque">×</button>
+        </div>
+        <div class="ms-scene-workflow-bar">
+          <button type="button" id="scenePlanBtn" class="ms-btn ms-btn-secondary">1. Brouillon</button>
+          <button type="button" id="sceneRefineBtn" class="ms-btn ms-btn-secondary">2. Prompts Flux</button>
+          <button type="button" id="sceneGenAllBtn" class="ms-btn ms-btn-primary">3. Générer images</button>
+        </div>
+        <div class="ms-input-row">
+          <input type="text" id="sceneInput" placeholder="Décrivez le visuel (étape 1) ou modifiez un calque…" autocomplete="off">
+          <button type="button" id="sceneSendBtn" class="ms-btn ms-btn-primary">Envoyer</button>
+        </div>
+        <div class="ms-hints">Étapes 1 → 2 → 3 ci-dessus · calque sélectionné = contexte du dialogue</div>
+      </div>
+    </section>
+  </div>
+
+  <!-- Onglet Extraction -->
+  <div class="ms-tab-panel" id="panel-extract" data-panel="extract">
+    <div class="ms-extract-layout">
+      <aside class="ms-extract-sidebar">
+        <div class="ms-extract-sidebar-head">
+          <span>Extraction d'objet</span>
+        </div>
+        <p class="ms-extract-hint">Importez une image, placez le cadre sur l'objet. Le détourage utilise <strong>rembg</strong> (IA locale).</p>
+        <div class="ms-extract-actions">
+          <input type="file" id="extractFileInput" accept="image/png,image/jpeg,image/webp" hidden>
+          <button type="button" id="extractImportBtn" class="ms-btn ms-btn-secondary">Importer image</button>
+          <button type="button" id="extractRunBtn" class="ms-btn ms-btn-primary" disabled>Extraire l'objet</button>
+        </div>
+        <label class="ms-prop-label">Nom de l'objet</label>
+        <input type="text" id="extractTitle" class="ms-prop-input" placeholder="Bolter, cadre…" value="Objet extrait">
+        <label class="ms-prop-label">Cadre (x, y, largeur, hauteur)</label>
+        <div class="ms-prop-grid">
+          <input type="number" id="extractCropX" min="0" step="1" placeholder="x">
+          <input type="number" id="extractCropY" min="0" step="1" placeholder="y">
+          <input type="number" id="extractCropW" min="20" step="1" placeholder="w">
+          <input type="number" id="extractCropH" min="20" step="1" placeholder="h">
+        </div>
+        <p class="ms-extract-hint">Déplacez le cadre à la souris ou ajustez les valeurs. Coins = redimensionner.</p>
+        <div class="ms-extract-saved-head">Objets enregistrés</div>
+        <ul class="ms-extract-saved-list" id="extractSavedList">
+          <li class="ms-extract-empty">Aucun objet extrait pour l'instant.</li>
+        </ul>
+      </aside>
+
+      <main class="ms-extract-main" id="extractMain">
+        <div class="ms-extract-stage" id="extractStage">
+          <p class="ms-extract-empty ms-extract-drop-hint">Glissez-déposez une image ici<br>ou utilisez « Importer image »</p>
+        </div>
+      </main>
+
+      <aside class="ms-extract-preview-panel">
+        <div class="ms-extract-sidebar-head">Aperçu transparent</div>
+        <div class="ms-extract-preview" id="extractPreview"></div>
+        <div class="ms-extract-preview-actions" id="extractPreviewActions" hidden>
+          <a id="extractDownloadBtn" href="#" class="ms-btn ms-btn-secondary" download>Télécharger PNG</a>
+          <button type="button" id="extractAnimateBtn" class="ms-btn ms-btn-primary">Animer cet objet</button>
+        </div>
+      </aside>
+    </div>
+  </div>
+
+  <!-- Onglet Animation -->
+  <div class="ms-tab-panel" id="panel-animate" data-panel="animate">
+    <div class="ms-animate-layout">
+      <aside class="ms-animate-sidebar">
+        <div class="ms-extract-sidebar-head">Scène animation</div>
+        <p class="ms-extract-hint">Importez des objets, décrivez le <strong>mouvement en texte</strong> (LTX-Video, fond gris uni — détourage plus tard).</p>
+
+        <label class="ms-prop-label">Durée totale (s)</label>
+        <input type="number" id="animateDuration" class="ms-prop-input" min="3" max="120" step="1" value="20">
+
+        <label class="ms-prop-label">Plan de travail (px) — objets peuvent dépasser</label>
+        <div class="ms-prop-grid">
+          <input type="number" id="animateWorkspaceW" min="400" max="5000" step="10" value="2400" title="Largeur plan">
+          <input type="number" id="animateWorkspaceH" min="300" max="5000" step="10" value="1350" title="Hauteur plan">
+        </div>
+
+        <label class="ms-prop-label">Zone de sortie OBS (x, y, largeur, hauteur)</label>
+        <div class="ms-prop-grid ms-prop-grid-4">
+          <input type="number" id="animateOutputX" min="0" step="10" value="240" title="X">
+          <input type="number" id="animateOutputY" min="0" step="10" value="135" title="Y">
+          <input type="number" id="animateOutputW" min="160" max="3840" step="10" value="1920" title="Largeur export">
+          <input type="number" id="animateOutputH" min="120" max="2160" step="10" value="1080" title="Hauteur export">
+        </div>
+
+        <div class="ms-extract-saved-head">Cadres temporels</div>
+        <ul class="ms-animate-cadre-list" id="animateCadreList"></ul>
+        <div class="ms-animate-cadre-actions">
+          <button type="button" id="animateAddCadreBtn" class="ms-btn ms-btn-ghost">+ Cadre</button>
+          <button type="button" id="animateSplitCadresBtn" class="ms-btn ms-btn-ghost">Répartir</button>
+          <button type="button" id="animateAssignCadresBtn" class="ms-btn ms-btn-ghost">1 calque / cadre</button>
+        </div>
+
+        <div class="ms-extract-saved-head">Calques</div>
+        <ul class="ms-animate-layer-list" id="animateLayerList">
+          <li class="ms-animate-empty">« + Calque » pour ajouter bolter, lance…</li>
+        </ul>
+
+        <label class="ms-prop-label">Outils avancés (manuel)</label>
+        <div class="ms-animate-tools">
+          <button type="button" id="animateToolMove" class="ms-btn ms-btn-secondary active">Déplacer</button>
+          <button type="button" id="animateToolGlow" class="ms-btn ms-btn-secondary">Rune / lueur</button>
+          <button type="button" id="animateToolButton" class="ms-btn ms-btn-secondary">Bouton</button>
+          <button type="button" id="animateToolDelete" class="ms-btn ms-btn-ghost">Supprimer zone</button>
+        </div>
+        <p class="ms-extract-hint">Outil <strong>Déplacer</strong> : poignées pour redimensionner · poignée ronde dorée pour pivoter · glisser au centre pour déplacer.</p>
+        <div class="ms-extract-saved-head">Animation calque + cadre</div>
+        <ul class="ms-animate-zone-list" id="animateZoneList">
+          <li class="ms-animate-empty">Sélectionnez un calque, décrivez le mouvement ci-dessous.</li>
+        </ul>
+
+        <div class="ms-animate-prompt-panel" id="animatePromptPanel" hidden>
+          <div class="ms-extract-saved-head">Mouvement (prompt)</div>
+          <p class="ms-extract-hint">1 calque + 1 cadre actif. <strong>Tir / chargeur / boutons</strong> → bouton « Zones depuis prompt ». <strong>LTX</strong> = mouvement global (runes, flottement…) — pas de mécanique précise.</p>
+          <textarea id="animatePromptInput" class="ms-animate-prompt-input" rows="3" placeholder="Tir + chargeur qui se vide → Zones. Runes qui brillent → LTX."></textarea>
+          <button type="button" id="animateI2vGenerateBtn" class="ms-btn ms-btn-primary">Générer clip IA (LTX)</button>
+          <details class="ms-animate-advanced">
+            <summary>Animation procédurale (secours)</summary>
+            <label class="ms-animate-llm-check">
+              <input type="checkbox" id="animatePromptLlm"> Enrichir avec l'IA (Ollama)
+            </label>
+            <p class="ms-animate-prompt-summary ms-extract-hint"></p>
+            <button type="button" id="animatePromptGenerateBtn" class="ms-btn ms-btn-secondary">Zones depuis prompt (tir, boutons…)</button>
+          </details>
+        </div>
+        <div class="ms-animate-actions">
+          <button type="button" id="animatePlayBtn" class="ms-btn ms-btn-secondary">▶ Aperçu 20 s</button>
+          <label class="ms-prop-label">Export OBS</label>
+          <select id="animateExportFormat" class="ms-prop-input">
+            <option value="obs-webm" selected>WebM transparent (OBS — recommandé)</option>
+            <option value="obs-pngzip">PNG séquence ZIP (secours alpha)</option>
+            <option value="webm-bg">WebM avec fond (aperçu seulement)</option>
+          </select>
+          <button type="button" id="animateExportBtn" class="ms-btn ms-btn-primary">Exporter</button>
+        </div>
+        <p class="ms-extract-hint ms-obs-hint"><strong>OBS :</strong> Sources → Média → fichier WebM → cocher <em>Boucle</em>. Chrome/Edge recommandé pour l'alpha.</p>
+        <div class="ms-extract-saved-head">Objets disponibles</div>
+        <input type="file" id="animateFileInput" accept="image/png" hidden>
+        <button type="button" id="animateImportBtn" class="ms-btn ms-btn-secondary">Importer PNG</button>
+        <ul class="ms-animate-asset-list" id="animateAssetList">
+          <li class="ms-animate-empty">Extrayez un objet ou importez un PNG.</li>
+        </ul>
+      </aside>
+      <main class="ms-animate-main" id="animateStage">
+        <p class="ms-extract-empty ms-extract-drop-hint">Ouvrez un objet extrait<br><span>ou importez un PNG transparent</span></p>
+      </main>
+    </div>
+  </div>
+
+  <script src="/modules/media-studio/frontend/assets/js/studio-text.js?v=20260704k"></script>
+  <script src="/modules/media-studio/frontend/assets/js/studio-rig.js?v=20260704k"></script>
+  <script src="/modules/media-studio/frontend/assets/js/studio-scene.js?v=20260704k"></script>
+  <script src="/modules/media-studio/frontend/assets/js/studio-extract.js?v=20260704k"></script>
+  <script src="/modules/media-studio/frontend/assets/js/studio-animate.js?v=20260704r"></script>
+  <script src="/modules/media-studio/frontend/assets/js/studio-app.js?v=20260704m"></script>
+</body>
+</html>

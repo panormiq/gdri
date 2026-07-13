@@ -1,0 +1,79 @@
+{
+  "id": "cron-trigger",
+  "name": "Planification (Cron)",
+  "version": "1.0.0",
+  "category": "trigger",
+  "kind": "trigger",
+  "visibility": "orchestrator-only",
+  "description": "Déclenche un flow agent à intervalle planifié (quotidien, hebdomadaire, mensuel ou expression cron).",
+  "canvas": {
+    "icon": "flow-node.svg",
+    "iconEmoji": "⏰",
+    "color": "#6f42c1",
+    "borderRadius": 12,
+    "width": 220,
+    "inputs": [],
+    "outputs": [
+      { "id": "main", "label": "Déclenche", "type": "main" }
+    ]
+  },
+  "trigger": {
+    "type": "cron",
+    "configSchema": {
+      "type": "object",
+      "properties": {
+        "preset": {
+          "type": "string",
+          "title": "Fréquence",
+          "enum": ["daily", "weekly", "monthly", "custom"],
+          "default": "weekly"
+        },
+        "minute": {
+          "type": "number",
+          "title": "Minute",
+          "minimum": 0,
+          "maximum": 59,
+          "default": 0
+        },
+        "hour": {
+          "type": "number",
+          "title": "Heure",
+          "minimum": 0,
+          "maximum": 23,
+          "default": 3
+        },
+        "dayOfWeek": {
+          "type": "number",
+          "title": "Jour de la semaine (0=dimanche)",
+          "minimum": 0,
+          "maximum": 6,
+          "default": 0
+        },
+        "dayOfMonth": {
+          "type": "number",
+          "title": "Jour du mois",
+          "minimum": 1,
+          "maximum": 31,
+          "default": 1
+        },
+        "cron": {
+          "type": "string",
+          "title": "Expression cron (si personnalisé)",
+          "description": "Format : minute heure jour-mois mois jour-semaine. Ex: 0 3 * * 0",
+          "default": "0 3 * * 0"
+        },
+        "timezone": {
+          "type": "string",
+          "title": "Fuseau horaire",
+          "default": "Europe/Paris"
+        }
+      }
+    },
+    "outputContext": {
+      "type": "trigger-event",
+      "fields": ["triggeredAt", "entrepriseId", "flowId", "schedule"]
+    }
+  },
+  "permissions": [],
+  "serviceRef": "backend/core/agent-flow/bricks/cron-trigger"
+}

@@ -6,6 +6,7 @@
     </p>
     <div class="ugap-detect-actions">
         <button type="button" class="btn btn-primary" id="ugap-detect-run">Lancer la détection</button>
+        <button type="button" class="btn btn-success" id="ugap-detect-import">Importer en zone tampon</button>
         <span id="ugap-detect-status" class="ugap-detect-status"></span>
     </div>
     <div id="ugap-detect-summary" class="ugap-detect-summary" hidden></div>

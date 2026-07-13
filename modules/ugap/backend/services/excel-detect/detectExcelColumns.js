@@ -9,6 +9,7 @@
  */
 
 const detectModelColumns = require('./detectModelColumns');
+const { detectRefUgapColumn } = require('./detectRefUgapColumn');
 
 function detectExcelColumns(raw) {
   const structure = {
@@ -56,6 +57,7 @@ function detectExcelColumns(raw) {
   }
 
   structure.modelCols = detectModelColumns(raw, Math.max(0, structure.headerRowIndex));
+  structure.refUgapCol = detectRefUgapColumn(raw, structure);
   return structure;
 }
 

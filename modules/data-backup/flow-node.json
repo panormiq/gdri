@@ -1,0 +1,68 @@
+{
+  "id": "data-backup",
+  "name": "Sauvegarde base client",
+  "version": "1.0.0",
+  "category": "infra",
+  "kind": "action",
+  "visibility": "orchestrator-only",
+  "description": "Exporte la base MongoDB client (GDR-ENTREPRISE) vers le stockage configuré.",
+  "canvas": {
+    "icon": "assets/flow-node.svg",
+    "iconEmoji": "💾",
+    "color": "#1e6fd9",
+    "borderRadius": 12,
+    "width": 220,
+    "inputs": [
+      { "id": "trigger", "label": "Déclencheur", "type": "main", "maxConnections": 1 }
+    ],
+    "outputs": [
+      { "id": "success", "label": "Succès", "type": "main" },
+      { "id": "failure", "label": "Échec", "type": "main" }
+    ]
+  },
+  "compatibleTriggers": [
+    "cron",
+    "schedule",
+    "manual",
+    "webhook",
+    "agent-event"
+  ],
+  "operations": {
+    "backup.run": {
+      "label": "Lancer une sauvegarde",
+      "description": "Exporte la base entité (complète ou collections ciblées).",
+      "configSchema": {
+        "type": "object",
+        "properties": {
+          "scope": {
+            "type": "string",
+            "title": "Périmètre",
+            "enum": ["full", "collections"],
+            "default": "full"
+          },
+          "collections": {
+            "type": "array",
+            "title": "Collections (si périmètre ciblé)",
+            "items": { "type": "string" }
+          },
+          "destinationRef": {
+            "type": "string",
+            "title": "Destination (optionnel)",
+            "description": "Référence connecteur sortant ou stockage local"
+          }
+        }
+      },
+      "outputMessage": {
+        "type": "backup-result",
+        "fields": ["runId", "entrepriseId", "sizeBytes", "documentCount", "filePath"]
+      }
+    },
+    "backup.restore": {
+      "label": "Restaurer une sauvegarde",
+      "description": "Restaure un fichier de sauvegarde (phase 4).",
+      "status": "planned"
+    }
+  },
+  "permissions": ["entity-data", "filesystem"],
+  "serviceRef": "modules/data-backup"
+}

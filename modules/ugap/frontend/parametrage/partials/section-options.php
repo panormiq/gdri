@@ -5,14 +5,12 @@
     data-section-panel="options"
     hidden
 >
-    <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap;">
-        <div>
-            <h2 style="margin:0 0 6px;">Options</h2>
-            <p class="ugap-param-lead" style="margin:0;">
-                Liste des options catalogue. Le libellé Excel source est conservé pour toutes les options afin de garder la référence du tableau Excel même si le nom affiché est ensuite modifié.
-            </p>
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;">
+        <h2 style="margin:0;">Options</h2>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            <button type="button" id="ugap-options-add" class="btn btn-primary">+ option</button>
+            <button type="button" id="ugap-options-refresh" class="btn btn-outline">Rafraîchir</button>
         </div>
-        <button type="button" id="ugap-options-refresh" class="btn btn-outline">Rafraîchir</button>
     </div>
 
     <div class="card" style="margin-top:12px;padding:12px;">
@@ -46,7 +44,7 @@
                     <option value="catalogue">Options catalogue</option>
                     <option value="mino">Minorations (MINO)</option>
                     <option value="majo">Majorations (MAJO)</option>
-                    <option value="base_only">Options de base (IBP)</option>
+                    <option value="base_only">Options de base</option>
                 </select>
             </label>
             <label style="display:flex;flex-direction:column;gap:4px;min-width:180px;">
@@ -72,6 +70,7 @@
                 </select>
             </label>
             <button type="button" id="ugap-options-apply-manual" class="btn btn-primary">Lier la sélection</button>
+            <button type="button" id="ugap-options-merge-base" class="btn btn-outline" disabled title="Sélectionnez exactement 2 options de type Base">Fusionner 2 bases</button>
             <button type="button" id="ugap-options-delete-selected" class="btn btn-outline" style="border-color:#dc3545;color:#b91c1c;" title="Retire les options du catalogue (liens nœuds et picks inclus)">Supprimer la sélection</button>
             <button type="button" id="ugap-options-select-visible" class="btn btn-outline">Sélectionner tout</button>
             <button type="button" id="ugap-options-auto-assign" class="btn btn-outline" title="Lie chaque option non liée au nœud catalogue dont les mots-clés correspondent (même règle que l’onglet Catalogue)">Auto-assigner (mots-clés nœuds)</button>

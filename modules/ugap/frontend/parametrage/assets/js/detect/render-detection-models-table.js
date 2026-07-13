@@ -21,6 +21,7 @@
             <tr>
                 <td>${esc(m.colIndex)}</td>
                 <td>${esc(m.name)}</td>
+                <td><code>${esc(m.refUgap || '—')}</code></td>
                 <td>${esc(m.motorizationBase)}</td>
                 <td>${esc(m.posteNumber ?? '')}</td>
                 <td class="num">${esc(global.UgapDetectFormat.formatPriceEur(m.priceClient))}</td>
@@ -34,6 +35,7 @@
                     <tr>
                         <th>Col.</th>
                         <th>Modèle</th>
+                        <th>Réf. UGAP</th>
                         <th>Motorisation base</th>
                         <th>Poste</th>
                         <th class="num">Prix client</th>

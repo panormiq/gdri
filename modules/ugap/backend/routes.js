@@ -165,6 +165,29 @@ router.put('/ui-state',
 );
 
 /**
+ * PUT /api/ugap/liaisons/rules
+ * Met à jour optionLinkRules et/ou dependencyRules.
+ */
+router.put('/liaisons/rules',
+  express.json(),
+  authenticateJWT,
+  useUgapEntrepriseDb,
+  requireUgapRole(['ADMIN_ENTITY']),
+  ugapController.updateLiaisonRules
+);
+
+/**
+ * POST /api/ugap/liaisons/suggest-heuristic
+ * Propose des règles requires / variant_fit depuis les libellés.
+ */
+router.post('/liaisons/suggest-heuristic',
+  authenticateJWT,
+  useUgapEntrepriseDb,
+  requireUgapRole(['ADMIN_ENTITY']),
+  ugapController.suggestHeuristicLiaisonRules
+);
+
+/**
  * GET /api/ugap/models
  * Récupère la liste des modèles
  */
@@ -211,6 +234,92 @@ router.get('/categories',
 );
 
 /**
+ * GET /api/ugap/devis-settings
+ * Infos entreprise + commerciaux pour les devis
+ */
+router.get('/devis-settings',
+  authenticateJWT,
+  useUgapEntrepriseDb,
+  requireUgapRole(['USER_ENTITY', 'ADMIN_ENTITY']),
+  ugapController.getDevisSettings
+);
+
+router.put('/devis-settings',
+  express.json(),
+  authenticateJWT,
+  useUgapEntrepriseDb,
+  requireUgapRole(['ADMIN_ENTITY']),
+  ugapController.updateDevisSettings
+);
+
+router.get('/devis-settings/entity-users',
+  authenticateJWT,
+  useUgapEntrepriseDb,
+  requireUgapRole(['ADMIN_ENTITY']),
+  ugapController.listDevisEntityUsers
+);
+
+router.post('/devis-settings/commerciaux',
+  express.json(),
+  authenticateJWT,
+  useUgapEntrepriseDb,
+  requireUgapRole(['ADMIN_ENTITY']),
+  ugapController.upsertDevisCommercial
+);
+
+router.put('/devis-settings/commerciaux/:commercialId',
+  express.json(),
+  authenticateJWT,
+  useUgapEntrepriseDb,
+  requireUgapRole(['ADMIN_ENTITY']),
+  ugapController.upsertDevisCommercial
+);
+
+router.delete('/devis-settings/commerciaux/:commercialId',
+  authenticateJWT,
+  useUgapEntrepriseDb,
+  requireUgapRole(['ADMIN_ENTITY']),
+  ugapController.deleteDevisCommercial
+);
+
+router.get('/devis-context',
+  authenticateJWT,
+  useUgapEntrepriseDb,
+  requireUgapRole(['USER_ENTITY', 'ADMIN_ENTITY']),
+  ugapController.getDevisContext
+);
+
+router.get('/clients',
+  authenticateJWT,
+  useUgapEntrepriseDb,
+  requireUgapRole(['USER_ENTITY', 'ADMIN_ENTITY']),
+  ugapController.listUgapClients
+);
+
+router.post('/clients',
+  express.json(),
+  authenticateJWT,
+  useUgapEntrepriseDb,
+  requireUgapRole(['USER_ENTITY', 'ADMIN_ENTITY']),
+  ugapController.createUgapClient
+);
+
+router.put('/clients/:clientId',
+  express.json(),
+  authenticateJWT,
+  useUgapEntrepriseDb,
+  requireUgapRole(['USER_ENTITY', 'ADMIN_ENTITY']),
+  ugapController.updateUgapClient
+);
+
+router.delete('/clients/:clientId',
+  authenticateJWT,
+  useUgapEntrepriseDb,
+  requireUgapRole(['ADMIN_ENTITY']),
+  ugapController.deleteUgapClient
+);
+
+/**
  * POST /api/ugap/devis
  * Génère un devis
  */
@@ -220,6 +329,71 @@ router.post('/devis',
   useUgapEntrepriseDb,
   requireUgapRole(['USER_ENTITY', 'ADMIN_ENTITY']),
   ugapController.generateDevis
+);
+
+/**
+ * POST /api/ugap/devis/render
+ * Génère et télécharge le PDF devis (agent documentaire)
+ */
+router.post('/devis/render',
+  express.json(),
+  authenticateJWT,
+  useUgapEntrepriseDb,
+  requireUgapRole(['USER_ENTITY', 'ADMIN_ENTITY']),
+  ugapController.renderDevis
+);
+
+/**
+ * GET /api/ugap/devis/template-editor
+ * Retourne l'ID document pour éditer le modèle devis UGAP
+ */
+router.get('/devis/template-editor',
+  authenticateJWT,
+  useUgapEntrepriseDb,
+  requireUgapRole(['ADMIN_ENTITY']),
+  ugapController.getDevisTemplateEditor
+);
+
+router.get('/devis/templates',
+  authenticateJWT,
+  useUgapEntrepriseDb,
+  requireUgapRole(['USER_ENTITY', 'ADMIN_ENTITY']),
+  ugapController.listDevisTemplates
+);
+
+router.post('/devis/templates',
+  authenticateJWT,
+  useUgapEntrepriseDb,
+  requireUgapRole(['ADMIN_ENTITY']),
+  ugapController.createDevisTemplate
+);
+
+router.post('/devis/templates/:namespace/duplicate',
+  authenticateJWT,
+  useUgapEntrepriseDb,
+  requireUgapRole(['ADMIN_ENTITY']),
+  ugapController.duplicateDevisTemplate
+);
+
+router.patch('/devis/templates/:namespace/prefs',
+  authenticateJWT,
+  useUgapEntrepriseDb,
+  requireUgapRole(['USER_ENTITY', 'ADMIN_ENTITY']),
+  ugapController.updateDevisTemplatePrefs
+);
+
+router.patch('/devis/templates/:namespace',
+  authenticateJWT,
+  useUgapEntrepriseDb,
+  requireUgapRole(['ADMIN_ENTITY']),
+  ugapController.renameDevisTemplate
+);
+
+router.put('/devis/templates/active',
+  authenticateJWT,
+  useUgapEntrepriseDb,
+  requireUgapRole(['ADMIN_ENTITY']),
+  ugapController.setActiveDevisTemplate
 );
 
 /**
@@ -243,6 +417,18 @@ router.post('/saved-devis',
   useUgapEntrepriseDb,
   requireUgapRole(['USER_ENTITY', 'ADMIN_ENTITY']),
   ugapController.createSavedDevis
+);
+
+/**
+ * POST /api/ugap/configurator/five-percent-options
+ * Crée une option catalogue 5% devis et la lie au groupe famille (configurateur).
+ */
+router.post('/configurator/five-percent-options',
+  express.json(),
+  authenticateJWT,
+  useUgapEntrepriseDb,
+  requireUgapRole(['USER_ENTITY', 'ADMIN_ENTITY']),
+  ugapController.createConfiguratorFivePercentOption
 );
 
 /**
@@ -620,6 +806,18 @@ router.post('/options/delete-bulk',
   useUgapEntrepriseDb,
   requireUgapRole(['ADMIN_ENTITY']),
   ugapController.deleteOptionsBulk
+);
+
+/**
+ * POST /api/ugap/options/merge-base
+ * Fusionne deux options de base (conserve les alias pour le ré-import).
+ */
+router.post('/options/merge-base',
+  express.json(),
+  authenticateJWT,
+  useUgapEntrepriseDb,
+  requireUgapRole(['ADMIN_ENTITY']),
+  ugapController.mergeBaseCatalogOptions
 );
 
 /**

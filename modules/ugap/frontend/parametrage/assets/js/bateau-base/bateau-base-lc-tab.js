@@ -1,5 +1,5 @@
 /**
- * Vue LC Bateau de base — paramétrage v2.
+ * Vue LC Templates de base — paramétrage v2.
  */
 (function initUgapBateauBaseLcTab(global) {
     'use strict';
@@ -24,7 +24,7 @@
         }
 
         if (!global.UgapTemplateBateauTab?.mount) {
-            mountEl.innerHTML = '<p class="ugap-param-placeholder">Module bateau de base indisponible.</p>';
+            mountEl.innerHTML = '<p class="ugap-param-placeholder">Module ordre des options indisponible.</p>';
             return;
         }
 

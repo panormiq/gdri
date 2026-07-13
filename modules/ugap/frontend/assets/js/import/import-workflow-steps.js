@@ -404,7 +404,23 @@ body.ugap-import-bp-modal-open { overflow: hidden; }
         if (!baseValidated) {
             return '<span style="color:#94a3b8;">—</span> <span class="ugap-import-mino-hint">(enregistrer options de base — étape 2)</span>';
         }
-        if (opt && (isImportMotorMinoration(opt) || isImportCatalogMotorTarifLine(opt))) {
+        if (opt && isImportMotorMinoration(opt)) {
+            // Moteur de base inclus : la minoration = retrait, pas additionnée au prix inclus.
+            if (baseInfo && baseInfo.price != null) {
+                let optPart = formatImportMinoPriceDisplay(baseInfo.price);
+                if (baseInfo.posteHint) {
+                    optPart += ` <span class="ugap-import-mino-hint">(inclus ${escapeHtml(baseInfo.posteHint)} — minoration non ajoutée)</span>`;
+                } else {
+                    optPart += ' <span class="ugap-import-mino-hint">(moteur de base inclus — minoration non ajoutée)</span>';
+                }
+                return optPart;
+            }
+            if (linePrice == null) {
+                return `${formatImportMinoPriceDisplay(null)} <span class="ugap-import-mino-hint">(prix minoration Excel manquant)</span>`;
+            }
+            return formatImportMinoPriceDisplay(linePrice);
+        }
+        if (opt && isImportCatalogMotorTarifLine(opt)) {
             const modelList = getImportStagingModelsForAssignment();
             const targets = resolveImportMinorationPosteModelIds(opt, modelList);
             const model = targets[0] || modelList.find((m) => {
@@ -413,18 +429,12 @@ body.ugap-import-bp-modal-open { overflow: hidden; }
                 return mid && cm.includes(mid);
             });
             const minoPrice = model
-                ? inferImportMotorBaseProductPriceFromMinoration(model, isImportCatalogMotorTarifLine(opt) ? null : opt)
+                ? inferImportMotorBaseProductPriceFromMinoration(model, null)
                 : null;
             if (minoPrice != null) {
                 return formatImportMinoPriceDisplay(minoPrice);
             }
-            if (isImportCatalogMotorTarifLine(opt)) {
-                return `${formatImportMinoPriceDisplay(null)} <span class="ugap-import-mino-hint">(prix minoration MINO manquant pour ce poste)</span>`;
-            }
-            if (linePrice == null) {
-                return `${formatImportMinoPriceDisplay(null)} <span class="ugap-import-mino-hint">(prix minoration Excel manquant)</span>`;
-            }
-            return formatImportMinoPriceDisplay(linePrice);
+            return `${formatImportMinoPriceDisplay(null)} <span class="ugap-import-mino-hint">(prix minoration MINO manquant pour ce poste)</span>`;
         }
         if (!baseInfo || baseInfo.price == null) {
             return '<span style="color:#94a3b8;">—</span> <span class="ugap-import-mino-hint">(saisir prix option de base)</span>';
@@ -2285,12 +2295,12 @@ body.ugap-import-bp-modal-open { overflow: hidden; }
         if (!sample) return '';
         if (!isImportBaseOptionsValidated(staging())) {
             const pending = sample && isImportMotorMinoration(sample)
-                ? 'Prix option (moteur) = prix minoration Excel — disponible après enregistrement à l\'étape 2.'
+                ? 'Prix option (moteur) = moteur de base inclus — disponible après enregistrement des options de base (étape 4).'
                 : 'Prix option = option de base + mino/majo Excel — disponible après enregistrement à l\'étape 2.';
             return `<div class="ugap-import-mino-hint" style="margin-top:4px;">${pending}</div>`;
         }
         if (sample && isImportMotorMinoration(sample)) {
-            return '<div class="ugap-import-mino-hint" style="margin-top:4px;">Prix option (moteur) = prix minoration Excel (sans addition avec le prix de base).</div>';
+            return '<div class="ugap-import-mino-hint" style="margin-top:4px;">Moteur de base : prix inclus. La minoration correspond au retrait (appliquée seulement si le moteur de base est remplacé).</div>';
         }
         const baseInfo = resolveImportBaseProductPriceForMinoration(sample, modelList);
         if (!baseInfo || baseInfo.price == null) {

@@ -349,6 +349,9 @@
             });
         }
 
+        const hasExplicitIncluded = Array.isArray(snap.includedCatalogNodeIds)
+            && snap.includedCatalogNodeIds.length > 0;
+
         if (catalogNodes.length && BTree?.buildCategoryTreeFromCatalog && BTree.mergeCatalogNodeOrder) {
             const hasOrder = Object.keys(catalogNodeOrder).length > 0;
             const hasCatalogRefs = treeHasCatalogNodeRefs(categoryTree);
@@ -357,9 +360,16 @@
                 if (!hasOrder && hasCatalogRefs && BTree.extractCatalogNodeOrderFromCategoryTree) {
                     order = BTree.extractCatalogNodeOrderFromCategoryTree(categoryTree, catalogNodes);
                 }
-                const merged = BTree.mergeCatalogNodeOrder(catalogNodes, order);
-                catalogNodeOrder = merged;
-                categoryTree = BTree.buildCategoryTreeFromCatalog(catalogNodes, merged);
+                if (hasExplicitIncluded && BTree.buildCategoryTreeFromIncludedCatalog) {
+                    const included = BTree.resolveIncludedCatalogNodeIds(snap, catalogNodes, order);
+                    const stored = BTree.applyStoredCatalogNodeOrder(catalogNodes, order, included);
+                    catalogNodeOrder = stored;
+                    categoryTree = BTree.buildCategoryTreeFromIncludedCatalog(catalogNodes, stored, included);
+                } else {
+                    const merged = BTree.mergeCatalogNodeOrder(catalogNodes, order);
+                    catalogNodeOrder = merged;
+                    categoryTree = BTree.buildCategoryTreeFromCatalog(catalogNodes, merged);
+                }
             }
         }
 
@@ -378,7 +388,32 @@
             ? snap.baseOptionIds.map((x) => String(x || '').trim()).filter(Boolean)
             : [];
 
-        return { categoryTree, categoryIds, baseOptionIds, catalogNodeOrder };
+        let catalogNodeFivePercentEnabled = {};
+        if (snap.catalogNodeFivePercentEnabled && typeof snap.catalogNodeFivePercentEnabled === 'object') {
+            Object.keys(snap.catalogNodeFivePercentEnabled).forEach((key) => {
+                const id = String(key || '').trim();
+                if (id) catalogNodeFivePercentEnabled[id] = snap.catalogNodeFivePercentEnabled[key] === true;
+            });
+        }
+
+        let includedCatalogNodeIds = Array.isArray(snap.includedCatalogNodeIds)
+            ? snap.includedCatalogNodeIds.map((x) => String(x || '').trim()).filter(Boolean)
+            : [];
+        if (!includedCatalogNodeIds.length && BTree?.resolveIncludedCatalogNodeIds && hasExplicitIncluded) {
+            includedCatalogNodeIds = BTree.resolveIncludedCatalogNodeIds(snap, catalogNodes, catalogNodeOrder);
+        } else if (!includedCatalogNodeIds.length && BTree?.collectIdsFromCatalogNodeOrder) {
+            const fromOrder = BTree.collectIdsFromCatalogNodeOrder(catalogNodeOrder);
+            if (fromOrder.size) includedCatalogNodeIds = Array.from(fromOrder);
+        }
+
+        return {
+            categoryTree,
+            categoryIds,
+            baseOptionIds,
+            catalogNodeOrder,
+            catalogNodeFivePercentEnabled,
+            includedCatalogNodeIds,
+        };
     }
 
     function findFamilyInCatalogue(familyLabel, sourceIndex, catalogueFamilies) {
@@ -979,7 +1014,7 @@
     }
 
     /**
-     * Parcourt categoryTree dans l’ordre de l’éditeur Bateau de base (une entrée par decisionGroupRef).
+     * Parcourt categoryTree dans l’ordre de l’éditeur Ordre des options (une entrée par decisionGroupRef).
      */
     function walkTemplateDecisionGroupRefs(tpl, ctx) {
         const options = ctx && typeof ctx === 'object' ? ctx : {};
@@ -1148,7 +1183,7 @@
         return out;
     }
 
-    /** Libellés groupes pour un nœud template (Bateau de base, options de base). */
+    /** Libellés groupes pour un nœud template (Ordre des options, options de base). */
     function getResolvedGroupItemsForNode(node, ctx) {
         return listNodeGroupItems(node, ctx).map((item) => {
             const r = item.ref && typeof item.ref === 'object' ? item.ref : {};

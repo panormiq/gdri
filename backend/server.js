@@ -17,6 +17,9 @@ const EntrepriseDatabaseService = require('./services/EntrepriseDatabaseService'
 const { ObjectId } = require('mongodb');
 const moduleRegistry = require('./core/module-registry');
 const { loadModules } = require('./core/module-loader');
+const { loadConnectors } = require('./core/connectors/connector-loader');
+const { loadAgentFlows } = require('./core/agent-flow/agent-flow-loader');
+const createConnectorsRouter = require('./routes/connectors');
 const { syncServicesCatalogFromModules } = require('./core/services-catalog-sync');
 const { globalLimiter, detectSuspiciousConnections } = require('./middleware/rate-limiter');
 
@@ -242,6 +245,13 @@ async function start() {
     // 3. Chargement des modules
     console.log('📦 Chargement des modules...\n');
     await loadModules(app, database);
+
+    // 3a. Connecteurs (entrées/sorties agents)
+    await loadConnectors(app, database);
+    app.use('/api/connectors', createConnectorsRouter(database));
+
+    // 3a2. Orchestrateur agent-flow (briques trigger + exécution flows)
+    await loadAgentFlows(app, database);
 
     // Sync quotidienne Facebook (pull Graph + envoi des rapports différés)
     try {

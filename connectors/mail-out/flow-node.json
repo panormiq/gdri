@@ -1,0 +1,66 @@
+{
+  "id": "mail-out",
+  "name": "Envoi mail",
+  "version": "1.0.0",
+  "category": "connector",
+  "kind": "action",
+  "visibility": "orchestrator-only",
+  "description": "Envoie un email via un compte SMTP de l'entité (avec pièce jointe optionnelle depuis l'étape précédente).",
+  "canvas": {
+    "icon": "flow-node.svg",
+    "iconEmoji": "📧",
+    "color": "#ea580c",
+    "borderRadius": 12,
+    "width": 220,
+    "inputs": [
+      { "id": "main", "label": "Entrée", "type": "main", "maxConnections": 1 }
+    ],
+    "outputs": [
+      { "id": "success", "label": "Succès", "type": "main" },
+      { "id": "failure", "label": "Échec", "type": "main" }
+    ]
+  },
+  "operations": {
+    "emit.mail": {
+      "label": "Envoyer un email",
+      "description": "SMTP via infra Mail (Paramètres > Connecteurs > Mail).",
+      "configSchema": {
+        "type": "object",
+        "properties": {
+          "accountRef": {
+            "type": "string",
+            "title": "Compte mail (id ou email)",
+            "description": "Compte SMTP configuré dans Paramètres > Mail"
+          },
+          "to": {
+            "type": "string",
+            "title": "Destinataire",
+            "format": "email"
+          },
+          "subject": {
+            "type": "string",
+            "title": "Sujet",
+            "default": "Sauvegarde GDRI"
+          },
+          "body": {
+            "type": "string",
+            "title": "Corps du message",
+            "default": "Veuillez trouver ci-joint la sauvegarde automatique."
+          },
+          "attachPrevious": {
+            "type": "boolean",
+            "title": "Joindre le fichier de l'étape précédente",
+            "default": true
+          }
+        },
+        "required": ["accountRef", "to"]
+      },
+      "outputMessage": {
+        "type": "mail-result",
+        "fields": ["success", "email_id"]
+      }
+    }
+  },
+  "permissions": ["network", "secrets"],
+  "serviceRef": "connectors/mail-out"
+}

@@ -3,9 +3,12 @@
  * Fichier : backend/modules/facebook/services/WebhookService.js
  */
 
-const IntentionService = require('../../analyse-intention/services/IntentionService');
-const AIService = require('../../analyse-intention/services/AIService');
+const FacebookIntentionService = require('./FacebookIntentionService');
+const { FacebookAgentConfigService } = require('./FacebookAgentConfigService');
 const crypto = require('crypto');
+const https = require('https');
+
+const FACEBOOK_API_VERSION = (String(process.env.FACEBOOK_GRAPH_VERSION || 'v21.0').trim() || 'v21.0');
 let mailModule;
 try {
   // Ancien emplacement (backend/modules/mail)
@@ -20,7 +23,6 @@ class WebhookService {
     this.database = database;
     this.initialized = false;
     this.intentionService = null;
-    this.aiService = null;
   }
 
   getDefaultIntentionsPreset() {
@@ -40,16 +42,10 @@ class WebhookService {
    */
   async init() {
     if (this.initialized) return;
-    
-    // Initialiser le service AI avec appel direct à Ollama (plus de backendIA)
-    this.aiService = new AIService({
-      ollamaUrl: process.env.OLLAMA_URL || 'http://localhost:11434',
-      model: process.env.OLLAMA_MODEL || 'mistral:latest'
-    });
-    
-    this.intentionService = new IntentionService(this.database);
-    this.intentionService.setAIService(this.aiService);
-    
+
+    this.intentionService = new FacebookIntentionService();
+    this.agentConfigService = new FacebookAgentConfigService(this.database);
+
     this.initialized = true;
   }
 
@@ -193,35 +189,20 @@ class WebhookService {
 
   /**
    * Charge la configuration Agent IA (analyse_intention_configs) pour une page ou le défaut entreprise.
-   * Aligné sur /api/analyse/agent-config (entrepriseId + pageId optionnel).
+   * Aligné sur /api/facebook/agent-config (entrepriseId + pageId optionnel).
    * @param {string} entrepriseId
    * @param {string|null} facebookPageId
    * @returns {Promise<Object|null>} config (objet interne) ou null
    */
   async loadAnalyseIntentionConfig(entrepriseId, facebookPageId = null) {
+    if (!this.agentConfigService) {
+      this.agentConfigService = new FacebookAgentConfigService(this.database);
+    }
     try {
-      if (!entrepriseId) return null;
-      const coll = this.database.getCollection('analyse_intention_configs');
-      const eid = String(entrepriseId);
-      const pid = facebookPageId != null && facebookPageId !== '' ? String(facebookPageId) : null;
-
-      let doc = null;
-      if (pid) {
-        doc = await coll.findOne({ entrepriseId: eid, pageId: pid });
+      const config = await this.agentConfigService.loadConfig(entrepriseId, facebookPageId);
+      if (config) {
+        return config;
       }
-      if (!doc) {
-        doc = await coll.findOne({
-          entrepriseId: eid,
-          $or: [{ pageId: null }, { pageId: '' }, { pageId: { $exists: false } }]
-        });
-      }
-      if (!doc) {
-        doc = await coll.findOne({ entity_id: eid });
-      }
-      if (doc && doc.config) {
-        return doc.config;
-      }
-      // Fallback métier: toujours proposer 7 intentions par défaut.
       return {
         customIntentions: this.getDefaultIntentionsPreset()
       };
@@ -282,16 +263,8 @@ class WebhookService {
         console.error('  💡 Vérifiez que WebhookService.init() a été appelé.');
         return;
       }
-      
-      if (!this.aiService) {
-        console.error('  ❌ ERREUR: aiService n\'est pas initialisé !');
-        console.error('  💡 Vérifiez que WebhookService.init() a été appelé.');
-        return;
-      }
-      
+
       console.log('  🤖 Analyse d\'intention en cours...');
-      console.log(`  📤 Envoi à Ollama (${this.aiService?.ollamaUrl || 'N/A'})...`);
-      console.log(`  🤖 Modèle: ${this.aiService?.model || 'N/A'}`);
 
         // Configuration Agent IA : par page Facebook si enregistrée, sinon défaut entreprise
         let basePrompt = null;
@@ -314,7 +287,12 @@ class WebhookService {
 
         const startTime = Date.now();
 
-        const analysisResult = await this.intentionService.analyzeIntentions(messages, basePrompt, customIntentions);
+        const analysisResult = await this.intentionService.analyzeIntentions(
+          messages,
+          basePrompt,
+          customIntentions,
+          { entityId: String(entityId) }
+        );
 
         const duration = ((Date.now() - startTime) / 1000).toFixed(2);
 
@@ -506,10 +484,15 @@ class WebhookService {
       // Préparer des liens d'action sécurisés (usage unique, durée limitée)
       const actionLinksByIndex = await this.buildEmailActionLinks(originalMessages, entityId, facebookPageId);
       const pageContext = await this.resolveFacebookPageContext(entityId, facebookPageId);
+      const facebookSourceLinksByIndex = await this.buildFacebookSourceLinks(
+        originalMessages,
+        pageContext.pageAccessToken
+      );
 
       // Préparer le contenu de l'email
       const emailContent = this.formatAnalysisEmail(analysisData, originalMessages, actionLinksByIndex, {
-        pageLabel: pageContext.pageLabel
+        pageLabel: pageContext.pageLabel,
+        facebookSourceLinksByIndex
       });
       
       // Récupérer le service Mail
@@ -679,6 +662,108 @@ class WebhookService {
     }
     return map;
   }
+
+  fetchGraphPermalinkUrl(nodeId, accessToken, timeoutMs = 12000) {
+    const id = String(nodeId || '').trim();
+    const token = String(accessToken || '').trim();
+    if (!id || !token) {
+      return Promise.resolve(null);
+    }
+
+    const url = new URL(`https://graph.facebook.com/${FACEBOOK_API_VERSION}/${encodeURIComponent(id)}`);
+    url.searchParams.set('fields', 'permalink_url');
+    url.searchParams.set('access_token', token);
+
+    return new Promise((resolve) => {
+      const req = https.get(url, (res) => {
+        let data = '';
+        res.on('data', (chunk) => { data += chunk; });
+        res.on('end', () => {
+          try {
+            const json = JSON.parse(data || '{}');
+            if (res.statusCode !== 200 || !json || json.error) {
+              resolve(null);
+              return;
+            }
+            const permalink = json.permalink_url != null ? String(json.permalink_url).trim() : '';
+            resolve(permalink || null);
+          } catch (_) {
+            resolve(null);
+          }
+        });
+      });
+
+      req.on('error', () => resolve(null));
+      req.setTimeout(timeoutMs, () => {
+        req.destroy();
+        resolve(null);
+      });
+    });
+  }
+
+  buildFacebookSourceLinkFallback(nodeId) {
+    const id = String(nodeId || '').trim();
+    if (!id) return null;
+    return `https://www.facebook.com/${encodeURIComponent(id)}`;
+  }
+
+  async buildFacebookSourceLinks(originalMessages, pageAccessToken) {
+    const map = {};
+    if (!Array.isArray(originalMessages) || originalMessages.length === 0) {
+      return map;
+    }
+
+    const requests = [];
+    for (let i = 0; i < originalMessages.length; i++) {
+      const m = originalMessages[i] || {};
+      const commentId = m.comment_id != null ? String(m.comment_id).trim() : '';
+      const postId = m.post_id != null ? String(m.post_id).trim() : '';
+
+      if (commentId) {
+        requests.push({
+          index: i,
+          nodeId: commentId,
+          label: 'Voir le commentaire sur Facebook'
+        });
+      } else if (postId && String(m.type || '') !== 'message') {
+        requests.push({
+          index: i,
+          nodeId: postId,
+          label: 'Voir la publication sur Facebook'
+        });
+      }
+    }
+
+    if (requests.length === 0) {
+      return map;
+    }
+
+    const uniqueNodeIds = [...new Set(requests.map((row) => row.nodeId))];
+    const urlByNodeId = new Map();
+
+    await Promise.all(uniqueNodeIds.map(async (nodeId) => {
+      let facebookUrl = null;
+      if (pageAccessToken) {
+        facebookUrl = await this.fetchGraphPermalinkUrl(nodeId, pageAccessToken);
+      }
+      if (!facebookUrl) {
+        facebookUrl = this.buildFacebookSourceLinkFallback(nodeId);
+      }
+      urlByNodeId.set(nodeId, facebookUrl);
+    }));
+
+    for (const row of requests) {
+      const facebookUrl = urlByNodeId.get(row.nodeId);
+      if (facebookUrl) {
+        map[row.index] = {
+          facebookUrl,
+          facebookLabel: row.label
+        };
+      }
+    }
+
+    return map;
+  }
   
   /**
    * Charge la configuration de l'agent Facebook (prompt, emails, intentions)
@@ -693,7 +778,7 @@ class WebhookService {
   async resolveFacebookPageContext(entityId, facebookPageId = null) {
     const pageId = facebookPageId != null && facebookPageId !== '' ? String(facebookPageId) : '';
     if (!pageId) {
-      return { pageId: null, pageLabel: null, subjectSuffix: '' };
+      return { pageId: null, pageLabel: null, subjectSuffix: '', pageAccessToken: null };
     }
 
     try {
@@ -704,17 +789,22 @@ class WebhookService {
       const pageName = config && config.pageName ? String(config.pageName).trim() : '';
       const fallbackLabel = `Page ${pageId}`;
       const pageLabel = pageName || fallbackLabel;
+      const pageAccessToken = config && config.pageAccessToken
+        ? String(config.pageAccessToken).trim()
+        : null;
       return {
         pageId,
         pageLabel,
-        subjectSuffix: ` - ${pageLabel}`
+        subjectSuffix: ` - ${pageLabel}`,
+        pageAccessToken: pageAccessToken || null
       };
     } catch (error) {
       console.warn('resolveFacebookPageContext:', error.message);
       return {
         pageId,
         pageLabel: `Page ${pageId}`,
-        subjectSuffix: ` - Page ${pageId}`
+        subjectSuffix: ` - Page ${pageId}`,
+        pageAccessToken: null
       };
     }
   }
@@ -1359,9 +1449,13 @@ class WebhookService {
       const messageDate = msg.created_time ? new Date(msg.created_time).toLocaleString('fr-FR') : 'N/A';
       const recommendation = this.getAnalysisResponseRecommendation(analysis, msg.message || '');
       const rawIntentions = this.normalizeIntentions(analysis);
+      const sourceLink = (options.facebookSourceLinksByIndex || {})[index];
 
       text += `\n${index + 1}. ${msg.author?.name || 'Utilisateur'} (${messageDate})\n`;
       text += `${(msg.message || '').trim() || '[Message indisponible]'}\n`;
+      if (sourceLink && sourceLink.facebookUrl) {
+        text += `${sourceLink.facebookLabel || 'Voir sur Facebook'} : ${sourceLink.facebookUrl}\n`;
+      }
       text += `Analyse ${index + 1}:\n`;
       if (rawIntentions.length === 0) {
         text += '• Aucune intention détectée.\n';
@@ -1423,12 +1517,15 @@ class WebhookService {
       html += `<p style="margin:8px 0 0 0;"><strong>Recommandation :</strong> ${recommendation.requiresResponse ? '<span style="color:#b02a37;">Oui</span>' : 'Non'} <span style="color:#6c757d;">(${recommendation.reason})</span></p>\n`;
 
       const actionLinks = actionLinksByIndex[index];
-      if (actionLinks && (actionLinks.replyUrl || actionLinks.correctUrl)) {
+      if ((actionLinks && (actionLinks.replyUrl || actionLinks.correctUrl)) || (sourceLink && sourceLink.facebookUrl)) {
         html += '<div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;">\n';
-        if (actionLinks.replyUrl) {
+        if (sourceLink && sourceLink.facebookUrl) {
+          html += `<a href="${sourceLink.facebookUrl}" target="_blank" rel="noopener" style="background:#1877f2;color:#fff;text-decoration:none;padding:7px 10px;border-radius:6px;font-size:13px;">${sourceLink.facebookLabel || 'Voir sur Facebook'}</a>\n`;
+        }
+        if (actionLinks && actionLinks.replyUrl) {
           html += `<a href="${actionLinks.replyUrl}" style="background:#0d6efd;color:#fff;text-decoration:none;padding:7px 10px;border-radius:6px;font-size:13px;">Répondre avec l'IA</a>\n`;
         }
-        if (actionLinks.correctUrl) {
+        if (actionLinks && actionLinks.correctUrl) {
           html += `<a href="${actionLinks.correctUrl}" style="background:#f8f9fa;color:#212529;text-decoration:none;padding:7px 10px;border-radius:6px;font-size:13px;border:1px solid #dee2e6;">Corriger l'analyse</a>\n`;
         }
         html += '</div>\n';

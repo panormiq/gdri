@@ -12,6 +12,7 @@ ugap_enqueue_style('/modules/ugap/frontend/assets/css/ugap-layout.css');
 ugap_enqueue_script('/modules/ugap/frontend/assets/js/shared/ugap-family-decision-group.js');
 ugap_enqueue_script('/modules/ugap/frontend/assets/js/shared/ugap-family-components.js');
 ugap_enqueue_style('/modules/ugap/frontend/assets/css/configurateur.css');
+ugap_enqueue_style('/modules/ugap/frontend/parametrage/assets/css/devis-forms.css');
 ugap_enqueue_script('/modules/ugap/frontend/assets/js/shared/ugap-gdri-host.js');
 ugap_enqueue_script('/modules/ugap/frontend/assets/js/shared/ugap-api.js');
 ugap_enqueue_script('/modules/ugap/frontend/assets/js/shared/ugap-option-line-kind.js');
@@ -22,9 +23,15 @@ ugap_enqueue_script('/modules/ugap/frontend/assets/js/shared/boat-template-tree.
 ugap_enqueue_script('/modules/ugap/frontend/assets/js/shared/ugap-group-catalog.js');
 ugap_enqueue_script('/modules/ugap/frontend/assets/js/shared/ugap-group-display.js');
 ugap_enqueue_script('/modules/ugap/frontend/assets/js/shared/ugap-option-display-name.js');
+ugap_enqueue_script('/modules/ugap/frontend/assets/js/shared/ugap-ref-display.js');
+ugap_enqueue_script('/modules/ugap/frontend/assets/js/shared/ugap-adj-replacement-options.js');
+ugap_enqueue_script('/modules/ugap/frontend/assets/js/shared/ugap-parcours-labels.js');
 ugap_enqueue_script('/modules/ugap/frontend/assets/js/shared/ugap-model-base-options.js');
 ugap_enqueue_script('/modules/ugap/frontend/assets/js/shared/ugap-embed-layout.js');
+ugap_enqueue_script('/modules/ugap/frontend/assets/js/shared/ugap-option-link-runtime.js');
+ugap_enqueue_script('/modules/ugap/frontend/assets/js/configurateur/configurateur-link-bridge.js');
 ugap_enqueue_script('/modules/ugap/frontend/assets/js/configurateur/configurateur-model-base-bridge.js');
+ugap_enqueue_script('/modules/ugap/frontend/assets/js/configurateur/configurateur-client-step.js');
 ugap_enqueue_script('/modules/ugap/frontend/assets/js/configurateur/configurateur-template-tree.js');
 ugap_enqueue_script('/modules/ugap/frontend/assets/js/configurateur/configurateur-app.js');
 ?>

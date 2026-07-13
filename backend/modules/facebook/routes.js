@@ -12,8 +12,9 @@ const database = require('../../config/database');
 const WebhookService = require('./services/WebhookService');
 const PollingService = require('./services/PollingService');
 const WebhookSubscriptionService = require('./services/WebhookSubscriptionService');
-const IntentionService = require('../analyse-intention/services/IntentionService');
-const AIService = require('../analyse-intention/services/AIService');
+const FacebookIntentionService = require('./services/FacebookIntentionService');
+const PromptService = require('../../../modules/prompt/backend/services/PromptService');
+const agentRoutes = require('./routes/agentRoutes');
 const { authenticateJWT } = require('../../config/jwt');
 let mailModule;
 try {
@@ -73,7 +74,17 @@ async function configureFacebookSDK() {
 // Service singleton
 let webhookService = null;
 let pollingService = null;
+let facebookIntentionService = null;
 const catchupJobs = new Map();
+
+router.use(agentRoutes);
+
+function getFacebookIntentionService() {
+  if (!facebookIntentionService) {
+    facebookIntentionService = new FacebookIntentionService();
+  }
+  return facebookIntentionService;
+}
 
 // L'initialisation du SDK se fera à la première utilisation (lazy loading)
 
@@ -357,10 +368,9 @@ router.post('/email-actions/:token/reply-suggest', async (req, res) => {
     const doc = await coll.findOne({ _id: new ObjectId(payload.messageId) });
     if (!doc) return res.status(404).json({ success: false, message: 'Message introuvable' });
 
-    const ai = new AIService({
-      ollamaUrl: process.env.OLLAMA_URL || 'http://localhost:11434',
-      model: process.env.OLLAMA_MODEL || 'mistral:latest'
-    });
+    const promptService = payload.entityId
+      ? await PromptService.forEntity(String(payload.entityId))
+      : PromptService.global();
     const intentions = Array.isArray(doc.intentions) ? doc.intentions.map((i) => i.name || i.category).filter(Boolean) : [];
     const prompt = [
       'Tu es community manager.',
@@ -368,7 +378,8 @@ router.post('/email-actions/:token/reply-suggest', async (req, res) => {
       `Intentions détectées: ${intentions.join(', ') || 'général'}.`,
       `Message client: ${doc.message || ''}`
     ].join('\n');
-    const suggestion = String(await ai.chat(prompt)).trim();
+    const gen = await promptService.generate(prompt);
+    const suggestion = gen.success ? String(gen.raw || '').trim() : '';
 
     // Ne pas consommer le token ici : l'utilisateur doit pouvoir éditer
     // puis cliquer "Envoyer la réponse" avec le même lien.
@@ -1294,12 +1305,7 @@ router.post('/pages/:pageId/messages/analyzed/:messageId/rerun-analysis', authen
       aiConfig = await agentConfigCollection.findOne({ entity_id: String(entrepriseId) });
     }
 
-    const aiService = new AIService({
-      ollamaUrl: process.env.OLLAMA_URL || 'http://localhost:11434',
-      model: process.env.OLLAMA_MODEL || 'mistral:latest'
-    });
-    const intentionService = new IntentionService(database);
-    intentionService.setAIService(aiService);
+    const intentionService = getFacebookIntentionService();
 
     const basePrompt = aiConfig && aiConfig.config
       ? (aiConfig.config.basePrompt || aiConfig.config.base_prompt || null)
@@ -1317,7 +1323,12 @@ router.post('/pages/:pageId/messages/analyzed/:messageId/rerun-analysis', authen
       comment_id: analyzedMessage.comment_id || null
     }];
 
-    const rerunResult = await intentionService.analyzeIntentions(rerunMessages, basePrompt, customIntentions);
+    const rerunResult = await intentionService.analyzeIntentions(
+      rerunMessages,
+      basePrompt,
+      customIntentions,
+      { entityId: String(entrepriseId) }
+    );
     if (!rerunResult || !rerunResult.success || !rerunResult.data) {
       return res.status(500).json({
         success: false,
@@ -1490,10 +1501,7 @@ router.post('/pages/:pageId/messages/analyzed/:messageId/feedback/suggest-contex
       ? String(aiConfig.config.feedbackLearnedContext)
       : '';
 
-    const ai = new AIService({
-      ollamaUrl: process.env.OLLAMA_URL || 'http://localhost:11434',
-      model: process.env.OLLAMA_MODEL || 'mistral:latest'
-    });
+    const promptService = await PromptService.forEntity(String(entrepriseId));
 
     const prompt = [
       'Tu améliores un contexte de classification d’intentions Facebook.',
@@ -1512,7 +1520,8 @@ router.post('/pages/:pageId/messages/analyzed/:messageId/feedback/suggest-contex
       'Produis une version améliorée complète du contexte.'
     ].join('\n');
 
-    const suggestion = String(await ai.chat(prompt)).trim();
+    const gen = await promptService.generate(prompt);
+    const suggestion = gen.success ? String(gen.raw || '').trim() : '';
     return res.json({
       success: true,
       contextSuggestion: suggestion || currentContext || '',
@@ -1688,12 +1697,7 @@ router.post('/pages/:pageId/messages/analyzed/:messageId/email', authenticateJWT
     let rerunAnalysis = null;
     if (enableRerunOnSend) {
       try {
-        const aiService = new AIService({
-          ollamaUrl: process.env.OLLAMA_URL || 'http://localhost:11434',
-          model: process.env.OLLAMA_MODEL || 'mistral:latest'
-        });
-        const intentionService = new IntentionService(database);
-        intentionService.setAIService(aiService);
+        const intentionService = getFacebookIntentionService();
 
         const rerunMessages = [{
           message: analyzedMessage.message || '',
@@ -1711,7 +1715,12 @@ router.post('/pages/:pageId/messages/analyzed/:messageId/email', authenticateJWT
           ? intentionService.buildActiveIntentionsFromConfig(agentCfg)
           : intentionService.buildActiveIntentionsFromConfig(null);
 
-        const rerunResult = await intentionService.analyzeIntentions(rerunMessages, basePrompt, customIntentions);
+        const rerunResult = await intentionService.analyzeIntentions(
+          rerunMessages,
+          basePrompt,
+          customIntentions,
+          { entityId: String(entrepriseId) }
+        );
         if (rerunResult && rerunResult.success) {
           rerunAnalysis = rerunResult.data || null;
         }

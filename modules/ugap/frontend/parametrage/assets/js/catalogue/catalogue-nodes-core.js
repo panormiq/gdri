@@ -31,10 +31,24 @@
         return pid;
     }
 
+    function isMotorCatalogNodeLabel(node) {
+        const blob = `${String(node?.label || '').toLowerCase()} ${String(node?.keywords || '').toLowerCase()}`;
+        if (/\b(hélice|helice|propulseur)\b/.test(blob) && !/\bmoteur/.test(blob)) return false;
+        return /\b(moteur|motorisation)\b/.test(blob);
+    }
+
+    /** true = masquer les lignes minoration dans le picker configurateur pour ce nœud. */
+    function resolveHideMinorationInChoices(node) {
+        if (!node || typeof node !== 'object') return false;
+        if (node.hideMinorationInChoices === true) return true;
+        if (node.hideMinorationInChoices === false) return false;
+        return isMotorCatalogNodeLabel(node);
+    }
+
     function normalizeNode(raw, index) {
         const n = raw && typeof raw === 'object' ? raw : {};
         const id = resolveNodeId(n) || newId('node');
-        return {
+        const row = {
             id,
             parentId: resolveParentId(n),
             label: String(n.label || n.name || 'Nœud').trim(),
@@ -43,6 +57,10 @@
             tags: (Array.isArray(n.tags) ? n.tags : []).map((x) => String(x || '').trim()).filter(Boolean),
             sortOrder: Number.isFinite(Number(n.sortOrder)) ? Number(n.sortOrder) : (Number(index) || 0) * 10,
         };
+        if (Object.prototype.hasOwnProperty.call(n, 'hideMinorationInChoices')) {
+            row.hideMinorationInChoices = n.hideMinorationInChoices === true;
+        }
+        return row;
     }
 
     function normalizeTagRow(raw) {
@@ -160,9 +178,9 @@
             .filter(Boolean);
     }
 
-    /** Racines : parentId vide ou parent absent du lot. */
+    /** Racines : parentId vide ou parent absent du lot. Retourne des nœuds normalisés (keywords, tags, …). */
     function getRootNodes(nodes) {
-        const list = asNodeRows(nodes);
+        const list = (Array.isArray(nodes) ? nodes : []).map((n, i) => normalizeNode(n, i));
         if (!list.length) return [];
         const byId = new Set(list.map((n) => n.id));
         return sortNodes(list.filter((n) => !n.parentId || !byId.has(n.parentId)));
@@ -170,8 +188,8 @@
 
     function getChildren(nodes, parentId) {
         const pid = String(parentId || '').trim();
-        const list = asNodeRows(nodes);
-        if (!pid) return getRootNodes(list);
+        if (!pid) return getRootNodes(nodes);
+        const list = (Array.isArray(nodes) ? nodes : []).map((n, i) => normalizeNode(n, i));
         return sortNodes(list.filter((n) => n.parentId === pid));
     }
 
@@ -254,5 +272,7 @@
         nodeRoleLabel,
         canSetNodeParent,
         migrateLegacyCatalog,
+        isMotorCatalogNodeLabel,
+        resolveHideMinorationInChoices,
     };
 })(window);

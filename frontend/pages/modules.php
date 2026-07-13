@@ -1,418 +1,213 @@
 <?php
 /**
- * Gestion des Modules - Admin GDRI
- * Fichier : pages/modules.php
- * 
- * Permet d'installer et gérer les modules IA
+ * Applications — apps migrées depuis Legacy.
  */
 
 require_once '../config/config.php';
 require_once '../auth/session.php';
 require_once '../includes/functions.php';
-require_once '../includes/jwt-helper.php';
 
-// Vue client : accessible aussi par ADMIN_GDRI
 if (!hasRole(ROLE_ADMIN_GDRI) && !hasRole(ROLE_ADMIN_ENTITY) && !hasRole(ROLE_USER_ENTITY)) {
     redirect(url('pages/dashboard.php'));
 }
 
-$page_title = 'Modules disponibles';
-$userRole = getUserRole();
-$services = [];
+$canManageEntity = hasRole(ROLE_ADMIN_GDRI) || hasRole(ROLE_ADMIN_ENTITY);
+$application_items = buildApplicationHubItems($canManageEntity);
 
+$page_title = 'Applications';
 require_once '../includes/header.php';
-
-try {
-    $token = getJWTToken();
-    $apiBase = rtrim(getApiBaseUrl(), '/');
-    if ($token && $apiBase) {
-        $ch = curl_init($apiBase . '/users/me/services-context');
-        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-        curl_setopt($ch, CURLOPT_HTTPHEADER, [
-            'Authorization: Bearer ' . $token,
-            'Content-Type: application/json'
-        ]);
-        curl_setopt($ch, CURLOPT_TIMEOUT, 20);
-        $raw = curl_exec($ch);
-        $err = curl_error($ch);
-        $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        curl_close($ch);
-        if (!$err && $code >= 200 && $code < 300) {
-            $decoded = json_decode((string)$raw, true);
-            $services = is_array($decoded['data']['services'] ?? null) ? $decoded['data']['services'] : [];
-        }
-    }
-} catch (Exception $e) {
-    $services = [];
-}
-
-// Supprimer les doublons éventuels (même slug ou même nom)
-$uniqueServices = [];
-$seenBySlug = [];
-$seenByName = [];
-foreach ($services as $service) {
-    $slugKey = null;
-    $nameKey = null;
-    if (!empty($service['slug'])) {
-        $slugKey = strtolower(trim($service['slug']));
-    }
-    if (!empty($service['name'])) {
-        $nameKey = strtolower(trim($service['name']));
-        $nameKey = preg_replace('/\s+/', ' ', $nameKey);
-    }
-
-    $existingKey = null;
-    if ($slugKey && isset($seenBySlug[$slugKey])) {
-        $existingKey = $seenBySlug[$slugKey];
-    } elseif ($nameKey && isset($seenByName[$nameKey])) {
-        $existingKey = $seenByName[$nameKey];
-    }
-
-    if ($existingKey !== null) {
-        $existing = $uniqueServices[$existingKey] ?? null;
-        $currentStatus = $existing['status'] ?? '';
-        $newStatus = $service['status'] ?? '';
-        if ($existing && $newStatus === 'active' && $currentStatus !== 'active') {
-            $uniqueServices[$existingKey] = $service;
-        } elseif ($existing && $currentStatus === $newStatus) {
-            $currentCreated = $existing['created_at'] ?? null;
-            $newCreated = $service['created_at'] ?? null;
-            if ($newCreated instanceof MongoDB\BSON\UTCDateTime && $currentCreated instanceof MongoDB\BSON\UTCDateTime) {
-                if ($newCreated->toDateTime() > $currentCreated->toDateTime()) {
-                    $uniqueServices[$existingKey] = $service;
-                }
-            }
-        }
-        continue;
-    }
-
-    $key = $slugKey ?: ($nameKey ? preg_replace('/\s+/', '-', $nameKey) : (string) ($service['_id'] ?? uniqid('service_', true)));
-    $uniqueServices[$key] = $service;
-    if ($slugKey) {
-        $seenBySlug[$slugKey] = $key;
-    }
-    if ($nameKey) {
-        $seenByName[$nameKey] = $key;
-    }
-}
-
-$services = array_values($uniqueServices);
-
-// Le module ServerIA est un module de paramétrage/dépendance (pas d'UI utilisateur).
-// On le masque dans la page "Modules" (catalogue d'usage).
-$services = array_values(array_filter($services, function ($service) {
-    $slug = isset($service['slug']) ? strtolower(trim((string) $service['slug'])) : '';
-    $name = isset($service['name']) ? strtolower(trim((string) $service['name'])) : '';
-    if ($slug === 'ia' || $slug === 'serveria') return false;
-    if (strpos($name, 'serveur ia') !== false) return false;
-    if (strpos($name, 'server ia') !== false) return false;
-    if (strpos($name, 'serveria') !== false) return false;
-    return true;
-}));
 ?>
 
-<!-- Section Hero -->
 <section class="hero">
     <div class="container">
         <div class="hero-content">
-            <h1>Gestion des Modules</h1>
+            <h1>Applications</h1>
             <p class="hero-description">
-                Consultez et configurez les modules autorisés pour votre entreprise
+                Outils métier de votre entité. Le reste est encore accessible via
+                <a href="<?= url('pages/entity-legacy.php') ?>">Legacy</a>.
             </p>
         </div>
     </div>
 </section>
 
-<!-- Section Liste des Modules -->
 <section class="section">
-    <div class="container">
-        <div class="section-title">
-            <h2>Modules autorisés</h2>
-        </div>
+    <div class="container" style="max-width: 1200px;">
+        <?php if (empty($application_items)): ?>
+            <div class="applications-empty">
+                <p>Aucune application disponible pour cette entité.</p>
+                <p class="text-muted small">Consultez <a href="<?= url('pages/entity-legacy.php') ?>">Legacy</a> pour l'ensemble des modules.</p>
+            </div>
+        <?php else: ?>
+            <div class="form-group" style="margin-bottom: 1.5rem; max-width: 400px;">
+                <label for="applicationsSearch" class="small" style="display: block; margin-bottom: 0.25rem;">Rechercher</label>
+                <input type="text" id="applicationsSearch" class="form-control" placeholder="UGAP, GDERPI, Workflow…" autocomplete="off" />
+            </div>
 
-        <?php if (hasRole(ROLE_ADMIN_GDRI) || hasRole(ROLE_ADMIN_ENTITY)): ?>
-        <p class="text-muted small mb-3">En tant qu’admin, la configuration de l’entité (IA, mail, etc.) se fait dans <a href="<?= url('pages/entity-config.php') ?>">Configuration</a>.</p>
-        <?php endif; ?>
+            <div id="applicationsList" class="hub-cards-grid applications-grid">
+                <?php foreach ($application_items as $item): ?>
+                <?php
+                    $links = is_array($item['links'] ?? null) ? $item['links'] : [];
+                    $hasMultipleLinks = count($links) > 1;
+                    $searchText = mb_strtolower($item['title'] . ' ' . $item['description']);
+                ?>
+                <div class="card application-card"
+                     data-search="<?= htmlspecialchars($searchText) ?>"
+                     data-url="<?= htmlspecialchars($item['url']) ?>"
+                     data-multi="<?= $hasMultipleLinks ? '1' : '0' ?>">
+                    <div class="application-card__inner">
+                        <div class="application-card__head">
+                            <span class="application-card__icon"><?= $item['icon'] ?></span>
+                            <div>
+                                <h2 class="application-card__title"><?= htmlspecialchars($item['title']) ?></h2>
+                                <?php if (($item['status'] ?? '') === 'inactive'): ?>
+                                    <span class="application-card__status application-card__status--inactive">Inactif</span>
+                                <?php endif; ?>
+                            </div>
+                        </div>
+                        <p class="application-card__description"><?= htmlspecialchars($item['description']) ?></p>
 
-        <div class="modules-grid">
-            <?php if (empty($services)): ?>
-                <div class="empty-state">
-                    <p>Aucun module disponible.</p>
+                        <?php if ($hasMultipleLinks): ?>
+                            <div class="application-card__actions">
+                                <?php foreach ($links as $link): ?>
+                                    <a href="<?= htmlspecialchars($link['url']) ?>"
+                                       class="btn <?= !empty($link['primary']) ? 'btn-primary' : 'btn-outline' ?> btn-sm"
+                                       onclick="event.stopPropagation();">
+                                        <?= htmlspecialchars($link['label']) ?>
+                                    </a>
+                                <?php endforeach; ?>
+                            </div>
+                        <?php else: ?>
+                            <p class="application-card__hint text-muted small">Cliquer pour ouvrir</p>
+                        <?php endif; ?>
+                    </div>
                 </div>
-            <?php else: ?>
-                <?php foreach ($services as $service): ?>
-                    <?php
-                    $isChatModule = (stripos($service['name'], 'chat') !== false)
-                        || (isset($service['slug']) && strtolower(trim((string) $service['slug'])) === 'chat');
-                    $isUgapModule = (stripos($service['name'], 'ugap') !== false)
-                        || (isset($service['slug']) && strtolower(trim((string) $service['slug'])) === 'ugap');
-                    $isBanqueModule = (stripos($service['name'], 'banque') !== false)
-                        || (isset($service['slug']) && strtolower(trim((string) $service['slug'])) === 'banque');
-                    $isDocHubModule = (stripos($service['name'], 'doc-hub') !== false)
-                        || (stripos($service['name'], 'dochub') !== false)
-                        || (isset($service['slug']) && strtolower(trim((string) $service['slug'])) === 'doc-hub');
-                    ?>
-                    <?php if ($isChatModule): ?>
-                    <a href="<?= url('pages/modules/chat.php') ?>" class="module-card module-card--chat-link">
-                        <div class="module-icon-large">
-                            <?= htmlspecialchars($service['icon']) ?>
-                        </div>
-                        <div class="module-header">
-                            <h3><?= htmlspecialchars($service['name']) ?></h3>
-                            <span class="module-status <?= $service['status'] === 'active' ? 'active' : 'inactive' ?>">
-                                <?= $service['status'] === 'active' ? 'Actif' : 'Inactif' ?>
-                            </span>
-                        </div>
-                        <p class="module-description">
-                            <?= htmlspecialchars($service['description']) ?>
-                        </p>
-                        <div class="module-actions module-actions--hint">
-                            <span class="text-muted small">Cliquer pour ouvrir le chat</span>
-                        </div>
-                    </a>
-                    <?php elseif ($isUgapModule): ?>
-                    <a href="<?= url('pages/modules/ugap.php') ?>" class="module-card module-card--chat-link">
-                        <div class="module-icon-large">
-                            <?= htmlspecialchars($service['icon']) ?>
-                        </div>
-                        <div class="module-header">
-                            <h3><?= htmlspecialchars($service['name']) ?></h3>
-                            <span class="module-status <?= $service['status'] === 'active' ? 'active' : 'inactive' ?>">
-                                <?= $service['status'] === 'active' ? 'Actif' : 'Inactif' ?>
-                            </span>
-                        </div>
-                        <p class="module-description">
-                            <?= htmlspecialchars($service['description']) ?>
-                        </p>
-                        <div class="module-actions module-actions--hint">
-                            <span class="text-muted small">Cliquer pour ouvrir UGAP</span>
-                        </div>
-                    </a>
-                    <?php elseif ($isDocHubModule): ?>
-                    <a href="<?= url('pages/modules/doc-hub.php') ?>" class="module-card module-card--chat-link">
-                        <div class="module-icon-large">
-                            <?= htmlspecialchars($service['icon']) ?>
-                        </div>
-                        <div class="module-header">
-                            <h3><?= htmlspecialchars($service['name']) ?></h3>
-                            <span class="module-status <?= $service['status'] === 'active' ? 'active' : 'inactive' ?>">
-                                <?= $service['status'] === 'active' ? 'Actif' : 'Inactif' ?>
-                            </span>
-                        </div>
-                        <p class="module-description">
-                            <?= htmlspecialchars($service['description']) ?>
-                        </p>
-                        <div class="module-actions module-actions--hint">
-                            <span class="text-muted small">Cliquer pour ouvrir Doc-Hub</span>
-                        </div>
-                    </a>
-                    <?php elseif ($isBanqueModule): ?>
-                    <a href="<?= url('pages/modules/banque.php') ?>" class="module-card module-card--chat-link">
-                        <div class="module-icon-large">
-                            <?= htmlspecialchars($service['icon']) ?>
-                        </div>
-                        <div class="module-header">
-                            <h3><?= htmlspecialchars($service['name']) ?></h3>
-                            <span class="module-status <?= $service['status'] === 'active' ? 'active' : 'inactive' ?>">
-                                <?= $service['status'] === 'active' ? 'Actif' : 'Inactif' ?>
-                            </span>
-                        </div>
-                        <p class="module-description">
-                            <?= htmlspecialchars($service['description']) ?>
-                        </p>
-                        <div class="module-actions module-actions--hint">
-                            <span class="text-muted small">Cliquer pour ouvrir l'import bancaire</span>
-                        </div>
-                    </a>
-                    <?php elseif (stripos($service['name'], 'facebook') !== false): ?>
-                    <div class="module-card module-card--facebook-link" data-dblclick-url="<?= url('pages/modules/facebook.php') ?>" title="Double-cliquez pour ouvrir Facebook">
-                        <div class="module-icon-large">
-                            <?= htmlspecialchars($service['icon']) ?>
-                        </div>
-                        
-                        <div class="module-header">
-                            <h3><?= htmlspecialchars($service['name']) ?></h3>
-                            <span class="module-status <?= $service['status'] === 'active' ? 'active' : 'inactive' ?>">
-                                <?= $service['status'] === 'active' ? 'Actif' : 'Inactif' ?>
-                            </span>
-                        </div>
-                        
-                        <p class="module-description">
-                            <?= htmlspecialchars($service['description']) ?>
-                        </p>
-
-                        <div class="module-actions module-actions--hint">
-                            <span class="text-muted small">Double-cliquez pour ouvrir le module Facebook</span>
-                        </div>
-                    </div>
-                    <?php else: ?>
-                    <div class="module-card">
-                        <div class="module-icon-large">
-                            <?= htmlspecialchars($service['icon']) ?>
-                        </div>
-                        
-                        <div class="module-header">
-                            <h3><?= htmlspecialchars($service['name']) ?></h3>
-                            <span class="module-status <?= $service['status'] === 'active' ? 'active' : 'inactive' ?>">
-                                <?= $service['status'] === 'active' ? 'Actif' : 'Inactif' ?>
-                            </span>
-                        </div>
-                        
-                        <p class="module-description">
-                            <?= htmlspecialchars($service['description']) ?>
-                        </p>
-                        
-                        <div class="module-actions">
-                            <?php if (stripos($service['name'], 'mail') !== false): ?>
-                                <!-- Liens spécifiques pour le module Mail -->
-                                <div class="module-links" style="display: flex; gap: 0.5rem; flex-wrap: wrap; justify-content: center;">
-                                    <a href="<?= url('pages/modules/mail-config.php') ?>" class="btn btn-primary">
-                                        ⚙️ Configuration
-                                    </a>
-                                    <a href="<?= url('pages/modules/mail-test.php') ?>" class="btn btn-outline">
-                                        🧪 Test
-                                    </a>
-                                </div>
-                            <?php elseif (stripos($service['name'], 'workflow') !== false): ?>
-                                <!-- Liens spécifiques pour le module Workflow -->
-                                <div class="module-links" style="display: flex; gap: 0.5rem; flex-wrap: wrap; justify-content: center;">
-                                    <a href="/modules/workflow/frontend/viewer/index.html" class="btn btn-primary">
-                                        👁️ Viewer
-                                    </a>
-                                    <a href="/modules/workflow/frontend/builder/index.html" class="btn btn-outline">
-                                        🛠️ Builder
-                                    </a>
-                                </div>
-                            <?php elseif ((isset($service['slug']) && $service['slug'] === 'ia') || stripos($service['name'], 'serveur ia') !== false): ?>
-                                <!-- Module IA : LLMs entité (serveurs = Administration > Modules) -->
-                                <div class="module-links" style="display: flex; gap: 0.5rem; flex-wrap: wrap; justify-content: center;">
-                                    <a href="<?= url('pages/modules/ia-llms.php') ?>" class="btn btn-primary">
-                                        📋 LLMs de l'entité
-                                    </a>
-                                </div>
-                            <?php elseif (stripos($service['name'], 'document') !== false): ?>
-                                <!-- Liens pour le module Document : V1 (ancien), V2 (externe) et V3 (intégré) -->
-                                <div class="module-links" style="display: flex; gap: 0.5rem; flex-wrap: wrap; justify-content: center;">
-                                    <a href="<?= url('pages/modules/document-agent/index.php') ?>" class="btn btn-outline">
-                                        📄 V1 (Ancien)
-                                    </a>
-                                    <a href="https://www.gdri.fr/doc-template/" target="_blank" class="btn btn-outline">
-                                        🚀 V2 (Externe)
-                                    </a>
-                                    <a href="<?= url('pages/modules/doc-template-v3/index.php') ?>" class="btn btn-primary">
-                                        ✨ V3 (Intégré)
-                                    </a>
-                                </div>
-                            <?php else: ?>
-                                <button class="btn btn-outline toggle-module" data-module-id="<?= htmlspecialchars((string) $service['_id']) ?>">
-                                    <?= $service['status'] === 'active' ? 'Désactiver' : 'Activer' ?>
-                                </button>
-                            <?php endif; ?>
-                        </div>
-                    </div>
-                    <?php endif; ?>
                 <?php endforeach; ?>
-            <?php endif; ?>
-        </div>
+            </div>
+
+            <div id="applicationsNoResult" class="applications-empty" style="display: none;">
+                <p>Aucune application ne correspond à votre recherche.</p>
+            </div>
+        <?php endif; ?>
     </div>
 </section>
 
-<!-- Style spécifique -->
 <style>
-.modules-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-    gap: var(--spacing-lg);
-    margin-top: var(--spacing-lg);
-}
-
-.module-card {
-    background: white;
-    border-radius: 8px;
-    padding: var(--spacing-lg);
-    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-    border: 1px solid var(--color-light);
+.applications-empty {
+    padding: 2.5rem 1.5rem;
     text-align: center;
+    background: #f8f9fa;
+    border: 1px dashed #ced4da;
+    border-radius: 10px;
+    color: #495057;
 }
-
-.module-icon-large {
-    font-size: 4rem;
-    margin-bottom: var(--spacing-md);
-}
-
-.module-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: var(--spacing-sm);
-}
-
-.module-header h3 {
-    margin: 0;
-    color: var(--color-primary);
-}
-
-.module-status {
-    display: inline-block;
-    padding: 4px 12px;
-    border-radius: 12px;
-    font-size: 0.85rem;
-    font-weight: 600;
-}
-
-.module-status.active {
-    background: #d4edda;
-    color: #155724;
-}
-
-.module-status.inactive {
-    background: #f8d7da;
-    color: #721c24;
-}
-
-.module-description {
-    color: var(--color-gray);
-    margin-bottom: var(--spacing-md);
-}
-
-.module-actions {
-    margin-top: var(--spacing-md);
-}
-
-/* Carte Chat : toute la carte ouvre le chat (pas de boutons sur la grille modules) */
-a.module-card--chat-link {
-    text-decoration: none;
-    color: inherit;
-    display: block;
-    transition: box-shadow 0.2s ease, transform 0.15s ease;
-}
-a.module-card--chat-link:hover {
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
-    transform: translateY(-2px);
-}
-.module-card--chat-link .module-actions--hint {
-    text-align: center;
-    margin-top: var(--spacing-md);
-}
-.module-card--facebook-link {
+.applications-empty p { margin: 0 0 0.75rem; }
+.application-card {
+    border-radius: 10px;
+    overflow: hidden;
+    min-height: 180px;
     cursor: pointer;
     transition: box-shadow 0.2s ease, transform 0.15s ease;
 }
-.module-card--facebook-link:hover {
+.application-card:hover {
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
     transform: translateY(-2px);
 }
-
+.application-card[data-multi="1"] {
+    cursor: default;
+}
+.application-card[data-multi="1"]:hover {
+    transform: none;
+}
+.application-card__inner {
+    background: #fff;
+    border: 1px solid #e9ecef;
+    border-bottom: 3px solid #0d6efd;
+    padding: 1.1rem 1.25rem;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+}
+.application-card__head {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    margin-bottom: 0.5rem;
+}
+.application-card__icon {
+    font-size: 2.2rem;
+    line-height: 1;
+}
+.application-card__title {
+    margin: 0;
+    font-size: 1.25rem;
+    color: var(--color-primary, #0d6efd);
+}
+.application-card__status {
+    display: inline-block;
+    margin-top: 0.35rem;
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: 0.72rem;
+    font-weight: 600;
+}
+.application-card__status--inactive {
+    background: #f8d7da;
+    color: #721c24;
+}
+.application-card__description {
+    margin: 0;
+    font-size: 0.9em;
+    color: #666;
+    line-height: 1.35;
+    flex: 1;
+}
+.application-card__hint {
+    margin: 0.85rem 0 0;
+}
+.application-card__actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-top: 0.85rem;
+}
 </style>
 
 <script>
-document.querySelectorAll('.module-card--facebook-link[data-dblclick-url]').forEach(function(card) {
-    card.addEventListener('dblclick', function() {
-        var targetUrl = card.getAttribute('data-dblclick-url');
-        if (targetUrl) window.location.href = targetUrl;
+(function() {
+    var searchEl = document.getElementById('applicationsSearch');
+    var cards = document.querySelectorAll('.application-card');
+    var noResult = document.getElementById('applicationsNoResult');
+
+    function filter() {
+        var q = (searchEl && searchEl.value || '').trim().toLowerCase();
+        var visible = 0;
+        for (var i = 0; i < cards.length; i++) {
+            var card = cards[i];
+            var text = (card.getAttribute('data-search') || '').toLowerCase();
+            var show = !q || text.indexOf(q) !== -1;
+            card.style.display = show ? '' : 'none';
+            if (show) visible++;
+        }
+        if (noResult) noResult.style.display = visible === 0 ? 'block' : 'none';
+    }
+
+    cards.forEach(function(card) {
+        card.addEventListener('click', function() {
+            if (card.getAttribute('data-multi') === '1') {
+                return;
+            }
+            var url = card.getAttribute('data-url');
+            if (url && url !== '#') {
+                window.location.href = url;
+            }
+        });
     });
-});
+
+    if (searchEl) {
+        searchEl.addEventListener('input', filter);
+        searchEl.addEventListener('keyup', filter);
+    }
+})();
 </script>
 
 <?php require_once '../includes/footer.php'; ?>
-

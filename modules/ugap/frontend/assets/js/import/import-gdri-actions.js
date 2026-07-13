@@ -63,14 +63,29 @@
         }
         try {
             const result = await apiCall('/import', { method: 'POST' });
-            const importId = String(result?.data?.importId || '').trim();
+            const staging = result?.data?.staging || null;
+            const importId = String(result?.data?.importId || staging?._id || '').trim();
+            if (staging) {
+                window.currentImportStaging = staging;
+                window.currentImportId = importId;
+                if (typeof global.publishImportWorkflowGlobals === 'function') {
+                    global.publishImportWorkflowGlobals();
+                }
+            }
+            const refsFound = Number(result?.data?.modelsWithRefUgap);
+            const refsSuffix = Number.isFinite(refsFound)
+                ? ` (${refsFound} ref. UGAP)`
+                : '';
             showAlert(
-                `Import réussi : ${result?.data?.modelsCount ?? 0} modèle(s), ${result?.data?.optionsCount ?? 0} option(s).`,
+                `Import réussi : ${result?.data?.modelsCount ?? 0} modèle(s), ${result?.data?.optionsCount ?? 0} option(s)${refsSuffix}.`,
                 'success'
             );
             if (statusEl) {
                 statusEl.textContent = 'Import réussi';
                 statusEl.style.color = '#28a745';
+            }
+            if (importId) {
+                window.currentImportId = importId;
             }
             if (typeof global.refreshImportStagingIndicator === 'function') {
                 await global.refreshImportStagingIndicator();

@@ -13,6 +13,13 @@ const { detectTablesFromWorksheet } = require('../services/ExcelTableDetector');
 const crypto = require('crypto');
 const ugapImportController = require('./ugapImportController');
 const UgapSavedDevisService = require('../services/UgapSavedDevisService');
+const UgapDevisSettingsService = require('../services/UgapDevisSettingsService');
+const UgapClientsService = require('../services/UgapClientsService');
+const { computeDevisPricing } = require('../services/devis/computeDevisPricing');
+const UgapDevisRenderService = require('../services/devis/UgapDevisRenderService');
+const UgapDevisTemplateService = require('../services/devis/UgapDevisTemplateService');
+
+const { getAdv2TemplateService } = UgapDevisRenderService;
 
 function resolveRequestUserId(req) {
   return String(req.user?.user_id || req.user?.sub || req.user?.id || req.user?._id || '').trim();
@@ -86,91 +93,426 @@ async function updateUiState(req, res) {
   }
 }
 
-async function generateDevis(req, res) {
+async function updateLiaisonRules(req, res) {
   try {
-    const { modelId, configId, selectedOptions, use5Percent } = req.body;
+    const data = await UgapDataService.updateLiaisonRules(
+      req.entrepriseDb,
+      req.entrepriseId,
+      req.body || {}
+    );
+    res.json({ success: true, data, message: 'Règles de liaison mises à jour' });
+  } catch (error) {
+    console.error('❌ UGAP updateLiaisonRules error:', error);
+    res.status(500).json({ success: false, message: error.message || 'Erreur serveur' });
+  }
+}
+
+async function suggestHeuristicLiaisonRules(req, res) {
+  try {
     const data = await UgapDataService.getData(req.entrepriseDb, req.entrepriseId);
     if (!data) {
       return res.status(404).json({ success: false, message: 'Aucune donnée configurée' });
     }
-    const model = data.models.find(m => m.id === modelId);
-    if (!model) {
-      return res.status(404).json({ success: false, message: 'Modèle non trouvé' });
+    const suggestions = UgapDataService.suggestHeuristicOptionLinkRules(data.categories || []);
+    res.json({ success: true, data: { suggestions } });
+  } catch (error) {
+    console.error('❌ UGAP suggestHeuristicLiaisonRules error:', error);
+    res.status(500).json({ success: false, message: error.message || 'Erreur serveur' });
+  }
+}
+
+async function getDevisSettings(req, res) {
+  try {
+    const data = await UgapDevisSettingsService.getSettings(req.entrepriseDb, req.entrepriseId);
+    res.json({ success: true, data });
+  } catch (error) {
+    console.error('❌ UGAP getDevisSettings error:', error);
+    res.status(500).json({ success: false, message: error.message || 'Erreur serveur' });
+  }
+}
+
+async function updateDevisSettings(req, res) {
+  try {
+    const entrepriseInfo = await UgapDevisSettingsService.updateEntrepriseInfo(
+      req.entrepriseDb,
+      req.entrepriseId,
+      req.body?.entrepriseInfo || req.body || {}
+    );
+    res.json({ success: true, data: { entrepriseInfo }, message: 'Options devis enregistrées' });
+  } catch (error) {
+    console.error('❌ UGAP updateDevisSettings error:', error);
+    res.status(500).json({ success: false, message: error.message || 'Erreur serveur' });
+  }
+}
+
+async function listDevisEntityUsers(req, res) {
+  try {
+    const users = await UgapDevisSettingsService.listEntityUsers(req.entrepriseId);
+    res.json({ success: true, data: { users } });
+  } catch (error) {
+    console.error('❌ UGAP listDevisEntityUsers error:', error);
+    res.status(500).json({ success: false, message: error.message || 'Erreur serveur' });
+  }
+}
+
+async function upsertDevisCommercial(req, res) {
+  try {
+    const body = req.body && typeof req.body === 'object' ? { ...req.body } : {};
+    if (req.params.commercialId) {
+      body.id = req.params.commercialId;
     }
-    const requestedOptionIds = Array.isArray(selectedOptions)
-      ? selectedOptions.map((id) => String(id || '').trim()).filter(Boolean)
-      : [];
-    const selectedSet = new Set(requestedOptionIds);
-    const dependencyRules = Array.isArray(data?.dependencyRules) ? data.dependencyRules : [];
-    let changed = true;
-    while (changed) {
-      changed = false;
-      dependencyRules.forEach((rule) => {
-        const triggerOptionId = String(rule?.triggerOptionId || '').trim();
-        if (!triggerOptionId || !selectedSet.has(triggerOptionId)) return;
-        const autoSelectIds = Array.isArray(rule?.autoSelectOptionIds) ? rule.autoSelectOptionIds : [];
-        autoSelectIds.forEach((id) => {
-          const normalizedId = String(id || '').trim();
-          if (!normalizedId || selectedSet.has(normalizedId)) return;
-          selectedSet.add(normalizedId);
-          changed = true;
-        });
-      });
+    const commercial = await UgapDevisSettingsService.upsertCommercial(
+      req.entrepriseDb,
+      req.entrepriseId,
+      body
+    );
+    res.json({ success: true, data: { commercial }, message: 'Commercial enregistré' });
+  } catch (error) {
+    console.error('❌ UGAP upsertDevisCommercial error:', error);
+    const status = /utilisateur|entreprise|commercial/i.test(String(error.message || '')) ? 400 : 500;
+    res.status(status).json({ success: false, message: error.message || 'Erreur serveur' });
+  }
+}
+
+async function deleteDevisCommercial(req, res) {
+  try {
+    const deleted = await UgapDevisSettingsService.deleteCommercial(
+      req.entrepriseDb,
+      req.entrepriseId,
+      req.params.commercialId
+    );
+    if (!deleted) {
+      return res.status(404).json({ success: false, message: 'Commercial introuvable' });
     }
+    res.json({ success: true, message: 'Commercial supprimé' });
+  } catch (error) {
+    console.error('❌ UGAP deleteDevisCommercial error:', error);
+    res.status(500).json({ success: false, message: error.message || 'Erreur serveur' });
+  }
+}
 
-    let total = model.basePrice || 0;
-    const selectedOptionsData = [];
-    const selectedOptionIds = Array.from(selectedSet);
-    selectedOptionIds.forEach(optionId => {
-      for (const category of data.categories) {
-        const option = category.options.find(o => o.id === optionId);
-        if (option) {
-          selectedOptionsData.push(option);
-          total += option.priceClient || option.priceUgap || 0;
-          break;
-        }
-      }
-    });
-
-    const violations = [];
-    (data.categories || []).forEach((category) => {
-      const rules = category?.selectionRules || {};
-      const categoryOptionIds = new Set((category?.options || []).map((opt) => String(opt?.id || '').trim()).filter(Boolean));
-      const selectedInCategory = selectedOptionIds.filter((id) => categoryOptionIds.has(id));
-      if (rules?.unique && selectedInCategory.length > 1) {
-        violations.push(`Catégorie "${category?.name || category?.id}": choix unique violé (${selectedInCategory.length} options sélectionnées).`);
-      }
-      if (rules?.required && selectedInCategory.length === 0) {
-        violations.push(`Catégorie "${category?.name || category?.id}": au moins une option est obligatoire.`);
-      }
-    });
-
-    if (violations.length > 0) {
-      return res.status(400).json({
-        success: false,
-        message: 'Validation des règles catégorie échouée',
-        data: { violations }
-      });
-    }
-
-    const budget5Percent = use5Percent ? total * 0.05 : 0;
+async function getDevisContext(req, res) {
+  try {
+    const userId = resolveRequestUserId(req);
+    const settings = await UgapDevisSettingsService.getSettings(req.entrepriseDb, req.entrepriseId);
+    const commerciaux = (settings.commerciaux || []).filter((c) => c.actif !== false);
+    const linked = UgapDevisSettingsService.resolveCommercialForUser(commerciaux, userId);
     res.json({
       success: true,
       data: {
-        model,
+        userId,
+        entrepriseInfo: settings.entrepriseInfo,
+        commerciaux,
+        defaultCommercialId: linked?.id || null
+      }
+    });
+  } catch (error) {
+    console.error('❌ UGAP getDevisContext error:', error);
+    res.status(500).json({ success: false, message: error.message || 'Erreur serveur' });
+  }
+}
+
+async function listUgapClients(req, res) {
+  try {
+    const search = String(req.query.search || '').trim();
+    const clients = await UgapClientsService.list(req.entrepriseDb, req.entrepriseId, { search });
+    res.json({ success: true, data: { clients } });
+  } catch (error) {
+    console.error('❌ UGAP listUgapClients error:', error);
+    res.status(500).json({ success: false, message: error.message || 'Erreur serveur' });
+  }
+}
+
+async function createUgapClient(req, res) {
+  try {
+    const client = await UgapClientsService.create(req.entrepriseDb, req.entrepriseId, req.body || {});
+    res.json({ success: true, data: { client }, message: 'Client créé' });
+  } catch (error) {
+    console.error('❌ UGAP createUgapClient error:', error);
+    res.status(500).json({ success: false, message: error.message || 'Erreur serveur' });
+  }
+}
+
+async function updateUgapClient(req, res) {
+  try {
+    const client = await UgapClientsService.update(
+      req.entrepriseDb,
+      req.entrepriseId,
+      req.params.clientId,
+      req.body || {}
+    );
+    res.json({ success: true, data: { client }, message: 'Client mis à jour' });
+  } catch (error) {
+    console.error('❌ UGAP updateUgapClient error:', error);
+    const status = error.message === 'Client introuvable' ? 404 : 500;
+    res.status(status).json({ success: false, message: error.message || 'Erreur serveur' });
+  }
+}
+
+async function deleteUgapClient(req, res) {
+  try {
+    const deleted = await UgapClientsService.delete(
+      req.entrepriseDb,
+      req.entrepriseId,
+      req.params.clientId
+    );
+    if (!deleted) {
+      return res.status(404).json({ success: false, message: 'Client introuvable' });
+    }
+    res.json({ success: true, message: 'Client supprimé' });
+  } catch (error) {
+    console.error('❌ UGAP deleteUgapClient error:', error);
+    res.status(500).json({ success: false, message: error.message || 'Erreur serveur' });
+  }
+}
+
+async function generateDevis(req, res) {
+  try {
+    const {
+      modelId,
+      configId,
+      selectedOptions,
+      billableOptionIds,
+      fivePercentOptions,
+      fivePercentCustomOptions,
+      use5Percent
+    } = req.body;
+    const data = await UgapDataService.getData(req.entrepriseDb, req.entrepriseId);
+    const pricing = computeDevisPricing(data, {
+      modelId,
+      selectedOptions,
+      billableOptionIds,
+      fivePercentOptions,
+      fivePercentCustomOptions,
+      use5Percent,
+      devisOptionCategories: req.body?.devisOptionCategories,
+      devisModelCategory: req.body?.devisModelCategory
+    });
+    if (!pricing.ok) {
+      return res.status(pricing.status || 400).json({
+        success: false,
+        message: pricing.message,
+        data: pricing.violations ? { violations: pricing.violations } : undefined
+      });
+    }
+    const dependencyRules = Array.isArray(data?.dependencyRules) ? data.dependencyRules : [];
+    const selectedOptionIds = (pricing.data.selectedOptions || []).map((o) => o.id);
+    res.json({
+      success: true,
+      data: {
+        ...pricing.data,
         configId,
-        requestedOptionIds,
-        autoSelectedOptionIds: selectedOptionIds.filter((id) => !requestedOptionIds.includes(id)),
-        appliedDependencyRules: dependencyRules.filter((rule) => selectedOptionIds.includes(String(rule?.triggerOptionId || '').trim())),
-        selectedOptions: selectedOptionsData,
-        subtotal: total,
-        budget5Percent,
-        total: total + budget5Percent
+        requestedOptionIds: pricing.data.requestedOptionIds,
+        autoSelectedOptionIds: pricing.data.autoSelectedOptionIds,
+        appliedDependencyRules: dependencyRules.filter((rule) =>
+          selectedOptionIds.includes(String(rule?.triggerOptionId || '').trim())
+        )
       }
     });
   } catch (error) {
     console.error('❌ UGAP generateDevis error:', error);
     res.status(500).json({ success: false, message: error.message || 'Erreur serveur' });
+  }
+}
+
+/** POST /api/ugap/devis/render — génère le PDF via l'agent documentaire. */
+async function renderDevis(req, res) {
+  const startedAt = Date.now();
+  try {
+    console.log('📄 UGAP renderDevis start', {
+      entrepriseId: req.entrepriseId,
+      modelId: req.body?.modelId,
+      options: Array.isArray(req.body?.selectedOptions) ? req.body.selectedOptions.length : 0
+    });
+    const result = await UgapDevisRenderService.renderDevisPdf(req, req.body || {});
+    console.log('📄 UGAP renderDevis ok', {
+      devisNumero: result.devisNumero,
+      ms: Date.now() - startedAt,
+      bytes: result.pdfBuffer?.length || 0
+    });
+    const safeName = String(result.devisNumero || 'devis')
+      .replace(/[^a-zA-Z0-9._-]+/g, '_')
+      .slice(0, 80);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${safeName}.pdf"`);
+    res.setHeader('X-Ugap-Devis-Numero', result.devisNumero || '');
+    res.setHeader('X-Ugap-Document-Id', result.documentId || '');
+    if (result.pricing?.total != null) {
+      res.setHeader('X-Ugap-Devis-Total-Ht', String(result.pricing.total));
+    }
+    res.send(result.pdfBuffer);
+  } catch (error) {
+    console.error('❌ UGAP renderDevis error:', error);
+    if (!res.headersSent) {
+      const status = Number(error.status) || 500;
+      res.status(status).json({
+        success: false,
+        message: error.message || 'Erreur génération PDF',
+        data: error.violations ? { violations: error.violations } : undefined
+      });
+    }
+  }
+}
+
+/** GET /api/ugap/devis/template-editor — document d'édition du modèle devis. */
+async function getDevisTemplateEditor(req, res) {
+  try {
+    const info = await UgapDevisRenderService.getTemplateEditorInfo(req);
+    res.json({ success: true, data: info });
+  } catch (error) {
+    console.error('❌ UGAP getDevisTemplateEditor error:', error);
+    res.status(500).json({ success: false, message: error.message || 'Erreur serveur' });
+  }
+}
+
+/** GET /api/ugap/devis/templates — liste des modèles devis canvas. */
+async function listDevisTemplates(req, res) {
+  try {
+    const templateService = getAdv2TemplateService();
+    const templates = await UgapDevisTemplateService.listTemplates(
+      templateService,
+      req.entrepriseId,
+      req.entrepriseDb
+    );
+    res.json({ success: true, data: { templates } });
+  } catch (error) {
+    console.error('❌ UGAP listDevisTemplates error:', error);
+    res.status(500).json({ success: false, message: error.message || 'Erreur serveur' });
+  }
+}
+
+/** POST /api/ugap/devis/templates — nouveau modèle (copie du défaut ou d'une source). */
+async function createDevisTemplate(req, res) {
+  try {
+    const body = req.body && typeof req.body === 'object' ? req.body : {};
+    const templateService = getAdv2TemplateService();
+    const created = await UgapDevisTemplateService.createTemplate(
+      templateService,
+      req.entrepriseId,
+      {
+        name: body.name,
+        sourceNamespace: body.sourceNamespace
+      }
+    );
+    res.json({ success: true, data: created });
+  } catch (error) {
+    console.error('❌ UGAP createDevisTemplate error:', error);
+    res.status(400).json({ success: false, message: error.message || 'Erreur serveur' });
+  }
+}
+
+/** POST /api/ugap/devis/templates/:namespace/duplicate — dupliquer un modèle. */
+async function duplicateDevisTemplate(req, res) {
+  try {
+    const namespace = decodeURIComponent(String(req.params.namespace || '').trim());
+    const body = req.body && typeof req.body === 'object' ? req.body : {};
+    const templateService = getAdv2TemplateService();
+    const duplicated = await UgapDevisTemplateService.duplicateTemplate(
+      templateService,
+      req.entrepriseId,
+      namespace,
+      { name: body.name }
+    );
+    res.json({ success: true, data: duplicated });
+  } catch (error) {
+    console.error('❌ UGAP duplicateDevisTemplate error:', error);
+    res.status(400).json({ success: false, message: error.message || 'Erreur serveur' });
+  }
+}
+
+/** PATCH /api/ugap/devis/templates/:namespace — renommer un modèle. */
+async function renameDevisTemplate(req, res) {
+  try {
+    const namespace = decodeURIComponent(String(req.params.namespace || '').trim());
+    const body = req.body && typeof req.body === 'object' ? req.body : {};
+    const templateService = getAdv2TemplateService();
+    const updated = await UgapDevisTemplateService.renameTemplate(
+      templateService,
+      req.entrepriseId,
+      namespace,
+      body.name
+    );
+    res.json({ success: true, data: updated });
+  } catch (error) {
+    console.error('❌ UGAP renameDevisTemplate error:', error);
+    res.status(400).json({ success: false, message: error.message || 'Erreur serveur' });
+  }
+}
+
+/** PATCH /api/ugap/devis/templates/:namespace/prefs — options impression (rapide, défaut). */
+async function updateDevisTemplatePrefs(req, res) {
+  try {
+    const namespace = decodeURIComponent(String(req.params.namespace || '').trim());
+    const body = req.body && typeof req.body === 'object' ? req.body : {};
+    const canConfigure = Boolean(req.ugapPermissions?.configure);
+    const patch = {};
+
+    if (Object.prototype.hasOwnProperty.call(body, 'isDefaultPrint')) {
+      patch.isDefaultPrint = body.isDefaultPrint === true;
+    }
+    if (Object.prototype.hasOwnProperty.call(body, 'quickPrint')) {
+      if (!canConfigure) {
+        return res.status(403).json({
+          success: false,
+          message: 'Permission UGAP "configure" requise pour l\'impression rapide'
+        });
+      }
+      patch.quickPrint = body.quickPrint === true;
+    }
+    if (Object.prototype.hasOwnProperty.call(body, 'shortName')) {
+      if (!canConfigure) {
+        return res.status(403).json({
+          success: false,
+          message: 'Permission UGAP "configure" requise pour le nom court du modèle'
+        });
+      }
+      patch.shortName = String(body.shortName || '').trim();
+    }
+    if (Object.prototype.hasOwnProperty.call(body, 'showIncludedLines')) {
+      if (!canConfigure) {
+        return res.status(403).json({
+          success: false,
+          message: 'Permission UGAP "configure" requise pour l\'affichage des lignes incluses'
+        });
+      }
+      patch.showIncludedLines = body.showIncludedLines === true;
+    }
+
+    if (!Object.keys(patch).length) {
+      return res.status(400).json({ success: false, message: 'Aucune préférence à mettre à jour' });
+    }
+
+    const templateService = getAdv2TemplateService();
+    const updated = await UgapDevisTemplateService.updateTemplatePrefs(
+      templateService,
+      req.entrepriseDb,
+      req.entrepriseId,
+      namespace,
+      patch
+    );
+    res.json({ success: true, data: updated });
+  } catch (error) {
+    console.error('❌ UGAP updateDevisTemplatePrefs error:', error);
+    res.status(400).json({ success: false, message: error.message || 'Erreur serveur' });
+  }
+}
+
+/** PUT /api/ugap/devis/templates/active — modèle utilisé pour les PDF. */
+async function setActiveDevisTemplate(req, res) {
+  try {
+    const body = req.body && typeof req.body === 'object' ? req.body : {};
+    const namespace = String(body.namespace || '').trim();
+    const templateService = getAdv2TemplateService();
+    await UgapDevisTemplateService.assertCanUseTemplate(
+      templateService,
+      req.entrepriseId,
+      namespace
+    );
+    await UgapDevisTemplateService.setActiveNamespace(req.entrepriseDb, req.entrepriseId, namespace);
+    res.json({ success: true, data: { namespace } });
+  } catch (error) {
+    console.error('❌ UGAP setActiveDevisTemplate error:', error);
+    res.status(400).json({ success: false, message: error.message || 'Erreur serveur' });
   }
 }
 
@@ -211,6 +553,22 @@ async function createSavedDevis(req, res) {
   } catch (error) {
     console.error('❌ UGAP createSavedDevis error:', error);
     res.status(500).json({ success: false, message: error.message || 'Erreur serveur' });
+  }
+}
+
+/** POST /api/ugap/configurator/five-percent-options — option 5% catalogue + liaison groupe. */
+async function createConfiguratorFivePercentOption(req, res) {
+  try {
+    const body = req.body && typeof req.body === 'object' ? req.body : {};
+    const data = await UgapDataService.createConfiguratorFivePercentOption(
+      req.entrepriseDb,
+      req.entrepriseId,
+      body
+    );
+    res.json({ success: true, data });
+  } catch (error) {
+    console.error('❌ UGAP createConfiguratorFivePercentOption error:', error);
+    res.status(400).json({ success: false, message: error.message || 'Erreur serveur' });
   }
 }
 
@@ -523,6 +881,29 @@ async function updateBaseProductAdjLinks(req, res) {
     res.json({ success: true, data });
   } catch (error) {
     console.error('❌ UGAP updateBaseProductAdjLinks error:', error);
+    res.status(500).json({ success: false, message: error.message || 'Erreur serveur' });
+  }
+}
+
+async function mergeBaseCatalogOptions(req, res) {
+  try {
+    const primaryOptionId = String(req.body?.primaryOptionId || '').trim();
+    const secondaryOptionId = String(req.body?.secondaryOptionId || '').trim();
+    const primaryName = String(req.body?.primaryName || '').trim();
+    if (!primaryOptionId || !secondaryOptionId) {
+      return res.status(400).json({ success: false, message: 'primaryOptionId et secondaryOptionId requis' });
+    }
+    if (!primaryName) {
+      return res.status(400).json({ success: false, message: 'primaryName requis' });
+    }
+    const data = await UgapDataService.mergeBaseCatalogOptions(
+      req.entrepriseDb,
+      req.entrepriseId,
+      { primaryOptionId, secondaryOptionId, primaryName }
+    );
+    res.json({ success: true, data });
+  } catch (error) {
+    console.error('❌ UGAP mergeBaseCatalogOptions error:', error);
     res.status(500).json({ success: false, message: error.message || 'Erreur serveur' });
   }
 }
@@ -2887,12 +3268,34 @@ module.exports = {
   ...ugapImportController,
   getData,
   getUiState,
-  updateUiState,  getModels,
+  updateUiState,
+  updateLiaisonRules,
+  suggestHeuristicLiaisonRules,
+  getModels,
   getCategories,
+  getDevisSettings,
+  updateDevisSettings,
+  listDevisEntityUsers,
+  upsertDevisCommercial,
+  deleteDevisCommercial,
+  getDevisContext,
+  listUgapClients,
+  createUgapClient,
+  updateUgapClient,
+  deleteUgapClient,
   generateDevis,
+  renderDevis,
+  getDevisTemplateEditor,
+  listDevisTemplates,
+  createDevisTemplate,
+  duplicateDevisTemplate,
+  renameDevisTemplate,
+  updateDevisTemplatePrefs,
+  setActiveDevisTemplate,
   listSavedDevis,
   createSavedDevis,
   migrateSavedDevisLocal,
+  createConfiguratorFivePercentOption,
   createCategory,
   updateCategory,
   reorderCategories,
@@ -2906,6 +3309,7 @@ module.exports = {
   createOption,
   deleteOption,
   deleteOptionsBulk,
+  mergeBaseCatalogOptions,
   assignOptionsFamiliesBulk,
   assignOptionsCatalogBulk,
   resetOptionsFamilyAssignments,

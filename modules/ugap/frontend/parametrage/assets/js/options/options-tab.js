@@ -41,6 +41,21 @@
         return String(opt.refUgap || '').trim().toUpperCase().startsWith('IBP-');
     }
 
+    function isCatalogMotorTarifOption(opt) {
+        if (!opt || typeof opt !== 'object') return false;
+        if (isImportGeneratedBaseOption(opt)) return false;
+        const MBO = global.UgapModelBaseOptions;
+        if (MBO?.isMotorTarifName) return MBO.isMotorTarifName(opt.name);
+        const name = String(opt.name || '').replace(/\s+/g, ' ').trim();
+        if (!name || /\ben\s+remplacement\b/i.test(name) || /\blieu\s+et\s+place\b/i.test(name)) return false;
+        if (!/\b(moteur|motorisation)\b/i.test(name)) return false;
+        if (name.length < 55) return false;
+        return (
+            /\b(hors-bord|essence|diesel|démarrage|direction|hélice|helice|arbre)\b/i.test(name)
+            || (/\bDF\d{2,4}/i.test(name) && /\bsuzuki|mercury|yamaha|honda|oxe\b/i.test(name))
+        );
+    }
+
     function inferPublishedOptionLineKind(opt) {
         const OLK = global.UgapOptionLineKind;
         if (OLK?.inferOptionLineKind) return OLK.inferOptionLineKind(opt);
@@ -326,7 +341,12 @@
     function resolveExcelSourceLabelForRow(row) {
         if (!row || typeof row !== 'object') return '';
         if (row.isImportBase) return resolveExcelSourceLabelForBaseRow(row);
-        return String(row.importExcelLabel || '').trim();
+        return String(row.importExcelLabel || row.details || row.name || '').trim();
+    }
+
+    function resolveStoredExcelSourceLabel(opt) {
+        if (!opt || typeof opt !== 'object') return '';
+        return String(opt.importExcelLabel || opt.details || opt.name || '').trim();
     }
 
     function resolveSourceOptionIdForBaseRow(row) {
@@ -347,13 +367,63 @@
             .includes(sourceOptionId);
     }
 
+    function sanitizeRef(ref) {
+        return global.UgapRefDisplay?.sanitizeUgapRefForDisplay
+            ? global.UgapRefDisplay.sanitizeUgapRefForDisplay(ref)
+            : String(ref || '').trim();
+    }
+
+    function collectRefEntriesForOption(opt) {
+        const o = opt && typeof opt === 'object' ? opt : {};
+        const entries = [];
+        const seen = new Set();
+        const push = (ref, label) => {
+            const code = sanitizeRef(ref);
+            if (!code) return;
+            const key = `${label}:${code.toUpperCase()}`;
+            if (seen.has(key)) return;
+            seen.add(key);
+            entries.push({ ref: code, label: String(label || '').trim() || 'UGAP' });
+        };
+        push(o.refUgap, 'UGAP');
+        const baseRef = sanitizeRef(o.baseRefUgap);
+        const mainRef = sanitizeRef(o.refUgap);
+        if (baseRef && baseRef.toUpperCase() !== (mainRef || '').toUpperCase()) {
+            push(o.baseRefUgap, 'Base');
+        }
+        const fournisseur = String(o.refFournisseur || '').trim();
+        if (fournisseur) {
+            const key = `Fournisseur:${fournisseur.toUpperCase()}`;
+            if (!seen.has(key)) {
+                seen.add(key);
+                entries.push({ ref: fournisseur, label: 'Fournisseur' });
+            }
+        }
+        return entries;
+    }
+
+    function renderRefUgapCell(row) {
+        const opt = findRawOptionById(row.id) || row;
+        const entries = collectRefEntriesForOption(opt);
+        if (!entries.length) {
+            return '<span style="color:#94a3b8;">—</span>';
+        }
+        const lines = entries.map((entry) => (
+            `<div class="ugap-options-ref-line">`
+            + `<code class="ugap-options-ref-code">${esc(entry.ref)}</code>`
+            + `<span class="ugap-options-ref-label">${esc(entry.label)}</span>`
+            + `</div>`
+        )).join('');
+        return `<div class="ugap-options-ref-stack">${lines}</div>`;
+    }
+
     function normalizeRows() {
         const rows = flattenOptions(state.data).map((opt, idx) => {
             const id = String(opt?.id || '').trim();
             const typeMeta = resolveOptionTypeMeta(opt);
             const isImportBase = isImportGeneratedBaseOption(opt);
             const sourceAdjIds = isImportBase ? resolveSourceAdjIdsForBaseRow(id) : [];
-            const excelLabel = String(opt?.importExcelLabel || opt?.details || '').trim();
+            const excelLabel = String(opt?.importExcelLabel || opt?.details || opt?.name || '').trim();
             const rowDraft = {
                 isImportBase,
                 importExcelLabel: excelLabel,
@@ -367,7 +437,9 @@
                 name: String(opt?.name || id || `Option ${idx + 1}`).trim(),
                 details: excelLabel,
                 importExcelLabel: excelLabel,
-                refUgap: String(opt?.refUgap || opt?.baseRefUgap || '').trim(),
+                refUgap: String(opt?.refUgap || '').trim(),
+                refFournisseur: String(opt?.refFournisseur || '').trim(),
+                baseRefUgap: String(opt?.baseRefUgap || '').trim(),
                 familyLabel: String(opt?.familyLabel || '').trim(),
                 category: String(opt?.__categoryName || '—'),
                 pricePublic: Number.isFinite(Number(opt?.priceClient)) ? Number(opt.priceClient) : null,
@@ -422,6 +494,8 @@
                     row.details,
                     row.importExcelLabel,
                     row.refUgap,
+                    row.refFournisseur,
+                    row.baseRefUgap,
                     row.familyLabel,
                     row.catalogNodeLabel,
                     row.category,
@@ -479,12 +553,38 @@
         `;
     }
 
+    function getVisibleRowIds() {
+        return state.visibleRows.map((row) => row.id).filter(Boolean);
+    }
+
+    /** Retire de la sélection les lignes masquées par le filtre courant. */
+    function pruneSelectionToVisibleRows() {
+        const visible = new Set(getVisibleRowIds());
+        Array.from(state.selectedIds).forEach((id) => {
+            if (!visible.has(id)) state.selectedIds.delete(id);
+        });
+    }
+
+    function getSelectedBaseOptionIds() {
+        return selectedOptionIds().filter((id) => isImportGeneratedBaseOption(findRawOptionById(id)));
+    }
+
+    function updateSelectionActionButtons() {
+        updateSelectVisibleButton();
+        const mergeBtn = byId('ugap-options-merge-base');
+        if (!mergeBtn) return;
+        const baseIds = getSelectedBaseOptionIds();
+        const canMerge = baseIds.length === 2 && selectedOptionIds().length === 2;
+        mergeBtn.disabled = !canMerge;
+        mergeBtn.title = canMerge
+            ? 'Fusionner les deux options de base sélectionnées'
+            : 'Sélectionnez exactement 2 options de type Base';
+    }
+
     function updateSelectVisibleButton() {
         const btn = byId('ugap-options-select-visible');
         if (!btn) return;
-        const visibleIds = (state.visibleRows.length ? state.visibleRows : state.rows)
-            .map((row) => row.id)
-            .filter(Boolean);
+        const visibleIds = getVisibleRowIds();
         const allSelected = visibleIds.length > 0 && visibleIds.every((id) => state.selectedIds.has(id));
         btn.textContent = allSelected ? 'Désélectionner la vue' : 'Sélectionner la vue';
     }
@@ -536,8 +636,11 @@
 
     function renderSourceAdjCell(row) {
         const label = resolveExcelSourceLabelForRow(row);
-        if (!label) return '<span style="color:#94a3b8;">—</span>';
-        return `<span class="ugap-options-source-excel">${esc(label)}</span>`;
+        const title = 'Cliquer pour modifier le libellé Excel source';
+        if (!label) {
+            return `<button type="button" class="ugap-options-edit-excel-source ugap-options-edit-excel-source--empty" data-option-id="${esc(row.id)}" title="${title}">Renseigner…</button>`;
+        }
+        return `<button type="button" class="ugap-options-edit-excel-source" data-option-id="${esc(row.id)}" title="${title}">${esc(label)}</button>`;
     }
 
     function focusOptionRow(mount, optionId) {
@@ -557,32 +660,31 @@
             || document.documentElement;
         const scrollTop = scrollParent.scrollTop;
         state.visibleRows = filteredRows();
+        pruneSelectionToVisibleRows();
         if (!state.visibleRows.length) {
             mount.innerHTML = '<p class="ugap-param-placeholder">Aucune option pour ce filtre.</p>';
-            updateSelectVisibleButton();
+            updateSelectionActionButtons();
             return;
         }
         const body = state.visibleRows.map((r) => {
             const checked = state.selectedIds.has(r.id) ? 'checked' : '';
             const ibp = r.isImportBase
-                ? ' <span style="font-size:11px;color:#059669;">IBP</span>'
+                ? ' <span style="font-size:11px;color:#059669;">Base</span>'
                 : '';
             const idHint = r.id
                 ? `<div style="margin-top:2px;font-size:11px;color:#64748b;">ID: ${esc(r.id)}</div>`
                 : '';
-            const optionNameCell = `<span class="ugap-options-edit-name" data-option-id="${esc(r.id)}" title="Double-clic pour renommer">${esc(r.name)}</span>`;
-            const postesCell = `<span class="ugap-options-edit-postes" data-option-id="${esc(r.id)}" title="Double-clic pour modifier les postes">${esc(r.assignedPostes || '—')}</span>`;
-            const typeCell = `<span class="ugap-option-tag ugap-option-tag--kind ugap-options-edit-type ${esc(r.optionTypeClassName || '')}" data-option-id="${esc(r.id)}" title="Double-clic pour modifier le type (MINO, MAJO, Base, Catalogue, PR)">${esc(r.optionTypeLabel || 'Catalogue')}</span>`;
             return `
                 <tr data-option-row-id="${esc(r.id)}">
                     <td style="width:34px;text-align:center;">
                         <input type="checkbox" data-option-id="${esc(r.id)}" ${checked}>
                     </td>
-                    <td>${optionNameCell}${ibp}${idHint}</td>
-                    <td class="ugap-options-type-cell">${typeCell}</td>
+                    <td><span class="ugap-options-edit-name" data-option-id="${esc(r.id)}" title="Double-clic pour renommer">${esc(r.name)}</span>${ibp}${idHint}</td>
+                    <td class="ugap-options-ref-cell">${renderRefUgapCell(r)}</td>
+                    <td class="ugap-options-type-cell"><span class="ugap-option-tag ugap-option-tag--kind ugap-options-edit-type ${esc(r.optionTypeClassName || '')}" data-option-id="${esc(r.id)}" role="button" tabindex="0" title="Cliquer pour modifier le type (MINO, MAJO, Base, Catalogue, PR)">${esc(r.optionTypeLabel || 'Catalogue')}</span></td>
                     <td class="num">${esc(fmtMoney(r.pricePublic))}</td>
                     <td class="num">${esc(fmtMoney(r.priceUgap))}</td>
-                    <td>${postesCell}</td>
+                    <td><span class="ugap-options-edit-postes" data-option-id="${esc(r.id)}" title="Double-clic pour modifier les postes">${esc(r.assignedPostes || '—')}</span></td>
                     <td class="ugap-options-adj-cell">${renderSourceAdjCell(r)}</td>
                     <td>${renderNodeSelectCell(r)}</td>
                     <td style="width:42px;text-align:center;">
@@ -600,6 +702,7 @@
                     <tr>
                         <th style="width:34px;"></th>
                         <th>Option</th>
+                        <th>Références</th>
                         <th>Type</th>
                         <th class="num">Prix public</th>
                         <th class="num">Prix UGAP</th>
@@ -613,7 +716,7 @@
             </table>
         `;
         if (scrollParent) scrollParent.scrollTop = scrollTop;
-        updateSelectVisibleButton();
+        updateSelectionActionButtons();
         if (focusOptionId) focusOptionRow(mount, focusOptionId);
     }
 
@@ -656,7 +759,7 @@
             ? `Supprimer définitivement cette option du catalogue ?\n\nLes liens nœud catalogue et picks de base seront nettoyés.`
             : `Supprimer définitivement ${ids.length} option(s) du catalogue ?\n\nLes liens nœud catalogue et picks de base seront nettoyés.`;
         if (ibpCount) {
-            msg += `\n\nAttention : ${ibpCount} option(s) de base (IBP) — ne supprimez que si vous êtes sûr.`;
+            msg += `\n\nAttention : ${ibpCount} option(s) de base — ne supprimez que si vous êtes sûr.`;
         }
         return msg;
     }
@@ -811,6 +914,48 @@
                     </div>
                 </div>
             </div>`);
+        if (!byId('ugap-options-excel-source-modal')) parts.push(`
+            <div id="ugap-options-excel-source-modal" hidden class="ugap-model-base-modal">
+                <div class="ugap-model-base-modal__panel card" style="width:min(640px,96vw);">
+                    <div class="ugap-model-base-modal__head">
+                        <strong>Libellé Excel source</strong>
+                        <button type="button" class="btn btn-outline" id="ugap-options-excel-source-close">×</button>
+                    </div>
+                    <div style="padding:14px;">
+                        <div id="ugap-options-excel-source-option-id" style="margin-bottom:8px;font-size:12px;color:#64748b;"></div>
+                        <label style="display:block;font-size:12px;margin-bottom:4px;">Texte d’origine (fichier Excel)</label>
+                        <textarea id="ugap-options-excel-source-input" rows="4" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:6px;resize:vertical;" placeholder="Libellé tel qu’il apparaît dans le tableau Excel…"></textarea>
+                        <p style="margin:10px 0 0;font-size:12px;color:#64748b;">Conservé même si le <strong>nom affiché</strong> de l’option est modifié. Laissez vide pour effacer.</p>
+                        <div style="margin-top:14px;display:flex;gap:8px;justify-content:flex-end;">
+                            <button type="button" class="btn btn-outline" id="ugap-options-excel-source-cancel">Annuler</button>
+                            <button type="button" class="btn btn-primary" id="ugap-options-excel-source-save">Enregistrer</button>
+                        </div>
+                    </div>
+                </div>
+            </div>`);
+        if (!byId('ugap-options-merge-base-modal')) parts.push(`
+            <div id="ugap-options-merge-base-modal" hidden class="ugap-model-base-modal">
+                <div class="ugap-model-base-modal__panel card" style="width:min(640px,96vw);">
+                    <div class="ugap-model-base-modal__head">
+                        <strong>Fusionner deux options de base</strong>
+                        <button type="button" class="btn btn-outline" id="ugap-options-merge-base-close">×</button>
+                    </div>
+                    <div style="padding:14px;">
+                        <p class="ugap-param-lead" style="margin:0 0 12px;font-size:13px;">
+                            Les deux libellés seront conservés comme alias pour le ré-import.
+                            Une seule option de base restera dans le catalogue.
+                        </p>
+                        <div id="ugap-options-merge-base-summary" style="margin-bottom:12px;font-size:12px;color:#64748b;"></div>
+                        <fieldset id="ugap-options-merge-base-names" style="border:1px solid #e5e7eb;border-radius:8px;padding:10px 12px;margin:0;">
+                            <legend style="font-size:12px;font-weight:600;padding:0 4px;">Nom principal à conserver</legend>
+                        </fieldset>
+                        <div style="margin-top:14px;display:flex;gap:8px;justify-content:flex-end;">
+                            <button type="button" class="btn btn-outline" id="ugap-options-merge-base-cancel">Annuler</button>
+                            <button type="button" class="btn btn-primary" id="ugap-options-merge-base-save">Fusionner</button>
+                        </div>
+                    </div>
+                </div>
+            </div>`);
         if (!parts.length) return;
         wrap.innerHTML = parts.join('');
         Array.from(wrap.children).forEach((el) => document.body.appendChild(el));
@@ -829,6 +974,86 @@
     function closeTypeModal() {
         const modal = byId('ugap-options-type-modal');
         if (modal) modal.hidden = true;
+    }
+
+    function closeExcelSourceModal() {
+        const modal = byId('ugap-options-excel-source-modal');
+        if (modal) modal.hidden = true;
+    }
+
+    function closeExcelSourceModal() {
+        const modal = byId('ugap-options-excel-source-modal');
+        if (modal) modal.hidden = true;
+    }
+
+    function closeMergeBaseModal() {
+        const modal = byId('ugap-options-merge-base-modal');
+        if (modal) modal.hidden = true;
+    }
+
+    function openMergeBaseModal() {
+        const baseIds = getSelectedBaseOptionIds();
+        if (baseIds.length !== 2 || selectedOptionIds().length !== 2) {
+            global.showAlert?.('Sélectionnez exactement 2 options de type Base.', 'warning');
+            return;
+        }
+        ensureOptionEditModals();
+        const modal = byId('ugap-options-merge-base-modal');
+        const summary = byId('ugap-options-merge-base-summary');
+        const fieldset = byId('ugap-options-merge-base-names');
+        if (!modal || !fieldset) return;
+
+        const rows = baseIds.map((id) => state.rows.find((r) => r.id === id)).filter(Boolean);
+        if (rows.length !== 2) return;
+
+        modal.dataset.optionIdA = rows[0].id;
+        modal.dataset.optionIdB = rows[1].id;
+        if (summary) {
+            summary.innerHTML = rows.map((r) => `<div><code>${esc(r.id)}</code> — ${esc(r.name)}</div>`).join('');
+        }
+        fieldset.innerHTML = `<legend style="font-size:12px;font-weight:600;padding:0 4px;">Nom principal à conserver</legend>`
+            + rows.map((r, index) => `
+                <label style="display:flex;align-items:flex-start;gap:8px;padding:8px 4px;cursor:pointer;font-size:13px;">
+                    <input type="radio" name="ugap-merge-base-name" value="${esc(r.id)}" ${index === 0 ? 'checked' : ''}>
+                    <span>${esc(String(r.name || r.id).trim())}</span>
+                </label>
+            `).join('');
+
+        modal.hidden = false;
+    }
+
+    async function saveMergeBaseModal() {
+        const modal = byId('ugap-options-merge-base-modal');
+        if (!modal) return;
+        const idA = String(modal.dataset.optionIdA || '').trim();
+        const idB = String(modal.dataset.optionIdB || '').trim();
+        const picked = modal.querySelector('input[name="ugap-merge-base-name"]:checked');
+        const primaryOptionId = String(picked?.value || '').trim();
+        if (!idA || !idB || !primaryOptionId) return;
+        const secondaryOptionId = primaryOptionId === idA ? idB : idA;
+        const primaryRow = state.rows.find((r) => r.id === primaryOptionId);
+        const primaryName = String(primaryRow?.name || '').trim();
+        if (!primaryName) {
+            showOptionsStatusInline('Nom principal invalide.', 'warning');
+            return;
+        }
+        if (!global.confirm?.(
+            `Fusionner ces deux options de base ?\n\nNom conservé : ${primaryName}\n\nL'autre libellé sera gardé en alias pour le ré-import.`
+        )) return;
+
+        await global.apiCall('/options/merge-base', {
+            method: 'POST',
+            body: JSON.stringify({ primaryOptionId, secondaryOptionId, primaryName }),
+        });
+        closeMergeBaseModal();
+        state.selectedIds.clear();
+        await CatalogState()?.loadFromServer?.(true);
+        await loadOptions();
+        if (global.UgapLiaisonsTab?.loadLiaisons) {
+            await global.UgapLiaisonsTab.loadLiaisons();
+        }
+        showOptionsStatusInline('Options de base fusionnées.', 'success');
+        global.showAlert?.('Options de base fusionnées.', 'success');
     }
 
     function openRenameModal(optionId) {
@@ -861,7 +1086,13 @@
             return;
         }
         if (nextName === currentName) return closeRenameModal();
-        await updateOptionWithPatch(optionId, { name: nextName });
+        const opt = findRawOptionById(optionId);
+        const patch = { name: nextName };
+        if (opt && !resolveStoredExcelSourceLabel(opt) && currentName) {
+            patch.importExcelLabel = currentName;
+            patch.details = currentName;
+        }
+        await updateOptionWithPatch(optionId, patch);
         closeRenameModal();
         await loadOptions();
         showOptionsStatusInline('Nom de l’option mis à jour.', 'success');
@@ -954,6 +1185,26 @@
                 });
                 return;
             }
+            if (target.id === 'ugap-options-excel-source-cancel' || target.id === 'ugap-options-excel-source-close') {
+                closeExcelSourceModal();
+                return;
+            }
+            if (target.id === 'ugap-options-excel-source-save') {
+                void saveExcelSourceModal().catch((err) => {
+                    showOptionsStatusInline(err?.message || 'Erreur mise à jour libellé Excel', 'error');
+                });
+                return;
+            }
+            if (target.id === 'ugap-options-merge-base-cancel' || target.id === 'ugap-options-merge-base-close') {
+                closeMergeBaseModal();
+                return;
+            }
+            if (target.id === 'ugap-options-merge-base-save') {
+                void saveMergeBaseModal().catch((err) => {
+                    showOptionsStatusInline(err?.message || 'Erreur fusion options de base', 'error');
+                });
+                return;
+            }
             if (target.id === 'ugap-options-postes-select-all') {
                 byId('ugap-options-postes-list')?.querySelectorAll('input[type="checkbox"][data-poste-model-id]')
                     .forEach((el) => { el.checked = true; });
@@ -979,6 +1230,16 @@
                 closeTypeModal();
                 return;
             }
+            const excelModal = byId('ugap-options-excel-source-modal');
+            if (excelModal && target === excelModal) {
+                closeExcelSourceModal();
+                return;
+            }
+            const mergeModal = byId('ugap-options-merge-base-modal');
+            if (mergeModal && target === mergeModal) {
+                closeMergeBaseModal();
+                return;
+            }
         });
 
         document.addEventListener('keydown', (event) => {
@@ -986,6 +1247,7 @@
                 closeRenameModal();
                 closePostesModal();
                 closeTypeModal();
+                closeExcelSourceModal();
                 return;
             }
             if (event.key === 'Enter') {
@@ -1014,7 +1276,7 @@
         const opt = findRawOptionById(id);
         if (!row || !opt) return;
         if (row.isImportBase || isImportGeneratedBaseOption(opt)) {
-            showOptionsStatusInline('Le type des options IBP (import) n’est pas modifiable ici.', 'warning');
+            showOptionsStatusInline('Le type des options de base (import) n’est pas modifiable ici.', 'warning');
             return;
         }
         ensureOptionEditModals();
@@ -1029,12 +1291,12 @@
         if (baseOpt) {
             baseOpt.disabled = motorTarif;
             baseOpt.title = motorTarif
-                ? 'Ligne tarif moteur catalogue : utiliser une option IBP (import), pas une MAJO'
+                ? 'Ligne tarif moteur catalogue : utiliser une option de base (import), pas une MAJO'
                 : '';
         }
         if (hint) {
             hint.textContent = motorTarif
-                ? `Option: ${row.name || id} — tarif moteur : type Base indisponible (IBP à l’import).`
+                ? `Option: ${row.name || id} — tarif moteur : type Base indisponible (option de base à l’import).`
                 : `Option: ${row.name || id}`;
         }
         modal.hidden = false;
@@ -1065,6 +1327,51 @@
 
     async function updateOptionTypeById(optionId) {
         openTypeModal(optionId);
+    }
+
+    function openExcelSourceModal(optionId) {
+        const id = String(optionId || '').trim();
+        const row = state.rows.find((r) => r.id === id);
+        const opt = findRawOptionById(id);
+        if (!row || !opt) return;
+        ensureOptionEditModals();
+        const modal = byId('ugap-options-excel-source-modal');
+        const hint = byId('ugap-options-excel-source-option-id');
+        const input = byId('ugap-options-excel-source-input');
+        if (!modal || !(input instanceof HTMLTextAreaElement)) return;
+        modal.dataset.optionId = id;
+        const stored = resolveStoredExcelSourceLabel(opt);
+        input.value = stored || String(row.name || '').trim();
+        if (hint) {
+            hint.textContent = stored
+                ? `Option: ${row.name || id}`
+                : `Option: ${row.name || id} — libellé non enregistré (nom affiché proposé par défaut)`;
+        }
+        modal.hidden = false;
+        requestAnimationFrame(() => input.focus());
+    }
+
+    async function saveExcelSourceModal() {
+        const modal = byId('ugap-options-excel-source-modal');
+        const input = byId('ugap-options-excel-source-input');
+        if (!modal || !(input instanceof HTMLTextAreaElement)) return;
+        const optionId = String(modal.dataset.optionId || '').trim();
+        const opt = findRawOptionById(optionId);
+        if (!opt) return closeExcelSourceModal();
+        const nextLabel = String(input.value || '').trim();
+        const currentLabel = resolveStoredExcelSourceLabel(opt);
+        if (nextLabel === currentLabel) return closeExcelSourceModal();
+        await updateOptionWithPatch(optionId, {
+            importExcelLabel: nextLabel,
+            details: nextLabel,
+        });
+        closeExcelSourceModal();
+        await loadOptions();
+        showOptionsStatusInline('Libellé Excel source mis à jour.', 'success');
+    }
+
+    async function updateExcelSourceById(optionId) {
+        openExcelSourceModal(optionId);
     }
 
     function syncTagFilterSelectOptions() {
@@ -1198,6 +1505,13 @@
             const searchInput = byId('ugap-options-filter-search');
             if (searchInput) searchInput.value = state.filterQuery;
             renderRows();
+            try {
+                await global.UgapBateauBaseLcState?.loadFromServer?.(true);
+            } catch (_e) { /* templates optionnels */ }
+            const runtimeData = typeof global.getUgapCurrentData === 'function'
+                ? global.getUgapCurrentData()
+                : state.data;
+            global.UgapOptionsCreateModal?.syncContext?.(runtimeData || state.data, state.uiState);
         } catch (e) {
             mount.innerHTML = '';
             global.showAlert?.(e?.message || 'Erreur chargement options', 'error');
@@ -1238,11 +1552,12 @@
                 return;
             }
             if (target.closest('#ugap-options-select-visible')) {
-                const visibleIds = state.visibleRows.map((row) => row.id).filter(Boolean);
+                const visibleIds = getVisibleRowIds();
                 const allSelected = visibleIds.length > 0 && visibleIds.every((id) => state.selectedIds.has(id));
                 if (allSelected) {
                     visibleIds.forEach((id) => state.selectedIds.delete(id));
                 } else {
+                    state.selectedIds.clear();
                     visibleIds.forEach((id) => state.selectedIds.add(id));
                 }
                 renderRows();
@@ -1252,10 +1567,41 @@
                 void deleteOptionsByIds(selectedOptionIds());
                 return;
             }
+            if (target.closest('#ugap-options-merge-base')) {
+                openMergeBaseModal();
+                return;
+            }
             const rowDelete = target.closest('.ugap-options-row-delete');
             if (rowDelete) {
                 const optionId = String(rowDelete.getAttribute('data-option-id') || '').trim();
                 if (optionId) void deleteOptionsByIds([optionId]);
+            }
+        });
+
+        root.addEventListener('click', (event) => {
+            const target = event.target instanceof Element ? event.target : null;
+            if (!target) return;
+            const excelEl = target.closest('.ugap-options-edit-excel-source');
+            if (excelEl) {
+                const optionId = String(excelEl.getAttribute('data-option-id') || '').trim();
+                if (optionId) {
+                    event.preventDefault();
+                    void updateExcelSourceById(optionId).catch((err) => {
+                        showOptionsStatus(err?.message || 'Erreur libellé Excel source', 'error');
+                    });
+                }
+                return;
+            }
+            const typeEl = target.closest('.ugap-options-edit-type');
+            if (typeEl) {
+                const optionId = String(typeEl.getAttribute('data-option-id') || '').trim();
+                if (optionId) {
+                    event.preventDefault();
+                    void updateOptionTypeById(optionId).catch((err) => {
+                        showOptionsStatus(err?.message || 'Erreur mise à jour type', 'error');
+                    });
+                }
+                return;
             }
         });
 
@@ -1278,16 +1624,6 @@
                 if (optionId) {
                     void updateOptionPostesById(optionId).catch((err) => {
                         showOptionsStatus(err?.message || 'Erreur mise à jour postes', 'error');
-                    });
-                }
-                return;
-            }
-            const typeEl = target.closest('.ugap-options-edit-type');
-            if (typeEl) {
-                const optionId = String(typeEl.getAttribute('data-option-id') || '').trim();
-                if (optionId) {
-                    void updateOptionTypeById(optionId).catch((err) => {
-                        showOptionsStatus(err?.message || 'Erreur mise à jour type', 'error');
                     });
                 }
             }
@@ -1321,7 +1657,7 @@
                 if (!id) return;
                 if (input.checked) state.selectedIds.add(id);
                 else state.selectedIds.delete(id);
-                updateSelectVisibleButton();
+                updateSelectionActionButtons();
                 return;
             }
         });
@@ -1340,6 +1676,7 @@
     }
 
     function mountOptionsSection() {
+        global.UgapOptionsCreateModal?.mount?.();
         bindEvents();
         void loadOptions();
     }
@@ -1347,6 +1684,7 @@
     global.UgapOptionsTab = { mount: mountOptionsSection, refresh: loadOptions };
 
     if (byId('ugap-section-options')) {
+        global.UgapOptionsCreateModal?.mount?.();
         bindEvents();
     }
 })(window);

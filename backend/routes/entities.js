@@ -133,6 +133,13 @@ router.put('/:entityId', authenticateJWT, async (req, res) => {
       });
     }
 
+    try {
+      const syncEntityToOwnOrganisation = require('../../modules/annuaire/backend/services/organisations/syncEntityToOwnOrganisation');
+      await syncEntityToOwnOrganisation(entityId);
+    } catch (syncErr) {
+      console.warn('syncEntityToOwnOrganisation (PUT):', syncErr.message);
+    }
+
     res.json({
       success: true,
       message: 'Entité mise à jour avec succès',
@@ -221,6 +228,13 @@ router.post('/', authenticateJWT, async (req, res) => {
         success: false,
         message: `Erreur lors de la création de la base de données pour l'entreprise: ${dbError.message}`
       });
+    }
+
+    try {
+      const syncEntityToOwnOrganisation = require('../../modules/annuaire/backend/services/organisations/syncEntityToOwnOrganisation');
+      await syncEntityToOwnOrganisation(entrepriseId);
+    } catch (syncErr) {
+      console.warn('syncEntityToOwnOrganisation (POST):', syncErr.message);
     }
 
     res.json({

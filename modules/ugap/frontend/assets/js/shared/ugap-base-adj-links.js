@@ -273,8 +273,18 @@
 
     function shouldAutoApplyLinkedAdj(group) {
         if (!group || typeof group !== 'object') return false;
-        if (!isAdjPricingGroup(group)) return false;
-        return isMotorLinkedAdjGroup(group);
+        // Motorisation : minoration auto dès remplacement du moteur de base.
+        if (isMotorLinkedAdjGroup(group)) return true;
+        return isAdjPricingGroup(group);
+    }
+
+    /** Groupe motorisation sans mode explicite → minoration par défaut. */
+    function effectiveAdjGroupForLinks(group) {
+        if (!group || typeof group !== 'object') return group;
+        if (isMotorLinkedAdjGroup(group) && !isAdjPricingGroup(group)) {
+            return { ...group, priceMode: 'minoration', pricingMode: 'minoration' };
+        }
+        return group;
     }
 
     function isOptionSelectableForModel(opt, model, isSelectable) {
@@ -291,6 +301,7 @@
     function applyLinkedAdjToConfiguratorSelection(state, baseCatalogOptionId, hooks, findOptionFn, group) {
         const baseId = String(baseCatalogOptionId || '').trim();
         if (!baseId || !state || typeof state !== 'object') return [];
+        group = effectiveAdjGroupForLinks(group);
         if (!shouldAutoApplyLinkedAdj(group)) return [];
         try {
             console.log('[UGAP][adj][apply][start]', {
@@ -334,6 +345,7 @@
     function removeLinkedAdjFromConfiguratorSelection(state, baseCatalogOptionId, group) {
         const baseId = String(baseCatalogOptionId || '').trim();
         if (!baseId || !state?.selectedOptions) return;
+        group = effectiveAdjGroupForLinks(group);
         if (!shouldAutoApplyLinkedAdj(group)) return;
 
         const categories = Array.isArray(state.categories) ? state.categories : [];
@@ -349,7 +361,9 @@
      * Uniquement groupes motorisation — pas console / autres IBP.
      */
     function clearLinkedAdjForGroup(state, group) {
-        if (!state?.selectedOptions || !group || !shouldAutoApplyLinkedAdj(group)) return;
+        if (!state?.selectedOptions || !group) return;
+        group = effectiveAdjGroupForLinks(group);
+        if (!shouldAutoApplyLinkedAdj(group)) return;
         try {
             console.log('[UGAP][adj][clear-group][start]', {
                 priceMode: normalizeGroupPriceMode(group),
@@ -415,10 +429,13 @@
 
             if (!isMotorLinkedAdjGroup(group)) return;
 
-            const groupForApply = isAdjPricingGroup(group)
-                ? group
-                : { ...group, priceMode: 'minoration', pricingMode: 'minoration' };
-            applyLinkedAdjToConfiguratorSelection(state, defaultBaseId, hooks, findOptionFn, groupForApply);
+            applyLinkedAdjToConfiguratorSelection(
+                state,
+                defaultBaseId,
+                hooks,
+                findOptionFn,
+                effectiveAdjGroupForLinks(group)
+            );
         });
     }
 
@@ -432,6 +449,7 @@
         isMotorLinkedAdjGroup,
         isMotorBaseNonSupplyLabel,
         shouldAutoApplyLinkedAdj,
+        effectiveAdjGroupForLinks,
         flattenCatalogOptions,
         findCatalogOption,
         findAdjByExcelLabel,
@@ -441,5 +459,6 @@
         removeLinkedAdjFromConfiguratorSelection,
         clearLinkedAdjForGroup,
         syncLinkedAdjForAdjPricingGroups,
+        findMotorNonSupplyAdjOptionIds,
     };
 })(typeof window !== 'undefined' ? window : globalThis);

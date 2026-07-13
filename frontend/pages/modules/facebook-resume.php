@@ -68,7 +68,7 @@ $api_base_url = rtrim(getApiBaseUrl(), '/');
 <div class="container" style="max-width: 960px; margin: 2rem auto; padding: 0 1rem;">
     <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 1rem; margin-bottom: 1.5rem;">
         <h1 style="margin: 0;">📊 Résumé Facebook</h1>
-        <a href="<?= url('pages/modules.php') ?>" class="btn btn-outline">← Modules</a>
+        <a href="<?= url('pages/modules.php') ?>" class="btn btn-outline">← Applications</a>
     </div>
 
     <p class="text-muted" style="margin-bottom: 1rem;">
@@ -488,7 +488,7 @@ $api_base_url = rtrim(getApiBaseUrl(), '/');
                         var mainTa = card.querySelector('.msg-reply-text');
                         btn.disabled = true;
                         btn.textContent = 'Préparation…';
-                        fetch(API_BASE + '/analyse/suggest-reply', {
+                        fetch(API_BASE + '/facebook/suggest-reply', {
                             method: 'POST',
                             headers: { 'Authorization': 'Bearer ' + JWT, 'Content-Type': 'application/json' },
                             body: JSON.stringify({ message: msgText, intentions: intentions })

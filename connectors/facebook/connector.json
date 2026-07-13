@@ -1,0 +1,86 @@
+{
+  "id": "facebook",
+  "name": "Facebook",
+  "version": "1.0.0",
+  "author": "GDR-Innovation",
+  "description": "Pages Facebook : webhook temps réel, poll Graph API, réponses commentaires et messages.",
+  "direction": "bidirectional",
+  "compatiblePlatform": ">=1.0.0",
+  "capabilities": [
+    "ingest.push",
+    "ingest.poll",
+    "emit.reply",
+    "emit.alert"
+  ],
+  "credentials": {
+    "type": "oauth2",
+    "provider": "facebook",
+    "scopes": [
+      "pages_messaging",
+      "pages_read_engagement",
+      "pages_manage_metadata"
+    ]
+  },
+  "configSchema": {
+    "type": "object",
+    "properties": {
+      "pageId": {
+        "type": "string",
+        "title": "ID Page Facebook"
+      },
+      "ingestModes": {
+        "type": "array",
+        "title": "Modes d'entrée",
+        "items": {
+          "enum": ["push", "poll"]
+        },
+        "default": ["push", "poll"]
+      },
+      "pollIntervalMinutes": {
+        "type": "number",
+        "title": "Intervalle poll de secours (minutes)",
+        "minimum": 5,
+        "default": 15
+      },
+      "graphVersion": {
+        "type": "string",
+        "title": "Version Graph API",
+        "default": "v21.0"
+      },
+      "webhookVerifyToken": {
+        "type": "string",
+        "title": "Verify token webhook",
+        "format": "secret"
+      }
+    },
+    "required": ["pageId"]
+  },
+  "operations": {
+    "ingest.push": {
+      "description": "Webhook Meta (messages, commentaires, feed)"
+    },
+    "ingest.poll": {
+      "description": "Pull Graph API (secours + rapports planifiés)"
+    },
+    "emit.reply": {
+      "description": "Réponse commentaire ou message privé"
+    },
+    "emit.alert": {
+      "description": "Alerte mail via connecteur mail-out"
+    }
+  },
+  "instanceDefaults": {
+    "ingestModes": ["push", "poll"],
+    "settings": {
+      "pollIntervalMinutes": 15,
+      "graphVersion": "v21.0"
+    },
+    "mapping": {
+      "text": "message",
+      "author.id": "sender.id",
+      "author.name": "sender.name",
+      "sourceRef": "mid"
+    }
+  },
+  "permissions": ["network", "secrets", "entity-data"]
+}

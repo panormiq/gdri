@@ -50,7 +50,21 @@ try {
     $payload = $resp['data']['data'] ?? [];
     $entityMeta = $payload['entity'] ?? [];
     $users = $payload['users'] ?? [];
-    $services = $payload['services'] ?? [];
+    $entityRoles = $payload['roles'] ?? [];
+    $services = dedupeServicesCatalog($payload['services'] ?? []);
+    $services = array_values(array_filter($services, function ($service) {
+        $slug = strtolower(trim((string) ($service['slug'] ?? '')));
+        return !isInfrastructureServiceSlug($slug);
+    }));
+    $usersById = [];
+    foreach ($users as $user) {
+        $userId = (string) ($user['id'] ?? '');
+        if ($userId === '' || isset($usersById[$userId])) {
+            continue;
+        }
+        $usersById[$userId] = $user;
+    }
+    $users = array_values($usersById);
     $defaultPerms = $entityMeta['defaultModulePermissions'] ?? [];
     $defaultAdminModules = is_array($defaultPerms['admin'] ?? null) ? $defaultPerms['admin'] : [];
     $defaultUserModules = is_array($defaultPerms['user'] ?? null) ? $defaultPerms['user'] : [];
@@ -63,6 +77,34 @@ try {
 }
 $currentUserId = (string) ($_SESSION['user_id'] ?? '');
 $canManageOwner = hasRole(ROLE_ADMIN_GDRI) || (!empty($entityOwnerUserId) && $currentUserId === $entityOwnerUserId);
+
+function formatEntityUserRoleLabel(array $user, array $entityRoles): string {
+    $byKey = [];
+    foreach ($entityRoles as $roleDef) {
+        $key = (string) ($roleDef['key'] ?? '');
+        if ($key === '') continue;
+        $byKey[$key] = (string) ($roleDef['label'] ?? $key);
+    }
+    $parts = [];
+    if (!empty($user['entity_roles']) && is_array($user['entity_roles'])) {
+        foreach ($user['entity_roles'] as $roleKey) {
+            $key = (string) $roleKey;
+            if ($key === '') continue;
+            $parts[] = $byKey[$key] ?? $key;
+        }
+    }
+    if (!$parts) {
+        $membershipRole = (string) ($user['membership_role'] ?? $user['role'] ?? 'user');
+        if ($membershipRole === 'admin') {
+            $parts[] = 'Administrateur';
+        } elseif ($membershipRole === 'user') {
+            $parts[] = 'Utilisateur';
+        } else {
+            $parts[] = $byKey[$membershipRole] ?? $membershipRole;
+        }
+    }
+    return implode(', ', $parts);
+}
 
 require_once '../includes/header.php';
 ?>
@@ -104,6 +146,7 @@ require_once '../includes/header.php';
                     $email = $user['email'] ?? 'Utilisateur';
                     $status = $user['status'] ?? 'active';
                     $role = $user['role'] ?? 'user';
+                    $roleLabel = formatEntityUserRoleLabel($user, $entityRoles);
                     $isOwner = !empty($user['isOwner']);
                     $canTransferOwnerTarget = $canManageOwner && !$isOwner && $role === 'admin';
                     ?>
@@ -130,7 +173,7 @@ require_once '../includes/header.php';
                                 <span class="badge badge-info">Owner</span>
                             <?php endif; ?>
                         </div>
-                        <p><strong>Rôle:</strong> <?= escape($role); ?></p>
+                        <p><strong>Rôle:</strong> <?= escape($roleLabel); ?></p>
                         <?php if ($canTransferOwnerTarget): ?>
                             <button
                                 type="button"

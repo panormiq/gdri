@@ -38,16 +38,16 @@ if ($modules_root && is_dir($modules_root)) {
     }
 }
 
-$page_title = 'Configurer mes modules';
+$page_title = 'Mes applications';
 require_once __DIR__ . '/../includes/header.php';
 
 ?>
 
 <div class="container" style="max-width: 1200px; margin: 2rem auto; padding: 0 1rem;">
     <div style="margin-bottom: 2rem;">
-        <h1>Configurer mes modules</h1>
+        <h1>Mes applications</h1>
         <p style="color: #666; font-size: 1.1em;">
-            Choisissez un module pour accéder à sa configuration personnelle (ex. serveurs IA et presets fournisseurs).
+            Configuration personnelle de vos applications (ex. serveurs IA, presets fournisseurs).
         </p>
     </div>
 
@@ -61,12 +61,7 @@ require_once __DIR__ . '/../includes/header.php';
             <input type="text" id="accountModulesSearch" class="form-control" placeholder="Ex. IA…" autocomplete="off" />
         </div>
 
-        <div id="accountModulesList"
-             style="
-                display: grid;
-                grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-                gap: 1.2rem;
-             ">
+        <div id="accountModulesList" class="hub-cards-grid">
             <?php foreach ($account_modules as $mod): ?>
             <div class="card account-module-card"
                  style="cursor: pointer; border-radius: 10px; overflow: hidden; height: 100%;"

@@ -42,6 +42,7 @@ if ($userRole !== 'ADMIN_GDRI') {
             if (!$err && $code >= 200 && $code < 300) {
                 $decoded = json_decode((string)$raw, true);
                 $authorizedServices = is_array($decoded['data']['services'] ?? null) ? $decoded['data']['services'] : [];
+                $authorizedServices = filterCatalogApplications($authorizedServices);
             }
         }
     } catch (Exception $e) {
@@ -73,13 +74,8 @@ function renderModuleLinks($service, $userRole) {
     }
 
     if (strpos($name, 'ugap') !== false) {
-        $adminLink = '';
-        if ($userRole === 'ADMIN_GDRI' || $userRole === 'ADMIN_ENTITY') {
-            $adminLink = '<a class="btn btn-outline" href="/modules/ugap/frontend/parametrage/index.php">🔎 Paramétrage UGAP</a>';
-        }
-        return '<div style="display:flex; gap: var(--spacing-sm); flex-wrap: wrap; margin-top: var(--spacing-md);">
-            <a class="btn btn-primary" href="/modules/ugap/frontend/index.html">🚀 Configurer</a>
-            ' . $adminLink . '
+        return '<div style="margin-top: var(--spacing-md);">
+            <a class="btn btn-primary" href="' . url('pages/modules/ugap.php') . '">🚀 Ouvrir UGAP</a>
         </div>';
     }
 
@@ -183,7 +179,7 @@ $api_base_url = getApiBaseUrl();
                 <h2>Gestion de votre Entité</h2>
             </div>
             
-            <div class="cards-grid">
+            <div class="hub-cards-grid">
                 <div class="card">
                     <div class="card-icon">👥</div>
                     <h3 class="card-title">Utilisateurs</h3>
@@ -197,12 +193,12 @@ $api_base_url = getApiBaseUrl();
                 
                 <div class="card">
                     <div class="card-icon">🔧</div>
-                    <h3 class="card-title">Services autorisés</h3>
+                    <h3 class="card-title">Applications</h3>
                     <p class="card-description">
-                        Voir les services disponibles pour votre entité
+                        Voir les applications disponibles pour votre entité
                     </p>
                     <a class="btn btn-primary" style="margin-top: var(--spacing-md);" href="<?php echo url('pages/modules.php'); ?>">
-                        Voir les services
+                        Voir les applications
                     </a>
                 </div>
                 
@@ -212,23 +208,23 @@ $api_base_url = getApiBaseUrl();
                     <p class="card-description">
                         Configurer les paramètres de votre entité
                     </p>
-                    <button class="btn btn-primary" style="margin-top: var(--spacing-md);">
-                        Paramètres
-                    </button>
+                    <a class="btn btn-primary" style="margin-top: var(--spacing-md);" href="<?php echo url('pages/entity-config.php'); ?>">
+                        Ouvrir les paramètres
+                    </a>
                 </div>
             </div>
 
             <div class="section-title" style="margin-top: var(--spacing-xxl);">
-                <h2>Modules autorisés</h2>
+                <h2>Applications autorisées</h2>
             </div>
 
-            <div class="cards-grid">
+            <div class="hub-cards-grid">
                 <?php if (empty($authorizedServices)): ?>
                     <div class="card">
                         <div class="card-icon">🧩</div>
-                        <h3 class="card-title">Aucun module autorisé</h3>
+                        <h3 class="card-title">Aucune application autorisée</h3>
                         <p class="card-description">
-                            Contactez l'administrateur GDRI pour activer des modules.
+                            Contactez l'administrateur GDRI pour activer des applications.
                         </p>
                     </div>
                 <?php else: ?>
@@ -251,7 +247,7 @@ $api_base_url = getApiBaseUrl();
                 <h2>Vos Services</h2>
             </div>
             
-            <div class="cards-grid">
+            <div class="hub-cards-grid">
                 <?php if (empty($authorizedServices)): ?>
                     <div class="card">
                         <div class="card-icon">🧩</div>

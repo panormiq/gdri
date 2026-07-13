@@ -17,7 +17,7 @@ require_once '../../includes/header.php';
         Paramétrage des types de pièces et liaison aux collections doc-template (à venir).
     </p>
     <a href="<?= url('pages/modules/doc-hub.php') ?>" class="btn btn-primary">Ouvrir Doc-Hub</a>
-    <a href="<?= url('pages/modules.php') ?>" class="btn btn-outline">← Modules</a>
+    <a href="<?= url('pages/modules.php') ?>" class="btn btn-outline">← Applications</a>
 </div>
 
 <?php require_once '../../includes/footer.php'; ?>
