@@ -18,8 +18,11 @@ const {
   getOptionBillablePrice,
   buildBillableAdjIdSet,
   buildForcedBillableIdSet,
-  normalizeIdList
+  normalizeIdList,
+  isBaseCatalogOption,
+  isAdjOption
 } = require('./devisBillablePrice');
+const UgapDataService = require('../UgapDataService');
 const { resolveDevisOptionCategory, resolveDevisModelCategory } = require('./resolveDevisCatalogCategory');
 
 function isFivePercentCatalogOption(option) {
@@ -37,9 +40,11 @@ function isFivePercentCustomOptionCounted(custom) {
 function buildCustomOptionLine(custom, categoryName) {
   const opt = custom && typeof custom === 'object' ? custom : {};
   const price = catalogUgapPrice(opt);
+  const refUgap = String(opt.refUgap || '5%').trim() || '5%';
   return {
     id: String(opt.id || '').trim(),
-    refUgap: String(opt.refUgap || '').trim(),
+    refUgap,
+    refFournisseur: String(opt.refFournisseur || '').trim(),
     name: String(opt.name || opt.libelle || 'Option 5 %').trim(),
     importExcelLabel: String(opt.importExcelLabel || opt.details || opt.name || '').trim(),
     priceClient: price,
@@ -85,7 +90,6 @@ function computeDevisPricing(data, {
   }
 
   const requestedOptionIds = normalizeIdList(selectedOptions);
-  const explicitBillableIds = normalizeIdList(billableOptionIds);
   const fivePercentIdSet = new Set(normalizeIdList(fivePercentOptions));
   const customFivePercentById = new Map();
   (Array.isArray(fivePercentCustomOptions) ? fivePercentCustomOptions : []).forEach((custom) => {
@@ -95,7 +99,7 @@ function computeDevisPricing(data, {
   });
 
   const selectedSet = new Set(requestedOptionIds);
-  explicitBillableIds.forEach((id) => selectedSet.add(id));
+  normalizeIdList(billableOptionIds).forEach((id) => selectedSet.add(id));
   const dependencyRules = Array.isArray(data?.dependencyRules) ? data.dependencyRules : [];
 
   let changed = true;
@@ -115,7 +119,28 @@ function computeDevisPricing(data, {
   }
 
   const categories = Array.isArray(data.categories) ? data.categories : [];
+  const selectedOptionIds = Array.from(selectedSet);
   const billableAdjIds = buildBillableAdjIdSet(selectedSet, categories);
+
+  let explicitBillableIds = normalizeIdList(billableOptionIds);
+  if (explicitBillableIds.length) {
+    const expanded = new Set(explicitBillableIds);
+    selectedOptionIds.forEach((id) => {
+      const hit = findCatalogOption(categories, id);
+      if (!hit) return;
+      const { option } = hit;
+      if (fivePercentIdSet.has(id)) return;
+      if (isBaseCatalogOption(option)) return;
+      if (UgapDataService.normalizeInclusionKind(option) === 'inclus') return;
+      if (isAdjOption(option)) {
+        if (billableAdjIds.has(id)) expanded.add(id);
+        return;
+      }
+      expanded.add(id);
+    });
+    explicitBillableIds = Array.from(expanded);
+  }
+
   const forcedBillableIds = buildForcedBillableIdSet(explicitBillableIds);
   const priceContext = {
     selectedSet,
@@ -128,7 +153,6 @@ function computeDevisPricing(data, {
   let budget5Consumed = 0;
   const selectedOptionsData = [];
   const resolvedCatalogIds = new Set();
-  const selectedOptionIds = Array.from(selectedSet);
   const pricingOptionIds = forcedBillableIds
     ? [
       ...explicitBillableIds.filter((id) => !fivePercentIdSet.has(id)),

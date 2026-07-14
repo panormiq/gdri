@@ -139,10 +139,25 @@ async function renderDevisPdf(req, body = {}) {
   };
   const showIncludedLines = body.showIncludedLines === true;
   const displayOptionIds = Array.isArray(body.displayOptionIds) ? body.displayOptionIds : [];
-  const tableLines = showIncludedLines && displayOptionIds.length
+  let tableLines = showIncludedLines && displayOptionIds.length
     ? buildDevisDisplayTableLines(data, tablePayload, displayOptionIds, body.devisOptionCategories)
     : buildDevisRenderTableLines(tablePayload);
-  const lines = tableLines.map((opt) => optionToLine(opt, opt.category));
+
+  if (!showIncludedLines || !displayOptionIds.length) {
+    const shown = new Set(
+      tableLines.map((line) => String(line?.id || '').trim()).filter(Boolean)
+    );
+    (Array.isArray(tablePayload.selectedOptions) ? tablePayload.selectedOptions : []).forEach((opt) => {
+      const id = String(opt?.id || '').trim();
+      if (!id || shown.has(id) || opt?.isModelBaseLine) return;
+      const price = Number(opt?.billablePrice);
+      if (!Number.isFinite(price) || price === 0) return;
+      tableLines.push(opt);
+      shown.add(id);
+    });
+  }
+  const renderModelId = String(modelId || tablePayload.model?.id || pricing.data?.model?.id || '').trim();
+  const lines = tableLines.map((opt) => optionToLine(opt, opt.category, renderModelId));
   const tableColumns = columnsFromTableConfig(
     normalizeTableConfig(findDevisTableConfigInTemplate(template))
   );

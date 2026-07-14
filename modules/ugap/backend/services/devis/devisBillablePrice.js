@@ -25,7 +25,7 @@ function catalogUgapPrice(option) {
 function resolveModelUgapPrice(model) {
   const m = model && typeof model === 'object' ? model : {};
   const ugap = Number(m.priceUgap ?? m.ugapPrice);
-  if (Number.isFinite(ugap)) return ugap;
+  if (Number.isFinite(ugap) && ugap > 0) return ugap;
   const client = Number(m.priceClient ?? m.basePrice);
   return Number.isFinite(client) ? client : 0;
 }
@@ -159,6 +159,15 @@ function buildBillableAdjIdSet(selectedSet, categories) {
   return billable;
 }
 
+function adjBillablePrice(option) {
+  const opt = option && typeof option === 'object' ? option : {};
+  const raw = catalogUgapPrice(opt);
+  if (isAdjOption(opt) && UgapDataService.resolveEffectiveImportLineKind(opt) === 'minoration') {
+    return -Math.abs(raw);
+  }
+  return raw;
+}
+
 function getOptionBillablePrice(option, context = {}) {
   const opt = option && typeof option === 'object' ? option : {};
   const selectedSet = context.selectedSet instanceof Set ? context.selectedSet : new Set();
@@ -174,9 +183,9 @@ function getOptionBillablePrice(option, context = {}) {
   const optionId = String(opt.id || '').trim();
   if (isAdjOption(opt)) {
     if (forcedBillableIds && forcedBillableIds.has(optionId)) {
-      return catalogUgapPrice(opt);
+      return adjBillablePrice(opt);
     }
-    return billableAdjIds.has(optionId) ? catalogUgapPrice(opt) : 0;
+    return billableAdjIds.has(optionId) ? adjBillablePrice(opt) : 0;
   }
 
   if (forcedBillableIds && optionId && !forcedBillableIds.has(optionId)) {

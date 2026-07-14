@@ -7,6 +7,7 @@ require_once __DIR__ . '/../../config/config.php';
 require_once __DIR__ . '/../../auth/session.php';
 require_once __DIR__ . '/../../includes/functions.php';
 require_once __DIR__ . '/../../includes/jwt-helper.php';
+require_once __DIR__ . '/../../includes/entity-console-nav.php';
 
 if (!hasRole(ROLE_ADMIN_GDRI) && !hasRole(ROLE_ADMIN_ENTITY)) {
     redirect(url('pages/dashboard.php'));
@@ -17,19 +18,13 @@ $jwt_token = getJWTToken();
 $api_base_url = rtrim(getApiBaseUrl(), '/');
 
 require_once __DIR__ . '/../../includes/header.php';
+renderConsoleLayoutStart(
+    'Sauvegarde',
+    'Export de la base MongoDB client (GDR-ENTREPRISE-*) vers le stockage local du serveur.',
+    ['narrow' => true]
+);
+renderConsoleBackLink('Structurel', url('pages/entity-structurel.php'));
 ?>
-
-<div class="container" style="max-width: 1000px; margin: 2rem auto; padding: 0 1rem;">
-    <div style="margin-bottom: 1.25rem;">
-        <a class="btn btn-outline btn-sm" href="<?= url('pages/entity-config.php?tab=structurel') ?>">← Paramètres · Structurel</a>
-    </div>
-
-    <div style="margin-bottom: 1.5rem;">
-        <h1>💾 Sauvegarde</h1>
-        <p class="text-muted" style="margin-top: 0.35rem;">
-            Export de la base MongoDB client (<code>GDR-ENTREPRISE-*</code>) vers le stockage local du serveur.
-        </p>
-    </div>
 
     <div id="backupMsg" class="alert alert-info small" style="display:none;"></div>
 
@@ -99,7 +94,8 @@ require_once __DIR__ . '/../../includes/header.php';
             </div>
         </div>
     </div>
-</div>
+
+<?php renderConsoleLayoutEnd(); ?>
 
 <script>
 (function() {

@@ -1,0 +1,266 @@
+/**
+ * Template layout — pages console (entité, plateforme, mon espace).
+ * Une seule colonne, largeur et espacements uniformes dans app-main.
+ */
+
+:root {
+    --console-page-max-width: var(--max-width, 1200px);
+    --console-page-max-width-narrow: 960px;
+    --console-page-max-width-compact: 800px;
+    --console-page-padding-x: 1.5rem;
+    --console-page-padding-y: 1.75rem;
+}
+
+.console-page {
+    width: 100%;
+    max-width: var(--console-page-max-width);
+    margin: 0 auto;
+    padding: var(--console-page-padding-y) var(--console-page-padding-x) 2.5rem;
+    box-sizing: border-box;
+}
+
+.console-page--narrow {
+    max-width: var(--console-page-max-width-narrow);
+}
+
+.console-page--compact {
+    max-width: var(--console-page-max-width-compact);
+}
+
+.app-main .console-page {
+    max-width: min(var(--console-page-max-width), 100%);
+}
+
+.app-main .console-page--narrow {
+    max-width: min(var(--console-page-max-width-narrow), 100%);
+}
+
+.app-main .console-page--compact {
+    max-width: min(var(--console-page-max-width-compact), 100%);
+}
+
+.console-page__back {
+    margin: -0.5rem 0 1rem;
+}
+
+/* En-tête */
+.console-page__header {
+    margin-bottom: 1.5rem;
+}
+
+.console-page__header-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 1rem;
+    flex-wrap: wrap;
+    margin-bottom: 1.5rem;
+}
+
+.console-page__header-row .console-page__header {
+    margin-bottom: 0;
+    flex: 1;
+    min-width: 0;
+}
+
+.console-page__actions {
+    flex-shrink: 0;
+}
+
+.console-page__title {
+    margin: 0 0 0.35rem;
+    font-size: clamp(1.5rem, 2.5vw, var(--font-size-h3, 28px));
+    line-height: 1.2;
+    color: var(--color-dark, #606163);
+}
+
+.console-page__intro {
+    margin: 0;
+    color: #666;
+    font-size: 1.05em;
+    line-height: 1.45;
+    max-width: 72ch;
+}
+
+.console-page__toolbar {
+    margin-bottom: 1.5rem;
+    max-width: 400px;
+}
+
+.console-page__toolbar label {
+    display: block;
+    margin-bottom: 0.25rem;
+}
+
+/* Sections héritées (CRUD) à l'intérieur du shell */
+.console-page .section {
+    padding: 0 0 1.5rem;
+}
+
+.console-page .section:last-child {
+    padding-bottom: 0;
+}
+
+.console-page .section > .container {
+    max-width: none;
+    width: 100%;
+    margin: 0;
+    padding: 0;
+}
+
+.console-page .section-title {
+    text-align: left;
+    margin-bottom: 1.25rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 1rem;
+}
+
+.console-page .section-title h2 {
+    position: static;
+    display: block;
+    margin: 0;
+    font-size: 1.35rem;
+}
+
+.console-page .section-title h2::after {
+    display: none;
+}
+
+/* Hub cards */
+.console-page .hub-cards-grid {
+    padding: 0;
+}
+
+.entity-console-empty {
+    padding: 2.5rem 1.5rem;
+    text-align: center;
+    background: #f8f9fa;
+    border: 1px dashed #ced4da;
+    border-radius: 10px;
+    color: #495057;
+}
+
+.entity-console-empty p {
+    margin: 0 0 0.75rem;
+}
+
+.entity-console-empty p:last-child {
+    margin-bottom: 0;
+}
+
+.entity-console-card {
+    cursor: pointer;
+    border-radius: 10px;
+    overflow: hidden;
+    height: 100%;
+    transition: box-shadow 0.2s ease, transform 0.15s ease;
+}
+
+.entity-console-card:hover {
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+    transform: translateY(-2px);
+}
+
+.entity-console-card[data-multi="1"] {
+    cursor: default;
+}
+
+.entity-console-card[data-multi="1"]:hover {
+    transform: none;
+}
+
+.entity-console-card__inner {
+    background: #fff;
+    border: 1px solid #e9ecef;
+    padding: 1.1rem 1.25rem;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+}
+
+.entity-console-card__inner--applications { border-bottom: 3px solid #0d6efd; }
+.entity-console-card__inner--agents { border-bottom: 3px solid #6f42c1; }
+.entity-console-card__inner--utilisateurs { border-bottom: 3px solid #fd7e14; }
+.entity-console-card__inner--connecteurs { border-bottom: 3px solid #198754; }
+.entity-console-card__inner--structurel { border-bottom: 3px solid #3949ab; }
+.entity-console-card__inner--platform { border-bottom: 3px solid #6a1b9a; }
+
+.entity-console-card__head {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    margin-bottom: 0.5rem;
+}
+
+.entity-console-card__icon {
+    font-size: 2.2rem;
+    line-height: 1;
+}
+
+.entity-console-card__title {
+    margin: 0;
+    font-size: 1.25rem;
+    color: var(--color-primary, #0d6efd);
+}
+
+.entity-console-card__description {
+    margin: 0;
+    font-size: 0.9em;
+    color: #666;
+    line-height: 1.35;
+    flex: 1;
+}
+
+.entity-console-card__hint {
+    margin: 0.85rem 0 0;
+}
+
+.entity-console-card__actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-top: 0.85rem;
+}
+
+/* Alias rétrocompat */
+.entity-console-page-header {
+    margin-bottom: 1.5rem;
+}
+
+.entity-console-page-header h1 {
+    margin: 0 0 0.35rem;
+}
+
+.entity-console-page-header p {
+    margin: 0;
+    color: #666;
+    font-size: 1.05em;
+}
+
+.entity-console-agents-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 1rem;
+    flex-wrap: wrap;
+    margin-bottom: 1rem;
+}
+
+@media (max-width: 768px) {
+    :root {
+        --console-page-padding-x: 1rem;
+        --console-page-padding-y: 1.25rem;
+    }
+
+    .console-page__header-row {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .console-page__actions .btn {
+        width: 100%;
+    }
+}

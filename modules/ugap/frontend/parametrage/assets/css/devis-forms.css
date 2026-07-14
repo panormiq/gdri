@@ -171,6 +171,7 @@
     cursor: default;
 }
 
+@media (max-width: 720px) {
     .ugap-devis-form-grid,
     .ugap-devis-fieldset {
         grid-template-columns: 1fr;

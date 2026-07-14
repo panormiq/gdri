@@ -33,14 +33,28 @@
         return kind === 'minoration' || kind === 'majoration';
     }
 
-    function flattenCatalogOptions(categories) {
-        const out = [];
-        (Array.isArray(categories) ? categories : []).forEach((cat) => {
+    /** Index catalogue (flatten + id normalisé) — invalidé quand la référence categories change. */
+    let _catalogIndexCache = null;
+
+    function getCatalogIndex(categories) {
+        const cats = Array.isArray(categories) ? categories : [];
+        if (_catalogIndexCache && _catalogIndexCache.cats === cats) return _catalogIndexCache;
+        const flat = [];
+        const byNormalizedId = new Map();
+        cats.forEach((cat) => {
             (Array.isArray(cat?.options) ? cat.options : []).forEach((opt) => {
-                if (opt && typeof opt === 'object') out.push(opt);
+                if (!opt || typeof opt !== 'object') return;
+                flat.push(opt);
+                const nid = normalizeCatalogOptionId(opt.id);
+                if (nid && !byNormalizedId.has(nid)) byNormalizedId.set(nid, opt);
             });
         });
-        return out;
+        _catalogIndexCache = { cats, flat, byNormalizedId };
+        return _catalogIndexCache;
+    }
+
+    function flattenCatalogOptions(categories) {
+        return getCatalogIndex(categories).flat;
     }
 
     function normalizeCatalogOptionId(rawId) {
@@ -54,11 +68,7 @@
     function findCatalogOption(categories, optionId) {
         const oid = normalizeCatalogOptionId(optionId);
         if (!oid) return null;
-        for (const opt of flattenCatalogOptions(categories)) {
-            const oidOpt = normalizeCatalogOptionId(opt?.id);
-            if (oidOpt === oid) return opt;
-        }
-        return null;
+        return getCatalogIndex(categories).byNormalizedId.get(oid) || null;
     }
 
     function findImportBaseProductByCatalogId(importBaseProducts, catalogOptionId) {
@@ -102,13 +112,25 @@
         return filterAdjOptionIds(cats, merged);
     }
 
+    const _resolveAdjSourceCache = new Map();
+
+    function clearResolveAdjSourceCache() {
+        _resolveAdjSourceCache.clear();
+    }
+
     function resolveSourceAdjOptionIdsForBase(baseCatalogOptionId, categories, importBaseProducts) {
         const baseId = String(baseCatalogOptionId || '').trim();
         if (!baseId) return [];
-        try { console.log('[UGAP][adj][resolve][start]', { baseId }); } catch (_) {}
 
         const cats = Array.isArray(categories) ? categories : [];
+        const ibp = Array.isArray(importBaseProducts) ? importBaseProducts : [];
+        const cached = _resolveAdjSourceCache.get(baseId);
+        if (cached && cached.cats === cats && cached.ibp === ibp) {
+            return cached.out;
+        }
+
         const baseOpt = findCatalogOption(cats, baseId);
+        let out = [];
 
         if (baseOpt) {
             const fromSource = filterAdjOptionIds(
@@ -116,59 +138,54 @@
                 baseOpt.importBaseProductSourceOptionIds
             );
             if (fromSource.length) {
-                const out = mergeResolvedAdjForBase(baseOpt, cats, fromSource);
-                try { console.log('[UGAP][adj][resolve][fromSource]', { baseId, fromSource, out }); } catch (_) {}
-                return out;
-            }
-
-            const fromLinked = filterAdjOptionIds(
-                cats,
-                (Array.isArray(baseOpt.linkedMinorationOptions) ? baseOpt.linkedMinorationOptions : [])
-                    .map((x) => x?.optionId)
-            );
-            if (fromLinked.length) {
-                const out = mergeResolvedAdjForBase(baseOpt, cats, fromLinked);
-                try { console.log('[UGAP][adj][resolve][fromLinked]', { baseId, fromLinked, out }); } catch (_) {}
-                return out;
-            }
-
-            const excelId = findAdjByExcelLabel(
-                cats,
-                baseOpt.importExcelLabel || baseOpt.details
-            );
-            if (excelId) {
-                const out = mergeResolvedAdjForBase(baseOpt, cats, [excelId]);
-                try { console.log('[UGAP][adj][resolve][excelLabel]', { baseId, excelId, out }); } catch (_) {}
-                return out;
+                out = mergeResolvedAdjForBase(baseOpt, cats, fromSource);
+            } else {
+                const fromLinked = filterAdjOptionIds(
+                    cats,
+                    (Array.isArray(baseOpt.linkedMinorationOptions) ? baseOpt.linkedMinorationOptions : [])
+                        .map((x) => x?.optionId)
+                );
+                if (fromLinked.length) {
+                    out = mergeResolvedAdjForBase(baseOpt, cats, fromLinked);
+                } else {
+                    const excelId = findAdjByExcelLabel(
+                        cats,
+                        baseOpt.importExcelLabel || baseOpt.details
+                    );
+                    if (excelId) {
+                        out = mergeResolvedAdjForBase(baseOpt, cats, [excelId]);
+                    }
+                }
             }
         }
 
-        const bp = findImportBaseProductByCatalogId(importBaseProducts, baseId);
-        if (bp) {
-            const fromBp = filterAdjOptionIds(cats, bp.optionIds);
-            if (fromBp.length) {
-                const out = mergeResolvedAdjForBase(baseOpt, cats, fromBp);
-                try { console.log('[UGAP][adj][resolve][fromBpOptionIds]', { baseId, fromBp, out }); } catch (_) {}
-                return out;
-            }
-
-            const excelId = findAdjByExcelLabel(cats, bp.excelLabel);
-            if (excelId) {
-                const out = mergeResolvedAdjForBase(baseOpt, cats, [excelId]);
-                try { console.log('[UGAP][adj][resolve][fromBpExcelLabel]', { baseId, excelId, out }); } catch (_) {}
-                return out;
+        if (!out.length) {
+            const bp = findImportBaseProductByCatalogId(ibp, baseId);
+            if (bp) {
+                const fromBp = filterAdjOptionIds(cats, bp.optionIds);
+                if (fromBp.length) {
+                    out = mergeResolvedAdjForBase(baseOpt, cats, fromBp);
+                } else {
+                    const excelId = findAdjByExcelLabel(cats, bp.excelLabel);
+                    if (excelId) {
+                        out = mergeResolvedAdjForBase(baseOpt, cats, [excelId]);
+                    }
+                }
             }
         }
 
-        const fallback = new Set();
-        flattenCatalogOptions(cats).forEach((opt) => {
-            if (!isAdjOptionForBaseLink(opt)) return;
-            if (String(opt.linkedBaseCatalogOptionId || '').trim() === baseId) {
-                fallback.add(String(opt.id || '').trim());
-            }
-        });
-        const out = mergeResolvedAdjForBase(baseOpt, cats, [...fallback]);
-        try { console.log('[UGAP][adj][resolve][fallback]', { baseId, fallback: [...fallback], out }); } catch (_) {}
+        if (!out.length) {
+            const fallback = new Set();
+            flattenCatalogOptions(cats).forEach((opt) => {
+                if (!isAdjOptionForBaseLink(opt)) return;
+                if (String(opt.linkedBaseCatalogOptionId || '').trim() === baseId) {
+                    fallback.add(String(opt.id || '').trim());
+                }
+            });
+            out = mergeResolvedAdjForBase(baseOpt, cats, [...fallback]);
+        }
+
+        _resolveAdjSourceCache.set(baseId, { cats, ibp, out });
         return out;
     }
 
@@ -303,21 +320,10 @@
         if (!baseId || !state || typeof state !== 'object') return [];
         group = effectiveAdjGroupForLinks(group);
         if (!shouldAutoApplyLinkedAdj(group)) return [];
-        try {
-            console.log('[UGAP][adj][apply][start]', {
-                baseId,
-                priceMode: normalizeGroupPriceMode(group),
-                groupId: String(group?.groupId || group?.id || '').trim(),
-                groupLabel: String(group?.label || '').trim()
-            });
-        } catch (_) {}
-
         const categories = Array.isArray(state.categories) ? state.categories : [];
         const importBaseProducts = Array.isArray(state.importBaseProducts) ? state.importBaseProducts : [];
         let linked = resolveSourceAdjOptionIdsForBase(baseId, categories, importBaseProducts);
-        try { console.log('[UGAP][adj][apply][resolved]', { baseId, linkedBeforeModeFilter: linked }); } catch (_) {}
         linked = filterAdjIdsForGroupPriceMode(linked, categories, group);
-        try { console.log('[UGAP][adj][apply][modeFiltered]', { baseId, linkedAfterModeFilter: linked }); } catch (_) {}
         if (!linked.length) return [];
 
         const resolve = typeof findOptionFn === 'function'
@@ -338,7 +344,6 @@
             state.selectedOptions.add(adjId);
             added.push(adjId);
         });
-        try { console.log('[UGAP][adj][apply][done]', { baseId, added }); } catch (_) {}
         return added;
     }
 
@@ -364,14 +369,6 @@
         if (!state?.selectedOptions || !group) return;
         group = effectiveAdjGroupForLinks(group);
         if (!shouldAutoApplyLinkedAdj(group)) return;
-        try {
-            console.log('[UGAP][adj][clear-group][start]', {
-                priceMode: normalizeGroupPriceMode(group),
-                groupId: String(group?.groupId || group?.id || '').trim(),
-                groupLabel: String(group?.label || '').trim()
-            });
-        } catch (_) {}
-
         const categories = Array.isArray(state.categories) ? state.categories : [];
         const importBaseProducts = Array.isArray(state.importBaseProducts) ? state.importBaseProducts : [];
         const baseIds = new Set();
@@ -402,7 +399,6 @@
             state.selectedOptions.delete(id);
             state.fivePercentOptions?.delete?.(id);
         });
-        try { console.log('[UGAP][adj][clear-group][done]', { removed: [...toRemove] }); } catch (_) {}
     }
 
     /**
@@ -454,6 +450,7 @@
         findCatalogOption,
         findAdjByExcelLabel,
         resolveSourceAdjOptionIdsForBase,
+        clearResolveAdjSourceCache,
         getSourceAdjCandidatesForBase,
         filterAdjIdsForGroupPriceMode,
         applyLinkedAdjToConfiguratorSelection,

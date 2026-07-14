@@ -8,6 +8,7 @@ require_once __DIR__ . '/../auth/session.php';
 require_once __DIR__ . '/../includes/functions.php';
 require_once __DIR__ . '/../includes/jwt-helper.php';
 require_once __DIR__ . '/../includes/entity-config-items.php';
+require_once __DIR__ . '/../includes/entity-console-nav.php';
 
 if (!hasRole(ROLE_ADMIN_GDRI) && !hasRole(ROLE_ADMIN_ENTITY) && !hasRole(ROLE_USER_ENTITY)) {
     redirect(url('pages/dashboard.php'));
@@ -24,23 +25,13 @@ $legacy_items = buildLegacyHubItems($authorized_service_slugs, $canManageEntity)
 
 $page_title = 'Legacy';
 require_once __DIR__ . '/../includes/header.php';
+renderConsoleLayoutStart(
+    'Legacy',
+    'Point d\'entrée unique le temps de la migration vers la console entité.'
+);
 ?>
 
-<div class="container" style="max-width: 1200px; margin: 2rem auto; padding: 0 1rem;">
-    <div style="margin-bottom: 1.5rem;">
-        <h1>Legacy</h1>
-        <p style="color: #666; font-size: 1.05em;">
-            Point d'entrée unique le temps de la migration vers
-            <a href="<?= url('pages/modules.php') ?>">Applications</a>,
-            <a href="<?= url('pages/entity-agents.php') ?>">Agents IA</a> et
-            <a href="<?= url('pages/entity-config.php') ?>">Paramètres</a>.
-        </p>
-    </div>
-
-    <div class="form-group" style="margin-bottom: 1.5rem; max-width: 400px;">
-        <label for="legacySearch" class="small" style="display: block; margin-bottom: 0.25rem;">Rechercher</label>
-        <input type="text" id="legacySearch" class="form-control" placeholder="App, agent, mail, UGAP…" autocomplete="off" />
-    </div>
+<?php renderConsoleSearchToolbar('App, agent, mail, UGAP…', 'legacySearch'); ?>
 
     <div id="legacyList" class="hub-cards-grid">
         <?php foreach ($legacy_items as $item): ?>
@@ -64,20 +55,11 @@ require_once __DIR__ . '/../includes/header.php';
         <?php endforeach; ?>
     </div>
 
-    <div id="legacyNoResult" class="entity-config-empty" style="display: none;">
+    <div id="legacyNoResult" class="entity-console-empty" style="display: none;">
         <p>Aucun élément ne correspond à votre recherche.</p>
     </div>
-</div>
 
 <style>
-.entity-config-empty {
-    padding: 2.5rem 1.5rem;
-    text-align: center;
-    background: #f8f9fa;
-    border: 1px dashed #ced4da;
-    border-radius: 10px;
-    color: #495057;
-}
 .legacy-card {
     cursor: pointer;
     border-radius: 10px;
@@ -139,4 +121,6 @@ require_once __DIR__ . '/../includes/header.php';
 })();
 </script>
 
-<?php require_once __DIR__ . '/../includes/footer.php'; ?>
+<?php
+renderConsoleLayoutEnd();
+require_once __DIR__ . '/../includes/footer.php'; ?>

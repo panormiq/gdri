@@ -9,6 +9,7 @@ require_once '../config/database.php';
 require_once '../auth/session.php';
 require_once '../includes/functions.php';
 require_once '../includes/jwt-helper.php';
+require_once '../includes/entity-console-nav.php';
 
 if (!hasRole(ROLE_ADMIN_GDRI)) {
     redirect(url('pages/dashboard.php'));
@@ -16,14 +17,13 @@ if (!hasRole(ROLE_ADMIN_GDRI)) {
 
 $page_title = 'Module Mail – Fournisseurs';
 require_once '../includes/header.php';
+renderConsoleLayoutStart(
+    'Module Mail – Fournisseurs',
+    'Liste des fournisseurs mail (IMAP/SMTP) utilisée pour les presets dans la configuration mail des entités.',
+    ['narrow' => true]
+);
+renderConsoleBackLink('Extensions', url('pages/admin-modules.php'));
 ?>
-
-<div class="container" style="max-width: 1000px; margin: 2rem auto; padding: 0 1rem;">
-    <div style="margin-bottom: 1.5rem;">
-        <a href="<?= url('pages/admin-modules.php') ?>" class="btn btn-outline" style="margin-bottom: 0.5rem;">← Retour aux modules</a>
-        <h1 style="margin: 0.5rem 0 0 0;">📧 Module Mail – Fournisseurs</h1>
-        <p style="color: #666; margin: 0.25rem 0 0 0;">Liste des fournisseurs mail (IMAP/SMTP) utilisée pour les presets dans la configuration mail des entités.</p>
-    </div>
 
     <div class="card" style="margin-bottom: 1.5rem;">
         <div class="card-header" style="background-color: #f8f9fa; border-bottom: 2px solid #0d6efd;">
@@ -50,6 +50,8 @@ require_once '../includes/header.php';
             </div>
         </div>
     </div>
+
+<?php renderConsoleLayoutEnd(); ?>
 
     <div class="modal-overlay" id="mailProviderModal" style="display: none;">
         <div class="modal" style="max-width: 560px;">
@@ -109,7 +111,6 @@ require_once '../includes/header.php';
             </div>
         </div>
     </div>
-</div>
 
 <script>
 (function() {

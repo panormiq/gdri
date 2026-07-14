@@ -58,32 +58,45 @@
                 }
             },
             getModelBaseSlotPicks: () => {
+                const picks = state.uiState?.modelBaseSlotPicks;
+                const all = picks && typeof picks === 'object' && !Array.isArray(picks) ? picks : {};
                 const mid = String(state.selectedModel?.id || '').trim();
+                if (!mid) return all;
+                const baseRow = all[mid] && typeof all[mid] === 'object' ? { ...all[mid] } : {};
                 const cfgId = String(state.selectedConfig?.id || '').trim();
                 const cfgPicks = state.selectedConfig?.slotPicks;
-                if (mid && cfgId && cfgId !== 'default-config' && cfgPicks && typeof cfgPicks === 'object') {
-                    return { [mid]: { ...cfgPicks } };
+                if (cfgId && cfgId !== 'default-config' && cfgPicks && typeof cfgPicks === 'object') {
+                    return { ...all, [mid]: { ...baseRow, ...cfgPicks } };
                 }
-                const picks = state.uiState?.modelBaseSlotPicks;
-                return picks && typeof picks === 'object' && !Array.isArray(picks) ? picks : {};
+                if (Object.keys(baseRow).length) {
+                    return { ...all, [mid]: baseRow };
+                }
+                return all;
             },
             isOptionCompatible: (opt, modelId) => {
                 const mid = String(modelId || state.selectedModel?.id || '').trim();
                 if (!mid) return true;
-                if (typeof state.isOptionCompatibleWithSelectedModel === 'function') {
-                    return state.isOptionCompatibleWithSelectedModel(opt) !== false;
-                }
+                // compatibleModels stricte quand renseignée ; vide = tous les modèles.
                 const comp = Array.isArray(opt?.compatibleModels) ? opt.compatibleModels.map(String) : [];
-                if (!comp.length) return !!opt?.isDivers;
-                return comp.includes(mid);
+                if (comp.length) return comp.includes(mid);
+                return true;
+            },
+            getActiveSelectedOptionIds: () => {
+                const out = new Set();
+                (state.selectedOptions || []).forEach((id) => {
+                    const oid = String(id || '').trim();
+                    if (oid) out.add(oid);
+                });
+                (state.fivePercentOptions || []).forEach((id) => {
+                    const oid = String(id || '').trim();
+                    if (oid) out.add(oid);
+                });
+                return Array.from(out);
             },
         });
 
-        const mid = String(state.selectedModel?.id || '').trim();
-        const cfgId = String(state.selectedConfig?.id || '').trim();
-        if (mid && cfgId && cfgId !== 'default-config') {
-            MBO.setPresetEditContext?.(mid, cfgId);
-        }
+        // Configurateur : picks preset en complément des options de base, pas en remplacement exclusif.
+        MBO.setPresetEditContext?.('', '');
     }
 
     function clearConfiguratorModelBaseBridge() {

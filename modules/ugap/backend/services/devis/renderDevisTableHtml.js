@@ -29,6 +29,7 @@ const {
 
 const COLUMN_DEFS = [
   { key: 'refUgap', label: 'Réf. UGAP' },
+  { key: 'refFournisseur', label: 'Réf. fournisseur' },
   { key: 'libelle', label: 'Libellé UGAP' },
   { key: 'libelleApp', label: 'Libellé' },
   { key: 'categorie', label: 'Catégorie' },
@@ -67,9 +68,33 @@ function isIncludedDevisOption(option) {
   return false;
 }
 
-function formatDevisLinePrice(option) {
+function resolveIncludedDevisDisplayPrice(option, modelId = '') {
   const opt = option && typeof option === 'object' ? option : {};
-  if (isIncludedDevisOption(opt)) return 'Inclus';
+  const mid = String(modelId || '').trim();
+  const byModel = opt.importBaseProductPricesByModelId;
+  if (mid && byModel && typeof byModel === 'object') {
+    const modelPrice = Number(byModel[mid]);
+    if (Number.isFinite(modelPrice) && modelPrice > 0) return modelPrice;
+  }
+  const baseIncluded = Number(opt.baseIncludedPrice);
+  if (Number.isFinite(baseIncluded) && baseIncluded > 0) return baseIncluded;
+  const ugap = Number(opt.priceUgap);
+  if (Number.isFinite(ugap) && ugap > 0) return ugap;
+  const client = Number(opt.priceClient ?? opt.price);
+  return Number.isFinite(client) && client > 0 ? client : 0;
+}
+
+function formatDevisLinePrice(option, modelId = '') {
+  const opt = option && typeof option === 'object' ? option : {};
+  if (opt.isModelBaseLine === true) {
+    const amount = Number(opt.billablePrice);
+    return Number.isFinite(amount) ? formatMoney(amount) : '—';
+  }
+  if (isIncludedDevisOption(opt)) {
+    const amount = resolveIncludedDevisDisplayPrice(opt, modelId);
+    if (amount > 0) return `${formatMoney(amount)} (inclus)`;
+    return 'Inclus';
+  }
   const billable = Number(opt.billablePrice);
   const rawPrice = Number.isFinite(billable)
     ? billable
@@ -92,14 +117,16 @@ function findCatalogOptionInData(categories, optionId) {
   return null;
 }
 
-function optionToLine(option, categoryName) {
+function optionToLine(option, categoryName, modelId = '') {
   const opt = option && typeof option === 'object' ? option : {};
+  const mid = String(modelId || opt._devisModelId || '').trim();
   return {
     refUgap: resolveDevisRefUgap(opt),
+    refFournisseur: String(opt.refFournisseur || '').trim(),
     libelle: resolveDevisUgapLabel(opt),
     libelleApp: resolveDevisAppLabel(opt),
     categorie: String(categoryName || opt.category || opt.familyLabel || '').trim(),
-    prix: formatDevisLinePrice(opt)
+    prix: formatDevisLinePrice(opt, mid)
   };
 }
 
@@ -114,6 +141,7 @@ function buildModelBaseLine(model, _configName, modelCategory = '') {
   const categorie = String(modelCategory || '').trim() || 'Modèle';
   return {
     refUgap,
+    refFournisseur: String(m.refFournisseur || '').trim(),
     name: modelName,
     importExcelLabel: excelDesignation || modelName,
     libelle: excelDesignation || modelName,

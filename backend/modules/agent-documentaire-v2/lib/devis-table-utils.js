@@ -257,10 +257,15 @@ function paginateLines(lines, template, pageConfig = {}) {
   const middleCap = rowsPerPage(availableTableHeight(pageConfig, template, 'middle'));
   const lastCap = rowsPerPage(availableTableHeight(pageConfig, template, 'last'));
 
-  if (rows.length <= firstCap) return [rows];
+  // Page unique = aussi la dernière page : les totaux y sont affichés,
+  // donc la capacité de référence est lastCap (pas firstCap).
+  if (rows.length <= lastCap) return [rows];
 
-  const chunks = [rows.slice(0, firstCap)];
-  let offset = firstCap;
+  // Multi-pages : remplir la 1re page au maximum en gardant au moins
+  // une ligne pour les pages suivantes.
+  const firstTake = Math.min(firstCap, rows.length - 1);
+  const chunks = [rows.slice(0, firstTake)];
+  let offset = firstTake;
 
   while (offset < rows.length) {
     const remaining = rows.length - offset;
@@ -268,10 +273,9 @@ function paginateLines(lines, template, pageConfig = {}) {
       chunks.push(rows.slice(offset));
       break;
     }
-    // Remplir au maximum la page intermédiaire tout en gardant ≤ lastCap lignes pour la dernière page.
-    const minTake = remaining - lastCap;
-    const maxTake = Math.min(middleCap, remaining - 1);
-    const take = Math.max(minTake, maxTake);
+    // Remplir la page intermédiaire sans dépasser sa capacité, en gardant
+    // au moins une ligne pour la page suivante (qui peut être la dernière).
+    const take = Math.max(1, Math.min(middleCap, remaining - 1));
     chunks.push(rows.slice(offset, offset + take));
     offset += take;
   }

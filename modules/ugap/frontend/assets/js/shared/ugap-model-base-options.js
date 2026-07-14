@@ -48,8 +48,65 @@
         return resolveData();
     }
 
+    /**
+     * Caches dérivés du catalogue (index options, descendants, IBP moteur…).
+     * Auto-invalidés quand la référence de data.categories / uiState.catalog change ;
+     * clearRuntimeCaches() après toute mutation d'option en place (linkBaseOption…).
+     */
+    let _rt = null;
+
+    function getRuntimeCaches() {
+        const data = resolveData();
+        const categories = Array.isArray(data?.categories) ? data.categories : [];
+        const catalogRef = data?.uiState?.catalog || null;
+        if (_rt && _rt.categories === categories && _rt.catalogRef === catalogRef) return _rt;
+        _rt = {
+            categories,
+            catalogRef,
+            optionRecordById: null,
+            optionById: null,
+            missingOptionIds: new Set(),
+            catalogNodes: null,
+            descendantIdsByNode: new Map(),
+            hasChildrenByNode: new Map(),
+            motorNodeById: new Map(),
+            directOptionIdsByNode: new Map(),
+            staticNodeOptionIds: new Map(),
+            motorBaseIdsByModel: new Map(),
+        };
+        return _rt;
+    }
+
+    function clearRuntimeCaches() {
+        _rt = null;
+    }
+
+    function getOptionRecordMap() {
+        const rt = getRuntimeCaches();
+        if (rt.optionRecordById) return rt.optionRecordById;
+        const map = new Map();
+        rt.categories.forEach((cat) => {
+            (Array.isArray(cat?.options) ? cat.options : []).forEach((opt) => {
+                const id = String(opt?.id || '').trim();
+                if (id && !map.has(id)) map.set(id, { category: cat, option: opt });
+            });
+        });
+        rt.optionRecordById = map;
+        return map;
+    }
+
+    function getOptionByIdMapForRuntime() {
+        const rt = getRuntimeCaches();
+        if (rt.optionById) return rt.optionById;
+        const Tree = global.UgapBoatTemplateTree;
+        rt.optionById = Tree?.buildCatalogueOptionById?.(rt.categories) || new Map();
+        return rt.optionById;
+    }
+
     /** Catalogue publié : uiState du configurateur ou LcState paramétrage. */
     function resolveCatalogNodesForRuntime() {
+        const rtCache = getRuntimeCaches();
+        if (rtCache.catalogNodes) return rtCache.catalogNodes;
         const data = getData();
         const rawCatalog = data?.uiState?.catalog;
         const Cat = global.UgapGroupCatalog;
@@ -74,6 +131,7 @@
                 nodes = Core.normalizeCatalog({ nodes }).nodes || [];
             }
         }
+        rtCache.catalogNodes = nodes;
         return nodes;
     }
 
@@ -164,25 +222,25 @@
     function findOptionRecord(optionId) {
         const oid = String(optionId || '').trim();
         if (!oid) return null;
-        const data = resolveData();
-        for (const cat of (Array.isArray(data?.categories) ? data.categories : [])) {
-            for (const opt of (Array.isArray(cat?.options) ? cat.options : [])) {
-                if (String(opt?.id || '').trim() === oid) {
-                    return { category: cat, option: opt };
-                }
-            }
-        }
+        const rt = getRuntimeCaches();
+        const hit = getOptionRecordMap().get(oid);
+        if (hit) return hit;
+        if (rt.missingOptionIds.has(oid)) return null;
         const St = global.UgapCatalogueLcState;
         if (St?.getAllOptions) {
-            const hit = (St.getAllOptions() || []).find((o) => String(o?.id || '').trim() === oid);
-            if (hit) {
+            const found = (St.getAllOptions() || []).find((o) => String(o?.id || '').trim() === oid);
+            if (found) {
+                const data = resolveData();
                 const catId = String(data?.categories?.[0]?.id || '').trim();
                 const cat = (Array.isArray(data?.categories) ? data.categories : []).find(
                     (c) => String(c?.id || '').trim() === catId
-                ) || { id: catId, name: String(hit.categoryName || '').trim() };
-                return { category: cat, option: hit };
+                ) || { id: catId, name: String(found.categoryName || '').trim() };
+                const rec = { category: cat, option: found };
+                getOptionRecordMap().set(oid, rec);
+                return rec;
             }
         }
+        rt.missingOptionIds.add(oid);
         return null;
     }
 
@@ -227,41 +285,182 @@
         return '';
     }
 
-    function optionIdsForCatalogNode(catalogNodeId) {
+    function catalogNodeIdsWithDescendants(catalogNodeId) {
+        const nid = String(catalogNodeId || '').trim();
+        if (!nid) return new Set();
+        const rt = getRuntimeCaches();
+        const cached = rt.descendantIdsByNode.get(nid);
+        if (cached) return cached;
+        const catalogNodes = resolveCatalogNodesForRuntime();
+        const Core = global.UgapCatalogueNodesCore;
+        const out = new Set([nid]);
+        if (Core?.collectDescendantIds) {
+            Core.collectDescendantIds(catalogNodes, nid).forEach((id) => {
+                const did = String(id || '').trim();
+                if (did) out.add(did);
+            });
+        }
+        rt.descendantIdsByNode.set(nid, out);
+        return out;
+    }
+
+    function catalogNodeHasChildNodes(catalogNodeId) {
+        const nid = String(catalogNodeId || '').trim();
+        if (!nid) return false;
+        const rt = getRuntimeCaches();
+        if (rt.hasChildrenByNode.has(nid)) return rt.hasChildrenByNode.get(nid);
+        const catalogNodes = resolveCatalogNodesForRuntime();
+        const Core = global.UgapCatalogueNodesCore;
+        const has = (Core?.getChildren?.(catalogNodes, nid) || []).length > 0;
+        rt.hasChildrenByNode.set(nid, has);
+        return has;
+    }
+
+    /** Nœud parent avec sous-catégories : seules les options directes (pas les descendants). */
+    function slotUsesDirectCatalogOptionsOnly(slot) {
+        const cnId = catalogNodeIdFromSlot(slot);
+        if (!cnId || isMotorChoiceSlot(slot)) return false;
+        return catalogNodeHasChildNodes(cnId);
+    }
+
+    function collectDirectOptionIdsFromCatalog(catalogNodeId) {
         const nid = String(catalogNodeId || '').trim();
         if (!nid) return [];
-        const catalogNodes = resolveCatalogNodesForRuntime();
+        const rt = getRuntimeCaches();
+        const cached = rt.directOptionIdsByNode.get(nid);
+        if (cached) return cached;
+        const ids = new Set();
         const St = global.UgapCatalogueLcState;
+        const catalogNodes = resolveCatalogNodesForRuntime();
         if (St?.getOptionsForNode) {
-            const fromIndex = (St.getOptionsForNode(nid, catalogNodes) || [])
-                .map((opt) => String(opt?.id || '').trim())
-                .filter(Boolean);
-            if (fromIndex.length) return fromIndex;
+            (St.getOptionsForNode(nid, catalogNodes) || []).forEach((opt) => {
+                const id = String(opt?.id || '').trim();
+                if (id) ids.add(id);
+            });
         }
-        const data = resolveData();
-        const categories = Array.isArray(data?.categories) ? data.categories : [];
-        const Tree = global.UgapBoatTemplateTree;
-        const optionById = Tree?.buildCatalogueOptionById?.(categories) || new Map();
         const Cat = global.UgapGroupCatalog;
+        const optionById = getOptionByIdMapForRuntime();
         if (Cat?.collectOptionsForCatalogNode) {
-            return Cat.collectOptionsForCatalogNode(nid, optionById, () => true)
-                .map((opt) => String(opt?.id || '').trim())
-                .filter(Boolean);
+            Cat.collectOptionsForCatalogNode(nid, optionById, () => true).forEach((opt) => {
+                const id = String(opt?.id || '').trim();
+                if (id) ids.add(id);
+            });
+        } else {
+            optionById.forEach((opt) => {
+                if (String(opt?.catalogObjectId || '').trim() === nid) {
+                    const id = String(opt?.id || '').trim();
+                    if (id) ids.add(id);
+                }
+            });
         }
-        return [];
+        const out = Array.from(ids);
+        rt.directOptionIdsByNode.set(nid, out);
+        return out;
+    }
+
+    function catalogNodeHasDirectOptions(catalogNodeId) {
+        return collectDirectOptionIdsFromCatalog(catalogNodeId).length > 0;
+    }
+
+    function mergeActiveSelectionsForCatalogNodes(baseIds, nodeIds) {
+        const out = new Set(Array.isArray(baseIds) ? baseIds : []);
+        if (typeof runtimeContext?.getActiveSelectedOptionIds !== 'function') {
+            return Array.from(out);
+        }
+        const optionById = getOptionByIdMapForRuntime();
+        runtimeContext.getActiveSelectedOptionIds().forEach((rawId) => {
+            const oid = String(rawId || '').trim();
+            if (!oid) return;
+            const opt = optionById.get(oid) || findOptionRecord(oid)?.option;
+            if (!opt) return;
+            const optCn = String(opt.catalogObjectId || '').trim();
+            if (optCn && nodeIds.has(optCn)) out.add(oid);
+        });
+        return Array.from(out);
+    }
+
+    /** Partie indépendante de la sélection (cacheable par nœud). */
+    function staticOptionIdsForCatalogNode(nid, includeDescendants, nodeIds) {
+        const rt = getRuntimeCaches();
+        const cacheKey = `${nid}|${includeDescendants ? 1 : 0}`;
+        const cached = rt.staticNodeOptionIds.get(cacheKey);
+        if (cached) return cached;
+
+        const catalogNodes = resolveCatalogNodesForRuntime();
+        const ids = new Set();
+        collectDirectOptionIdsFromCatalog(nid).forEach((id) => ids.add(id));
+
+        const St = global.UgapCatalogueLcState;
+        let done = false;
+        if (St?.getOptionsLinkSummaryForNode) {
+            const summary = St.getOptionsLinkSummaryForNode(nid, catalogNodes) || {};
+            (Array.isArray(summary.direct) ? summary.direct : []).forEach((opt) => {
+                const id = String(opt?.id || '').trim();
+                if (id) ids.add(id);
+            });
+            if (includeDescendants) {
+                (Array.isArray(summary.onDescendants) ? summary.onDescendants : []).forEach((row) => {
+                    const id = String(row?.option?.id || '').trim();
+                    if (id) ids.add(id);
+                });
+            }
+            if (ids.size) done = true;
+        }
+
+        if (!done && St?.getOptionsForNode) {
+            nodeIds.forEach((nodeId) => {
+                (St.getOptionsForNode(nodeId, catalogNodes) || []).forEach((opt) => {
+                    const id = String(opt?.id || '').trim();
+                    if (id) ids.add(id);
+                });
+            });
+            if (ids.size) done = true;
+        }
+
+        if (!done) {
+            const optionById = getOptionByIdMapForRuntime();
+            const Cat = global.UgapGroupCatalog;
+            if (Cat?.collectOptionsForCatalogNode) {
+                nodeIds.forEach((nodeId) => {
+                    Cat.collectOptionsForCatalogNode(nodeId, optionById, () => true)
+                        .forEach((opt) => {
+                            const id = String(opt?.id || '').trim();
+                            if (id) ids.add(id);
+                        });
+                });
+            }
+        }
+
+        const out = Array.from(ids);
+        rt.staticNodeOptionIds.set(cacheKey, out);
+        return out;
+    }
+
+    function optionIdsForCatalogNode(catalogNodeId, options) {
+        const nid = String(catalogNodeId || '').trim();
+        if (!nid) return [];
+        const includeDescendants = !(options && options.includeDescendants === false);
+        const nodeIds = includeDescendants ? catalogNodeIdsWithDescendants(nid) : new Set([nid]);
+        const staticIds = staticOptionIdsForCatalogNode(nid, includeDescendants, nodeIds);
+        return mergeActiveSelectionsForCatalogNodes(staticIds, nodeIds);
     }
 
     function resolveGroupOptionIdsForSlot(slot) {
         const s = slot && typeof slot === 'object' ? slot : {};
-        const catalogNodeId = catalogNodeIdFromSlot(s);
-        if (catalogNodeId) {
-            return optionIdsForCatalogNode(catalogNodeId);
-        }
-        const gid = String(s.groupId || '').trim();
-        if (!gid) return [];
-        return (Array.isArray(s.groupOptionIds) ? s.groupOptionIds : [])
+        const explicit = (Array.isArray(s.groupOptionIds) ? s.groupOptionIds : [])
             .map((x) => String(x || '').trim())
             .filter(Boolean);
+        const catalogNodeId = catalogNodeIdFromSlot(s);
+        if (catalogNodeId) {
+            const fromCatalog = optionIdsForCatalogNode(catalogNodeId, {
+                includeDescendants: !isMotorChoiceSlot(s) && !slotUsesDirectCatalogOptionsOnly(s),
+            });
+            if (!fromCatalog.length && !explicit.length) return [];
+            return Array.from(new Set([...explicit, ...fromCatalog]));
+        }
+        const gid = String(s.groupId || '').trim();
+        if (!gid) return explicit;
+        return explicit;
     }
 
     function isGenericGroupTitle(label) {
@@ -437,6 +636,9 @@
     function collectMotorBaseCatalogOptionIdsForModel(modelId) {
         const mid = String(modelId || '').trim();
         if (!mid) return [];
+        const rt = getRuntimeCaches();
+        const cached = rt.motorBaseIdsByModel.get(mid);
+        if (cached) return cached;
         const data = resolveData();
         const ids = new Set();
         const categories = Array.isArray(data?.categories) ? data.categories : [];
@@ -464,7 +666,9 @@
             if (!opt || !isCompatible(opt, mid)) return;
             ids.add(cid);
         });
-        return Array.from(ids).filter(Boolean);
+        const out = Array.from(ids).filter(Boolean);
+        rt.motorBaseIdsByModel.set(mid, out);
+        return out;
     }
 
     function getCatalogNodeForSlot(slot) {
@@ -476,9 +680,15 @@
     }
 
     function isMotorCatalogNode(slot) {
+        const cnId = catalogNodeIdFromSlot(slot);
+        if (!cnId) return false;
+        const rt = getRuntimeCaches();
+        if (rt.motorNodeById.has(cnId)) return rt.motorNodeById.get(cnId);
         const node = getCatalogNodeForSlot(slot);
         const Core = global.UgapCatalogueNodesCore;
-        return Core?.isMotorCatalogNodeLabel?.(node) === true;
+        const isMotor = Core?.isMotorCatalogNodeLabel?.(node) === true;
+        rt.motorNodeById.set(cnId, isMotor);
+        return isMotor;
     }
 
     function slotHidesMinorationInChoices(slot) {
@@ -531,8 +741,16 @@
     }
 
     function isCompatible(opt, modelId) {
+        const mid = String(modelId || '').trim();
+        if (typeof runtimeContext?.isOptionCompatible === 'function') {
+            return runtimeContext.isOptionCompatible(opt, mid) !== false;
+        }
+        if (!opt || !mid) return false;
+        // compatibleModels est la source de vérité quand elle existe ;
+        // sans modèle attitré, l'option est compatible avec tous les modèles.
         const comp = Array.isArray(opt?.compatibleModels) ? opt.compatibleModels.map(String) : [];
-        return comp.includes(String(modelId || '').trim());
+        if (comp.length) return comp.includes(mid);
+        return true;
     }
 
     function isBaseForModel(optionId, modelId) {
@@ -686,7 +904,12 @@
                 : 'single_choice',
         };
         const resolvedIds = resolveGroupOptionIdsForSlot(slotRow);
-        slotRow.groupOptionIds = resolvedIds.length ? resolvedIds : slotRow.groupOptionIds;
+        const familyIds = (Array.isArray(slotRow.groupOptionIds) ? slotRow.groupOptionIds : [])
+            .map((x) => String(x || '').trim())
+            .filter(Boolean);
+        if (resolvedIds.length || familyIds.length) {
+            slotRow.groupOptionIds = Array.from(new Set([...familyIds, ...resolvedIds]));
+        }
         return slotRow;
     }
 
@@ -752,9 +975,7 @@
         const Tree = global.UgapBoatTemplateTree;
         if (!Tree?.walkTemplateDecisionGroupRefs) return [];
 
-        const data = resolveData();
-        const categories = Array.isArray(data?.categories) ? data.categories : [];
-        const optionById = Tree.buildCatalogueOptionById(categories);
+        const optionById = getOptionByIdMapForRuntime();
         const catalogNodes = resolveCatalogNodesForRuntime();
 
         const entries = Tree.walkTemplateDecisionGroupRefs(tpl, {
@@ -819,7 +1040,15 @@
         const rec = findOptionRecord(oid)?.option;
         if (rec && isMinorationOption(rec)) return false;
         if (slot.fixedOptionId) return oid === String(slot.fixedOptionId).trim();
-        return getGroupOptionIdsForSlot(slot).includes(oid);
+        if (getGroupOptionIdsForSlot(slot).includes(oid)) return true;
+        const catalogNodeId = catalogNodeIdFromSlot(slot);
+        const optCn = String(rec?.catalogObjectId || '').trim();
+        if (catalogNodeId && optCn) {
+            if (slotUsesDirectCatalogOptionsOnly(slot)) return optCn === catalogNodeId;
+            const nodeIds = catalogNodeIdsWithDescendants(catalogNodeId);
+            if (nodeIds.has(optCn)) return true;
+        }
+        return false;
     }
 
     function normalizePickIds(raw) {
@@ -927,20 +1156,29 @@
     }
 
     /** Options proposables : liées au nœud (ou groupe) et compatibles avec le modèle (poste P1, etc.). */
-    function canOfferAsChoice(opt, modelId, slot) {
+    function canOfferAsChoice(opt, modelId, slot, groupIdSet) {
         if (!opt || isMinorationOption(opt)) return false;
         const mid = String(modelId || '').trim();
         if (!mid) return false;
         const oid = String(opt.id || '').trim();
-        if (!getGroupOptionIdsForSlot(slot).includes(oid)) return false;
+        const inGroup = groupIdSet
+            ? groupIdSet.has(oid)
+            : getGroupOptionIdsForSlot(slot).includes(oid);
+        if (!inGroup) return false;
         return isCompatible(opt, mid);
     }
 
     function isSelectableBaseOption(opt, modelId) {
         if (!opt || typeof opt !== 'object') return false;
         const oid = String(opt.id || '').trim();
-        if (isImportGeneratedBaseOption(opt)) return true;
-        if (opt.manualBaseOption === true || opt.baseIncluded === true || opt.isBaseOption === true) return true;
+        // "Option de base" ne suffit pas : elle doit être compatible avec le modèle
+        // (sinon les IBP moteur des autres modèles remontent partout).
+        if (isImportGeneratedBaseOption(opt)
+            || opt.manualBaseOption === true
+            || opt.baseIncluded === true
+            || opt.isBaseOption === true) {
+            return isCompatible(opt, modelId);
+        }
         return isBaseForModel(oid, modelId);
     }
 
@@ -951,9 +1189,13 @@
         const modelId = String(model?.id || '').trim();
         const baseOnly = options && typeof options === 'object' ? options.baseOnly === true : false;
         const ids = new Set();
-        getGroupOptionIdsForSlot(slot).forEach((oid) => {
+        // Règle simple : options du nœud, compatibles avec le modèle (canOfferAsChoice),
+        // et en mode baseOnly uniquement celles taguées base pour ce modèle.
+        const groupOptionIds = getGroupOptionIdsForSlot(slot);
+        const groupIdSet = new Set(groupOptionIds);
+        groupOptionIds.forEach((oid) => {
             const opt = findOptionRecord(oid)?.option;
-            if (!opt || !canOfferAsChoice(opt, modelId, slot)) return;
+            if (!opt || !canOfferAsChoice(opt, modelId, slot, groupIdSet)) return;
             if (baseOnly && !isSelectableBaseOption(opt, modelId)) return;
             ids.add(oid);
         });
@@ -974,10 +1216,26 @@
                 ids.add(oid);
             });
         }
+        if (!baseOnly && typeof runtimeContext?.getActiveSelectedOptionIds === 'function') {
+            runtimeContext.getActiveSelectedOptionIds().forEach((rawId) => {
+                const oid = String(rawId || '').trim();
+                if (!oid || ids.has(oid)) return;
+                if (!optionMatchesSlot(oid, slot)) return;
+                const opt = findOptionRecord(oid)?.option;
+                if (!opt || isMinorationOption(opt)) return;
+                if (!isCompatible(opt, modelId)) return;
+                if (baseOnly && !isSelectableBaseOption(opt, modelId)) return;
+                ids.add(oid);
+            });
+        }
         const baseIds = new Set([
             ...defaultBaseOptionIdsInSlot(modelId, slot),
             ...(isMotorChoiceSlot(slot) ? collectMotorBaseCatalogOptionIdsForModel(modelId) : []),
         ]);
+        getAssignedOptionIds(modelId, slot).forEach((oid) => {
+            const opt = findOptionRecord(oid)?.option;
+            if (opt && isSelectableBaseOption(opt, modelId)) baseIds.add(String(oid || '').trim());
+        });
         const models = Array.isArray(getData()?.models) ? getData().models : [];
         const ODN = global.UgapOptionDisplayName;
         return Array.from(ids).map((oid) => {
@@ -1223,6 +1481,7 @@
     async function reloadData() {
         await global.UgapBateauBaseLcState?.loadFromServer?.(true);
         await global.UgapFamilleLcState?.loadFromServer?.(true);
+        clearRuntimeCaches();
     }
 
     async function assignBoatTemplate(modelId, templateId) {
@@ -1390,6 +1649,7 @@
             );
             needFullUiPersist = true;
         }
+        clearRuntimeCaches();
         return needFullUiPersist;
     }
 
@@ -1407,7 +1667,10 @@
                 }).then(() => { opt.baseIncluded = false; }));
             });
         });
-        if (tasks.length) await Promise.all(tasks);
+        if (tasks.length) {
+            await Promise.all(tasks);
+            clearRuntimeCaches();
+        }
     }
 
     function resolveConfigurationById(modelId, configId) {
@@ -1749,6 +2012,11 @@
         isImportGeneratedBaseOption,
         isBaseForModel,
         optionMatchesSlot,
+        catalogNodeHasChildNodes,
+        slotUsesDirectCatalogOptionsOnly,
+        catalogNodeHasDirectOptions,
+        collectDirectOptionIdsFromCatalog,
         findOptionRecord,
+        clearRuntimeCaches,
     };
 })(window);

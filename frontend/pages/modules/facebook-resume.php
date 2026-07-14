@@ -8,6 +8,7 @@ require_once '../../config/config.php';
 require_once '../../auth/session.php';
 require_once '../../includes/functions.php';
 require_once '../../includes/jwt-helper.php';
+require_once '../../includes/entity-console-nav.php';
 
 function hasFacebookServiceAccessViaApi()
 {
@@ -58,22 +59,17 @@ if (!isLoggedIn() || !$hasAccess) {
     redirect(url('pages/dashboard.php'));
 }
 
-$page_title = 'Résumé Facebook';
-require_once '../../includes/header.php';
-
 $jwt_token = getJWTToken();
 $api_base_url = rtrim(getApiBaseUrl(), '/');
+
+$page_title = 'Résumé Facebook';
+require_once '../../includes/header.php';
+renderConsoleLayoutStart(
+    'Résumé Facebook',
+    'Vue d\'ensemble par page : likes, commentaires et dernière interaction.',
+    ['narrow' => true]
+);
 ?>
-
-<div class="container" style="max-width: 960px; margin: 2rem auto; padding: 0 1rem;">
-    <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 1rem; margin-bottom: 1.5rem;">
-        <h1 style="margin: 0;">📊 Résumé Facebook</h1>
-        <a href="<?= url('pages/modules.php') ?>" class="btn btn-outline">← Applications</a>
-    </div>
-
-    <p class="text-muted" style="margin-bottom: 1rem;">
-        Vue d'ensemble par page : likes, commentaires et dernière interaction. La dernière interaction est enregistrée à chaque webhook et lors des pulls de rattrapage (serveur arrêté, etc.).
-    </p>
 
     <div id="resume-loading" class="alert alert-info">Chargement des pages…</div>
     <div id="resume-empty" class="alert alert-warning" style="display: none;">
@@ -84,7 +80,6 @@ $api_base_url = rtrim(getApiBaseUrl(), '/');
         <ul class="nav nav-tabs" id="page-tabs" role="tablist"></ul>
         <div class="tab-content" id="page-tab-content"></div>
     </div>
-</div>
 
 <style>
 .resume-tabs .nav-tabs { border-bottom: 1px solid #dee2e6; margin-bottom: 1rem; }
@@ -1152,4 +1147,6 @@ $api_base_url = rtrim(getApiBaseUrl(), '/');
 })();
 </script>
 
-<?php require_once '../../includes/footer.php'; ?>
+<?php
+renderConsoleLayoutEnd();
+require_once '../../includes/footer.php';

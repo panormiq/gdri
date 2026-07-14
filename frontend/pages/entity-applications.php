@@ -1,32 +1,30 @@
 <?php
 /**
- * Mon espace — Applications.
+ * Console entité — Applications.
  */
 
-require_once '../config/config.php';
-require_once '../auth/session.php';
-require_once '../includes/functions.php';
-require_once '../includes/entity-console-nav.php';
+require_once __DIR__ . '/../config/config.php';
+require_once __DIR__ . '/../auth/session.php';
+require_once __DIR__ . '/../includes/functions.php';
+require_once __DIR__ . '/../includes/entity-console-nav.php';
 
-if (!hasRole(ROLE_ADMIN_GDRI) && !hasRole(ROLE_ADMIN_ENTITY) && !hasRole(ROLE_USER_ENTITY)) {
-    redirect(url('pages/dashboard.php'));
-}
+requireEntityConsoleAccess();
 
 $canManageEntity = hasRole(ROLE_ADMIN_GDRI) || hasRole(ROLE_ADMIN_ENTITY);
 $application_items = buildApplicationHubItems($canManageEntity);
 
 $page_title = 'Applications';
-require_once '../includes/header.php';
+require_once __DIR__ . '/../includes/header.php';
 renderConsolePageOpen(
     'Applications',
-    'Outils métier de votre entité. Le reste est encore accessible via Legacy.'
+    'Catalogue et accès aux applications métier de votre société.'
 );
 ?>
 
 <?php if (empty($application_items)): ?>
     <div class="entity-console-empty">
         <p>Aucune application disponible pour cette entité.</p>
-        <p class="text-muted small">Consultez <a href="<?= url('pages/entity-legacy.php') ?>">Legacy</a> pour l'ensemble des modules.</p>
+        <p class="text-muted small">Contactez l'administrateur GDRI pour activer des applications.</p>
     </div>
 <?php else: ?>
     <?php renderConsoleSearchToolbar('UGAP, GDERPI, Workflow…'); ?>
@@ -39,4 +37,4 @@ renderConsolePageOpen(
 <?php
 renderConsolePageClose();
 renderEntityConsoleCardScript();
-require_once '../includes/footer.php';
+require_once __DIR__ . '/../includes/footer.php';

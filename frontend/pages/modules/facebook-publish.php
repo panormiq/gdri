@@ -7,6 +7,7 @@ require_once '../../config/config.php';
 require_once '../../auth/session.php';
 require_once '../../includes/functions.php';
 require_once '../../includes/jwt-helper.php';
+require_once '../../includes/entity-console-nav.php';
 
 function hasFacebookServiceAccessViaApi()
 {
@@ -53,14 +54,17 @@ if (!$hasAccess) {
     redirect(url('pages/dashboard.php'));
 }
 
-$page_title = 'Posts Facebook';
-require_once '../../includes/header.php';
-
 $jwt_token = getJWTToken();
 $api_base_url = getApiBaseUrl();
-?>
 
-<div class="container" style="max-width: 1100px; margin: 2rem auto; padding: 0 1rem;">
+$page_title = 'Posts Facebook';
+require_once '../../includes/header.php';
+renderConsoleLayoutStart(
+    'Posts Facebook',
+    'Créez, listez, modifiez et supprimez les publications de vos pages Facebook.',
+    ['narrow' => true]
+);
+?>
 
     <div class="card">
         <div class="card-header">
@@ -147,7 +151,7 @@ $api_base_url = getApiBaseUrl();
         </div>
     </div>
 
-</div>
+<?php renderConsoleLayoutEnd(); ?>
 
 <div id="fb-edit-overlay" role="dialog" aria-modal="true" aria-labelledby="fb-edit-title">
     <div class="fb-edit-box">

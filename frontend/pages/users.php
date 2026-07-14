@@ -3,6 +3,7 @@ require_once '../config/config.php';
 require_once '../auth/session.php';
 require_once '../includes/functions.php';
 require_once '../includes/jwt-helper.php';
+require_once '../includes/entity-console-nav.php';
 
 if (!hasRole(ROLE_ADMIN_ENTITY) && !hasRole(ROLE_ADMIN_GDRI)) {
     redirect(url('pages/dashboard.php'));
@@ -107,19 +108,11 @@ function formatEntityUserRoleLabel(array $user, array $entityRoles): string {
 }
 
 require_once '../includes/header.php';
+renderConsoleLayoutStart(
+    'Utilisateurs & Permissions',
+    'Gérez les accès aux modules pour chaque utilisateur de votre entreprise.'
+);
 ?>
-
-<!-- Section Hero -->
-<section class="hero">
-    <div class="container">
-        <div class="hero-content">
-            <h1>Utilisateurs & Permissions</h1>
-            <p class="hero-description">
-                Gérez les accès aux modules pour chaque utilisateur de votre entreprise
-            </p>
-        </div>
-    </div>
-</section>
 
 <section class="section">
     <div class="container">
@@ -243,6 +236,8 @@ require_once '../includes/header.php';
         <?php endif; ?>
     </div>
 </section>
+
+<?php renderConsoleLayoutEnd(); ?>
 
 <div class="modal-overlay" id="inviteUserModal" style="display:none;">
     <div class="modal-content" style="max-width: 520px;">

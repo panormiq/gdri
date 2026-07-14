@@ -46,7 +46,7 @@ $jwt_token = getJWTToken();
     <div class="container">
         <?php if ($is_entity_mail_connector): ?>
         <p style="margin-bottom: 0.75rem;">
-            <a class="btn btn-outline btn-sm" href="<?= url('pages/entity-config.php?tab=connecteurs') ?>">← Paramètres · Connecteurs</a>
+            <a class="btn btn-outline btn-sm" href="<?= url('pages/entity-connecteurs.php') ?>">← Connecteurs</a>
         </p>
         <?php endif; ?>
         <div class="hero-content">

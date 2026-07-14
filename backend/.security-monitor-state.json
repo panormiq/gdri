@@ -1,151 +1,11 @@
 {
-  "lastAccessLogPosition": 92614857,
-  "lastErrorLogPosition": 20009528,
-  "attackCount": 2,
-  "lastAlertTime": "2026-07-12T14:29:18.798Z",
+  "lastAccessLogPosition": 95148027,
+  "lastErrorLogPosition": 20127774,
+  "attackCount": 1,
+  "lastAlertTime": "2026-07-13T17:21:53.333Z",
   "lastSynFloodAlertTime": "2026-01-14T09:25:39.725Z",
   "lastSuspectAlertTime": "2026-01-09T22:41:43.689Z",
   "attacks": [
-    {
-      "timestamp": "2026-07-03T12:59:25.434Z",
-      "ip": "185.213.174.98",
-      "method": "GET",
-      "uri": "/.env.bak",
-      "userAgent": "Mozilla/5.0 (compatible; Baiduspider/2.0; +http://www.baidu.com/search/spider.html)",
-      "attackType": "sensitive_file_access",
-      "severity": "medium",
-      "logLine": "185.213.174.98 - - [03/Jul/2026:14:59:13 +0200] \"GET /.env.bak HTTP/1.1\" 403 311 \"https://gdr-innovation.fr/.env.bak\" \"Mozilla/5.0 (compatible; Baiduspider/2.0; +http://www.baidu.com/search/spider.html)\""
-    },
-    {
-      "timestamp": "2026-07-03T12:59:25.434Z",
-      "ip": "185.213.174.98",
-      "method": "GET",
-      "uri": "/.env.bak",
-      "userAgent": "Mozilla/5.0 (compatible; Google-CloudVertexBot; +https://cloud.google.com/vertex-ai-bot)",
-      "attackType": "sensitive_file_access",
-      "severity": "medium",
-      "logLine": "185.213.174.98 - - [03/Jul/2026:14:59:13 +0200] \"GET /.env.bak HTTP/1.1\" 403 311 \"https://gdri.fr/.env.bak\" \"Mozilla/5.0 (compatible; Google-CloudVertexBot; +https://cloud.google.com/vertex-ai-bot)\""
-    },
-    {
-      "timestamp": "2026-07-03T12:59:25.434Z",
-      "ip": "185.213.174.98",
-      "method": "GET",
-      "uri": "/.env.backup",
-      "userAgent": "Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko; compatible; GPTBot/1.3; +https://openai.com/gptbot)",
-      "attackType": "sensitive_file_access",
-      "severity": "medium",
-      "logLine": "185.213.174.98 - - [03/Jul/2026:14:59:13 +0200] \"GET /.env.backup HTTP/1.1\" 403 311 \"https://gdr-innovation.fr/.env.backup\" \"Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko; compatible; GPTBot/1.3; +https://openai.com/gptbot)\""
-    },
-    {
-      "timestamp": "2026-07-03T12:59:25.434Z",
-      "ip": "185.213.174.98",
-      "method": "GET",
-      "uri": "/.env.backup",
-      "userAgent": "Mozilla/5.0 (compatible; OAI-SearchBot/1.3; +https://openai.com/searchbot)",
-      "attackType": "sensitive_file_access",
-      "severity": "medium",
-      "logLine": "185.213.174.98 - - [03/Jul/2026:14:59:13 +0200] \"GET /.env.backup HTTP/1.1\" 403 311 \"https://gdri.fr/.env.backup\" \"Mozilla/5.0 (compatible; OAI-SearchBot/1.3; +https://openai.com/searchbot)\""
-    },
-    {
-      "timestamp": "2026-07-03T12:59:25.434Z",
-      "ip": "185.213.174.98",
-      "method": "GET",
-      "uri": "/.git/HEAD",
-      "userAgent": "Mozilla/5.0 (compatible; DuckDuckBot/1.1; +http://duckduckgo.com/duckduckbot.html)",
-      "attackType": "sensitive_file_access",
-      "severity": "medium",
-      "logLine": "185.213.174.98 - - [03/Jul/2026:14:59:17 +0200] \"GET /.git/HEAD HTTP/1.1\" 403 311 \"https://gdr-innovation.fr/.git/HEAD\" \"Mozilla/5.0 (compatible; DuckDuckBot/1.1; +http://duckduckgo.com/duckduckbot.html)\""
-    },
-    {
-      "timestamp": "2026-07-03T12:59:25.434Z",
-      "ip": "185.213.174.98",
-      "method": "GET",
-      "uri": "/.git/HEAD",
-      "userAgent": "Mozilla/5.0 (compatible; YandexBot/3.0; +http://yandex.com/bots)",
-      "attackType": "sensitive_file_access",
-      "severity": "medium",
-      "logLine": "185.213.174.98 - - [03/Jul/2026:14:59:17 +0200] \"GET /.git/HEAD HTTP/1.1\" 403 311 \"https://gdri.fr/.git/HEAD\" \"Mozilla/5.0 (compatible; YandexBot/3.0; +http://yandex.com/bots)\""
-    },
-    {
-      "timestamp": "2026-07-03T12:59:25.434Z",
-      "ip": "185.213.174.98",
-      "method": "GET",
-      "uri": "/app/.git/HEAD",
-      "userAgent": "Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko; compatible; GPTBot/1.3; +https://openai.com/gptbot)",
-      "attackType": "sensitive_file_access",
-      "severity": "medium",
-      "logLine": "185.213.174.98 - - [03/Jul/2026:14:59:17 +0200] \"GET /app/.git/HEAD HTTP/1.1\" 403 311 \"https://gdri.fr/app/.git/HEAD\" \"Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko; compatible; GPTBot/1.3; +https://openai.com/gptbot)\""
-    },
-    {
-      "timestamp": "2026-07-03T12:59:25.434Z",
-      "ip": "185.213.174.98",
-      "method": "GET",
-      "uri": "/app/.git/HEAD",
-      "userAgent": "Mozilla/5.0 (compatible; bingbot/2.0; +http://www.bing.com/bingbot.htm)",
-      "attackType": "sensitive_file_access",
-      "severity": "medium",
-      "logLine": "185.213.174.98 - - [03/Jul/2026:14:59:17 +0200] \"GET /app/.git/HEAD HTTP/1.1\" 403 311 \"https://gdr-innovation.fr/app/.git/HEAD\" \"Mozilla/5.0 (compatible; bingbot/2.0; +http://www.bing.com/bingbot.htm)\""
-    },
-    {
-      "timestamp": "2026-07-03T12:59:25.434Z",
-      "ip": "185.213.174.98",
-      "method": "GET",
-      "uri": "/public/.git/HEAD",
-      "userAgent": "Mozilla/5.0 (compatible; PerplexityBot/1.0; +https://perplexity.ai/perplexitybot)",
-      "attackType": "sensitive_file_access",
-      "severity": "medium",
-      "logLine": "185.213.174.98 - - [03/Jul/2026:14:59:17 +0200] \"GET /public/.git/HEAD HTTP/1.1\" 403 311 \"https://gdri.fr/public/.git/HEAD\" \"Mozilla/5.0 (compatible; PerplexityBot/1.0; +https://perplexity.ai/perplexitybot)\""
-    },
-    {
-      "timestamp": "2026-07-03T12:59:25.434Z",
-      "ip": "185.213.174.98",
-      "method": "GET",
-      "uri": "/public/.git/HEAD",
-      "userAgent": "Mozilla/5.0 (compatible; Amazonbot/0.1; +https://developer.amazon.com/support/amazonbot)",
-      "attackType": "sensitive_file_access",
-      "severity": "medium",
-      "logLine": "185.213.174.98 - - [03/Jul/2026:14:59:17 +0200] \"GET /public/.git/HEAD HTTP/1.1\" 403 311 \"https://gdr-innovation.fr/public/.git/HEAD\" \"Mozilla/5.0 (compatible; Amazonbot/0.1; +https://developer.amazon.com/support/amazonbot)\""
-    },
-    {
-      "timestamp": "2026-07-03T12:59:25.434Z",
-      "ip": "185.213.174.98",
-      "method": "GET",
-      "uri": "/src/.git/HEAD",
-      "userAgent": "Mozilla/5.0 (compatible; Amazonbot/0.1; +https://developer.amazon.com/support/amazonbot)",
-      "attackType": "sensitive_file_access",
-      "severity": "medium",
-      "logLine": "185.213.174.98 - - [03/Jul/2026:14:59:17 +0200] \"GET /src/.git/HEAD HTTP/1.1\" 403 311 \"https://gdr-innovation.fr/src/.git/HEAD\" \"Mozilla/5.0 (compatible; Amazonbot/0.1; +https://developer.amazon.com/support/amazonbot)\""
-    },
-    {
-      "timestamp": "2026-07-03T12:59:25.434Z",
-      "ip": "185.213.174.98",
-      "method": "GET",
-      "uri": "/src/.git/HEAD",
-      "userAgent": "Mozilla/5.0 (compatible; Applebot/0.1; +http://www.apple.com/go/applebot)",
-      "attackType": "sensitive_file_access",
-      "severity": "medium",
-      "logLine": "185.213.174.98 - - [03/Jul/2026:14:59:17 +0200] \"GET /src/.git/HEAD HTTP/1.1\" 403 311 \"https://gdri.fr/src/.git/HEAD\" \"Mozilla/5.0 (compatible; Applebot/0.1; +http://www.apple.com/go/applebot)\""
-    },
-    {
-      "timestamp": "2026-07-03T12:59:25.434Z",
-      "ip": "185.213.174.98",
-      "method": "GET",
-      "uri": "/backend/.git/HEAD",
-      "userAgent": "Mozilla/5.0 (compatible; Applebot/0.1; +http://www.apple.com/go/applebot)",
-      "attackType": "sensitive_file_access",
-      "severity": "medium",
-      "logLine": "185.213.174.98 - - [03/Jul/2026:14:59:17 +0200] \"GET /backend/.git/HEAD HTTP/1.1\" 403 311 \"https://gdr-innovation.fr/backend/.git/HEAD\" \"Mozilla/5.0 (compatible; Applebot/0.1; +http://www.apple.com/go/applebot)\""
-    },
-    {
-      "timestamp": "2026-07-03T12:59:25.434Z",
-      "ip": "185.213.174.98",
-      "method": "GET",
-      "uri": "/backend/.git/HEAD",
-      "userAgent": "Mozilla/5.0 (compatible; bingbot/2.0; +http://www.bing.com/bingbot.htm)",
-      "attackType": "sensitive_file_access",
-      "severity": "medium",
-      "logLine": "185.213.174.98 - - [03/Jul/2026:14:59:17 +0200] \"GET /backend/.git/HEAD HTTP/1.1\" 403 311 \"https://gdri.fr/backend/.git/HEAD\" \"Mozilla/5.0 (compatible; bingbot/2.0; +http://www.bing.com/bingbot.htm)\""
-    },
     {
       "timestamp": "2026-07-03T14:09:32.881Z",
       "ip": "141.98.11.171",
@@ -1005,6 +865,146 @@
       "attackType": "sensitive_file_access",
       "severity": "medium",
       "logLine": "157.52.122.51 - - [13/Jul/2026:06:50:42 +0200] \"GET /.git/HEAD HTTP/1.1\" 403 311 \"-\" \"git/2.39.2\""
+    },
+    {
+      "timestamp": "2026-07-13T12:41:34.392Z",
+      "ip": "94.154.43.178",
+      "method": "GET",
+      "uri": "/.env",
+      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36",
+      "attackType": "sensitive_file_access",
+      "severity": "medium",
+      "logLine": "94.154.43.178 - - [13/Jul/2026:14:41:30 +0200] \"GET /.env HTTP/1.1\" 403 311 \"-\" \"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36\""
+    },
+    {
+      "timestamp": "2026-07-13T16:06:05.559Z",
+      "ip": "94.154.43.177",
+      "method": "GET",
+      "uri": "/.env",
+      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36",
+      "attackType": "sensitive_file_access",
+      "severity": "medium",
+      "logLine": "94.154.43.177 - - [13/Jul/2026:18:06:01 +0200] \"GET /.env HTTP/1.1\" 403 311 \"-\" \"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36\""
+    },
+    {
+      "timestamp": "2026-07-13T17:21:52.152Z",
+      "ip": "116.204.169.2",
+      "method": "GET",
+      "uri": "/.env.backup",
+      "userAgent": "Mozilla/5.0 (compatible; YandexBot/3.0; +http://yandex.com/bots)",
+      "attackType": "sensitive_file_access",
+      "severity": "medium",
+      "logLine": "116.204.169.2 - - [13/Jul/2026:19:21:37 +0200] \"GET /.env.backup HTTP/1.1\" 403 311 \"https://gdr-innovation.fr/.env.backup\" \"Mozilla/5.0 (compatible; YandexBot/3.0; +http://yandex.com/bots)\""
+    },
+    {
+      "timestamp": "2026-07-13T17:21:52.152Z",
+      "ip": "116.204.169.2",
+      "method": "GET",
+      "uri": "/.env.production",
+      "userAgent": "Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko; compatible; ChatGPT-User/1.0; +https://openai.com/bot)",
+      "attackType": "sensitive_file_access",
+      "severity": "medium",
+      "logLine": "116.204.169.2 - - [13/Jul/2026:19:21:38 +0200] \"GET /.env.production HTTP/1.1\" 403 311 \"https://gdr-innovation.fr/.env.production\" \"Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko; compatible; ChatGPT-User/1.0; +https://openai.com/bot)\""
+    },
+    {
+      "timestamp": "2026-07-13T17:21:52.152Z",
+      "ip": "116.204.169.2",
+      "method": "GET",
+      "uri": "/.env",
+      "userAgent": "Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko; compatible; ChatGPT-User/1.0; +https://openai.com/bot)",
+      "attackType": "sensitive_file_access",
+      "severity": "medium",
+      "logLine": "116.204.169.2 - - [13/Jul/2026:19:21:38 +0200] \"GET /.env HTTP/1.1\" 403 311 \"https://gdr-innovation.fr/.env\" \"Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko; compatible; ChatGPT-User/1.0; +https://openai.com/bot)\""
+    },
+    {
+      "timestamp": "2026-07-13T17:21:52.152Z",
+      "ip": "116.204.169.2",
+      "method": "GET",
+      "uri": "/.env.development",
+      "userAgent": "Mozilla/5.0 (compatible; GoogleOther; +https://developers.google.com/search/)",
+      "attackType": "sensitive_file_access",
+      "severity": "medium",
+      "logLine": "116.204.169.2 - - [13/Jul/2026:19:21:38 +0200] \"GET /.env.development HTTP/1.1\" 403 311 \"https://gdr-innovation.fr/.env.development\" \"Mozilla/5.0 (compatible; GoogleOther; +https://developers.google.com/search/)\""
+    },
+    {
+      "timestamp": "2026-07-13T17:21:52.152Z",
+      "ip": "116.204.169.2",
+      "method": "GET",
+      "uri": "/.env.bak",
+      "userAgent": "Mozilla/5.0 (compatible; PerplexityBot/1.0; +https://perplexity.ai/perplexitybot)",
+      "attackType": "sensitive_file_access",
+      "severity": "medium",
+      "logLine": "116.204.169.2 - - [13/Jul/2026:19:21:39 +0200] \"GET /.env.bak HTTP/1.1\" 403 311 \"https://gdr-innovation.fr/.env.bak\" \"Mozilla/5.0 (compatible; PerplexityBot/1.0; +https://perplexity.ai/perplexitybot)\""
+    },
+    {
+      "timestamp": "2026-07-13T17:21:52.152Z",
+      "ip": "116.204.169.2",
+      "method": "GET",
+      "uri": "/.env.local",
+      "userAgent": "Mozilla/5.0 (compatible; OAI-SearchBot/1.3; +https://openai.com/searchbot)",
+      "attackType": "sensitive_file_access",
+      "severity": "medium",
+      "logLine": "116.204.169.2 - - [13/Jul/2026:19:21:39 +0200] \"GET /.env.local HTTP/1.1\" 403 311 \"https://gdr-innovation.fr/.env.local\" \"Mozilla/5.0 (compatible; OAI-SearchBot/1.3; +https://openai.com/searchbot)\""
+    },
+    {
+      "timestamp": "2026-07-13T17:21:52.152Z",
+      "ip": "116.204.169.2",
+      "method": "GET",
+      "uri": "/.git/HEAD",
+      "userAgent": "Mozilla/5.0 (compatible; bingbot/2.0; +http://www.bing.com/bingbot.htm)",
+      "attackType": "sensitive_file_access",
+      "severity": "medium",
+      "logLine": "116.204.169.2 - - [13/Jul/2026:19:21:41 +0200] \"GET /.git/HEAD HTTP/1.1\" 403 311 \"https://gdr-innovation.fr/.git/HEAD\" \"Mozilla/5.0 (compatible; bingbot/2.0; +http://www.bing.com/bingbot.htm)\""
+    },
+    {
+      "timestamp": "2026-07-13T17:21:52.152Z",
+      "ip": "116.204.169.2",
+      "method": "GET",
+      "uri": "/app/.git/HEAD",
+      "userAgent": "Mozilla/5.0 (compatible; Applebot/0.1; +http://www.apple.com/go/applebot)",
+      "attackType": "sensitive_file_access",
+      "severity": "medium",
+      "logLine": "116.204.169.2 - - [13/Jul/2026:19:21:41 +0200] \"GET /app/.git/HEAD HTTP/1.1\" 403 311 \"https://gdr-innovation.fr/app/.git/HEAD\" \"Mozilla/5.0 (compatible; Applebot/0.1; +http://www.apple.com/go/applebot)\""
+    },
+    {
+      "timestamp": "2026-07-13T17:21:52.152Z",
+      "ip": "116.204.169.2",
+      "method": "GET",
+      "uri": "/public/.git/HEAD",
+      "userAgent": "Mozilla/5.0 (compatible; YandexBot/3.0; +http://yandex.com/bots)",
+      "attackType": "sensitive_file_access",
+      "severity": "medium",
+      "logLine": "116.204.169.2 - - [13/Jul/2026:19:21:42 +0200] \"GET /public/.git/HEAD HTTP/1.1\" 403 311 \"https://gdr-innovation.fr/public/.git/HEAD\" \"Mozilla/5.0 (compatible; YandexBot/3.0; +http://yandex.com/bots)\""
+    },
+    {
+      "timestamp": "2026-07-13T17:21:52.152Z",
+      "ip": "116.204.169.2",
+      "method": "GET",
+      "uri": "/src/.git/HEAD",
+      "userAgent": "Mozilla/5.0 (compatible; Baiduspider/2.0; +http://www.baidu.com/search/spider.html)",
+      "attackType": "sensitive_file_access",
+      "severity": "medium",
+      "logLine": "116.204.169.2 - - [13/Jul/2026:19:21:43 +0200] \"GET /src/.git/HEAD HTTP/1.1\" 403 311 \"https://gdr-innovation.fr/src/.git/HEAD\" \"Mozilla/5.0 (compatible; Baiduspider/2.0; +http://www.baidu.com/search/spider.html)\""
+    },
+    {
+      "timestamp": "2026-07-13T17:21:52.152Z",
+      "ip": "116.204.169.2",
+      "method": "GET",
+      "uri": "/backend/.git/HEAD",
+      "userAgent": "Mozilla/5.0 (compatible; OAI-SearchBot/1.3; +https://openai.com/searchbot)",
+      "attackType": "sensitive_file_access",
+      "severity": "medium",
+      "logLine": "116.204.169.2 - - [13/Jul/2026:19:21:43 +0200] \"GET /backend/.git/HEAD HTTP/1.1\" 403 311 \"https://gdr-innovation.fr/backend/.git/HEAD\" \"Mozilla/5.0 (compatible; OAI-SearchBot/1.3; +https://openai.com/searchbot)\""
+    },
+    {
+      "timestamp": "2026-07-14T07:19:42.146Z",
+      "ip": "94.154.43.187",
+      "method": "GET",
+      "uri": "/.env",
+      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36",
+      "attackType": "sensitive_file_access",
+      "severity": "medium",
+      "logLine": "94.154.43.187 - - [14/Jul/2026:09:19:29 +0200] \"GET /.env HTTP/1.1\" 403 311 \"-\" \"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36\""
     }
   ],
   "bannedIPs": [
@@ -23186,8 +23186,11 @@
     "181.189.10.159",
     "181.189.10.206",
     "195.178.110.160",
-    "154.58.229.20",
-    "157.52.122.51"
+    "94.154.43.177",
+    "116.204.169.2",
+    "94.154.43.187",
+    "23.128.100.245",
+    "23.128.100.247"
   ],
   "bannedSubnets": [
     "170.254.236.0/24",
@@ -25072,157 +25075,97 @@
     "45.228.14.0/24",
     "104.28.236.0/24",
     "94.143.231.0/24",
-    "154.58.229.0/24"
+    "154.58.229.0/24",
+    "23.128.100.0/24"
   ],
   "synReceivedHistory": {
-    "15.204.114.193": {
-      "firstSeen": 1783843991767,
-      "lastSeen": 1783843991767,
-      "count": 20
-    },
-    "15.204.115.10": {
-      "firstSeen": 1783843991767,
-      "lastSeen": 1783843991767,
-      "count": 20
+    "176.9.56.126": {
+      "firstSeen": 1784033010344,
+      "lastSeen": 1784033010344,
+      "count": 1
     }
   },
   "successiveConnections": {
-    "15.204.114.193": {
-      "count": 5,
-      "lastSeen": 1783843991767,
-      "firstSeen": 1783843973581
+    "23.128.100.247": {
+      "count": 3,
+      "lastSeen": 1784033215816,
+      "firstSeen": 1784033010344
     },
-    "15.204.115.10": {
-      "count": 5,
-      "lastSeen": 1783843991767,
-      "firstSeen": 1783843973581
+    "176.9.56.126": {
+      "count": 1,
+      "lastSeen": 1784033010344,
+      "firstSeen": 1784033010344
+    },
+    "23.128.100.245": {
+      "count": 2,
+      "lastSeen": 1784033215816,
+      "firstSeen": 1784033018688
     }
   },
   "currentInterval": 20000,
   "lastSynCount": 0,
   "ipReputation": {
-    "154.58.229.20": {
+    "116.204.169.2": {
       "score": 0,
-      "firstSeen": 1783866558033,
-      "lastSeen": 1783866558042,
+      "firstSeen": 1783963312409,
+      "lastSeen": 1783963312413,
       "detections": [
         {
-          "timestamp": 1783866558033,
+          "timestamp": 1783963312409,
           "attackType": "sensitive_file_access",
           "severity": "medium",
           "score": 2
         },
         {
-          "timestamp": 1783866558035,
+          "timestamp": 1783963312410,
           "attackType": "sensitive_file_access",
           "severity": "medium",
           "score": 2
         },
         {
-          "timestamp": 1783866558035,
+          "timestamp": 1783963312410,
           "attackType": "sensitive_file_access",
           "severity": "medium",
           "score": 2
         },
         {
-          "timestamp": 1783866558035,
+          "timestamp": 1783963312410,
           "attackType": "sensitive_file_access",
           "severity": "medium",
           "score": 2
         },
         {
-          "timestamp": 1783866558036,
+          "timestamp": 1783963312411,
           "attackType": "sensitive_file_access",
           "severity": "medium",
           "score": 2
         },
         {
-          "timestamp": 1783866558036,
+          "timestamp": 1783963312411,
           "attackType": "sensitive_file_access",
           "severity": "medium",
           "score": 2
         },
         {
-          "timestamp": 1783866558036,
+          "timestamp": 1783963312411,
           "attackType": "sensitive_file_access",
           "severity": "medium",
           "score": 2
         },
         {
-          "timestamp": 1783866558037,
+          "timestamp": 1783963312412,
           "attackType": "sensitive_file_access",
           "severity": "medium",
           "score": 2
         },
         {
-          "timestamp": 1783866558037,
+          "timestamp": 1783963312412,
           "attackType": "sensitive_file_access",
           "severity": "medium",
           "score": 2
         },
         {
-          "timestamp": 1783866558037,
-          "attackType": "sensitive_file_access",
-          "severity": "medium",
-          "score": 2
-        },
-        {
-          "timestamp": 1783866558038,
-          "attackType": "sensitive_file_access",
-          "severity": "medium",
-          "score": 2
-        },
-        {
-          "timestamp": 1783866558038,
-          "attackType": "malicious_user_agent",
-          "severity": "high",
-          "score": 3
-        },
-        {
-          "timestamp": 1783866558040,
-          "attackType": "sensitive_file_access",
-          "severity": "medium",
-          "score": 2
-        },
-        {
-          "timestamp": 1783866558040,
-          "attackType": "malicious_user_agent",
-          "severity": "high",
-          "score": 3
-        },
-        {
-          "timestamp": 1783866558041,
-          "attackType": "malicious_user_agent",
-          "severity": "high",
-          "score": 3
-        },
-        {
-          "timestamp": 1783866558041,
-          "attackType": "sensitive_file_access",
-          "severity": "medium",
-          "score": 2
-        },
-        {
-          "timestamp": 1783866558042,
-          "attackType": "malicious_user_agent",
-          "severity": "high",
-          "score": 3
-        },
-        {
-          "timestamp": 1783866558042,
-          "attackType": "malicious_user_agent",
-          "severity": "high",
-          "score": 3
-        }
-      ]
-    },
-    "157.52.122.51": {
-      "score": 1.9999999444444445,
-      "firstSeen": 1783918262674,
-      "lastSeen": 1783918262674,
-      "detections": [
-        {
-          "timestamp": 1783918262674,
+          "timestamp": 1783963312413,
           "attackType": "sensitive_file_access",
           "severity": "medium",
           "score": 2
@@ -25231,106 +25174,77 @@
     }
   },
   "subnetReputation": {
-    "15.204.114.0/24": {
+    "116.204.169.0/24": {
       "score": 0,
-      "firstSeen": 1783843973594,
-      "lastSeen": 1783843991780,
+      "firstSeen": 1783963312409,
+      "lastSeen": 1783963312413,
       "detections": [
         {
-          "timestamp": 1783843973594,
-          "ip": "15.204.114.193",
-          "attackType": "syn_flood",
-          "severity": "low",
-          "score": 3
-        },
-        {
-          "timestamp": 1783843976750,
-          "ip": "15.204.114.193",
-          "attackType": "syn_flood",
-          "severity": "low",
-          "score": 3
-        },
-        {
-          "timestamp": 1783843979931,
-          "ip": "15.204.114.193",
-          "attackType": "syn_flood",
-          "severity": "low",
-          "score": 3
-        },
-        {
-          "timestamp": 1783843988681,
-          "ip": "15.204.114.193",
-          "attackType": "syn_flood",
-          "severity": "low",
-          "score": 2.5
-        },
-        {
-          "timestamp": 1783843991780,
-          "ip": "15.204.114.193",
-          "attackType": "syn_flood",
-          "severity": "low",
-          "score": 2.5
-        }
-      ],
-      "ipCount": 1,
-      "ips": [
-        "15.204.114.193"
-      ]
-    },
-    "15.204.115.0/24": {
-      "score": 0,
-      "firstSeen": 1783843973596,
-      "lastSeen": 1783843991781,
-      "detections": [
-        {
-          "timestamp": 1783843973596,
-          "ip": "15.204.115.10",
-          "attackType": "syn_flood",
-          "severity": "low",
+          "timestamp": 1783963312409,
+          "ip": "116.204.169.2",
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
           "score": 1
         },
         {
-          "timestamp": 1783843976751,
-          "ip": "15.204.115.10",
-          "attackType": "syn_flood",
-          "severity": "low",
+          "timestamp": 1783963312410,
+          "ip": "116.204.169.2",
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
           "score": 1
         },
         {
-          "timestamp": 1783843979932,
-          "ip": "15.204.115.10",
-          "attackType": "syn_flood",
-          "severity": "low",
+          "timestamp": 1783963312410,
+          "ip": "116.204.169.2",
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
           "score": 1
         },
         {
-          "timestamp": 1783843988682,
-          "ip": "15.204.115.10",
-          "attackType": "syn_flood",
-          "severity": "low",
-          "score": 3
+          "timestamp": 1783963312410,
+          "ip": "116.204.169.2",
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 1
         },
         {
-          "timestamp": 1783843991781,
-          "ip": "15.204.115.10",
-          "attackType": "syn_flood",
-          "severity": "low",
-          "score": 2.5
-        }
-      ],
-      "ipCount": 1,
-      "ips": [
-        "15.204.115.10"
-      ]
-    },
-    "157.52.122.0/24": {
-      "score": 0.9999999722222223,
-      "firstSeen": 1783918262674,
-      "lastSeen": 1783918262674,
-      "detections": [
+          "timestamp": 1783963312411,
+          "ip": "116.204.169.2",
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 1
+        },
         {
-          "timestamp": 1783918262674,
-          "ip": "157.52.122.51",
+          "timestamp": 1783963312411,
+          "ip": "116.204.169.2",
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 1
+        },
+        {
+          "timestamp": 1783963312411,
+          "ip": "116.204.169.2",
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 1
+        },
+        {
+          "timestamp": 1783963312412,
+          "ip": "116.204.169.2",
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 1
+        },
+        {
+          "timestamp": 1783963312412,
+          "ip": "116.204.169.2",
+          "attackType": "sensitive_file_access",
+          "severity": "medium",
+          "score": 1
+        },
+        {
+          "timestamp": 1783963312413,
+          "ip": "116.204.169.2",
           "attackType": "sensitive_file_access",
           "severity": "medium",
           "score": 1
@@ -25338,24 +25252,63 @@
       ],
       "ipCount": 1,
       "ips": [
-        "157.52.122.51"
+        "116.204.169.2"
+      ]
+    },
+    "176.9.56.0/24": {
+      "score": 0.6,
+      "firstSeen": 1784033010357,
+      "lastSeen": 1784033010357,
+      "detections": [
+        {
+          "timestamp": 1784033010357,
+          "ip": "176.9.56.126",
+          "attackType": "syn_flood",
+          "severity": "low",
+          "score": 0.6
+        }
+      ],
+      "ipCount": 1,
+      "ips": [
+        "176.9.56.126"
       ]
     }
   },
   "banMetadata": {
-    "154.58.229.20": {
-      "bannedAt": 1783866558029,
-      "expiresAt": 1783952958029,
+    "94.154.43.177": {
+      "bannedAt": 1783958765819,
+      "expiresAt": 1784045165819,
       "reason": "immediate_attack_type",
       "attackType": "sensitive_file_access",
-      "uri": "/.git/HEAD"
+      "uri": "/.env"
     },
-    "157.52.122.51": {
-      "bannedAt": 1783918262668,
-      "expiresAt": 1784004662668,
+    "116.204.169.2": {
+      "bannedAt": 1783963312405,
+      "expiresAt": 1784049712405,
       "reason": "immediate_attack_type",
       "attackType": "sensitive_file_access",
-      "uri": "/.git/config"
+      "uri": "/.env.backup"
+    },
+    "94.154.43.187": {
+      "bannedAt": 1784013582432,
+      "expiresAt": 1784099982432,
+      "reason": "immediate_attack_type",
+      "attackType": "sensitive_file_access",
+      "uri": "/.env"
+    },
+    "23.128.100.245": {
+      "bannedAt": 1784033216138,
+      "expiresAt": 1784119616138,
+      "reason": "syn_flood",
+      "attackType": null,
+      "uri": null
+    },
+    "23.128.100.247": {
+      "bannedAt": 1784033216361,
+      "expiresAt": 1784119616361,
+      "reason": "syn_flood",
+      "attackType": null,
+      "uri": null
     }
   }
 }

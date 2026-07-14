@@ -59,9 +59,9 @@
   };
 
   const SAMPLE_TABLE_LINES = [
-    { refUgap: 'UG-MOD-01', libelle: 'Bateau école 8 m — configuration de base', libelleApp: 'Coque 8 m', prix: '28 900,00 €' },
-    { refUgap: 'UG-MOT-40', libelle: 'Moteur Yamaha 40 CV', libelleApp: 'Moteur hors-bord 4 temps', prix: '4 250,00 €' },
-    { refUgap: 'UG-COQ-01', libelle: 'Coque polyester 8 m', libelleApp: 'Coque 8 m polyester', prix: '28 900,00 €' },
+    { refUgap: 'UG-MOD-01', refFournisseur: 'GDRI-B8-001', libelle: 'Bateau école 8 m — configuration de base', libelleApp: 'Coque 8 m', prix: '28 900,00 €' },
+    { refUgap: 'UG-MOT-40', refFournisseur: 'YAM-F40-2024', libelle: 'Moteur Yamaha 40 CV', libelleApp: 'Moteur hors-bord 4 temps', prix: '4 250,00 €' },
+    { refUgap: 'UG-COQ-01', refFournisseur: 'GDRI-C8-POL', libelle: 'Coque polyester 8 m', libelleApp: 'Coque 8 m polyester', prix: '28 900,00 €' },
     { refUgap: 'UG-EQU-12', libelle: 'Équipement sécurité pack UGAP', libelleApp: 'Pack sécurité réglementaire', prix: '1 850,00 €' },
     { refUgap: 'UG-NAV-03', libelle: 'Pack navigation VHF + GPS', libelleApp: 'Navigation côtière', prix: '2 150,00 €' },
     { refUgap: 'UG-ANC-02', libelle: 'Ancre et mouillage 12 kg', libelleApp: 'Ancre Bruce 12 kg', prix: '420,00 €' },
@@ -168,6 +168,7 @@
 
   const TABLE_LINE_FIELDS = [
     { key: 'refUgap', label: 'Réf. UGAP' },
+    { key: 'refFournisseur', label: 'Réf. fournisseur' },
     { key: 'libelle', label: 'Libellé UGAP' },
     { key: 'libelleApp', label: 'Libellé' },
     { key: 'categorie', label: 'Catégorie' },

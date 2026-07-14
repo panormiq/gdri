@@ -168,57 +168,86 @@
                     <div id="subcategories-container"></div>
                     <div id="options-container"></div>
 
-                    <!-- Section 5% Devis -->
-                    <div class="five-percent-section">
-                        <h3>Options supplémentaires (5% du devis)</h3>
-                        <div class="five-percent-options" id="five-percent-options"></div>
-                    </div>
                     </div>
                     <div id="ugap-devis-versions-panel" class="ugap-devis-versions-panel" hidden></div>
 
-                    <!-- Summary -->
-                    <div id="ugap-devis-update-status" class="ugap-devis-update-status hidden" role="status" aria-live="polite">
-                        <span class="ugap-devis-update-hourglass" aria-hidden="true"></span>
-                        <span>Mise à jour du devis en cours…</span>
-                    </div>
-                    <div class="summary">
-                        <h3>Récapitulatif</h3>
-                        <div class="summary-item">
-                            <span>Modèle:</span>
-                            <span id="summary-model">-</span>
+                    <div class="ugap-devis-footer-dock" id="ugap-devis-footer-dock">
+                        <div id="ugap-devis-update-status" class="ugap-devis-update-status hidden" role="status" aria-live="polite">
+                            <span class="ugap-devis-update-hourglass" aria-hidden="true"></span>
+                            <span>Mise à jour du devis en cours…</span>
                         </div>
-                        <div class="summary-item">
-                            <span>Configuration:</span>
-                            <span id="summary-config">-</span>
+                        <div class="summary">
+                            <div class="summary-columns">
+                                <div class="summary-col summary-col--meta">
+                                    <div class="summary-item">
+                                        <span>Modèle:</span>
+                                        <span id="summary-model">-</span>
+                                    </div>
+                                    <div class="summary-item">
+                                        <span>Configuration:</span>
+                                        <span id="summary-config">-</span>
+                                    </div>
+                                    <div class="summary-item">
+                                        <span>Options sélectionnées:</span>
+                                        <span id="summary-options-count">0</span>
+                                    </div>
+                                </div>
+                                <div class="summary-col summary-col--amounts">
+                                    <div class="summary-item">
+                                        <span>Sous-total:</span>
+                                        <span id="summary-subtotal">0,00 €</span>
+                                    </div>
+                                    <div class="summary-item" id="summary-5percent-item">
+                                        <span>Budget 5%:</span>
+                                        <span id="summary-5percent">0,00 €</span>
+                                    </div>
+                                    <div class="summary-total">
+                                        <span>Total HT:</span>
+                                        <span id="summary-total">0,00 €</span>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
-                        <div class="summary-item">
-                            <span>Options sélectionnées:</span>
-                            <span id="summary-options-count">0</span>
+                        <div class="actions">
+                            <button class="btn btn-secondary" onclick="goToStep(1)">Info client</button>
+                            <button class="btn btn-secondary" onclick="goToStep(3)">Précédent</button>
+                            <button class="btn btn-primary" type="button" onclick="saveCurrentDevis()">Sauvegarder</button>
+                            <button class="btn btn-success" type="button" id="ugap-generate-devis-btn" onclick="generateDevis()">Générer le devis PDF</button>
                         </div>
-                        <div class="summary-item">
-                            <span>Sous-total:</span>
-                            <span id="summary-subtotal">0,00 €</span>
-                        </div>
-                        <div class="summary-item" id="summary-5percent-item">
-                            <span>Budget 5%:</span>
-                            <span id="summary-5percent">0,00 €</span>
-                        </div>
-                        <div class="summary-total">
-                            <span>Total HT:</span>
-                            <span id="summary-total">0,00 €</span>
-                        </div>
-                    </div>
-
-                    <div class="actions">
-                        <button class="btn btn-secondary" onclick="goToStep(1)">Info client</button>
-                        <button class="btn btn-secondary" onclick="goToStep(3)">Précédent</button>
-                        <button class="btn btn-primary" type="button" onclick="saveCurrentDevis()">Sauvegarder</button>
-                        <button class="btn btn-success" type="button" id="ugap-generate-devis-btn" onclick="generateDevis()">Générer le devis PDF</button>
                     </div>
                 </div>
             </div>
         </div>
     </div>
+
+    <!-- Zone sticky budget 5% (étape options, haut droite hors cadre) -->
+    <aside id="ugap-five-pct-sticky" class="ugap-five-pct-sticky" hidden aria-live="polite">
+        <div class="ugap-five-pct-sticky__header">
+            <span class="ugap-five-pct-sticky__title">Budget 5% devis</span>
+            <label class="ugap-five-pct-sticky__toggle" title="Activer le budget 5% (5 % du total HT hors options 5%)">
+                <input type="checkbox" id="enable-5percent" checked onchange="toggle5Percent()">
+                <span>Actif</span>
+            </label>
+        </div>
+        <div class="ugap-five-pct-sticky__body" id="ugap-five-pct-sticky-body">
+            <div class="ugap-five-pct-sticky__row">
+                <span>Disponible (5%)</span>
+                <strong id="ugap-five-pct-budget">0,00 €</strong>
+            </div>
+            <div class="ugap-five-pct-sticky__row">
+                <span>Consommé</span>
+                <strong id="ugap-five-pct-used">0,00 €</strong>
+            </div>
+            <div class="ugap-five-pct-sticky__row ugap-five-pct-sticky__row--left">
+                <span>Restant</span>
+                <strong id="ugap-five-pct-left">0,00 €</strong>
+            </div>
+            <div class="ugap-five-pct-sticky__bar">
+                <div class="ugap-five-pct-sticky__bar-fill" id="ugap-five-pct-bar"></div>
+            </div>
+        </div>
+        <div class="ugap-five-pct-sticky__off" id="ugap-five-pct-sticky-off" hidden>Budget 5% désactivé</div>
+    </aside>
 
     <div id="ugap-devis-open-overlay" class="ugap-devis-open-overlay hidden" aria-hidden="true" role="status">
         <div class="ugap-devis-open-overlay__panel">

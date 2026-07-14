@@ -184,10 +184,133 @@
         .summary-item { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #eee; }
         .summary-item:last-child { border-bottom: none; }
         .summary-total { font-size: 20px; font-weight: bold; color: var(--primary-color, #007bff); margin-top: 10px; }
+
+        /* Étape options : scroll page unique, en-têtes tableau sticky, récap sticky en bas */
+        :root {
+            --ugap-config-sticky-top: 0px;
+        }
+        body:has(#ugap-gdri-host) {
+            --ugap-config-sticky-top: var(--header-height, 120px);
+        }
+        #step-3 .ugap-devis-table-wrap.excel-options-wrap,
+        #step-3 .ugap-devis-table-wrap--reorder-tree.excel-options-wrap,
+        #step-3 .ugap-devis-table-wrap--reorder.excel-options-wrap {
+            overflow: visible;
+        }
+        #step-3 .ugap-devis-table-wrap .excel-options-scroll,
+        #step-3 .ugap-devis-table-wrap--reorder-tree .excel-options-scroll {
+            max-height: none;
+            overflow: visible;
+        }
+        #step-3 .ugap-devis-options-table thead th {
+            position: sticky;
+            top: var(--ugap-config-sticky-top);
+            z-index: 4;
+            box-shadow: 0 1px 0 #cbd5e1;
+        }
+        #step-3 .ugap-reorder-thead {
+            position: sticky;
+            top: var(--ugap-config-sticky-top);
+            z-index: 4;
+            box-shadow: 0 1px 0 #cbd5e1;
+        }
+        #step-3 .ugap-devis-footer-dock {
+            position: sticky;
+            bottom: 0;
+            z-index: 5;
+            margin-top: 16px;
+            padding-bottom: 8px;
+            background: #f5f7fa;
+        }
+        #step-3 .ugap-devis-footer-dock .summary {
+            padding: 10px 16px;
+            margin-top: 0;
+        }
+        #step-3 .ugap-devis-footer-dock .summary-columns {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+            gap: 16px 24px;
+            align-items: start;
+        }
+        #step-3 .ugap-devis-footer-dock .summary-col {
+            display: flex;
+            flex-direction: column;
+            gap: 0;
+            min-width: 0;
+        }
+        #step-3 .ugap-devis-footer-dock .summary-item {
+            padding: 3px 0;
+            font-size: 13px;
+            gap: 10px;
+        }
+        #step-3 .ugap-devis-footer-dock .summary-item > span:last-child {
+            text-align: right;
+            font-weight: 600;
+        }
+        #step-3 .ugap-devis-footer-dock .summary-col--meta .summary-item > span:last-child {
+            text-align: left;
+            font-weight: 600;
+            word-break: break-word;
+        }
+        #step-3 .ugap-devis-footer-dock .summary-col--amounts .summary-item > span:last-child {
+            font-variant-numeric: tabular-nums;
+            white-space: nowrap;
+        }
+        #step-3 .ugap-devis-footer-dock .summary-total {
+            display: flex;
+            justify-content: space-between;
+            align-items: baseline;
+            font-size: 16px;
+            font-weight: bold;
+            color: var(--primary-color, #007bff);
+            margin-top: 2px;
+            padding-top: 4px;
+            border-top: 1px solid #e2e8f0;
+        }
+        #step-3 .ugap-devis-footer-dock .summary-total > span:last-child {
+            font-variant-numeric: tabular-nums;
+            white-space: nowrap;
+        }
+        @media (max-width: 760px) {
+            #step-3 .ugap-devis-footer-dock .summary-columns {
+                grid-template-columns: 1fr;
+                gap: 8px;
+            }
+        }
+        #step-3 .ugap-devis-footer-dock .actions {
+            margin-top: 10px;
+            padding-top: 10px;
+        }
+        #step-3 .ugap-devis-footer-dock .btn {
+            padding: 10px 18px;
+        }
         
-        .five-percent-section { background: #fff3cd; border: 2px solid #ffc107; border-radius: 8px; padding: 20px; margin-top: 20px; }
-        .five-percent-section h3 { margin-top: 0; color: #856404; }
-        .five-percent-options { margin-top: 4px; display: block; font-size: 14px; line-height: 1.6; color: #856404; }
+        /* Zone sticky budget 5% (haut droite, hors cadre) */
+        .ugap-five-pct-sticky {
+            position: fixed;
+            top: 92px;
+            right: 16px;
+            z-index: 9000;
+            width: 240px;
+            background: #fff8e6;
+            border: 2px solid #ffc107;
+            border-radius: 10px;
+            box-shadow: 0 6px 18px rgba(0, 0, 0, 0.14);
+            padding: 10px 12px 12px;
+            font-size: 13px;
+            color: #856404;
+        }
+        .ugap-five-pct-sticky__header { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px; }
+        .ugap-five-pct-sticky__title { font-weight: 700; }
+        .ugap-five-pct-sticky__toggle { display: flex; align-items: center; gap: 5px; font-size: 12px; font-weight: 600; cursor: pointer; }
+        .ugap-five-pct-sticky__row { display: flex; justify-content: space-between; gap: 10px; margin: 3px 0; }
+        .ugap-five-pct-sticky__row strong { font-variant-numeric: tabular-nums; white-space: nowrap; }
+        .ugap-five-pct-sticky__row--left strong { color: #1a7f37; }
+        .ugap-five-pct-sticky.is-over .ugap-five-pct-sticky__row--left strong { color: #dc3545; }
+        .ugap-five-pct-sticky__bar { height: 6px; background: #f1dca7; border-radius: 4px; margin-top: 8px; overflow: hidden; }
+        .ugap-five-pct-sticky__bar-fill { height: 100%; width: 0; background: #ffc107; border-radius: 4px; transition: width 0.2s ease; }
+        .ugap-five-pct-sticky.is-over .ugap-five-pct-sticky__bar-fill { background: #dc3545; }
+        .ugap-five-pct-sticky__off { font-size: 12px; color: #a08425; }
         .five-pct-modal-block {
             background: #fff3cd;
             border: 2px solid #ffc107;
@@ -210,6 +333,68 @@
         }
         .five-pct-modal-block__list li:last-child { border-bottom: none; }
         .five-pct-modal-block__ref { font-size: 11px; color: #a16207; margin-top: 2px; }
+        /* Œil options liées (prérequis / variantes) dans les modales de choix */
+        .tpl-linked-eye {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            margin-left: 10px;
+            padding: 2px 8px;
+            border: 1px solid #cbd5e1;
+            border-radius: 999px;
+            background: #f8fafc;
+            cursor: pointer;
+            font-size: 13px;
+            line-height: 1.4;
+            flex: 0 0 auto;
+        }
+        .tpl-linked-eye:hover { border-color: #2563eb; background: #eff6ff; }
+        .tpl-linked-eye.is-open { border-color: #2563eb; background: #dbeafe; }
+        .tpl-linked-eye__count { font-size: 11px; font-weight: 700; color: #2563eb; }
+        .tpl-linked-panel {
+            margin: 0 0 8px 22px;
+            padding: 6px 10px;
+            border-left: 3px solid #bfdbfe;
+            background: #f8fafc;
+            border-radius: 0 6px 6px 0;
+        }
+        .tpl-linked-row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 5px 0;
+            font-size: 13px;
+            cursor: pointer;
+        }
+        .tpl-linked-row .price { margin-left: auto; white-space: nowrap; }
+        .tpl-linked-name { flex: 1; }
+        .tpl-linked-badge {
+            flex: 0 0 auto;
+            font-size: 10px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.03em;
+            padding: 2px 6px;
+            border-radius: 4px;
+            background: #e2e8f0;
+            color: #475569;
+        }
+        .tpl-linked-badge--prerequis { background: #fee2e2; color: #b91c1c; }
+        .tpl-linked-badge--variante { background: #dbeafe; color: #1d4ed8; }
+        .tpl-linked-badge--complement { background: #dcfce7; color: #15803d; }
+
+        .five-pct-modal-field { display: block; font-size: 12px; font-weight: 600; color: #555; }
+        .five-pct-modal-field input,
+        .five-pct-modal-field textarea {
+            display: block;
+            width: 100%;
+            margin-top: 4px;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-weight: 400;
+            box-sizing: border-box;
+        }
         .five-pct-modal-add-btn {
             width: 100%;
             padding: 8px 14px;
@@ -503,19 +688,12 @@
             margin-top: 4px;
         }
         .ugap-devis-table-wrap .excel-options-scroll {
-            overflow-x: hidden;
-            overflow-y: auto;
-            max-height: min(65vh, 720px);
-            -webkit-overflow-scrolling: touch;
-        }
-        .ugap-gdri-embed.ugap-configurateur-embed .ugap-devis-table-wrap .excel-options-scroll,
-        body.ugap-embedded-mode .ugap-devis-table-wrap .excel-options-scroll {
-            overflow-x: hidden;
-            overflow-y: auto;
-            max-height: min(65vh, 720px);
+            max-height: none;
+            overflow: visible;
         }
         .ugap-devis-options-table {
             width: 100%;
+            min-width: 920px;
             table-layout: fixed;
             border-collapse: collapse;
         }
@@ -535,11 +713,13 @@
         }
         .ugap-devis-th-price {
             text-align: right !important;
-            width: 8%;
+            width: 96px;
+            min-width: 96px;
         }
         .ugap-devis-th-categorie,
         .ugap-devis-td-categorie {
-            width: 18%;
+            width: 15%;
+            min-width: 120px;
         }
         .ugap-devis-td-categorie--merged,
         .ugap-devis-td-node--merged {
@@ -554,16 +734,19 @@
         }
         .ugap-devis-th-sous-noeud,
         .ugap-devis-td-sous-noeud {
-            width: 17%;
+            width: 14%;
+            min-width: 110px;
         }
         .ugap-devis-th-ref,
         .ugap-devis-td-ref {
-            width: 13%;
+            width: 11%;
+            min-width: 88px;
         }
         .ugap-devis-th-option,
         .ugap-devis-td-option {
-            width: 32%;
-            overflow: hidden;
+            width: auto;
+            min-width: 0;
+            overflow: visible;
         }
         .ugap-devis-ref {
             font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
@@ -692,7 +875,9 @@
         .ugap-devis-td-price {
             text-align: right;
             white-space: nowrap;
-            width: 8%;
+            width: 96px;
+            min-width: 96px;
+            overflow: visible;
         }
         .ugap-devis-price {
             font-weight: 700;

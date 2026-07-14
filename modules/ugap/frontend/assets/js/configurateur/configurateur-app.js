@@ -38,7 +38,7 @@
             selectedOptions: new Set(),
             fivePercentOptions: new Set(),
             fivePercentCustomOptions: [],
-            use5Percent: false,
+            use5Percent: true,
             budget5Percent: 0,
             excelTabFilters: { name: '', selection: 'all' },
             excelAllRows: [],
@@ -76,6 +76,7 @@
         let ugapZones = { use: false, configure: false };
         const SAVED_DEVIS_STORAGE_KEY = 'ugap.configurateur.savedDevis.v1';
         const SAVED_DEVIS_MIGRATED_KEY = 'ugap.configurateur.savedDevis.migrated.v1';
+        const DEFAULT_FIVE_PCT_REF_UGAP = '5%';
         const DEVIS_PRINT_ICON_SVG = '<svg class="ugap-devis-print-icon" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false"><path fill="currentColor" d="M6 19v2h12v-2H6zm12-8c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2H6C4.9 3 4 3.9 4 5v4c0 1.1.9 2 2 2h1v4h10v-4h1zm-2 0H6V5h12v6zm-8 4h8v2h-8v-2z"/></svg>';
 
         function resolveConfiguratorApiBase() {
@@ -143,6 +144,10 @@
                 seen.add(id);
                 out.push(id);
             };
+            // Mino/majo : gardée si liée à une base remplacée OU choisie explicitement.
+            const dropAdj = (opt, id) => isAdjOptionForConfigurator(opt)
+                && !isAdjLinkedToReplacedIbp(id)
+                && state.selectedOptions?.has?.(id) !== true;
             (Array.isArray(primaryIds) ? primaryIds : []).forEach(push);
             (Array.isArray(extraIds) ? extraIds : []).forEach((rawId) => {
                 const id = String(rawId || '').trim();
@@ -153,10 +158,8 @@
                 if (!includeInclus) {
                     if (isBaseCatalogOption(opt)) return;
                     if (getOptionInclusionKind(opt) === 'inclus') return;
-                    if (isAdjOptionForConfigurator(opt) && !isAdjLinkedToReplacedIbp(id)) return;
-                } else if (isAdjOptionForConfigurator(opt) && !isAdjLinkedToReplacedIbp(id)) {
-                    return;
                 }
+                if (dropAdj(opt, id)) return;
                 push(id);
             });
             return out;
@@ -246,6 +249,12 @@
                     state.importBaseProducts = Array.isArray(result.data?.importBaseProducts)
                         ? result.data.importBaseProducts
                         : [];
+                    state.optionLinkRules = Array.isArray(result.data?.optionLinkRules)
+                        ? result.data.optionLinkRules
+                        : [];
+                    state.dependencyRules = Array.isArray(result.data?.dependencyRules)
+                        ? result.data.dependencyRules
+                        : [];
                     state.uiState = (result.data && result.data.uiState) || null;
                     applyServerUiStateToLocal(state.uiState);
                     publishConfiguratorDataToGlobals();
@@ -294,6 +303,7 @@
                 }
             });
             if (state.showEntryScreen) {
+                updateFivePctStickyZone();
                 if (typeof scheduleParentEmbedResize === 'function') scheduleParentEmbedResize();
                 return;
             }
@@ -310,6 +320,7 @@
             } else if (state.step === 4) {
                 renderStep3();
             }
+            updateFivePctStickyZone();
             if (typeof scheduleParentEmbedResize === 'function') scheduleParentEmbedResize();
         }
 
@@ -347,7 +358,7 @@
                 }
                 card.innerHTML = `
                     <h3>${model.name}</h3>
-                    <div class="price">${(model.basePrice || 0).toFixed(2)} €</div>
+                    <div class="price">${resolveModelBasePrice(model).toFixed(2)} €</div>
                 `;
                 card.onclick = () => selectModel(model);
                 container.appendChild(card);
@@ -364,10 +375,60 @@
             state._categoryTableRowsCache = null;
             state._categoryTableRowsCacheKey = '';
             state._modelBaseDefaultsAppliedForModelId = '';
-            if (window.UgapConfiguratorTemplateTree?.onModelSelected) {
-                window.UgapConfiguratorTemplateTree.onModelSelected(state);
-            }
+            state._modelBaseEditorTreeCache = null;
+            state._modelBaseEditorTreeCacheKey = '';
+            state._mboStatusCache = null;
+            state._mboStatusCacheKey = '';
+            state._tplOptionByIdMap = null;
+            state._tplOptionByIdMapKey = '';
             goToStep(3);
+            // Ne pas bloquer l'UI au clic modèle : on laisse peindre l'étape 2, puis on prépare le template-tree.
+            if (window.UgapConfiguratorTemplateTree?.onModelSelected) {
+                requestAnimationFrame(() => {
+                    try {
+                        window.UgapConfiguratorTemplateTree.onModelSelected(state);
+                    } catch (err) {
+                        console.warn('[UGAP] onModelSelected failed:', err?.message || err);
+                    }
+                });
+            }
+        }
+
+        /**
+         * Options liées à une option (règles Liaisons) pour le bouton œil des modales :
+         * - prérequis (requires/variant_fit où l'option est cible)
+         * - variantes / compléments (requires/variant_fit où l'option est source)
+         */
+        function getLinkedOptionRefsForOption(optionId) {
+            const oid = String(optionId || '').trim();
+            if (!oid) return [];
+            const rules = Array.isArray(state.optionLinkRules) ? state.optionLinkRules : [];
+            const out = [];
+            const seen = new Set([oid]);
+            const push = (id, relation) => {
+                const rid = String(id || '').trim();
+                if (!rid || seen.has(rid)) return;
+                const opt = getCatalogOptionById(rid);
+                if (!opt) return;
+                if (!isOptionCompatibleWithSelectedModel(opt)) return;
+                seen.add(rid);
+                out.push({ id: rid, relation, option: opt });
+            };
+            rules.forEach((rule) => {
+                const type = String(rule?.type || '').trim();
+                if (type !== 'requires' && type !== 'variant_fit') return;
+                const sources = (Array.isArray(rule.sourceOptionIds) ? rule.sourceOptionIds : []).map((x) => String(x || '').trim());
+                const targets = (Array.isArray(rule.targetOptionIds) ? rule.targetOptionIds : []).map((x) => String(x || '').trim());
+                // cible : les sources sont ses prérequis / supports
+                if (targets.includes(oid)) {
+                    sources.forEach((id) => push(id, 'prerequis'));
+                }
+                // source : les cibles sont ses variantes / compléments
+                if (sources.includes(oid)) {
+                    targets.forEach((id) => push(id, type === 'variant_fit' ? 'variante' : 'complement'));
+                }
+            });
+            return out;
         }
 
         function getTemplateTreeHooks() {
@@ -417,6 +478,57 @@
                         },
                         container
                     );
+                },
+                getOptionBillablePrice: (opt) => getOptionBillablePrice(opt),
+                resolveModelBasePrice: (model) => resolveModelBasePrice(model || state.selectedModel),
+                showAllParcoursSlots: true,
+                // Options 5% dans les modales de choix du parcours
+                isFivePercentCatalogOption: (opt) => isFivePercentCatalogOption(opt),
+                getFivePercentOptionPrice: (opt) => getFivePercentOptionPrice(opt),
+                tryAddFivePercentPriceDelta: (price) => tryAddFivePercentPriceDelta(price),
+                appendFivePercentCustomPickerToList: (list, group, mode, opts) =>
+                    appendFivePercentCustomPickerToList(list, group, mode, opts),
+                appendFivePercentOptionForm: (container, group, opts) =>
+                    appendFivePercentOptionForm(container, group, opts),
+                refreshTemplateTreePickerModal: (group) => {
+                    const Tpl = window.UgapConfiguratorTemplateTree;
+                    if (!group || !Tpl) return;
+                    if (group.decisionMode === 'multi_choice' && typeof Tpl.openMultiChoiceModal === 'function') {
+                        Tpl.openMultiChoiceModal(state, group, getTemplateTreeHooks());
+                    } else if (typeof Tpl.openSingleChoiceModal === 'function') {
+                        Tpl.openSingleChoiceModal(state, group, getTemplateTreeHooks());
+                    }
+                },
+                openUnclassifiedFivePercentModal: () => openFivePercentGroupModal({
+                    unclassified: true,
+                    familyLabel: '',
+                    group: { groupId: '', label: 'Options non classées', options: [] }
+                }),
+                getLinkedOptionsForOption: (optionId) => getLinkedOptionRefsForOption(optionId),
+                invalidateBillableCache: () => invalidateBillableDerivationCache(),
+                scheduleParcoursUiRefresh: () => {
+                    if (state._parcoursUiRefreshTimer) {
+                        clearTimeout(state._parcoursUiRefreshTimer);
+                    }
+                    state._parcoursUiRefreshTimer = setTimeout(() => {
+                        state._parcoursUiRefreshTimer = null;
+                        const Tpl = window.UgapConfiguratorTemplateTree;
+                        const hooks = getTemplateTreeHooks();
+                        invalidateBillableDerivationCache();
+                        if (typeof Tpl?.refreshParcoursAfterPick === 'function') {
+                            Tpl.refreshParcoursAfterPick(state, hooks);
+                        } else {
+                            syncConfiguratorDevisTable();
+                        }
+                        updateSummary({ lite: true, skipDevisSync: true, skipAdjSync: true });
+                        if (state._parcoursPickFullSummaryTimer) {
+                            clearTimeout(state._parcoursPickFullSummaryTimer);
+                        }
+                        state._parcoursPickFullSummaryTimer = setTimeout(() => {
+                            state._parcoursPickFullSummaryTimer = null;
+                            updateSummary({ skipDevisSync: true });
+                        }, 180);
+                    }, 16);
                 }
             };
         }
@@ -576,10 +688,18 @@
             state._categoryTableRowsCache = null;
             state._categoryTableRowsCacheKey = '';
             state._modelBaseDefaultsAppliedForModelId = '';
+            state._modelBaseEditorTreeCache = null;
+            state._modelBaseEditorTreeCacheKey = '';
+            state._mboStatusCache = null;
+            state._mboStatusCacheKey = '';
+            state._tplOptionByIdMap = null;
+            state._tplOptionByIdMapKey = '';
             syncConfiguratorModelBaseContext();
             if (!String(state.devisName || '').trim()) {
                 state.devisName = buildDefaultDevisName();
             }
+            // Transition 3→4: affichage immédiat, calculs lourds en différé.
+            state._step4FastOpen = true;
             goToStep(4);
         }
 
@@ -665,10 +785,34 @@
             state._categoryTableRowsCache = null;
             state._categoryTableRowsCacheKey = '';
             state._replacedIbpLinkedAdjIds = null;
+            state._linkedAdjIdsByKey = null;
+            state._tplOptionByIdMap = null;
+            state._tplOptionByIdMapKey = '';
+            state._modelBaseEditorTreeCache = null;
+            state._modelBaseEditorTreeCacheKey = '';
+            state._mboStatusCache = null;
+            state._mboStatusCacheKey = '';
+            window.UgapBaseAdjLinks?.clearResolveAdjSourceCache?.();
+            window.UgapModelBaseOptions?.clearRuntimeCaches?.();
         }
 
         function invalidateBillableDerivationCache() {
             state._replacedIbpLinkedAdjIds = null;
+            state._parcoursCoveredCache = null;
+            state._parcoursCoveredCacheKey = '';
+            state._linkedAdjIdsByKey = null;
+            state._billableOptionIdsCache = null;
+            state._billableOptionIdsCacheKey = '';
+            // Ne dépend que du catalogue (pas de la sélection) : ne pas vider les caches
+            // BAL / MBO ici, cette fonction est appelée à chaque changement d'option.
+        }
+
+        function getBillableOptionIdsCacheKey() {
+            const mid = String(state.selectedModel?.id || '').trim();
+            const sel = Array.from(state.selectedOptions || []).sort().join('\u0001');
+            const fp = Array.from(state.fivePercentOptions || []).sort().join('\u0001');
+            const custom5 = (state.fivePercentCustomOptions || []).length;
+            return `${mid}|${sel}|${fp}|${custom5}`;
         }
 
         function getCategoryTableRowsCacheKey() {
@@ -721,19 +865,18 @@
             if (!force && state._modelBaseDefaultsAppliedForModelId === mid) return;
             state._modelBaseDefaultsAppliedForModelId = mid;
 
-            syncConfiguratorModelBaseContext();
+            ugapPerfWrap('syncConfiguratorModelBaseContext', () => syncConfiguratorModelBaseContext());
             const Tpl = window.UgapConfiguratorTemplateTree;
             const hooks = getTemplateTreeHooks();
             if (typeof Tpl?.applyDefaultSelectionsForParcours === 'function') {
-                Tpl.applyDefaultSelectionsForParcours(state, hooks);
+                ugapPerfWrap('Tpl.applyDefaultSelectionsForParcours', () => Tpl.applyDefaultSelectionsForParcours(state, hooks));
             }
-            const groups = collectDecisionGroupsForModelDefaults();
-            if (groups.length && typeof Tpl?.ensureSingleChoiceDefaultsForGroups === 'function') {
-                Tpl.ensureSingleChoiceDefaultsForGroups(state, groups, hooks);
+            if (!Tpl?.shouldUseTemplateTree?.(state)) {
+                const groups = ugapPerfWrap('collectDecisionGroupsForModelDefaults', () => collectDecisionGroupsForModelDefaults());
+                if (groups.length && typeof Tpl?.ensureSingleChoiceDefaultsForGroups === 'function') {
+                    ugapPerfWrap('Tpl.ensureSingleChoiceDefaultsForGroups', () => Tpl.ensureSingleChoiceDefaultsForGroups(state, groups, hooks));
+                }
             }
-            syncConfiguratorDevisTable();
-            syncConfiguratorExcelTable();
-            refreshCategoryTableIfVisible();
             invalidateBillableDerivationCache();
         }
 
@@ -857,15 +1000,37 @@
             return family;
         }
 
+        function resolveFivePercentCustomRefUgap(custom) {
+            const ref = String(custom?.refUgap || custom?.refFournisseur || '').trim();
+            return ref || DEFAULT_FIVE_PCT_REF_UGAP;
+        }
+
+        function normalizeFivePercentCustomAsOption(custom) {
+            if (!custom || typeof custom !== 'object') return null;
+            const id = String(custom.id || '').trim();
+            if (!id) return null;
+            const price = getFivePercentOptionPrice(custom);
+            return {
+                ...custom,
+                id,
+                name: String(custom.name || '').trim(),
+                refUgap: resolveFivePercentCustomRefUgap(custom),
+                baseRefUgap: resolveFivePercentCustomRefUgap(custom),
+                priceUgap: price,
+                priceClient: price,
+                inclusionKind: 'devis_5pct'
+            };
+        }
+
         function getCatalogOptionById(optionId) {
             const oid = String(optionId || '').trim();
             if (!oid) return null;
-            for (const cat of Array.isArray(state.categories) ? state.categories : []) {
-                const hit = (Array.isArray(cat?.options) ? cat.options : []).find(
-                    (o) => String(o?.id || '').trim() === oid
-                );
-                if (hit) return hit;
-            }
+            const optionById = getCatalogueOptionByIdMap();
+            const hit = optionById?.get?.(oid) || null;
+            if (hit) return hit;
+            const custom = (state.fivePercentCustomOptions || [])
+                .find((row) => String(row?.id || '').trim() === oid);
+            if (custom) return normalizeFivePercentCustomAsOption(custom);
             syncConfiguratorModelBaseContext();
             const rec = window.UgapModelBaseOptions?.findOptionRecord?.(oid)?.option;
             return rec || null;
@@ -875,7 +1040,8 @@
             const mid = String(state.selectedModel?.id || '').trim();
             if (!mid) return true;
             const comp = Array.isArray(opt?.compatibleModels) ? opt.compatibleModels.map((x) => String(x)) : [];
-            if (comp.length === 0) return !!opt?.isDivers;
+            // Sans modèle attitré, l'option est compatible avec tous les modèles.
+            if (comp.length === 0) return true;
             return comp.includes(mid);
         }
 
@@ -952,10 +1118,16 @@
         function getFivePercentOptionsForGroup(ctx) {
             const group = ctx?.group;
             if (!group) return { catalogue: [], custom: [] };
-            const fam = String(ctx.familyLabel || group.familyLabel || '').trim();
-            const gid = String(group.groupId || '').trim();
             const optionById = getCatalogueOptionByIdMap();
             const catalogue = resolveConfiguratorGroupFivePercentOptions(group, optionById);
+            if (ctx.unclassified === true) {
+                // Ligne « Options non classées » : toutes les customs sans groupe complet.
+                const custom = (state.fivePercentCustomOptions || []).filter((opt) =>
+                    !(String(opt.familyLabel || '').trim() && String(opt.groupId || '').trim()));
+                return { catalogue, custom };
+            }
+            const fam = String(ctx.familyLabel || group.familyLabel || '').trim();
+            const gid = String(group.groupId || '').trim();
             const compId = String(group.componentId || '').trim();
             const custom = (state.fivePercentCustomOptions || []).filter((opt) =>
                 String(opt.familyLabel || '').trim() === fam
@@ -997,7 +1169,7 @@
 
         function tryAddFivePercentPriceDelta(price) {
             if (!state.use5Percent) {
-                alert('Activez d\'abord les options supplémentaires à 5% du devis (section ci-dessous).');
+                alert('Activez d\'abord le budget 5% du devis (zone en haut à droite).');
                 return false;
             }
             const p = Number(price) || 0;
@@ -1055,6 +1227,10 @@
                         <label for="five-pct-group-name">Nom</label>
                         <input id="five-pct-group-name" type="text" placeholder="Libellé de l'option" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:4px;">
                     </div>
+                    <div style="margin-bottom:10px;">
+                        <label for="five-pct-group-ref">Réf. UGAP</label>
+                        <input id="five-pct-group-ref" type="text" value="${escapeHtml(DEFAULT_FIVE_PCT_REF_UGAP)}" placeholder="${escapeHtml(DEFAULT_FIVE_PCT_REF_UGAP)}" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:4px;">
+                    </div>
                     <div style="margin-bottom:12px;">
                         <label for="five-pct-group-price">Prix (€)</label>
                         <input id="five-pct-group-price" type="number" step="0.01" min="0" placeholder="0.00" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:4px;">
@@ -1067,7 +1243,7 @@
                 const handler = () => {
                     const id = el.getAttribute('data-five-pct-id');
                     const type = el.getAttribute('data-five-pct-type');
-                    if (type === 'custom') selectFivePercentCustomGroupOption(id);
+                    if (type === 'custom') toggleFivePercentCustomGroupOption(id);
                     else selectFivePercentCatalogueGroupOption(id);
                 };
                 el.addEventListener('click', handler);
@@ -1108,6 +1284,7 @@
             refreshCategoryTableIfVisible();
             if (state.use5Percent) render5PercentOptions();
             updateSummary();
+            scheduleParcoursFullRefresh();
         }
 
         window.closeFivePercentGroupModal = closeFivePercentGroupModal;
@@ -1147,6 +1324,17 @@
             const id = String(customId || '').trim();
             const custom = (state.fivePercentCustomOptions || []).find((o) => o.id === id);
             if (!custom) return;
+            const hasGroup = String(custom.familyLabel || '').trim() && String(custom.groupId || '').trim();
+            if (!hasGroup) {
+                // Custom non classée : toujours comptée tant qu'elle existe → cliquer = retirer.
+                state.fivePercentCustomOptions = (state.fivePercentCustomOptions || [])
+                    .filter((o) => String(o?.id || '') !== id);
+                renderFivePercentGroupModalContent();
+                updateSummary();
+                refreshCategoryTableIfVisible();
+                scheduleParcoursFullRefresh();
+                return;
+            }
             if (custom.selected === true) {
                 custom.selected = false;
                 state.fivePercentOptions.delete(id);
@@ -1162,10 +1350,12 @@
             const ctx = state._fivePercentGroupModalContext;
             if (!ctx?.group) return;
             const nameInput = document.getElementById('five-pct-group-name');
+            const refInput = document.getElementById('five-pct-group-ref');
             const priceInput = document.getElementById('five-pct-group-price');
             if (!nameInput || !priceInput) return;
 
             const name = nameInput.value.trim();
+            const refUgap = String(refInput?.value || '').trim() || DEFAULT_FIVE_PCT_REF_UGAP;
             const price = parseFloat(priceInput.value);
             if (!name || Number.isNaN(price) || price <= 0) {
                 alert('Nom et prix valides requis.');
@@ -1178,6 +1368,7 @@
                 id: `fivepct_grp_${Date.now()}`,
                 name,
                 price,
+                refUgap,
                 categoryId: String(ctx.categoryId || '').trim(),
                 familyLabel: String(ctx.familyLabel || group.familyLabel || '').trim(),
                 componentId: String(group.componentId || '').trim(),
@@ -1187,11 +1378,177 @@
             });
 
             nameInput.value = '';
+            if (refInput) refInput.value = DEFAULT_FIVE_PCT_REF_UGAP;
             priceInput.value = '';
             renderFivePercentGroupModalContent();
             updateSummary();
             refreshCategoryTableIfVisible();
             if (state.use5Percent) render5PercentOptions();
+        }
+
+        function scheduleParcoursFullRefresh() {
+            if (!shouldUseTemplateTreeConfigurator()) return;
+            state._parcoursPickNeedsFullRefresh = true;
+            getTemplateTreeHooks().scheduleParcoursUiRefresh();
+        }
+
+        /** Clé stable d'un groupe du parcours (rattachement des options 5% custom). */
+        function parcoursGroupKeyForFivePct(group) {
+            return [
+                String(group?.catalogNodeId || '').trim(),
+                String(group?.groupId || '').trim(),
+                String(group?.familyLabel || '').trim()
+            ].join('::');
+        }
+
+        function getParcoursCustomFivePctForGroup(group) {
+            const key = parcoursGroupKeyForFivePct(group);
+            return (state.fivePercentCustomOptions || [])
+                .filter((c) => String(c?.parcoursGroupKey || '') === key);
+        }
+
+        /** Modale de choix parcours : options 5% du groupe (catalogue + customs créées ici). */
+        function appendFivePercentCustomPickerToList(list, group) {
+            const optionById = getCatalogueOptionByIdMap();
+
+            resolveConfiguratorGroupFivePercentOptions(group, optionById).forEach((opt) => {
+                const id = String(opt?.id || '').trim();
+                if (!id) return;
+                const item = document.createElement('div');
+                item.className = 'option-item tpl-single-choice-option';
+                item.style.cursor = 'pointer';
+                const syncSelected = () => {
+                    item.classList.toggle('tpl-single-choice-option--selected', state.fivePercentOptions.has(id));
+                };
+                item.innerHTML = `
+                    <span style="flex:1;">${escapeHtml(String(opt.name || id).trim())} <span class="ugap-five-pct-badge">5% Devis</span></span>
+                    <span class="price">${getFivePercentOptionPrice(opt).toFixed(2)} €</span>
+                `;
+                syncSelected();
+                item.onclick = () => {
+                    if (state.fivePercentOptions.has(id)) {
+                        state.fivePercentOptions.delete(id);
+                    } else {
+                        if (!tryAddFivePercentPriceDelta(getFivePercentOptionPrice(opt))) return;
+                        state.selectedOptions.delete(id);
+                        state.fivePercentOptions.add(id);
+                    }
+                    syncSelected();
+                    updateSummary();
+                    scheduleParcoursFullRefresh();
+                };
+                list.appendChild(item);
+            });
+
+            getParcoursCustomFivePctForGroup(group).forEach((c) => {
+                const item = document.createElement('div');
+                item.className = 'option-item';
+                const ref = resolveFivePercentCustomRefUgap(c);
+                const refHtml = `<span class="five-pct-modal-block__ref" style="display:block;">Réf. UGAP : ${escapeHtml(ref)}</span>`;
+                item.innerHTML = `
+                    <span style="flex:1;">${escapeHtml(String(c.name || '').trim() || '—')} <span class="ugap-five-pct-badge">5% Devis</span>${refHtml}</span>
+                    <span class="price">${getFivePercentOptionPrice(c).toFixed(2)} €</span>
+                    <button type="button" class="tpl-five-pct-remove" title="Retirer cette option 5%"
+                        style="margin-left:10px;background:#dc3545;color:#fff;border:none;border-radius:4px;padding:2px 8px;cursor:pointer;">✕</button>
+                `;
+                const removeBtn = item.querySelector('.tpl-five-pct-remove');
+                removeBtn.onclick = (e) => {
+                    e.stopPropagation();
+                    state.fivePercentCustomOptions = (state.fivePercentCustomOptions || [])
+                        .filter((o) => String(o?.id || '') !== String(c.id || ''));
+                    item.remove();
+                    updateSummary();
+                    scheduleParcoursFullRefresh();
+                };
+                list.appendChild(item);
+            });
+        }
+
+        /** Modale de choix parcours : bouton « créer une option 5% » qui déplie le formulaire. */
+        function appendFivePercentOptionForm(container, group, opts) {
+            const block = document.createElement('div');
+            block.className = 'five-pct-modal-block';
+            const nodeLabel = String(group?.label || '').trim();
+            block.innerHTML = `
+                <button type="button" class="btn btn-outline five-pct-modal-open" style="width:100%;">
+                    + Créer une option 5% devis
+                </button>
+                <div class="five-pct-modal-form" hidden>
+                    <p class="five-pct-modal-block__title">Nouvelle option 5% devis</p>
+                    <p class="five-pct-modal-block__ref" style="margin:0 0 10px;">
+                        Nœud rattaché : <strong>${escapeHtml(nodeLabel || '—')}</strong>
+                    </p>
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+                        <label class="five-pct-modal-field" style="grid-column:1 / -1;">Nom *
+                            <input type="text" class="five-pct-modal-name" placeholder="Libellé de l'option">
+                        </label>
+                        <label class="five-pct-modal-field">Réf. UGAP
+                            <input type="text" class="five-pct-modal-ref" value="${escapeHtml(DEFAULT_FIVE_PCT_REF_UGAP)}" placeholder="${escapeHtml(DEFAULT_FIVE_PCT_REF_UGAP)}">
+                        </label>
+                        <label class="five-pct-modal-field">Prix (€) *
+                            <input type="number" class="five-pct-modal-price" step="0.01" min="0" placeholder="0.00">
+                        </label>
+                        <label class="five-pct-modal-field" style="grid-column:1 / -1;">Détails
+                            <textarea class="five-pct-modal-details" rows="2" placeholder="Description (optionnel)"></textarea>
+                        </label>
+                    </div>
+                    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:10px;">
+                        <button type="button" class="btn btn-secondary five-pct-modal-cancel">Annuler</button>
+                        <button type="button" class="btn btn-primary five-pct-modal-create">Créer l'option</button>
+                    </div>
+                </div>`;
+
+            const openBtn = block.querySelector('.five-pct-modal-open');
+            const form = block.querySelector('.five-pct-modal-form');
+            const nameInput = block.querySelector('.five-pct-modal-name');
+            const refInput = block.querySelector('.five-pct-modal-ref');
+            const priceInput = block.querySelector('.five-pct-modal-price');
+            const detailsInput = block.querySelector('.five-pct-modal-details');
+
+            const resetForm = () => {
+                nameInput.value = '';
+                refInput.value = DEFAULT_FIVE_PCT_REF_UGAP;
+                priceInput.value = '';
+                detailsInput.value = '';
+            };
+            openBtn.onclick = () => {
+                openBtn.hidden = true;
+                form.hidden = false;
+                nameInput.focus();
+            };
+            block.querySelector('.five-pct-modal-cancel').onclick = () => {
+                resetForm();
+                form.hidden = true;
+                openBtn.hidden = false;
+            };
+            block.querySelector('.five-pct-modal-create').onclick = () => {
+                const name = nameInput.value.trim();
+                const price = parseFloat(priceInput.value);
+                if (!name || Number.isNaN(price) || price <= 0) {
+                    alert('Nom et prix valides requis.');
+                    return;
+                }
+                if (!tryAddFivePercentPriceDelta(price)) return;
+                // familyLabel/groupId volontairement vides : l'option reste « non classée »
+                // (comptée dans le budget et visible dans la ligne Options non classées),
+                // le rattachement au nœud du modal se fait via parcoursGroupKey.
+                state.fivePercentCustomOptions.push({
+                    id: `fivepct_grp_${Date.now()}`,
+                    name,
+                    price,
+                    refUgap: String(refInput.value || '').trim() || DEFAULT_FIVE_PCT_REF_UGAP,
+                    details: detailsInput.value.trim(),
+                    parcoursGroupKey: parcoursGroupKeyForFivePct(group),
+                    catalogNodeId: String(group?.catalogNodeId || '').trim(),
+                    groupLabel: nodeLabel,
+                    selected: true
+                });
+                resetForm();
+                updateSummary();
+                scheduleParcoursFullRefresh();
+                if (typeof opts?.onAdded === 'function') opts.onAdded();
+            };
+            container.appendChild(block);
         }
 
         function isCategoryTableMultiGroupExpanded(group) {
@@ -1932,6 +2289,48 @@
             });
         }
 
+        function handleOptionCheckboxToggle(checkbox, option, fromExcelTable = false, tableRow = null) {
+            const attrKind = String(checkbox.getAttribute('data-inclusion-kind') || '').trim();
+            const inclusionKind = attrKind || getOptionInclusionKind(option);
+            const routeToFivePct = checkbox.checked && (
+                inclusionKind === 'devis_5pct'
+                || (fromExcelTable && state.use5Percent && !state.fivePercentOptions.has(option.id))
+            );
+            if (routeToFivePct) {
+                const price = catalogUgapPrice(option);
+                if (state.budget5Percent > 0 && getFivePercentTotal() + price > state.budget5Percent) {
+                    alert('Budget 5% dépassé !');
+                    checkbox.checked = false;
+                    return;
+                }
+                state.fivePercentOptions.add(option.id);
+                state.selectedOptions.delete(option.id);
+            } else if (checkbox.checked) {
+                state.selectedOptions.add(option.id);
+                state.fivePercentOptions.delete(option.id);
+            } else {
+                state.selectedOptions.delete(option.id);
+                state.fivePercentOptions.delete(option.id);
+            }
+            invalidateBillableDerivationCache();
+            autoSelectMatchingNonSupplyMotor(checkbox);
+            if (state.use5Percent) render5PercentOptions();
+            updateSummary();
+            if (fromExcelTable) {
+                updateExcelOptionsMeta(state.excelAllRows, applyExcelRowFilters(state.excelAllRows));
+                if (state.excelTabFilters?.selection !== 'all') {
+                    refreshExcelOptionsTable();
+                }
+            }
+            if (tableRow && document.getElementById('ugap-category-table-tbody')) {
+                const displayRows = expandCategoryTableDisplayRows(state.categoryTableAllRows || []);
+                updateCategoryTableMeta(displayRows, applyCategoryTableRowFilters(displayRows));
+                if (state.selectedModel || state.categoryTableFilters?.selection !== 'all') {
+                    refreshCategoryTableBody();
+                }
+            }
+        }
+
         function updateExcelOptionsMeta(allRows, filteredRows) {
             const meta = document.getElementById('ugap-excel-options-meta');
             if (!meta) return;
@@ -1955,12 +2354,20 @@
             if (!tbody) return;
             const allRows = state.excelAllRows || [];
             const filtered = applyExcelRowFilters(allRows);
+            const MAX_ROWS = 300;
+            const shown = filtered.slice(0, MAX_ROWS);
             if (!filtered.length) {
                 tbody.innerHTML = '<tr><td colspan="7" style="padding:16px;text-align:center;color:#666;">Aucune ligne ne correspond aux filtres.</td></tr>';
             } else {
-                tbody.innerHTML = filtered.map(buildExcelTableRowHtml).join('');
-                bindExcelTableCheckboxes(filtered);
+                tbody.innerHTML = shown.map(buildExcelTableRowHtml).join('')
+                    + (filtered.length > shown.length
+                        ? `<tr><td colspan="7" style="padding:10px 12px;color:#64748b;background:#f8fafc;border-top:1px solid #e5e7eb;">
+                            Affichage limité à <strong>${shown.length}</strong> ligne(s) sur <strong>${filtered.length}</strong>. Affinez le filtre pour charger plus.
+                           </td></tr>`
+                        : '');
             }
+            state._excelRowById = new Map(shown.map((r) => [String(r.id || '').trim(), r]).filter((x) => x[0]));
+            ensureExcelDelegatedHandlers();
             updateExcelOptionsMeta(allRows, filtered);
         }
 
@@ -1974,52 +2381,159 @@
         }
 
         function bindOptionCheckbox(checkbox, option, fromExcelTable = false, tableRow = null) {
-            checkbox.onchange = () => {
-                const attrKind = String(checkbox.getAttribute('data-inclusion-kind') || '').trim();
-                const inclusionKind = attrKind || getOptionInclusionKind(option);
-                const routeToFivePct = checkbox.checked && (
-                    inclusionKind === 'devis_5pct'
-                    || (fromExcelTable && state.use5Percent && !state.fivePercentOptions.has(option.id))
-                );
-                if (routeToFivePct) {
-                    const price = catalogUgapPrice(option);
-                    if (state.budget5Percent > 0 && getFivePercentTotal() + price > state.budget5Percent) {
-                        alert('Budget 5% dépassé !');
-                        checkbox.checked = false;
-                        return;
-                    }
-                    state.fivePercentOptions.add(option.id);
-                    state.selectedOptions.delete(option.id);
-                } else if (checkbox.checked) {
-                    state.selectedOptions.add(option.id);
-                    state.fivePercentOptions.delete(option.id);
-                } else {
-                    state.selectedOptions.delete(option.id);
-                    state.fivePercentOptions.delete(option.id);
-                }
-                invalidateBillableDerivationCache();
-                autoSelectMatchingNonSupplyMotor(checkbox);
-                if (state.use5Percent) render5PercentOptions();
-                updateSummary();
-                if (fromExcelTable) {
-                    updateExcelOptionsMeta(state.excelAllRows, applyExcelRowFilters(state.excelAllRows));
-                    if (state.excelTabFilters?.selection !== 'all') {
-                        refreshExcelOptionsTable();
+            checkbox.onchange = () => handleOptionCheckboxToggle(checkbox, option, fromExcelTable, tableRow);
+        }
+
+        function prepareCategoryTableInteractionMaps(rows) {
+            const list = Array.isArray(rows) ? rows : [];
+            const rowById = new Map();
+            const groupByKey = new Map();
+            const ctxByKey = new Map();
+            list.forEach((row) => {
+                const rid = String(row?.id || '').trim();
+                if (rid) rowById.set(rid, row);
+                const group = row?.group || row?.parentGroup;
+                if (!group) return;
+                if (row.isGroupRow || row.isGroupControlRow || row.isGroupOptionRow) {
+                    const gkey = categoryTableGroupKey(group);
+                    if (gkey) groupByKey.set(gkey, group);
+                    if (gkey && (row.isGroupRow || row.isGroupControlRow)) {
+                        ctxByKey.set(gkey, {
+                            group,
+                            categoryId: row.categoryId,
+                            categoryName: row.categoryName,
+                            familyLabel: row.familyLabel || group.familyLabel
+                        });
                     }
                 }
-                if (tableRow && document.getElementById('ugap-category-table-tbody')) {
-                    const displayRows = expandCategoryTableDisplayRows(state.categoryTableAllRows || []);
-                    updateCategoryTableMeta(displayRows, applyCategoryTableRowFilters(displayRows));
-                    if (state.selectedModel || state.categoryTableFilters?.selection !== 'all') {
-                        refreshCategoryTableBody();
+            });
+            state._categoryTableRowById = rowById;
+            state._categoryTableGroupByKey = groupByKey;
+            state._categoryTableCtxByKey = ctxByKey;
+        }
+
+        function ensureCategoryTableDelegatedHandlers() {
+            const tbody = document.getElementById('ugap-category-table-tbody');
+            if (!tbody || tbody._ugapDelegatedHandlersInstalled) return;
+            tbody._ugapDelegatedHandlersInstalled = true;
+            tbody.addEventListener('change', (e) => {
+                const el = e.target;
+                if (!el || el.tagName !== 'INPUT' || el.type !== 'checkbox') return;
+                const id = String(el.id || '').trim();
+                const row = state._categoryTableRowById?.get?.(id) || null;
+                if (!row) return;
+                if (row.isFivePercentCustomRow && row.customOption) {
+                    if (el.checked) toggleFivePercentCustomGroupOption(row.id);
+                    else {
+                        row.customOption.selected = false;
+                        state.fivePercentOptions.delete(row.id);
+                        updateSummary();
+                        refreshCategoryTableIfVisible();
                     }
+                    return;
                 }
-            };
+                const opt = row.option;
+                if (!opt) return;
+                if (!isCategoryTableRowSelectable(row)) return;
+                handleOptionCheckboxToggle(el, opt, false, row);
+            });
+            tbody.addEventListener('click', (e) => {
+                const target = e.target;
+                if (!target || !target.closest) return;
+                const hooks = getTemplateTreeHooks();
+                const Tpl = window.UgapConfiguratorTemplateTree;
+                const btnSingle = target.closest('.cat-table-single-pick');
+                if (btnSingle) {
+                    e.stopPropagation();
+                    const gkey = btnSingle.getAttribute('data-cat-group');
+                    const group = state._categoryTableGroupByKey?.get?.(gkey) || null;
+                    if (group && Tpl?.openSingleChoiceModal) Tpl.openSingleChoiceModal(state, group, hooks);
+                    return;
+                }
+                const btnMulti = target.closest('.cat-table-multi-add');
+                if (btnMulti) {
+                    e.stopPropagation();
+                    const gkey = btnMulti.getAttribute('data-cat-group');
+                    const group = state._categoryTableGroupByKey?.get?.(gkey) || null;
+                    if (group && Tpl?.openMultiChoiceModal) Tpl.openMultiChoiceModal(state, group, hooks);
+                    return;
+                }
+                const btnEye = target.closest('.cat-table-eye');
+                if (btnEye) {
+                    e.stopPropagation();
+                    const gkey = btnEye.getAttribute('data-cat-group');
+                    if (!gkey) return;
+                    toggleCategoryTableGroupExpanded(gkey);
+                    refreshCategoryTableBody();
+                    return;
+                }
+                const btnFive = target.closest('.cat-table-five-pct');
+                if (btnFive) {
+                    e.stopPropagation();
+                    const gkey = btnFive.getAttribute('data-cat-group');
+                    const ctx = state._categoryTableCtxByKey?.get?.(gkey) || null;
+                    if (ctx) openFivePercentGroupModal(ctx);
+                    return;
+                }
+                const btnRemove = target.closest('.cat-table-chip-remove');
+                if (btnRemove) {
+                    e.stopPropagation();
+                    const optId = btnRemove.getAttribute('data-cat-opt');
+                    if (optId) {
+                        state.selectedOptions.delete(optId);
+                        state.fivePercentOptions.delete(optId);
+                    }
+                    updateSummary();
+                    refreshCategoryTableBody();
+                }
+            });
+        }
+
+        function ensureExcelDelegatedHandlers() {
+            const tbody = document.getElementById('ugap-excel-options-tbody');
+            if (!tbody || tbody._ugapDelegatedHandlersInstalled) return;
+            tbody._ugapDelegatedHandlersInstalled = true;
+            tbody.addEventListener('change', (e) => {
+                const el = e.target;
+                if (!el || el.tagName !== 'INPUT' || el.type !== 'checkbox') return;
+                const id = String(el.id || '').trim();
+                const row = state._excelRowById?.get?.(id) || null;
+                if (!row || !row.option) return;
+                handleOptionCheckboxToggle(el, row.option, true, null);
+            });
+        }
+
+        function ugapPerfEnabled() {
+            try {
+                return String(localStorage.getItem('ugap.perf') || '').trim() === '1';
+            } catch (_) {
+                return false;
+            }
+        }
+
+        function ugapPerfNow() {
+            // IE11-safe-ish fallback
+            if (typeof performance !== 'undefined' && typeof performance.now === 'function') return performance.now();
+            return Date.now();
+        }
+
+        function ugapPerfWrap(label, fn) {
+            if (!ugapPerfEnabled() || typeof fn !== 'function') return fn();
+            const t0 = ugapPerfNow();
+            const out = fn();
+            const t1 = ugapPerfNow();
+            try {
+                // eslint-disable-next-line no-console
+                console.log(`[UGAP][perf] ${label}: ${(t1 - t0).toFixed(1)}ms`);
+            } catch (_) {
+                // no-op
+            }
+            return out;
         }
 
         function renderExcelCategoryOptions(tab, optionsContainer) {
             const model = state.selectedModel;
-            const rows = collectExcelCatalogRows();
+            const rows = ugapPerfWrap('collectExcelCatalogRows', () => collectExcelCatalogRows());
             state.excelAllRows = rows;
             tab.options = rows.map((r) => r.option);
 
@@ -2039,8 +2553,15 @@
 
             const filters = state.excelTabFilters || { name: '', selection: 'all' };
             const filtered = applyExcelRowFilters(rows);
+            const MAX_ROWS = 300;
+            const shown = filtered.slice(0, MAX_ROWS);
             const bodyHtml = filtered.length
-                ? filtered.map(buildExcelTableRowHtml).join('')
+                ? shown.map(buildExcelTableRowHtml).join('')
+                    + (filtered.length > shown.length
+                        ? `<tr><td colspan="7" style="padding:10px 12px;color:#64748b;background:#f8fafc;border-top:1px solid #e5e7eb;">
+                            Affichage limité à <strong>${shown.length}</strong> ligne(s) sur <strong>${filtered.length}</strong>. Affinez le filtre pour charger plus.
+                           </td></tr>`
+                        : '')
                 : '<tr><td colspan="7" style="padding:16px;text-align:center;color:#666;">Aucune ligne ne correspond aux filtres.</td></tr>';
 
             optionsContainer.innerHTML = `
@@ -2081,7 +2602,8 @@
             `;
 
             updateExcelOptionsMeta(rows, filtered);
-            bindExcelTableCheckboxes(filtered);
+            state._excelRowById = new Map(shown.map((r) => [String(r.id || '').trim(), r]).filter((x) => x[0]));
+            ensureExcelDelegatedHandlers();
 
             const nameInput = document.getElementById('ugap-excel-filter-name');
             const selInput = document.getElementById('ugap-excel-filter-selection');
@@ -2109,15 +2631,7 @@
             if (lineKind === 'pr') return false;
             const mid = String(model?.id || '').trim();
             const comp = Array.isArray(opt?.compatibleModels) ? opt.compatibleModels.map((x) => String(x)) : [];
-            if (lineKind === 'minoration' || lineKind === 'majoration') {
-                if (mid && comp.length > 0 && !comp.includes(mid)) return false;
-            } else if (mid) {
-                if (comp.length === 0) {
-                    if (!opt?.isDivers) return false;
-                } else if (!comp.includes(mid)) {
-                    return false;
-                }
-            }
+            if (mid && comp.length > 0 && !comp.includes(mid)) return false;
             return passesPosteScopeForExcelOption(opt, model);
         }
 
@@ -2912,18 +3426,25 @@
             if (!tbody) return;
             const allRows = expandCategoryTableDisplayRows(state.categoryTableAllRows || []);
             const filtered = applyCategoryTableRowFilters(allRows);
+            const MAX_ROWS = 300;
+            const shown = filtered.slice(0, MAX_ROWS);
             let prevCategory = '';
             if (!filtered.length) {
                 tbody.innerHTML = '<tr><td colspan="7" style="padding:16px;text-align:center;color:#666;">Aucune ligne ne correspond aux filtres.</td></tr>';
             } else {
-                tbody.innerHTML = filtered.map((row) => {
+                tbody.innerHTML = shown.map((row) => {
                     const html = buildCategoryTableRowHtml(row, prevCategory);
                     prevCategory = row.categoryName;
                     return html;
-                }).join('');
-                bindCategoryTableCheckboxes(filtered);
-                bindCategoryTableGroupRows(filtered);
+                }).join('')
+                    + (filtered.length > shown.length
+                        ? `<tr><td colspan="8" style="padding:10px 12px;color:#64748b;background:#f8fafc;border-top:1px solid #e5e7eb;">
+                            Affichage limité à <strong>${shown.length}</strong> ligne(s) sur <strong>${filtered.length}</strong>. Affinez le filtre pour charger plus.
+                           </td></tr>`
+                        : '');
             }
+            prepareCategoryTableInteractionMaps(shown);
+            ensureCategoryTableDelegatedHandlers();
             updateCategoryTableMeta(allRows, filtered);
         }
 
@@ -2941,7 +3462,7 @@
                 return;
             }
 
-            const rows = getCategoryTableRows();
+            const rows = ugapPerfWrap('getCategoryTableRows', () => getCategoryTableRows());
             state.categoryTableAllRows = rows;
             tab.options = rows
                 .filter((r) => r.isGroupRow && r.group)
@@ -2952,12 +3473,19 @@
             let prevCategory = '';
             const displayRows = expandCategoryTableDisplayRows(rows);
             const filtered = applyCategoryTableRowFilters(displayRows);
+            const MAX_ROWS = 300;
+            const shown = filtered.slice(0, MAX_ROWS);
             const bodyHtml = filtered.length
-                ? filtered.map((row) => {
+                ? shown.map((row) => {
                     const html = buildCategoryTableRowHtml(row, prevCategory);
                     prevCategory = row.categoryName;
                     return html;
                 }).join('')
+                    + (filtered.length > shown.length
+                        ? `<tr><td colspan="8" style="padding:10px 12px;color:#64748b;background:#f8fafc;border-top:1px solid #e5e7eb;">
+                            Affichage limité à <strong>${shown.length}</strong> ligne(s) sur <strong>${filtered.length}</strong>. Affinez le filtre pour charger plus.
+                           </td></tr>`
+                        : '')
                 : '<tr><td colspan="7" style="padding:16px;text-align:center;color:#666;">Aucune ligne ne correspond aux filtres.</td></tr>';
 
             optionsContainer.innerHTML = `
@@ -3000,9 +3528,9 @@
             `;
 
             updateCategoryTableMeta(displayRows, filtered);
-            bindCategoryTableCheckboxes(filtered);
             updateSummary();
-            bindCategoryTableGroupRows(filtered);
+            prepareCategoryTableInteractionMaps(shown);
+            ensureCategoryTableDelegatedHandlers();
 
             const nameInput = document.getElementById('ugap-category-table-filter-name');
             const selInput = document.getElementById('ugap-category-table-filter-selection');
@@ -3242,16 +3770,47 @@
             return [];
         }
 
+        function syncFivePercentUiFromState() {
+            const enable5 = document.getElementById('enable-5percent');
+            if (enable5) enable5.checked = !!state.use5Percent;
+            updateFivePctStickyZone();
+        }
+
         function renderStep3() {
             document.getElementById('selected-model-name-2').textContent = state.selectedModel?.name || '-';
             document.getElementById('selected-config-name').textContent = state.selectedConfig?.name || '-';
             const devisNameInput = document.getElementById('ugap-devis-name-input');
             if (devisNameInput) devisNameInput.value = state.devisName || '';
+            syncFivePercentUiFromState();
 
             state.isOptionSelectable = isSelectableCatalogOption;
             state.isOptionCompatibleWithSelectedModel = isOptionCompatibleWithSelectedModel;
             state.passesCategoryTableModelFilter = passesCategoryTableModelFilter;
             syncConfiguratorModelBaseContext();
+            // Ouverture rapide (3→4): éviter de bloquer sur applyConfiguratorDefaultsFromModelBase/render du parcours
+            if (state._step4FastOpen) {
+                state._step4FastOpen = false;
+                const tabs = document.getElementById('option-tabs');
+                const sub = document.getElementById('subcategories-container');
+                const opt = document.getElementById('options-container');
+                if (tabs) tabs.innerHTML = '';
+                if (sub) sub.innerHTML = '';
+                if (opt) {
+                    const Tpl = window.UgapConfiguratorTemplateTree;
+                    const hooks = getTemplateTreeHooks();
+                    if (Tpl?.shouldUseTemplateTree?.(state) && typeof Tpl.mountCatalogParcoursShell === 'function') {
+                        Tpl.mountCatalogParcoursShell(state, hooks, opt);
+                    } else {
+                        opt.innerHTML = `<div class="ugap-category-table-loading" style="padding:28px 16px;text-align:center;color:#64748b;">
+                            <div class="loader" style="margin:0 auto 14px;"></div>
+                            <span style="font-size:14px;font-weight:600;">Chargement des options…</span>
+                        </div>`;
+                    }
+                }
+                updateSummary({ lite: true });
+                scheduleDeferredCategoryTable();
+                return;
+            }
             applyConfiguratorDefaultsFromModelBase(true);
 
             const MBO = window.UgapModelBaseOptions;
@@ -3281,14 +3840,17 @@
             }
 
             if (window.UgapConfiguratorTemplateTree?.shouldUseTemplateTree?.(state)) {
-                window.UgapConfiguratorTemplateTree.renderTemplateTreeStep3(
-                    state,
-                    getTemplateTreeHooks()
-                );
+                const Tpl = window.UgapConfiguratorTemplateTree;
+                const hooks = getTemplateTreeHooks();
+                const opt = document.getElementById('options-container');
                 if (state._openDevisPerf) {
+                    if (opt && typeof Tpl.mountCatalogParcoursShell === 'function') {
+                        Tpl.mountCatalogParcoursShell(state, hooks, opt);
+                    }
                     updateSummary({ lite: true });
                     scheduleDeferredCategoryTable();
                 } else {
+                    Tpl.renderTemplateTreeStep3(state, hooks);
                     updateSummary();
                 }
                 return;
@@ -3719,31 +4281,54 @@
         }
 
         function toggle5Percent() {
-            state.use5Percent = document.getElementById('enable-5percent').checked;
-            const container = document.getElementById('five-percent-options');
-            
+            const enable5 = document.getElementById('enable-5percent');
+            state.use5Percent = enable5 ? enable5.checked : false;
+
             if (state.use5Percent) {
-                container.classList.add('active');
                 calculate5PercentBudget();
-                render5PercentOptions();
-                const tab = state.optionTabs?.[currentCategoryIndex];
-                if (tab && isCategoryTableBusinessViewTab(tab)) {
-                    renderCategoryOptions(currentCategoryIndex);
-                }
             } else {
-                container.classList.remove('active');
                 state.fivePercentOptions.clear();
                 state.fivePercentCustomOptions = [];
-                renderCategoryOptions(currentCategoryIndex);
-                updateSummary();
             }
+            renderCategoryOptions(currentCategoryIndex);
+            updateSummary();
         }
 
-        /** Prix facturé au récap : IBP = inclus → toujours 0 € (le tarif passe par la ligne mino/majo liée). */
+        function resolveModelBasePrice(model) {
+            if (!model || typeof model !== 'object') return 0;
+            const ugap = Number(model.priceUgap ?? model.ugapPrice);
+            if (Number.isFinite(ugap) && ugap > 0) return ugap;
+            const client = Number(model.priceClient ?? model.basePrice);
+            return Number.isFinite(client) ? client : 0;
+        }
+
+        function sumConfiguratorBillableOptions(subtotal, optionById) {
+            collectConfiguratorBillableOptionIds().forEach((optId) => {
+                const option = optionById.get(String(optId || '').trim());
+                if (!option) return;
+                if (state.fivePercentOptions.has(optId)) return;
+                subtotal += getOptionBillablePrice(option);
+            });
+            return subtotal;
+        }
+
+        /** Prix facturé au récap : IBP = inclus → toujours 0 € ; mino/majo liée si remplacement IBP. */
         function getOptionBillablePrice(opt) {
             if (!opt || typeof opt !== 'object') return 0;
             if (isBaseCatalogOption(opt)) return 0;
             if (getOptionInclusionKind(opt) === 'inclus') return 0;
+            if (isAdjOptionForConfigurator(opt)) {
+                const adjId = String(opt.id || '').trim();
+                if (!adjId) return 0;
+                // Une mino/majo compte si liée à une IBP remplacée OU choisie explicitement
+                // (ex. moteur de remplacement « en remplacement du moteur de base »).
+                const isExplicitPick = state.selectedOptions?.has?.(adjId) === true;
+                if (!isExplicitPick && !isAdjLinkedToReplacedIbp(adjId)) return 0;
+                const raw = catalogUgapPrice(opt);
+                const OLK = window.UgapOptionLineKind;
+                const isMino = String(OLK?.inferOptionLineKind?.(opt) || '').trim().toLowerCase() === 'minoration';
+                return isMino ? -Math.abs(raw) : raw;
+            }
             return catalogUgapPrice(opt);
         }
 
@@ -3770,7 +4355,12 @@
             const Tpl = window.UgapConfiguratorTemplateTree;
             if (!BAL?.syncLinkedAdjForAdjPricingGroups || !Tpl?.getGroupBaseOptionId) return;
             const groups = [];
-            forEachResolvedTemplateGroup((group) => groups.push(group));
+            if (shouldUseTemplateTreeConfigurator() && typeof Tpl.forEachParcoursDecisionGroup === 'function') {
+                const hooks = getTemplateTreeHooks();
+                Tpl.forEachParcoursDecisionGroup(state, hooks, (group) => groups.push(group));
+            } else {
+                forEachResolvedTemplateGroup((group) => groups.push(group));
+            }
             if (!groups.length) return;
             const hooks = getTemplateTreeHooks();
             const isReplaced = Tpl?.isBaseReplacedInGroup || Tpl?.isIbpReplacedInGroup;
@@ -3883,6 +4473,10 @@
                     if (aid) ids.add(aid);
                 });
             };
+            if (shouldUseTemplateTreeConfigurator() && typeof Tpl?.forEachParcoursDecisionGroup === 'function') {
+                Tpl.forEachParcoursDecisionGroup(state, hooks, addForGroup);
+                return;
+            }
             forEachResolvedTemplateGroup(addForGroup);
             getCategoryTableCatalogueCategories().forEach((category) => {
                 const catalogueFamilies = getValidatedFamiliesForBusinessViews();
@@ -3915,20 +4509,58 @@
             });
         }
 
+        /** Options sélectionnées facturables (hors 5 %, IBP, inclus, mino/majo non liée). */
+        function collectBillableIdsFromSelectedOptions() {
+            const out = [];
+            const optionById = getCatalogueOptionByIdMap();
+            (state.selectedOptions || []).forEach((rawId) => {
+                const id = String(rawId || '').trim();
+                if (!id || state.fivePercentOptions.has(id)) return;
+                const opt = optionById.get(id);
+                if (!opt || isBaseCatalogOption(opt)) return;
+                if (getOptionInclusionKind(opt) === 'inclus') return;
+                // Sélection explicite : mino/majo choisie par l'utilisateur = facturable.
+                out.push(id);
+            });
+            return out;
+        }
+
+        function shouldUseTemplateTreeConfigurator() {
+            return window.UgapConfiguratorTemplateTree?.shouldUseTemplateTree?.(state) === true;
+        }
+
+        function isExcelTableMounted() {
+            return !!document.getElementById('ugap-excel-options-tbody');
+        }
+
         /** Options facturables au récap (IBP à 0 € ; mino/majo liée seulement si remplacement IBP). */
         function collectConfiguratorBillableOptionIds() {
+            const cacheKey = getBillableOptionIdsCacheKey();
+            if (state._billableOptionIdsCache && state._billableOptionIdsCacheKey === cacheKey) {
+                return state._billableOptionIdsCache;
+            }
+
             const ids = new Set();
+            const out = [];
+            const push = (rawId) => {
+                const id = String(rawId || '').trim();
+                if (!id || ids.has(id)) return;
+                ids.add(id);
+                out.push(id);
+            };
+
             const Tpl = window.UgapConfiguratorTemplateTree;
             const hooks = getTemplateTreeHooks();
 
             if (Tpl?.shouldUseTemplateTree?.(state)
                 && typeof Tpl.collectParcoursOrderedBillableOptionIds === 'function') {
-                Tpl.collectParcoursOrderedBillableOptionIds(state, hooks).forEach((id) => {
-                    const oid = String(id || '').trim();
-                    if (oid) ids.add(oid);
-                });
-                collectEffectiveChoiceIdsFromFamilyGroups(ids);
-                return mergeBillableOptionIdsForPrint(Array.from(ids));
+                Tpl.collectParcoursOrderedBillableOptionIds(state, hooks).forEach(push);
+                appendLinkedAdjForReplacedIbps(ids);
+                ids.forEach(push);
+                const result = mergeBillableOptionIdsForPrint(out);
+                state._billableOptionIdsCache = result;
+                state._billableOptionIdsCacheKey = cacheKey;
+                return result;
             }
 
             state.selectedOptions.forEach((id) => {
@@ -3937,8 +4569,8 @@
                 const opt = getCatalogOptionById(oid);
                 if (!opt) return;
                 if (isBaseCatalogOption(opt)) return;
-                if (isAdjOptionForConfigurator(opt) && !isAdjLinkedToReplacedIbp(oid)) return;
-                ids.add(oid);
+                // Choix explicite : une mino/majo sélectionnée par l'utilisateur reste facturable.
+                push(oid);
             });
 
             if (Tpl?.getSingleChoiceDisplay) {
@@ -3946,14 +4578,20 @@
                     if (group.decisionMode === 'multi_choice') return;
                     const display = Tpl.getSingleChoiceDisplay(state, group, hooks);
                     const oid = String(display?.option?.id || '').trim();
-                    if (oid && !isBaseCatalogOption(display.option)) ids.add(oid);
+                    if (oid && !isBaseCatalogOption(display.option)) push(oid);
                 });
             }
 
             collectEffectiveChoiceIdsFromFamilyGroups(ids);
+            ids.forEach(push);
             appendLinkedAdjForReplacedIbps(ids);
+            ids.forEach(push);
+            collectBillableIdsFromSelectedOptions().forEach(push);
 
-            return mergeBillableOptionIdsForPrint(Array.from(ids));
+            const result = mergeBillableOptionIdsForPrint(out);
+            state._billableOptionIdsCache = result;
+            state._billableOptionIdsCacheKey = cacheKey;
+            return result;
         }
 
         /** Toutes les lignes parcours (incluses + facturables) pour l'affichage / PDF détaillé. */
@@ -3966,20 +4604,16 @@
             } else {
                 base = Array.from(collectConfiguratorBillableOptionIds());
             }
-            return appendConfiguratorPrintOptionIds(base, getSelectedOptionsForPrint(), { includeInclus: true });
+            const allSelected = Array.from(state.selectedOptions || [])
+                .map((id) => String(id || '').trim())
+                .filter(Boolean);
+            return appendConfiguratorPrintOptionIds(base, allSelected, { includeInclus: true });
         }
 
         /** Sous-total récap : prix bateau + options devis + mino/majo si remplacement IBP (IBP = 0 €). */
         function computeConfiguratorSubtotal() {
-            let subtotal = state.selectedModel?.basePrice || 0;
             const optionById = getCatalogueOptionByIdMap();
-            collectConfiguratorBillableOptionIds().forEach((optId) => {
-                const option = optionById.get(String(optId || '').trim());
-                if (!option) return;
-                if (state.fivePercentOptions.has(optId)) return;
-                subtotal += getOptionBillablePrice(option);
-            });
-            return subtotal;
+            return sumConfiguratorBillableOptions(resolveModelBasePrice(state.selectedModel), optionById);
         }
 
         function calculate5PercentBudget() {
@@ -4031,6 +4665,7 @@
                 id: `fivepct_custom_${Date.now()}`,
                 name,
                 price,
+                refUgap: DEFAULT_FIVE_PCT_REF_UGAP,
                 categoryId,
                 selected: true
             });
@@ -4047,58 +4682,49 @@
             updateSummary();
         }
 
+        /** Zone sticky 5% (haut droite) : disponible (5% des options hors 5%), consommé, restant. */
+        function updateFivePctStickyZone() {
+            const box = document.getElementById('ugap-five-pct-sticky');
+            if (!box) return;
+            // Portal vers <body> : un ancêtre avec transform (animation scroll GDRI)
+            // casse position:fixed et fige la zone en haut de la page.
+            if (box.parentNode !== document.body) {
+                document.body.appendChild(box);
+            }
+            const visible = !state.showEntryScreen && state.step === 4;
+            box.hidden = !visible;
+            if (!visible) return;
+
+            const enable5 = document.getElementById('enable-5percent');
+            if (enable5) enable5.checked = !!state.use5Percent;
+            const body = document.getElementById('ugap-five-pct-sticky-body');
+            const off = document.getElementById('ugap-five-pct-sticky-off');
+            if (body) body.hidden = !state.use5Percent;
+            if (off) off.hidden = !!state.use5Percent;
+            if (!state.use5Percent) {
+                box.classList.remove('is-over');
+                return;
+            }
+
+            const budget = Number(state.budget5Percent) || 0;
+            const used = getFivePercentTotal();
+            const setTxt = (id, val) => {
+                const el = document.getElementById(id);
+                if (el) el.textContent = `${val.toFixed(2)} €`;
+            };
+            setTxt('ugap-five-pct-budget', budget);
+            setTxt('ugap-five-pct-used', used);
+            setTxt('ugap-five-pct-left', budget - used);
+            const bar = document.getElementById('ugap-five-pct-bar');
+            if (bar) {
+                const pct = budget > 0 ? Math.min(100, (used / budget) * 100) : (used > 0 ? 100 : 0);
+                bar.style.width = `${pct.toFixed(1)}%`;
+            }
+            box.classList.toggle('is-over', used > budget + 0.005);
+        }
+
         function render5PercentOptions() {
-            const container = document.getElementById('five-percent-options');
-            const currentCategory = state.optionTabs[currentCategoryIndex];
-            const currentCategoryId = currentCategory?.id;
-            const fivePercentTotal = getFivePercentTotal();
-            const remaining = Math.max(0, state.budget5Percent - fivePercentTotal);
-            const currentTabOptionIds = new Set(
-                (Array.isArray(currentCategory?.options) ? currentCategory.options : [])
-                    .map((opt) => String(opt?.id || '').trim())
-                    .filter(Boolean)
-            );
-
-            const selectedInCategory = Array.from(state.fivePercentOptions)
-                .filter(optId => !currentCategoryId || currentTabOptionIds.has(String(optId || '').trim()))
-                .map(getOptionById)
-                .filter(Boolean);
-
-            const customInCategory = currentCategoryId ? getFivePercentCustomOptionsForCategory(currentCategoryId) : [];
-
-            container.innerHTML = `
-                <div style="margin-bottom: 10px;">
-                    <div><strong>5% Devis:</strong> ${state.budget5Percent.toFixed(2)} €</div>
-                    <div><strong>Déjà ajouté:</strong> ${fivePercentTotal.toFixed(2)} €</div>
-                    <div><strong>Restant:</strong> ${remaining.toFixed(2)} €</div>
-                </div>
-                <div style="margin-bottom: 12px; font-weight: 600;">Options 5% dans cette catégorie</div>
-                ${selectedInCategory.length === 0 && customInCategory.length === 0 ? `
-                    <p style="color: #666; margin-top: 0;">Aucune option 5% enregistrée pour cette catégorie.</p>
-                ` : `
-                    <ul style="margin: 0 0 10px 18px; padding: 0;">
-                        ${selectedInCategory.map(opt => `
-                            <li>${opt.name} — ${catalogUgapPrice(opt).toFixed(2)} €</li>
-                        `).join('')}
-                        ${customInCategory.map(opt => `
-                            <li>${opt.name} — ${opt.price.toFixed(2)} € 
-                                <button onclick="removeFivePercentCustomOption('${opt.id}')" style="margin-left: 8px; background: #dc3545; color: white; border: none; border-radius: 4px; padding: 2px 6px; cursor: pointer;">✕</button>
-                            </li>
-                        `).join('')}
-                    </ul>
-                `}
-                <div style="margin-top: 10px; padding-top: 10px; border-top: 1px solid #f1dca7;">
-                    <div style="font-weight: 600; margin-bottom: 8px;">Créer une option 5% Devis</div>
-                    <div style="display: flex; gap: 10px; flex-wrap: wrap; align-items: center;">
-                        <input id="five-percent-custom-name" type="text" placeholder="Libellé" style="padding: 8px; border: 1px solid #ddd; border-radius: 4px; min-width: 220px;">
-                        <input id="five-percent-custom-price" type="number" step="0.01" min="0" placeholder="Prix (€)" style="padding: 8px; border: 1px solid #ddd; border-radius: 4px; width: 140px;">
-                        <button onclick="addFivePercentCustomOption('${currentCategoryId || ''}')" style="padding: 8px 14px; background: #28a745; color: white; border: none; border-radius: 4px; cursor: pointer;">
-                            Ajouter
-                        </button>
-                    </div>
-                </div>
-            `;
-            
+            // Zone 5% déplacée en widget sticky : updateSummary rafraîchit ses montants.
             renderCategoryOptions(currentCategoryIndex);
             updateSummary();
         }
@@ -4117,53 +4743,122 @@
         }
 
         function computeConfiguratorSubtotalLite() {
-            let subtotal = state.selectedModel?.basePrice || 0;
-            const optionById = getCatalogueOptionByIdMap();
-            state.selectedOptions.forEach((optId) => {
-                const option = optionById.get(String(optId || '').trim());
-                if (!option || isBaseCatalogOption(option)) return;
-                if (getOptionInclusionKind(option) === 'inclus') return;
-                subtotal += getOptionBillablePrice(option);
-            });
-            return subtotal;
+            if (shouldUseTemplateTreeConfigurator()) {
+                const base = resolveModelBasePrice(state.selectedModel);
+                const optionById = getCatalogueOptionByIdMap();
+                let extra = 0;
+                const seen = new Set();
+                (state.selectedOptions || []).forEach((rawId) => {
+                    const id = String(rawId || '').trim();
+                    if (!id || seen.has(id) || state.fivePercentOptions.has(id)) return;
+                    seen.add(id);
+                    const opt = optionById.get(id);
+                    if (!opt || isBaseCatalogOption(opt)) return;
+                    if (getOptionInclusionKind(opt) === 'inclus') return;
+                    extra += getOptionBillablePrice(opt);
+                });
+                return base + extra;
+            }
+            return computeConfiguratorSubtotal();
         }
 
         function scheduleDeferredCategoryTable() {
+            if (state._deferredCategoryTableIdleId != null && typeof cancelIdleCallback === 'function') {
+                cancelIdleCallback(state._deferredCategoryTableIdleId);
+                state._deferredCategoryTableIdleId = null;
+            }
+            if (state._deferredCategoryTableTimer) {
+                clearTimeout(state._deferredCategoryTableTimer);
+                state._deferredCategoryTableTimer = null;
+            }
             const run = () => {
+                state._deferredCategoryTableIdleId = null;
+                state._deferredCategoryTableTimer = null;
                 if (state.step !== 4 || state.showEntryScreen) return;
                 const container = document.getElementById('options-container');
                 if (!container) return;
-                if (window.UgapConfiguratorTemplateTree?.shouldUseTemplateTree?.(state)) {
-                    window.UgapConfiguratorTemplateTree.renderTemplateTreeStep3(
-                        state,
-                        getTemplateTreeHooks()
-                    );
+                const Tpl = window.UgapConfiguratorTemplateTree;
+                const hooks = getTemplateTreeHooks();
+                const usesTemplateTree = Tpl?.shouldUseTemplateTree?.(state);
+
+                const finishProgressive = () => {
+                    state._deferredCategoryTableBanner = '';
+                    invalidateBillableDerivationCache();
+                    ugapPerfWrap('updateSummary(deferred end)', () => updateSummary({ skipDevisSync: usesTemplateTree, skipAdjSync: usesTemplateTree }));
+                    if (usesTemplateTree) scheduleDeferredFullSummary();
+                    if (typeof scheduleParentEmbedResize === 'function') scheduleParentEmbedResize();
+                };
+
+                try {
+                    ugapPerfWrap('applyConfiguratorDefaultsFromModelBase(true)', () => applyConfiguratorDefaultsFromModelBase(true));
+                } catch (err) {
+                    console.warn('[UGAP] applyConfiguratorDefaultsFromModelBase failed:', err?.message || err);
+                }
+                if (usesTemplateTree) {
+                    ugapPerfWrap('updateSummary(after defaults)', () => updateSummary({ lite: true, skipDevisSync: true, skipAdjSync: true }));
+                }
+
+                if (usesTemplateTree && typeof Tpl?.renderTemplateTreeStep3Progressive === 'function') {
+                    ugapPerfWrap('Tpl.renderTemplateTreeStep3Progressive', () => Tpl.renderTemplateTreeStep3Progressive(state, hooks, {
+                        onFirstChunk: () => {
+                            ugapPerfWrap('updateSummary(after first rows)', () => updateSummary({ lite: true, skipDevisSync: true, skipAdjSync: true }));
+                            if (typeof scheduleParentEmbedResize === 'function') scheduleParentEmbedResize();
+                        },
+                        onComplete: finishProgressive,
+                    }));
+                    return;
+                }
+
+                if (usesTemplateTree) {
+                    ugapPerfWrap('Tpl.renderTemplateTreeStep3', () => Tpl.renderTemplateTreeStep3(state, hooks));
                 } else if (state.optionTabs.length > 0) {
                     const idx = getDefaultOptionTabIndex(state.optionTabs);
                     currentCategoryIndex = idx;
                     document.querySelectorAll('.tab').forEach((tabEl, i) => {
                         tabEl.classList.toggle('active', i === idx);
                     });
-                    renderCategoryOptions(idx);
+                    ugapPerfWrap('renderCategoryOptions(deferred)', () => renderCategoryOptions(idx));
                 }
-                state._deferredCategoryTableBanner = '';
-                invalidateBillableDerivationCache();
+                finishProgressive();
+            };
+            if (typeof requestIdleCallback === 'function') {
+                state._deferredCategoryTableIdleId = requestIdleCallback(run, { timeout: 200 });
+            } else {
+                state._deferredCategoryTableTimer = setTimeout(run, 16);
+            }
+        }
+
+        function scheduleDeferredFullSummary() {
+            if (state._deferredFullSummaryIdleId != null && typeof cancelIdleCallback === 'function') {
+                cancelIdleCallback(state._deferredFullSummaryIdleId);
+                state._deferredFullSummaryIdleId = null;
+            }
+            if (state._deferredFullSummaryTimer) {
+                clearTimeout(state._deferredFullSummaryTimer);
+                state._deferredFullSummaryTimer = null;
+            }
+            const run = () => {
+                state._deferredFullSummaryIdleId = null;
+                state._deferredFullSummaryTimer = null;
+                if (state.step !== 4 || state.showEntryScreen) return;
                 updateSummary();
                 if (typeof scheduleParentEmbedResize === 'function') scheduleParentEmbedResize();
             };
             if (typeof requestIdleCallback === 'function') {
-                requestIdleCallback(run, { timeout: 120 });
+                state._deferredFullSummaryIdleId = requestIdleCallback(run, { timeout: 600 });
             } else {
-                setTimeout(run, 0);
+                state._deferredFullSummaryTimer = setTimeout(run, 0);
             }
         }
 
         function updateSummary(opts) {
             const options = opts && typeof opts === 'object' ? opts : {};
             const lite = options.lite === true;
-            if (!lite) {
-                syncLinkedAdjSelectionsForCurrentTemplateGroups();
-                materializeReplacedIbpLinkedAdjInSelection();
+            const skipDevisSync = options.skipDevisSync === true;
+            const skipAdjSync = options.skipAdjSync === true;
+            if (!lite && !skipAdjSync) {
+                ugapPerfWrap('syncLinkedAdjSelectionsForCurrentTemplateGroups', () => syncLinkedAdjSelectionsForCurrentTemplateGroups());
+                ugapPerfWrap('materializeReplacedIbpLinkedAdjInSelection', () => materializeReplacedIbpLinkedAdjInSelection());
                 invalidateBillableDerivationCache();
             }
             document.getElementById('summary-model').textContent = state.selectedModel?.name || '-';
@@ -4172,7 +4867,9 @@
             const optionsCount = state.selectedOptions.size + state.fivePercentOptions.size + (state.fivePercentCustomOptions || []).length;
             document.getElementById('summary-options-count').textContent = optionsCount;
 
-            const subtotal = lite ? computeConfiguratorSubtotalLite() : computeConfiguratorSubtotal();
+            const subtotal = lite
+                ? ugapPerfWrap('computeConfiguratorSubtotalLite', () => computeConfiguratorSubtotalLite())
+                : ugapPerfWrap('computeConfiguratorSubtotal', () => computeConfiguratorSubtotal());
 
             document.getElementById('summary-subtotal').textContent = subtotal.toFixed(2) + ' €';
 
@@ -4180,17 +4877,26 @@
                 if (!lite) calculate5PercentBudget();
                 else state.budget5Percent = subtotal * 0.05;
                 const fivePercentTotal = getFivePercentTotal();
-                document.getElementById('summary-5percent').textContent = fivePercentTotal.toFixed(2) + ' €';
+                document.getElementById('summary-5percent').textContent = state.budget5Percent.toFixed(2) + ' €';
                 document.getElementById('summary-5percent-item').style.display = 'flex';
                 document.getElementById('summary-total').textContent = (subtotal + fivePercentTotal).toFixed(2) + ' €';
             } else {
                 document.getElementById('summary-5percent-item').style.display = 'none';
                 document.getElementById('summary-total').textContent = subtotal.toFixed(2) + ' €';
             }
+            updateFivePctStickyZone();
             if (!lite) {
-                syncConfiguratorExcelTable();
-                syncConfiguratorDevisTable();
-                refreshCategoryTableIfVisible();
+                const templateMode = shouldUseTemplateTreeConfigurator();
+                // Excel / catégories : seulement si l'UI est montée (évite collectExcelCatalogRows sur 1000+ options).
+                if (isExcelTableMounted()) {
+                    ugapPerfWrap('syncConfiguratorExcelTable', () => syncConfiguratorExcelTable());
+                }
+                if (!skipDevisSync && !templateMode) {
+                    ugapPerfWrap('syncConfiguratorDevisTable', () => syncConfiguratorDevisTable());
+                }
+                if (!templateMode) {
+                    refreshCategoryTableIfVisible();
+                }
             }
         }
 
@@ -4859,10 +5565,48 @@
             state.selectedOptions = new Set();
             state.fivePercentOptions = new Set();
             state.fivePercentCustomOptions = [];
-            state.use5Percent = false;
+            state.use5Percent = true;
+            state.budget5Percent = 0;
             state.devisName = '';
             state.devisDisplayOptions = normalizeDevisDisplayOptions(null);
             state.openedSavedDevisId = null;
+            state._modelBaseDefaultsAppliedForModelId = '';
+            state._modelBaseEditorTreeCache = null;
+            state._modelBaseEditorTreeCacheKey = '';
+            state._mboStatusCache = null;
+            state._mboStatusCacheKey = '';
+            state._tplOptionByIdMap = null;
+            state._tplOptionByIdMapKey = '';
+            state._billableOptionIdsCache = null;
+            state._billableOptionIdsCacheKey = '';
+            if (state._deferredCategoryTableIdleId != null && typeof cancelIdleCallback === 'function') {
+                cancelIdleCallback(state._deferredCategoryTableIdleId);
+                state._deferredCategoryTableIdleId = null;
+            }
+            if (state._deferredCategoryTableTimer) {
+                clearTimeout(state._deferredCategoryTableTimer);
+                state._deferredCategoryTableTimer = null;
+            }
+            if (state._deferredFullSummaryIdleId != null && typeof cancelIdleCallback === 'function') {
+                cancelIdleCallback(state._deferredFullSummaryIdleId);
+                state._deferredFullSummaryIdleId = null;
+            }
+            if (state._deferredFullSummaryTimer) {
+                clearTimeout(state._deferredFullSummaryTimer);
+                state._deferredFullSummaryTimer = null;
+            }
+            if (state._parcoursPickFullSummaryTimer) {
+                clearTimeout(state._parcoursPickFullSummaryTimer);
+                state._parcoursPickFullSummaryTimer = null;
+            }
+            if (state._parcoursUiRefreshTimer) {
+                clearTimeout(state._parcoursUiRefreshTimer);
+                state._parcoursUiRefreshTimer = null;
+            }
+            if (window.UgapConfiguratorTemplateTree?.cancelParcoursProgressiveFill) {
+                window.UgapConfiguratorTemplateTree.cancelParcoursProgressiveFill(state);
+            }
+            invalidateBillableDerivationCache();
             if (window.UgapConfiguratorClientStep?.reset) {
                 window.UgapConfiguratorClientStep.reset(state);
             } else {
@@ -5026,10 +5770,14 @@
                 state.openedSavedDevisId = entry.id;
                 state.showEntryScreen = false;
                 state.step = 4;
+                syncConfiguratorModelBaseContext();
+                if (window.UgapConfiguratorTemplateTree?.onModelSelected) {
+                    window.UgapConfiguratorTemplateTree.onModelSelected(state);
+                }
                 state._openDevisPerf = true;
                 render();
                 state._openDevisPerf = false;
-                await yieldToPaint();
+                // Ne pas attendre la fin des recalculs lourds : on doit rendre la main rapidement.
             } finally {
                 setDevisOpenLoading(false);
             }
@@ -5063,3 +5811,4 @@
         window.onDevisNameInput = onDevisNameInput;
         window.generateDevis = generateDevis;
         window.saveCurrentDevis = saveCurrentDevis;
+        window.toggle5Percent = toggle5Percent;

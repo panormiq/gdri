@@ -207,6 +207,8 @@ function tableFieldLabels() {
 
     refUgap: 'Réf. UGAP',
 
+    refFournisseur: 'Réf. fournisseur',
+
     libelle: 'Libellé UGAP',
 
     libelleApp: 'Libellé',

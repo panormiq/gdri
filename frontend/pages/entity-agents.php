@@ -1,62 +1,50 @@
 <?php
 /**
- * Agents IA — liste et gestion des flows agent (orchestrateur).
+ * Console entité — Agents IA.
  */
 
 require_once __DIR__ . '/../config/config.php';
 require_once __DIR__ . '/../auth/session.php';
 require_once __DIR__ . '/../includes/functions.php';
 require_once __DIR__ . '/../includes/jwt-helper.php';
+require_once __DIR__ . '/../includes/entity-console-nav.php';
 
-if (!hasRole(ROLE_ADMIN_GDRI) && !hasRole(ROLE_ADMIN_ENTITY)) {
-    redirect(url('pages/dashboard.php'));
-}
-
-$currentEntrepriseId = $_SESSION['currentEntrepriseId'] ?? ($_SESSION['entrepriseId'] ?? null);
-if (hasRole(ROLE_ADMIN_GDRI) && empty($currentEntrepriseId)) {
-    redirect(url('pages/dashboard.php'));
-}
+requireEntityConsoleAccess();
 
 $page_title = 'Agents IA';
 $jwt_token = getJWTToken();
 $api_base_url = rtrim(getApiBaseUrl(), '/');
+$createAgentUrl = url('pages/entity-agent-editor.php');
 
 require_once __DIR__ . '/../includes/header.php';
+renderConsoleLayoutStart(
+    'Agents IA',
+    'Automatisations planifiées : backup, envoi mail, HTTP… Construites dans l’éditeur visuel (infra workflow).',
+    ['actions' => '<a class="btn btn-primary" href="' . htmlspecialchars($createAgentUrl) . '">+ Créer un agent</a>']
+);
 ?>
 
-<div class="container" style="max-width: 1100px; margin: 2rem auto; padding: 0 1rem;">
-    <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:1rem; flex-wrap:wrap; margin-bottom:1.5rem;">
-        <div>
-            <h1>Agents IA</h1>
-            <p class="text-muted" style="margin-top:0.35rem;">
-                Automatisations planifiées : backup, envoi mail, HTTP… Construites dans l’éditeur visuel (infra workflow).
-            </p>
-        </div>
-        <a class="btn btn-primary" href="<?= url('pages/entity-agent-editor.php') ?>">+ Créer un agent</a>
+<div id="agentsMsg" class="alert alert-info small" style="display:none;"></div>
+
+<div class="card">
+    <div class="card-header" style="background:#f8f9fa; border-bottom:2px solid #6f42c1;">
+        <h2 style="margin:0; font-size:1.1rem;">Agents de l'entité</h2>
     </div>
-
-    <div id="agentsMsg" class="alert alert-info small" style="display:none;"></div>
-
-    <div class="card">
-        <div class="card-header" style="background:#f8f9fa; border-bottom:2px solid #6f42c1;">
-            <h2 style="margin:0; font-size:1.1rem;">Agents de l'entité</h2>
-        </div>
-        <div class="card-body">
-            <div id="agentsStatus" class="text-muted small">Chargement…</div>
-            <div id="agentsTableWrap" style="overflow-x:auto; margin-top:1rem; display:none;">
-                <table class="table table-bordered table-sm">
-                    <thead>
-                        <tr>
-                            <th>Nom</th>
-                            <th>Déclencheur</th>
-                            <th>Planification</th>
-                            <th>Statut</th>
-                            <th style="width:220px;">Actions</th>
-                        </tr>
-                    </thead>
-                    <tbody id="agentsTbody"></tbody>
-                </table>
-            </div>
+    <div class="card-body">
+        <div id="agentsStatus" class="text-muted small">Chargement…</div>
+        <div id="agentsTableWrap" style="overflow-x:auto; margin-top:1rem; display:none;">
+            <table class="table table-bordered table-sm">
+                <thead>
+                    <tr>
+                        <th>Nom</th>
+                        <th>Déclencheur</th>
+                        <th>Planification</th>
+                        <th>Statut</th>
+                        <th style="width:220px;">Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="agentsTbody"></tbody>
+            </table>
         </div>
     </div>
 </div>
@@ -65,7 +53,7 @@ require_once __DIR__ . '/../includes/header.php';
 (function() {
     var API = <?= json_encode($api_base_url . '/agent-flows') ?>;
     var JWT = <?= json_encode($jwt_token) ?>;
-    var editorBase = <?= json_encode(url('pages/entity-agent-editor.php')) ?>;
+    var editorBase = <?= json_encode($createAgentUrl) ?>;
 
     function headers() {
         return { 'Authorization': 'Bearer ' + JWT, 'Content-Type': 'application/json' };
@@ -160,4 +148,6 @@ require_once __DIR__ . '/../includes/header.php';
 })();
 </script>
 
-<?php require_once __DIR__ . '/../includes/footer.php'; ?>
+<?php
+renderConsoleLayoutEnd();
+require_once __DIR__ . '/../includes/footer.php';

@@ -184,6 +184,37 @@ function getCatalogAgentParentLabel(array $service) {
     return $labels[$parent] ?? ($parent !== '' ? ucfirst($parent) : '');
 }
 
+function getMigratedApplicationSlugAliases() {
+    static $aliases = null;
+    if ($aliases !== null) {
+        return $aliases;
+    }
+    $aliases = [];
+    foreach (getMigratedApplicationDefinitions() as $definition) {
+        $canonical = strtolower(trim((string) ($definition['id'] ?? '')));
+        if ($canonical === '') {
+            continue;
+        }
+        $aliases[$canonical] = $canonical;
+        foreach ($definition['slugs'] ?? [] as $slug) {
+            $slugKey = strtolower(trim((string) $slug));
+            if ($slugKey !== '') {
+                $aliases[$slugKey] = $canonical;
+            }
+        }
+    }
+    return $aliases;
+}
+
+function normalizeCatalogServiceSlugKey($slug) {
+    $slugKey = strtolower(trim((string) $slug));
+    if ($slugKey === '') {
+        return '';
+    }
+    $aliases = getMigratedApplicationSlugAliases();
+    return $aliases[$slugKey] ?? $slugKey;
+}
+
 /**
  * Déduplique le catalogue services (même logique que modules.php).
  * @param array<int, array<string, mixed>> $services
@@ -195,7 +226,7 @@ function dedupeServicesCatalog(array $services) {
     $seenByName = [];
 
     foreach ($services as $service) {
-        $slugKey = !empty($service['slug']) ? strtolower(trim((string) $service['slug'])) : null;
+        $slugKey = !empty($service['slug']) ? normalizeCatalogServiceSlugKey($service['slug']) : null;
         $nameKey = !empty($service['name'])
             ? preg_replace('/\s+/', ' ', strtolower(trim((string) $service['name'])))
             : null;
@@ -710,6 +741,77 @@ function findCatalogServiceForMigratedApp(array $catalog, array $definition) {
 }
 
 /**
+ * Associe un service catalogue à la meilleure app migrée (slug exact prioritaire).
+ */
+function findBestMigratedDefinitionForService(array $service, array $definitions) {
+    $slug = strtolower(trim((string) ($service['slug'] ?? '')));
+    if ($slug !== '') {
+        $normalizedSlug = normalizeCatalogServiceSlugKey($slug);
+        foreach ($definitions as $definition) {
+            $defId = strtolower(trim((string) ($definition['id'] ?? '')));
+            if ($defId !== '' && $normalizedSlug === $defId) {
+                return $definition;
+            }
+            foreach ($definition['slugs'] ?? [] as $candidate) {
+                if ($slug === strtolower(trim((string) $candidate))) {
+                    return $definition;
+                }
+            }
+        }
+    }
+
+    foreach ($definitions as $definition) {
+        if (matchesMigratedApplicationDefinition($service, $definition)) {
+            return $definition;
+        }
+    }
+    return null;
+}
+
+function buildApplicationHubItemFromDefinition(array $definition, ?array $service = null) {
+    $service = is_array($service) ? $service : [];
+    $item = [
+        'id' => (string) $definition['id'],
+        'title' => (string) ($service['name'] ?? $definition['title']),
+        'description' => (string) ($service['description'] ?? $definition['description']),
+        'icon' => (string) ($service['icon'] ?? $definition['icon']),
+        'status' => (string) ($service['status'] ?? 'active'),
+        'url' => '#',
+        'links' => [],
+    ];
+
+    if (!empty($definition['links']) && is_array($definition['links'])) {
+        foreach ($definition['links'] as $link) {
+            if (empty($link['url'])) {
+                continue;
+            }
+            $item['links'][] = [
+                'label' => (string) ($link['label'] ?? 'Ouvrir'),
+                'url' => resolveApplicationUrl($link['url']),
+                'primary' => !empty($link['primary']),
+            ];
+        }
+    }
+
+    if (!empty($definition['url'])) {
+        $item['url'] = resolveApplicationUrl($definition['url']);
+    }
+    if ($item['url'] === '#' && !empty($item['links'])) {
+        foreach ($item['links'] as $link) {
+            if (!empty($link['primary'])) {
+                $item['url'] = $link['url'];
+                break;
+            }
+        }
+        if ($item['url'] === '#') {
+            $item['url'] = $item['links'][0]['url'];
+        }
+    }
+
+    return $item;
+}
+
+/**
  * Une app migrée est visible si elle figure dans le catalogue utilisateur (déjà filtré entité → user).
  */
 function isMigratedApplicationAuthorized(array $definition, array $catalog, $userIsAdmin = false) {
@@ -722,56 +824,42 @@ function isMigratedApplicationAuthorized(array $definition, array $catalog, $use
  */
 function buildApplicationHubItems($userIsAdmin = false) {
     $catalog = fetchEntityServicesCatalog();
+    $definitions = getMigratedApplicationDefinitions();
     $items = [];
+    $seenDefinitionIds = [];
+    $usedServiceIds = [];
 
-    foreach (getMigratedApplicationDefinitions() as $definition) {
-        if (!isMigratedApplicationAuthorized($definition, $catalog, $userIsAdmin)) {
+    foreach ($catalog as $service) {
+        $serviceId = (string) ($service['_id'] ?? $service['id'] ?? '');
+        if ($serviceId !== '' && isset($usedServiceIds[$serviceId])) {
             continue;
         }
 
-        $service = findCatalogServiceForMigratedApp($catalog, $definition);
-        $item = [
-            'id' => (string) $definition['id'],
-            'title' => (string) ($service['name'] ?? $definition['title']),
-            'description' => (string) ($service['description'] ?? $definition['description']),
-            'icon' => (string) ($service['icon'] ?? $definition['icon']),
-            'status' => (string) ($service['status'] ?? 'active'),
-            'url' => '#',
-            'links' => [],
-        ];
-
-        if (!empty($definition['links']) && is_array($definition['links'])) {
-            foreach ($definition['links'] as $link) {
-                if (empty($link['url'])) {
-                    continue;
-                }
-                $item['links'][] = [
-                    'label' => (string) ($link['label'] ?? 'Ouvrir'),
-                    'url' => resolveApplicationUrl($link['url']),
-                    'primary' => !empty($link['primary']),
-                ];
-            }
+        $definition = findBestMigratedDefinitionForService($service, $definitions);
+        if (!$definition) {
+            continue;
         }
 
-        if (!empty($definition['url'])) {
-            $item['url'] = resolveApplicationUrl($definition['url']);
-        }
-        if ($item['url'] === '#' && !empty($item['links'])) {
-            foreach ($item['links'] as $link) {
-                if (!empty($link['primary'])) {
-                    $item['url'] = $link['url'];
-                    break;
-                }
-            }
-            if ($item['url'] === '#') {
-                $item['url'] = $item['links'][0]['url'];
-            }
+        $defId = (string) ($definition['id'] ?? '');
+        if ($defId === '' || isset($seenDefinitionIds[$defId])) {
+            continue;
         }
 
-        if ($item['url'] !== '#') {
-            $items[] = $item;
+        $item = buildApplicationHubItemFromDefinition($definition, $service);
+        if ($item['url'] === '#') {
+            continue;
         }
+
+        if ($serviceId !== '') {
+            $usedServiceIds[$serviceId] = true;
+        }
+        $seenDefinitionIds[$defId] = true;
+        $items[] = $item;
     }
+
+    usort($items, function ($a, $b) {
+        return strcasecmp((string) ($a['title'] ?? ''), (string) ($b['title'] ?? ''));
+    });
 
     return $items;
 }
@@ -1046,8 +1134,154 @@ function isGdriAppPage() {
 }
 
 /**
- * Afficher la sidebar admin (entité / plateforme).
- * Visible aussi dans les apps (shell persistant).
+ * Peut ouvrir la console plateforme GDRI.
+ */
+function canAccessPlatformConsole() {
+    return hasRole(ROLE_ADMIN_GDRI);
+}
+
+/**
+ * Peut ouvrir la console entité (admin société).
+ */
+function canAccessEntityConsole() {
+    return hasRole(ROLE_ADMIN_GDRI) || hasRole(ROLE_ADMIN_ENTITY);
+}
+
+/**
+ * Pages console entité (sidebar admin entité).
+ */
+function isGdriEntityConsolePage() {
+    if (isGdriAppPage()) {
+        return false;
+    }
+
+    $script = str_replace('\\', '/', (string) ($_SERVER['SCRIPT_NAME'] ?? ''));
+    $basename = basename($script);
+    $consolePages = [
+        'entity-applications.php',
+        'entity-agents.php',
+        'entity-agent-editor.php',
+        'entity-connecteurs.php',
+        'entity-structurel.php',
+        'entity-console.php',
+        'entity-config.php',
+        'entity-legacy.php',
+        'users.php',
+        'entity-roles.php',
+    ];
+    if (in_array($basename, $consolePages, true)) {
+        return true;
+    }
+
+    if (strpos($script, '/pages/modules/') !== false && preg_match('/-config\.php$/i', $basename)) {
+        return !isGdriPlatformShellPage();
+    }
+
+    return false;
+}
+
+/**
+ * Espace utilisateur (apps, dashboard, mon compte) — pas de sidebar admin.
+ */
+function isGdriUserSpacePage() {
+    if (isGdriAppPage()) {
+        return true;
+    }
+
+    $script = str_replace('\\', '/', (string) ($_SERVER['SCRIPT_NAME'] ?? ''));
+    $basename = basename($script);
+    $userPages = [
+        'dashboard.php',
+        'modules.php',
+        'applications.php',
+        'account-modules.php',
+        'account-profile.php',
+        'account-notifications.php',
+    ];
+    return in_array($basename, $userPages, true);
+}
+
+/**
+ * Mode espace de travail : platform | entity | user
+ */
+function getGdriWorkspaceMode($hasCurrentEntreprise = null) {
+    if (!isLoggedIn()) {
+        return 'user';
+    }
+
+    if ($hasCurrentEntreprise === null) {
+        $hasCurrentEntreprise = !empty($_SESSION['currentEntrepriseId'] ?? $_SESSION['entrepriseId'] ?? null);
+    }
+
+    $mode = $_SESSION['gdri_workspace_mode'] ?? null;
+    if ($mode === 'platform' || $mode === 'entity' || $mode === 'user') {
+        if ($mode === 'platform' && !canAccessPlatformConsole()) {
+            return canAccessEntityConsole() ? 'entity' : 'user';
+        }
+        if ($mode === 'entity' && !canAccessEntityConsole()) {
+            return 'user';
+        }
+        if ($mode === 'entity' && canAccessPlatformConsole() && !$hasCurrentEntreprise) {
+            return 'platform';
+        }
+        return $mode;
+    }
+
+    // Rétrocompat session gdri_admin_nav_mode
+    $legacy = $_SESSION['gdri_admin_nav_mode'] ?? null;
+    if ($legacy === 'platform' && canAccessPlatformConsole()) {
+        return 'platform';
+    }
+    if (canAccessEntityConsole() && isGdriEntityConsolePage()) {
+        return 'entity';
+    }
+    if (canAccessPlatformConsole() && !$hasCurrentEntreprise) {
+        return 'platform';
+    }
+    return 'user';
+}
+
+function gdriWorkspaceModeUrl($mode) {
+    return url('auth/set-nav-mode.php?mode=' . rawurlencode((string) $mode));
+}
+
+/**
+ * Aligne le mode espace de travail sur la page courante.
+ */
+function syncGdriWorkspaceModeFromPage() {
+    if (!canAccessEntityConsole() && !canAccessPlatformConsole()) {
+        return;
+    }
+
+    $basename = basename(str_replace('\\', '/', (string) ($_SERVER['SCRIPT_NAME'] ?? '')));
+    if ($basename === 'users.php') {
+        $hasEntity = !empty($_SESSION['currentEntrepriseId'] ?? $_SESSION['entrepriseId'] ?? null);
+        if ($hasEntity && canAccessEntityConsole()) {
+            $_SESSION['gdri_workspace_mode'] = 'entity';
+            $_SESSION['gdri_admin_nav_mode'] = 'entity';
+        }
+        return;
+    }
+
+    if (isGdriPlatformShellPage()) {
+        $_SESSION['gdri_workspace_mode'] = 'platform';
+        $_SESSION['gdri_admin_nav_mode'] = 'platform';
+        return;
+    }
+
+    if (isGdriEntityConsolePage()) {
+        $_SESSION['gdri_workspace_mode'] = 'entity';
+        $_SESSION['gdri_admin_nav_mode'] = 'entity';
+        return;
+    }
+
+    if (isGdriUserSpacePage()) {
+        $_SESSION['gdri_workspace_mode'] = 'user';
+    }
+}
+
+/**
+ * Afficher la sidebar admin (sélecteur de mode + navigation console).
  */
 function shouldShowAdminSidebar() {
     if (!empty($GLOBALS['hide_admin_sidebar'])) {
@@ -1056,30 +1290,28 @@ function shouldShowAdminSidebar() {
     if (!isLoggedIn()) {
         return false;
     }
-    if (!hasRole(ROLE_ADMIN_GDRI) && !hasRole(ROLE_ADMIN_ENTITY)) {
+    if (isGdriAppPage()) {
         return false;
     }
-    return true;
+    return canAccessEntityConsole() || canAccessPlatformConsole();
 }
 
 /**
- * Mode navigation GDRI : entity | platform (super admin).
+ * Mode navigation GDRI : entity | platform (legacy — dérivé du workspace).
  */
 function getGdriAdminNavMode($hasCurrentEntreprise = null) {
-    if (!hasRole(ROLE_ADMIN_GDRI)) {
-        return 'entity';
+    $workspace = getGdriWorkspaceMode($hasCurrentEntreprise);
+    if ($workspace === 'platform') {
+        return 'platform';
     }
+    return 'entity';
+}
 
-    $mode = $_SESSION['gdri_admin_nav_mode'] ?? null;
-    if ($mode === 'entity' || $mode === 'platform') {
-        return $mode;
-    }
-
-    if ($hasCurrentEntreprise === null) {
-        $hasCurrentEntreprise = !empty($_SESSION['currentEntrepriseId'] ?? $_SESSION['entrepriseId'] ?? null);
-    }
-
-    return $hasCurrentEntreprise ? 'entity' : 'platform';
+/**
+ * @deprecated Utiliser syncGdriWorkspaceModeFromPage()
+ */
+function syncGdriAdminNavModeFromPage() {
+    syncGdriWorkspaceModeFromPage();
 }
 
 /**
@@ -1112,9 +1344,15 @@ function isGdriEntityShellPage() {
         'dashboard.php',
         'modules.php',
         'applications.php',
+        'entity-applications.php',
+        'entity-connecteurs.php',
+        'entity-structurel.php',
+        'entity-console.php',
         'entity-config.php',
         'entity-legacy.php',
         'entity-agents.php',
+        'entity-agent-editor.php',
+        'users.php',
         'entity-roles.php',
         'account-modules.php',
         'account-profile.php',
@@ -1132,28 +1370,18 @@ function isGdriEntityShellPage() {
 }
 
 /**
- * Aligne le mode sidebar sur la page courante (ADMIN_GDRI).
- */
-function syncGdriAdminNavModeFromPage() {
-    if (!hasRole(ROLE_ADMIN_GDRI)) {
-        return;
-    }
-    if (isGdriPlatformShellPage()) {
-        $_SESSION['gdri_admin_nav_mode'] = 'platform';
-    } elseif (isGdriEntityShellPage()) {
-        $_SESSION['gdri_admin_nav_mode'] = 'entity';
-    }
-}
-
-/**
  * Accueil du logo selon le mode navigation.
  */
 function getGdriLogoHomeUrl() {
     if (!isLoggedIn()) {
         return url('index.php');
     }
-    if (hasRole(ROLE_ADMIN_GDRI) && getGdriAdminNavMode() === 'platform') {
+    $mode = getGdriWorkspaceMode();
+    if ($mode === 'platform') {
         return url('pages/entities.php');
+    }
+    if ($mode === 'entity') {
+        return url('pages/entity-applications.php');
     }
     return url('pages/dashboard.php');
 }

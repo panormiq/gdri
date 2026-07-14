@@ -8,6 +8,7 @@ require_once '../config/database.php';
 require_once '../auth/session.php';
 require_once '../includes/functions.php';
 require_once '../includes/jwt-helper.php';
+require_once '../includes/entity-console-nav.php';
 
 if (!hasRole(ROLE_ADMIN_GDRI)) {
     redirect(url('pages/dashboard.php'));
@@ -15,16 +16,13 @@ if (!hasRole(ROLE_ADMIN_GDRI)) {
 
 $page_title = 'Sauvegarde des bases client';
 require_once '../includes/header.php';
+renderConsoleLayoutStart(
+    'Sauvegarde des bases client',
+    'Politique globale, chemin de stockage et supervision des sauvegardes par entité.',
+    ['narrow' => true]
+);
+renderConsoleBackLink('Extensions', url('pages/admin-modules.php'));
 ?>
-
-<div class="container" style="max-width: 1100px; margin: 2rem auto; padding: 0 1rem;">
-    <div style="margin-bottom: 1.5rem;">
-        <a href="<?= url('pages/admin-modules.php') ?>" class="btn btn-outline" style="margin-bottom: 0.5rem;">← Console plateforme · Extensions</a>
-        <h1 style="margin: 0.5rem 0 0 0;">💾 Sauvegarde des bases client</h1>
-        <p style="color: #666; margin: 0.25rem 0 0 0;">
-            Politique globale, chemin de stockage et supervision des sauvegardes par entité.
-        </p>
-    </div>
 
     <div id="platformMsg" class="alert alert-info small" style="display:none;"></div>
 
@@ -86,7 +84,8 @@ require_once '../includes/header.php';
             </div>
         </div>
     </div>
-</div>
+
+<?php renderConsoleLayoutEnd(); ?>
 
 <script>
 (function() {

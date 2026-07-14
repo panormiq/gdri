@@ -54,8 +54,9 @@ if ($currentEntreprise) {
     }
 }
 
+syncGdriWorkspaceModeFromPage();
+$workspaceMode = getGdriWorkspaceMode(!empty($currentEntreprise));
 $showAdminSidebar = shouldShowAdminSidebar();
-syncGdriAdminNavModeFromPage();
 $gdriNavMode = getGdriAdminNavMode(!empty($currentEntreprise));
 $userEmail = trim((string) ($_SESSION['user_email'] ?? ''));
 $userInitials = getUserInitials();
@@ -81,6 +82,7 @@ if ($currentEntreprise) {
     <link rel="stylesheet" href="<?php echo url('assets/css/modal.css'); ?>">
     <link rel="stylesheet" href="<?php echo url('assets/css/responsive.css'); ?>">
     <link rel="stylesheet" href="<?php echo url('assets/css/admin-shell.css'); ?>">
+    <link rel="stylesheet" href="<?php echo url('assets/css/console-page.css'); ?>">
     <?php if (!empty($extra_styles) && is_array($extra_styles)): ?>
         <?php foreach ($extra_styles as $stylePath): ?>
             <link rel="stylesheet" href="<?php echo htmlspecialchars($stylePath); ?>">
@@ -157,44 +159,23 @@ if ($currentEntreprise) {
                     </div>
                 </div>
 
-                <?php if ($isLoggedIn): ?>
+                <?php if ($isLoggedIn && $workspaceMode !== 'platform' && ($displayEntrepriseName !== '' || $hasEntrepriseDropdown)): ?>
                 <div class="header-zone header-zone--center">
-                    <?php if ($displayEntrepriseName !== ''): ?>
-                        <?php if ($hasEntrepriseDropdown): ?>
-                        <button type="button" class="header-context-card header-context-card--clickable<?php echo ($gdriNavMode === 'platform' && hasRole(ROLE_ADMIN_GDRI)) ? ' header-context-card--platform-active' : ''; ?>" id="entrepriseSelectorBtn">
-                            <span class="header-context-card__label">Espace de travail</span>
-                            <?php if ($gdriNavMode === 'platform' && hasRole(ROLE_ADMIN_GDRI)): ?>
-                            <span class="header-context-card__mode-tag">Console active</span>
-                            <?php endif; ?>
+                    <?php if ($displayEntrepriseName !== '' && $hasEntrepriseDropdown): ?>
+                        <button type="button" class="header-context-card header-context-card--clickable header-context-card--compact" id="entrepriseSelectorBtn">
+                            <span class="header-context-card__label">Entité</span>
                             <span class="header-context-card__value"><?php echo htmlspecialchars($displayEntrepriseName); ?></span>
                             <span class="header-context-card__action">Changer</span>
                         </button>
-                        <?php else: ?>
-                        <div class="header-context-card<?php echo ($gdriNavMode === 'platform' && hasRole(ROLE_ADMIN_GDRI)) ? ' header-context-card--platform-active' : ''; ?>">
-                            <span class="header-context-card__label">Espace de travail</span>
-                            <?php if ($gdriNavMode === 'platform' && hasRole(ROLE_ADMIN_GDRI)): ?>
-                            <span class="header-context-card__mode-tag">Console active</span>
-                            <?php endif; ?>
+                    <?php elseif ($displayEntrepriseName !== ''): ?>
+                        <div class="header-context-card header-context-card--compact">
+                            <span class="header-context-card__label">Entité</span>
                             <span class="header-context-card__value"><?php echo htmlspecialchars($displayEntrepriseName); ?></span>
                         </div>
-                        <?php endif; ?>
-                    <?php elseif (hasRole(ROLE_ADMIN_GDRI) && $gdriNavMode === 'platform'): ?>
-                        <?php if ($hasEntrepriseDropdown): ?>
-                        <button type="button" class="header-context-card header-context-card--clickable header-context-card--platform" id="entrepriseSelectorBtn">
-                            <span class="header-context-card__label">Console éditeur</span>
-                            <span class="header-context-card__value">Plateforme GDRI</span>
-                            <span class="header-context-card__action">Entité</span>
-                        </button>
-                        <?php else: ?>
-                        <div class="header-context-card header-context-card--platform">
-                            <span class="header-context-card__label">Console éditeur</span>
-                            <span class="header-context-card__value">Plateforme GDRI</span>
-                        </div>
-                        <?php endif; ?>
                     <?php elseif ($hasEntrepriseDropdown): ?>
-                        <button type="button" class="header-context-card header-context-card--clickable" id="entrepriseSelectorBtn">
-                            <span class="header-context-card__label">Espace de travail</span>
-                            <span class="header-context-card__value">Choisir une entité</span>
+                        <button type="button" class="header-context-card header-context-card--clickable header-context-card--compact" id="entrepriseSelectorBtn">
+                            <span class="header-context-card__label">Entité</span>
+                            <span class="header-context-card__value">Choisir</span>
                             <span class="header-context-card__action">Changer</span>
                         </button>
                     <?php endif; ?>

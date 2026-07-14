@@ -10,6 +10,7 @@ require_once '../config/config.php';
 require_once '../auth/session.php';
 require_once '../includes/functions.php';
 require_once '../includes/jwt-helper.php';
+require_once '../includes/entity-console-nav.php';
 
 // Seul ADMIN_GDRI peut accéder
 if (!hasRole(ROLE_ADMIN_GDRI)) {
@@ -57,17 +58,13 @@ try {
 $usersByEntity = [];
 ?>
 
-<!-- Section Hero -->
-<section class="hero">
-    <div class="container">
-        <div class="hero-content">
-            <h1>Gestion des Entités</h1>
-            <p class="hero-description">
-                Gérez les entreprises clientes et leurs accès aux modules IA
-            </p>
-        </div>
-    </div>
-</section>
+<?php
+require_once '../includes/header.php';
+renderConsoleLayoutStart(
+    'Gestion des Entités',
+    'Gérez les entreprises clientes et leurs accès aux modules IA.'
+);
+?>
 
 <!-- Tabs Navigation -->
 <section class="section">
@@ -242,6 +239,8 @@ $usersByEntity = [];
         </div>
     </div>
 </section>
+
+<?php renderConsoleLayoutEnd(); ?>
 
 <!-- Modal Ajouter/Modifier Entité -->
 <div class="modal-overlay" id="entityModal">

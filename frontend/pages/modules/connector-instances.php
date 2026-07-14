@@ -7,6 +7,7 @@ require_once __DIR__ . '/../../config/config.php';
 require_once __DIR__ . '/../../auth/session.php';
 require_once __DIR__ . '/../../includes/functions.php';
 require_once __DIR__ . '/../../includes/jwt-helper.php';
+require_once __DIR__ . '/../../includes/entity-console-nav.php';
 
 if (!hasRole(ROLE_ADMIN_GDRI) && !hasRole(ROLE_ADMIN_ENTITY)) {
     redirect(url('pages/dashboard.php'));
@@ -26,18 +27,17 @@ $api_base_url = rtrim(getApiBaseUrl(), '/');
 $webhook_base = preg_replace('#/api/?$#', '', $api_base_url);
 
 require_once __DIR__ . '/../../includes/header.php';
+renderConsoleLayoutStart(
+    'Connecteur',
+    'Instances et paramètres du connecteur.',
+    ['narrow' => true]
+);
+renderConsoleBackLink('Connecteurs', url('pages/entity-connecteurs.php'));
 ?>
 
-<div class="container" style="max-width: 960px; margin: 2rem auto; padding: 0 1rem;">
-    <div style="margin-bottom: 1.25rem;">
-        <a class="btn btn-outline btn-sm" href="<?= url('pages/entity-config.php?tab=connecteurs') ?>">← Paramètres · Connecteurs</a>
-    </div>
-    <div style="margin-bottom: 1.5rem;">
-        <h1 id="connectorTitle">🔌 Connecteur</h1>
-        <p id="connectorDescription" class="text-muted" style="margin-top: 0.35rem;">Chargement…</p>
-    </div>
-
     <div id="connectorMsg" class="alert alert-info small" style="display:none;"></div>
+    <h2 id="connectorTitle" class="console-page__subtitle" style="margin:0 0 0.35rem;font-size:1.15rem;">🔌 Connecteur</h2>
+    <p id="connectorDescription" class="text-muted" style="margin-top: 0; margin-bottom: 1rem;">Chargement…</p>
 
     <div class="section-actions" style="margin-bottom: 1rem;">
         <button type="button" class="btn btn-primary" id="btnAddInstance">+ Nouvelle instance</button>
@@ -46,7 +46,8 @@ require_once __DIR__ . '/../../includes/header.php';
     <div id="instancesList" class="connector-instances-list">
         <p class="text-muted">Chargement…</p>
     </div>
-</div>
+
+<?php renderConsoleLayoutEnd(); ?>
 
 <div class="modal-overlay" id="instanceModal" style="display:none;">
     <div class="modal-content" style="max-width: 620px;">

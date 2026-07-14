@@ -7,6 +7,7 @@ require_once '../../config/config.php';
 require_once '../../auth/session.php';
 require_once '../../includes/functions.php';
 require_once '../../includes/jwt-helper.php';
+require_once '../../includes/entity-console-nav.php';
 
 function hasFacebookServiceAccessViaApi()
 {
@@ -51,9 +52,6 @@ if (!isLoggedIn() || !hasFacebookServiceAccessViaApi()) {
     redirect(url('pages/dashboard.php'));
 }
 
-$page_title = 'Module Facebook';
-require_once '../../includes/header.php';
-
 $tabs = [
     'resume' => [
         'label' => 'Resume',
@@ -86,7 +84,6 @@ if (!isset($tabs[$activeTab])) {
     $activeTab = 'resume';
 }
 
-// Reprendre les paramètres OAuth / navigation vers la page chargée dans l’iframe (ex. success, reauth)
 $queryForFrame = $_GET;
 unset($queryForFrame['tab']);
 $frameSrc = $tabs[$activeTab]['url'];
@@ -94,17 +91,15 @@ if (!empty($queryForFrame)) {
     $sep = (strpos($frameSrc, '?') !== false) ? '&' : '?';
     $frameSrc .= $sep . http_build_query($queryForFrame);
 }
+
+$page_title = 'Module Facebook';
+require_once '../../includes/header.php';
+renderConsoleLayoutStart(
+    'Module Facebook',
+    'Navigation centralisée du module Facebook.',
+    ['actions' => '<a href="' . htmlspecialchars(url('pages/modules.php')) . '" class="btn btn-outline">← Applications</a>']
+);
 ?>
-
-<div class="container" style="max-width: 1200px; margin: 2rem auto; padding: 0 1rem;">
-    <div style="display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap; margin-bottom: 1rem;">
-        <h1 style="margin: 0;">Module Facebook</h1>
-        <a href="<?= url('pages/modules.php') ?>" class="btn btn-outline">← Applications</a>
-    </div>
-
-    <p class="text-muted" style="margin-bottom: 1rem;">
-        Navigation centralisee du module Facebook.
-    </p>
 
     <div class="fb-module-tabs" role="tablist" aria-label="Navigation module Facebook">
         <?php foreach ($tabs as $tabKey => $tab): ?>
@@ -125,7 +120,6 @@ if (!empty($queryForFrame)) {
             title="Contenu module Facebook"
             loading="lazy"></iframe>
     </div>
-</div>
 
 <style>
 .fb-module-tabs {
@@ -208,4 +202,7 @@ if (!empty($queryForFrame)) {
     });
 })();
 </script>
-<?php require_once '../../includes/footer.php'; ?>
+
+<?php
+renderConsoleLayoutEnd();
+require_once '../../includes/footer.php';

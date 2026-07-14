@@ -7,6 +7,7 @@
 require_once __DIR__ . '/../config/config.php';
 require_once __DIR__ . '/../auth/session.php';
 require_once __DIR__ . '/../includes/functions.php';
+require_once __DIR__ . '/../includes/entity-console-nav.php';
 
 if (!isLoggedIn()) {
     redirect(url('index.php'));
@@ -40,26 +41,18 @@ if ($modules_root && is_dir($modules_root)) {
 
 $page_title = 'Mes applications';
 require_once __DIR__ . '/../includes/header.php';
-
+renderConsoleLayoutStart(
+    'Mes applications',
+    'Configuration personnelle de vos applications (ex. serveurs IA, presets fournisseurs).'
+);
 ?>
-
-<div class="container" style="max-width: 1200px; margin: 2rem auto; padding: 0 1rem;">
-    <div style="margin-bottom: 2rem;">
-        <h1>Mes applications</h1>
-        <p style="color: #666; font-size: 1.1em;">
-            Configuration personnelle de vos applications (ex. serveurs IA, presets fournisseurs).
-        </p>
-    </div>
 
     <?php if (empty($account_modules)): ?>
         <div class="alert alert-info">
             Aucun module n'expose encore de configuration utilisateur.
         </div>
     <?php else: ?>
-        <div class="form-group" style="margin-bottom: 1.5rem; max-width: 400px;">
-            <label for="accountModulesSearch" class="small" style="display: block; margin-bottom: 0.25rem;">Rechercher un module</label>
-            <input type="text" id="accountModulesSearch" class="form-control" placeholder="Ex. IA…" autocomplete="off" />
-        </div>
+        <?php renderConsoleSearchToolbar('Ex. IA…', 'accountModulesSearch', 'Rechercher un module'); ?>
 
         <div id="accountModulesList" class="hub-cards-grid">
             <?php foreach ($account_modules as $mod): ?>
@@ -83,11 +76,10 @@ require_once __DIR__ . '/../includes/header.php';
             <?php endforeach; ?>
         </div>
 
-        <div id="accountModulesNoResult" style="display: none; padding: 2rem; text-align: center; color: #666;">
-            Aucun module ne correspond à votre recherche.
+        <div id="accountModulesNoResult" class="entity-console-empty" style="display: none;">
+            <p>Aucun module ne correspond à votre recherche.</p>
         </div>
     <?php endif; ?>
-</div>
 
 <script>
 (function() {
@@ -122,4 +114,6 @@ require_once __DIR__ . '/../includes/header.php';
 })();
 </script>
 
-<?php require_once __DIR__ . '/../includes/footer.php'; ?>
+<?php
+renderConsoleLayoutEnd();
+require_once __DIR__ . '/../includes/footer.php';

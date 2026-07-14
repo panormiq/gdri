@@ -12,27 +12,29 @@ require_once '../../config/database.php';
 require_once '../../auth/session.php';
 require_once '../../includes/functions.php';
 require_once '../../includes/jwt-helper.php';
+require_once '../../includes/entity-console-nav.php';
 
 // Seuls ADMIN_GDRI peuvent accéder
 if (!hasRole(ROLE_ADMIN_GDRI)) {
     redirect(url('pages/dashboard.php'));
 }
 
-$page_title = 'Configuration Application Facebook';
-require_once '../../includes/header.php';
-
 $jwt_token = getJWTToken();
 $api_base_url = getApiBaseUrl();
+
+$page_title = 'Configuration Application Facebook';
+require_once '../../includes/header.php';
+renderConsoleLayoutStart(
+    'Configuration Application Facebook',
+    'Identifiants de l\'application Facebook (App ID, App Secret) pour toute la plateforme.',
+    ['compact' => true]
+);
+renderConsoleBackLink('Extensions', url('pages/admin-modules.php'));
 ?>
 
-<div class="container" style="max-width: 800px; margin: 2rem auto; padding: 0 1rem;">
-    
     <div class="card">
         <div class="card-header">
-            <h1>Configuration Application Facebook</h1>
-            <p style="margin: 0.5rem 0 0 0; font-size: 0.9em; color: #666;">
-                Configurez les identifiants de l'application Facebook pour permettre aux utilisateurs de se connecter à leurs pages Facebook.
-            </p>
+            <h2 style="margin:0;font-size:1.15rem;">Paramètres globaux</h2>
         </div>
         <div class="card-body">
             
@@ -157,7 +159,7 @@ $api_base_url = getApiBaseUrl();
         </div>
     </div>
 
-</div>
+<?php renderConsoleLayoutEnd(); ?>
 
 <script>
 const API_BASE = '<?= $api_base_url ?>';

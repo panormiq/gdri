@@ -7,6 +7,7 @@ require_once '../../config/config.php';
 require_once '../../auth/session.php';
 require_once '../../includes/functions.php';
 require_once '../../includes/jwt-helper.php';
+require_once '../../includes/entity-console-nav.php';
 
 function apiGetNoAuth($url)
 {
@@ -106,21 +107,23 @@ if (!$hasAccess) {
     redirect(url('pages/dashboard.php'));
 }
 
-$page_title = 'Configuration Facebook';
-require_once '../../includes/header.php';
-
 $jwt_token = getJWTToken();
 $api_base_url = getApiBaseUrl();
 
-// Gérer les messages
 $error = $_GET['error'] ?? null;
 $success = $_GET['success'] ?? null;
 $state = $_GET['state'] ?? null;
 $step = $_GET['step'] ?? null;
+
+$page_title = 'Configuration Facebook';
+require_once '../../includes/header.php';
+renderConsoleLayoutStart(
+    'Configuration Facebook',
+    'Connexion OAuth et gestion des pages Facebook de l\'entité.',
+    ['narrow' => true]
+);
 ?>
 
-<div class="container" style="max-width: 900px; margin: 2rem auto; padding: 0 1rem;">
-    
     <!-- Messages -->
     <?php if ($error): ?>
     <div class="alert <?= in_array($error, ['all_pages_already_connected'], true) ? 'alert-info' : 'alert-danger' ?>">
@@ -411,7 +414,7 @@ $step = $_GET['step'] ?? null;
         </div>
     </div>
 
-</div>
+<?php renderConsoleLayoutEnd(); ?>
 
 <script>
 const API_BASE = '<?= $api_base_url ?>';

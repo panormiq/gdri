@@ -181,35 +181,13 @@ $api_base_url = getApiBaseUrl();
             
             <div class="hub-cards-grid">
                 <div class="card">
-                    <div class="card-icon">👥</div>
-                    <h3 class="card-title">Utilisateurs</h3>
+                    <div class="card-icon">🏢</div>
+                    <h3 class="card-title">Console entité</h3>
                     <p class="card-description">
-                        Gérer les utilisateurs de votre entité
+                        Applications, agents, utilisateurs, connecteurs et infrastructure partagée
                     </p>
-                    <a class="btn btn-primary" style="margin-top: var(--spacing-md);" href="<?php echo url('pages/users.php'); ?>">
-                        Gérer les utilisateurs
-                    </a>
-                </div>
-                
-                <div class="card">
-                    <div class="card-icon">🔧</div>
-                    <h3 class="card-title">Applications</h3>
-                    <p class="card-description">
-                        Voir les applications disponibles pour votre entité
-                    </p>
-                    <a class="btn btn-primary" style="margin-top: var(--spacing-md);" href="<?php echo url('pages/modules.php'); ?>">
-                        Voir les applications
-                    </a>
-                </div>
-                
-                <div class="card">
-                    <div class="card-icon">⚙️</div>
-                    <h3 class="card-title">Paramètres</h3>
-                    <p class="card-description">
-                        Configurer les paramètres de votre entité
-                    </p>
-                    <a class="btn btn-primary" style="margin-top: var(--spacing-md);" href="<?php echo url('pages/entity-config.php'); ?>">
-                        Ouvrir les paramètres
+                    <a class="btn btn-primary" style="margin-top: var(--spacing-md);" href="<?php echo url('pages/entity-applications.php'); ?>">
+                        Ouvrir la console
                     </a>
                 </div>
             </div>
