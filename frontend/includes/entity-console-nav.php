@@ -44,39 +44,168 @@ function getEntityConsoleNavItems() {
     ];
 }
 
-function getUserWorkspaceNavItems() {
-    return [
+function getUserWorkspaceNavSections($includeLegacy = null) {
+    if ($includeLegacy === null) {
+        $includeLegacy = hasRole(ROLE_ADMIN_GDRI) || hasRole(ROLE_ADMIN_ENTITY);
+    }
+
+    $sections = [
         [
-            'label' => 'Dashboard',
-            'url' => url('pages/dashboard.php'),
-            'path' => '/pages/dashboard.php',
-            'icon' => '🏠',
+            'label' => 'Travailler',
+            'items' => [
+                [
+                    'label' => 'Accueil',
+                    'url' => url('pages/dashboard.php'),
+                    'path' => '/pages/dashboard.php',
+                    'icon' => '🏠',
+                ],
+                [
+                    'label' => 'Applications',
+                    'url' => url('pages/modules.php'),
+                    'path' => '/pages/modules.php',
+                    'alt_paths' => ['/pages/applications.php'],
+                    'icon' => '📱',
+                ],
+                [
+                    'label' => 'Annuaire',
+                    'url' => url('pages/modules/annuaire.php'),
+                    'path' => '/pages/modules/annuaire.php',
+                    'icon' => '📇',
+                ],
+            ],
         ],
         [
-            'label' => 'Applications',
-            'url' => url('pages/modules.php'),
-            'path' => '/pages/modules.php',
-            'icon' => '📱',
+            'label' => 'Automatiser',
+            'items' => [
+                [
+                    'label' => 'Automatisations',
+                    'url' => url('pages/user-agents.php'),
+                    'path' => '/pages/user-agents.php',
+                    'icon' => '🤖',
+                ],
+            ],
         ],
         [
-            'label' => 'Mes applications',
-            'url' => url('pages/account-modules.php'),
-            'path' => '/pages/account-modules.php',
-            'icon' => '🧩',
-        ],
-        [
-            'label' => 'Mes données',
-            'url' => url('pages/account-profile.php'),
-            'path' => '/pages/account-profile.php',
-            'icon' => '👤',
-        ],
-        [
-            'label' => 'Mes notifications',
-            'url' => url('pages/account-notifications.php'),
-            'path' => '/pages/account-notifications.php',
-            'icon' => '🔔',
+            'label' => 'Mes réglages',
+            'items' => [
+                [
+                    'label' => 'Mail & canaux',
+                    'url' => url('pages/user-connecteurs.php'),
+                    'path' => '/pages/user-connecteurs.php',
+                    'icon' => '🔌',
+                ],
+                [
+                    'label' => 'IA personnelle',
+                    'url' => url('pages/user-structurel.php'),
+                    'path' => '/pages/user-structurel.php',
+                    'alt_paths' => ['/pages/modules/ia-user-config.php'],
+                    'icon' => '🧠',
+                ],
+                [
+                    'label' => 'Mon profil',
+                    'url' => url('pages/account-profile.php'),
+                    'path' => '/pages/account-profile.php',
+                    'icon' => '👤',
+                ],
+                [
+                    'label' => 'Notifications',
+                    'url' => url('pages/account-notifications.php'),
+                    'path' => '/pages/account-notifications.php',
+                    'icon' => '🔔',
+                ],
+            ],
         ],
     ];
+
+    if ($includeLegacy) {
+        $sections[] = [
+            'label' => 'Administration',
+            'items' => [
+                [
+                    'label' => 'Ancien menu',
+                    'url' => url('pages/entity-legacy.php'),
+                    'path' => '/pages/entity-legacy.php',
+                    'icon' => '📦',
+                ],
+            ],
+        ];
+    }
+
+    return $sections;
+}
+
+function getUserWorkspaceNavItems() {
+    $items = [];
+    foreach (getUserWorkspaceNavSections() as $section) {
+        foreach ($section['items'] as $item) {
+            $items[] = $item;
+        }
+    }
+    return $items;
+}
+
+/**
+ * Cartes d'orientation — accueil Mon espace (utilisateur).
+ */
+function renderUserWorkspaceGuideCards() {
+    $cards = [
+        [
+            'title' => 'Applications',
+            'description' => 'Ouvrir vos outils métier : UGAP, GDERPI, documents…',
+            'icon' => '📱',
+            'url' => url('pages/modules.php'),
+        ],
+        [
+            'title' => 'Annuaire',
+            'description' => 'Clients, fournisseurs et contacts de votre entité.',
+            'icon' => '📇',
+            'url' => url('pages/modules/annuaire.php'),
+        ],
+        [
+            'title' => 'Mail & canaux',
+            'description' => 'Configurer votre mail, Facebook et vos connexions.',
+            'icon' => '🔌',
+            'url' => url('pages/user-connecteurs.php'),
+        ],
+        [
+            'title' => 'Automatisations',
+            'description' => 'Lancer les agents IA mis à disposition par votre entité.',
+            'icon' => '🤖',
+            'url' => url('pages/user-agents.php'),
+        ],
+    ];
+    ?>
+    <div class="user-workspace-guide">
+        <p class="user-workspace-guide__lead">
+            Par où commencer ? Cliquez sur une carte ou une entrée du menu à gauche.
+        </p>
+        <div class="hub-cards-grid user-workspace-guide__grid">
+            <?php foreach ($cards as $card): ?>
+            <a href="<?= htmlspecialchars($card['url']) ?>" class="card user-workspace-guide__card">
+                <div class="card-icon"><?= $card['icon'] ?></div>
+                <h3 class="card-title"><?= htmlspecialchars($card['title']) ?></h3>
+                <p class="card-description"><?= htmlspecialchars($card['description']) ?></p>
+                <span class="btn btn-primary btn-sm" style="margin-top:0.75rem;">Ouvrir</span>
+            </a>
+            <?php endforeach; ?>
+        </div>
+    </div>
+    <?php
+}
+
+function renderAdminSidebarNavSections(array $sections, $ariaLabelPrefix = 'Navigation') {
+    foreach ($sections as $index => $section) {
+        $label = (string) ($section['label'] ?? '');
+        $items = is_array($section['items'] ?? null) ? $section['items'] : [];
+        if ($items === []) {
+            continue;
+        }
+        renderAdminSidebarNav(
+            $label,
+            $items,
+            $ariaLabelPrefix . ($label !== '' ? ' — ' . $label : '')
+        );
+    }
 }
 
 function getPlatformConsoleNavItems() {
@@ -88,22 +217,34 @@ function getPlatformConsoleNavItems() {
             'icon' => '🏢',
         ],
         [
-            'label' => 'Extensions',
-            'url' => url('pages/admin-modules.php'),
-            'path' => '/pages/admin-modules.php',
-            'icon' => '🧩',
-        ],
-        [
-            'label' => 'Suivi',
-            'url' => url('pages/user-activity.php'),
-            'path' => '/pages/user-activity.php',
-            'icon' => '📊',
-        ],
-        [
             'label' => 'Utilisateurs',
-            'url' => url('pages/users.php'),
-            'path' => '/pages/users.php',
+            'url' => url('pages/platform-users.php'),
+            'path' => '/pages/platform-users.php',
             'icon' => '👥',
+        ],
+        [
+            'label' => 'Applications',
+            'url' => url('pages/platform-applications.php'),
+            'path' => '/pages/platform-applications.php',
+            'icon' => '📱',
+        ],
+        [
+            'label' => 'Agents IA',
+            'url' => url('pages/platform-agents.php'),
+            'path' => '/pages/platform-agents.php',
+            'icon' => '🤖',
+        ],
+        [
+            'label' => 'Connecteurs',
+            'url' => url('pages/platform-connecteurs.php'),
+            'path' => '/pages/platform-connecteurs.php',
+            'icon' => '🔌',
+        ],
+        [
+            'label' => 'Structurel',
+            'url' => url('pages/platform-structurel.php'),
+            'path' => '/pages/platform-structurel.php',
+            'icon' => '⚙️',
         ],
     ];
 }
@@ -117,9 +258,10 @@ function renderAdminSidebarNav($sectionLabel, array $items, $ariaLabel) {
                 <?php foreach ($items as $item): ?>
                 <li>
                     <a href="<?= htmlspecialchars($item['url']) ?>"
-                       class="admin-sidebar__link<?= gdriNavIsActive($item['path']) ? ' is-active' : '' ?>">
+                       class="admin-sidebar__link<?= gdriSidebarNavIsActive($item) ? ' is-active' : '' ?>"
+                       title="<?= htmlspecialchars($item['label']) ?>">
                         <span class="admin-sidebar__link-icon"><?= $item['icon'] ?></span>
-                        <span><?= htmlspecialchars($item['label']) ?></span>
+                        <span class="admin-sidebar__link-text"><?= htmlspecialchars($item['label']) ?></span>
                     </a>
                 </li>
                 <?php endforeach; ?>
@@ -127,6 +269,38 @@ function renderAdminSidebarNav($sectionLabel, array $items, $ariaLabel) {
         </nav>
     </div>
     <?php
+}
+
+function gdriSidebarNavIsActive(array $item) {
+    $path = (string) ($item['path'] ?? '');
+    $paths = array_values(array_filter(array_merge(
+        $path !== '' ? [$path] : [],
+        is_array($item['alt_paths'] ?? null) ? $item['alt_paths'] : []
+    )));
+    if ($paths === []) {
+        return false;
+    }
+    $isPathActive = false;
+    foreach ($paths as $candidate) {
+        if (gdriNavIsActive((string) $candidate)) {
+            $isPathActive = true;
+            break;
+        }
+    }
+    if (!$isPathActive) {
+        return false;
+    }
+    if (isset($item['tab'])) {
+        return strtolower(trim((string) ($_GET['tab'] ?? ''))) === strtolower(trim((string) $item['tab']));
+    }
+    if (isset($item['defaultTab'])) {
+        $currentTab = strtolower(trim((string) ($_GET['tab'] ?? '')));
+        if ($currentTab === '') {
+            $currentTab = strtolower(trim((string) $item['defaultTab']));
+        }
+        return $currentTab === strtolower(trim((string) $item['defaultTab']));
+    }
+    return true;
 }
 
 function renderConsolePageHeader($title, $intro = '') {
@@ -213,6 +387,114 @@ function requireEntityConsoleAccess() {
     if (hasRole(ROLE_ADMIN_GDRI) && empty($currentEntrepriseId)) {
         redirect(url('pages/dashboard.php'));
     }
+}
+
+function requirePlatformConsoleAccess() {
+    if (!hasRole(ROLE_ADMIN_GDRI)) {
+        redirect(url('pages/dashboard.php'));
+    }
+}
+
+function requireUserWorkspaceEntityAccess() {
+    if (!isLoggedIn()) {
+        redirect(url('index.php'));
+    }
+    if (!hasRole(ROLE_ADMIN_GDRI) && !hasRole(ROLE_ADMIN_ENTITY) && !hasRole(ROLE_USER_ENTITY)) {
+        redirect(url('pages/dashboard.php'));
+    }
+    $currentEntrepriseId = $_SESSION['currentEntrepriseId'] ?? ($_SESSION['entrepriseId'] ?? null);
+    if (empty($currentEntrepriseId)) {
+        redirect(url('pages/dashboard.php'));
+    }
+}
+
+function renderApplicationCatalogReadonly(array $items, array $options = []) {
+    $hint = (string) ($options['hint'] ?? 'Installé sur le serveur — activation par entité');
+    $cardClass = (string) ($options['card_class'] ?? 'app-catalog-card');
+    if (empty($items)) {
+        echo '<div class="entity-console-empty"><p>Aucune application disponible.</p></div>';
+        return;
+    }
+    ?>
+    <div class="hub-cards-grid entity-console-grid app-catalog-readonly">
+        <?php foreach ($items as $item): ?>
+        <?php
+            $searchText = mb_strtolower(
+                ($item['title'] ?? '') . ' ' . ($item['description'] ?? '') . ' ' . ($item['slug'] ?? '')
+            );
+            $isActive = ($item['status'] ?? 'active') === 'active';
+            $typeLabel = ($item['catalog_type'] ?? 'app') === 'extension' ? 'Extension' : 'Application';
+        ?>
+        <div class="card entity-console-card entity-console-card--readonly <?= htmlspecialchars($cardClass) ?>"
+             data-search="<?= htmlspecialchars($searchText) ?>">
+            <div class="entity-console-card__inner entity-console-card__inner--applications">
+                <div class="entity-console-card__head">
+                    <span class="entity-console-card__icon"><?= $item['icon'] ?? '📱' ?></span>
+                    <div>
+                        <h2 class="entity-console-card__title"><?= htmlspecialchars($item['title'] ?? '') ?></h2>
+                        <div style="margin-top:0.35rem;display:flex;gap:0.35rem;flex-wrap:wrap;">
+                            <span class="badge <?= $isActive ? 'badge-success' : 'badge-secondary' ?>">
+                                <?= $isActive ? 'Actif' : 'Inactif' ?>
+                            </span>
+                            <span class="badge badge-info"><?= htmlspecialchars($typeLabel) ?></span>
+                        </div>
+                    </div>
+                </div>
+                <?php if (!empty($item['slug'])): ?>
+                <p class="app-catalog-card__slug"><code><?= htmlspecialchars($item['slug']) ?></code></p>
+                <?php endif; ?>
+                <p class="entity-console-card__description"><?= htmlspecialchars($item['description'] ?? '') ?></p>
+                <p class="entity-console-card__hint text-muted small"><?= htmlspecialchars($hint) ?></p>
+            </div>
+        </div>
+        <?php endforeach; ?>
+    </div>
+    <?php
+}
+
+function renderPlatformApplicationCatalog(array $items) {
+    renderApplicationCatalogReadonly($items, [
+        'hint' => 'Installé sur le serveur — activation par entité',
+    ]);
+}
+
+function renderApplicationCatalogReadonlyScript(array $options = []) {
+    $searchId = (string) ($options['search_id'] ?? 'appCatalogSearch');
+    $noResultId = (string) ($options['no_result_id'] ?? 'appCatalogNoResult');
+    $cardSelector = (string) ($options['card_selector'] ?? '.app-catalog-card');
+    ?>
+    <script>
+    (function() {
+        var searchEl = document.getElementById(<?= json_encode($searchId) ?>);
+        var cards = document.querySelectorAll(<?= json_encode($cardSelector) ?> + '[data-search]');
+        var noResult = document.getElementById(<?= json_encode($noResultId) ?>);
+        if (!searchEl || !cards.length) return;
+
+        function filter() {
+            var q = (searchEl.value || '').trim().toLowerCase();
+            var visible = 0;
+            cards.forEach(function(card) {
+                var text = (card.getAttribute('data-search') || '').toLowerCase();
+                var show = !q || text.indexOf(q) !== -1;
+                card.style.display = show ? '' : 'none';
+                if (show) visible++;
+            });
+            if (noResult) noResult.style.display = visible === 0 ? 'block' : 'none';
+        }
+
+        searchEl.addEventListener('input', filter);
+        searchEl.addEventListener('keyup', filter);
+    })();
+    </script>
+    <?php
+}
+
+function renderPlatformApplicationCatalogScript() {
+    renderApplicationCatalogReadonlyScript([
+        'search_id' => 'platformAppsSearch',
+        'no_result_id' => 'platformAppsNoResult',
+        'card_selector' => '.app-catalog-card',
+    ]);
 }
 
 function renderEntityConsoleHubCards(array $items, $variant = 'applications') {

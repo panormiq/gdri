@@ -20,6 +20,8 @@ function normalizeContact(raw) {
     scope: scopeRaw === 'interne' ? 'interne' : (scopeRaw === 'externe' ? 'externe' : ''),
     principal: c.principal === true,
     userId: c.userId != null ? String(c.userId).trim() || null : null,
+    ownerUserId: c.ownerUserId != null ? String(c.ownerUserId).trim() || null : null,
+    createdByUserId: c.createdByUserId != null ? String(c.createdByUserId).trim() || null : null,
     notes: String(c.notes || '').trim()
   };
 }

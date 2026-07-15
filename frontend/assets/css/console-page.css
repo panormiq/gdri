@@ -249,6 +249,31 @@
     margin-bottom: 1rem;
 }
 
+.admin-sidebar__user-hint {
+    font-size: 0.78rem;
+    color: #607d8b;
+    margin: 0 0.55rem 0.75rem;
+    line-height: 1.35;
+}
+
+.user-workspace-guide__lead {
+    margin: 0 0 1.25rem;
+    color: #546e7a;
+    font-size: 1.05rem;
+}
+
+.user-workspace-guide__card {
+    text-decoration: none;
+    color: inherit;
+    display: block;
+    transition: box-shadow 0.15s ease, transform 0.15s ease;
+}
+
+.user-workspace-guide__card:hover {
+    box-shadow: var(--shadow-md, 0 4px 12px rgba(0, 0, 0, 0.12));
+    transform: translateY(-2px);
+}
+
 @media (max-width: 768px) {
     :root {
         --console-page-padding-x: 1rem;

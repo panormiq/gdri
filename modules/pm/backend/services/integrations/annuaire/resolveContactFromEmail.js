@@ -13,13 +13,16 @@ function splitFromName(fromName) {
   return { prenom: parts[0], nom: parts.slice(1).join(' ') };
 }
 
-async function resolveContactFromEmail(db, entrepriseId, email) {
+async function resolveContactFromEmail(db, entrepriseId, email, options = {}) {
   if (!isAnnuaireAvailable()) {
     return null;
   }
 
   const fromEmail = String(email.fromEmail || email.from || '').trim().toLowerCase();
   if (!fromEmail) return null;
+
+  const ownerUserId = options.ownerUserId || email.ownerUserId || options.actorUserId || null;
+  const meta = { actorUserId: ownerUserId };
 
   const findContactByEmail = require(path.join(
     __dirname,
@@ -45,8 +48,9 @@ async function resolveContactFromEmail(db, entrepriseId, email) {
       fromName: email.fromName,
       prenom: names.prenom,
       nom: names.nom,
-      organisationName: email.organisationName || ''
-    });
+      organisationName: email.organisationName || '',
+      ownerUserId
+    }, meta);
     contact = result.contact;
     organisation = result.organisation || null;
     created = result.created === true;

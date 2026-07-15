@@ -12,6 +12,7 @@ if (!hasRole(ROLE_ADMIN_GDRI)) {
 
 $page_title = 'Console GDRI – Serveurs IA';
 require_once GDRI_ROOT . '/frontend/includes/header.php';
+require_once GDRI_ROOT . '/frontend/includes/entity-console-nav.php';
 
 $jwt_token = getJWTToken();
 $api_base_url = rtrim(getApiBaseUrl(), '/');
@@ -19,9 +20,10 @@ $api_base_url = rtrim(getApiBaseUrl(), '/');
 
 <section class="section">
     <div class="container">
+        <?php renderConsoleBackLink('Structurel', url('pages/platform-structurel.php')); ?>
         <h1 class="mb-4">Console GDRI – Serveurs IA</h1>
         <p class="text-muted small mb-1">Créez et maintenez les serveurs distribués aux entités (URL, clés, presets, mode mutualisé/privé/dédié).</p>
-        <p class="text-muted small mb-3">Les entités configurent leurs propres clés (Anthropic, OpenAI…) dans Paramètres → Structurel. Ici : serveurs <strong>distribués plateforme</strong>.</p>
+        <p class="text-muted small mb-3">Pour chaque serveur, ouvrez sa fiche et cochez les <strong>entités autorisées</strong>. Les utilisateurs et clés se règlent ensuite en <strong>console entité → Structurel → Serveur IA</strong>.</p>
 
         <div id="serversApiMessage" class="alert alert-info small mb-3" style="display:none;"></div>
         <div class="mb-4">

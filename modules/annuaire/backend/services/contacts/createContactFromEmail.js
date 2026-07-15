@@ -6,7 +6,7 @@ const findContactByEmail = require('./findContactByEmail');
 const createOrganisation = require('../organisations/createOrganisation');
 const createContact = require('./createContact');
 
-async function createContactFromEmail(db, entrepriseId, payload = {}) {
+async function createContactFromEmail(db, entrepriseId, payload = {}, meta = {}) {
   const email = String(payload.email || '').trim().toLowerCase();
   if (!email) throw new Error('Email requis');
 
@@ -33,8 +33,9 @@ async function createContactFromEmail(db, entrepriseId, payload = {}) {
     telephone: String(payload.telephone || '').trim(),
     fonction: String(payload.fonction || '').trim(),
     principal: true,
-    scope: 'externe'
-  });
+    scope: 'externe',
+    ownerUserId: payload.ownerUserId || null
+  }, meta);
 
   return { contact, organisation: org, created: true };
 }

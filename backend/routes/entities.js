@@ -9,6 +9,7 @@ const database = require('../config/database');
 const { authenticateJWT } = require('../config/jwt');
 const Entity = require('../models/Entity');
 const { ObjectId } = require('mongodb');
+const { dedupeServicesList } = require('../core/services-catalog-dedupe');
 
 function serializeDoc(value) {
   if (Array.isArray(value)) return value.map(serializeDoc);
@@ -293,7 +294,7 @@ router.get('/context', authenticateJWT, async (req, res) => {
     }
     const db = await database.connect();
     const entities = await db.collection('entities').find({}).toArray();
-    const services = await db.collection('services').find({}).toArray();
+    const services = dedupeServicesList(await db.collection('services').find({}).toArray());
     const users = await db.collection('users').find({}).toArray();
     res.json({
       success: true,

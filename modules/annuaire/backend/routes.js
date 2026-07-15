@@ -12,6 +12,7 @@ const organisationsController = require('./controllers/organisationsController')
 const servicesController = require('./controllers/servicesController');
 const contactsController = require('./controllers/contactsController');
 const integrationsController = require('./controllers/integrationsController');
+const membersController = require('./controllers/membersController');
 
 const readRoles = ['USER_ENTITY', 'ADMIN_ENTITY'];
 const writeRoles = ['USER_ENTITY', 'ADMIN_ENTITY'];
@@ -32,6 +33,8 @@ router.get('/services', ...auth, requireAnnuaireRole(readRoles), servicesControl
 router.post('/services', ...auth, requireAnnuaireRole(writeRoles), servicesController.create);
 router.put('/services/:id', ...auth, requireAnnuaireRole(writeRoles), servicesController.update);
 router.delete('/services/:id', ...auth, requireAnnuaireRole(writeRoles), servicesController.remove);
+
+router.get('/members', ...auth, requireAnnuaireRole(readRoles), membersController.list);
 
 router.get('/contacts', ...auth, requireAnnuaireRole(readRoles), contactsController.list);
 router.get('/contacts/by-email', ...auth, requireAnnuaireRole(readRoles), contactsController.findByEmail);

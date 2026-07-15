@@ -19,14 +19,14 @@ $page_title = 'Applications';
 require_once '../includes/header.php';
 renderConsolePageOpen(
     'Applications',
-    'Outils métier de votre entité. Le reste est encore accessible via Legacy.'
+    'Cliquez sur une carte pour ouvrir un outil (UGAP, Annuaire, GDERPI…).'
 );
 ?>
 
 <?php if (empty($application_items)): ?>
     <div class="entity-console-empty">
         <p>Aucune application disponible pour cette entité.</p>
-        <p class="text-muted small">Consultez <a href="<?= url('pages/entity-legacy.php') ?>">Legacy</a> pour l'ensemble des modules.</p>
+        <p class="text-muted small">Demandez à votre administrateur d'activer des applications pour votre entité.</p>
     </div>
 <?php else: ?>
     <?php renderConsoleSearchToolbar('UGAP, GDERPI, Workflow…'); ?>

@@ -7,8 +7,10 @@ const loadPmMailConfig = require('../services/inbox/loadPmMailConfig');
 
 async function poll(req, res) {
   try {
+    const actorUserId = req.user?.id || req.user?._id || req.user?.userId || null;
     const data = await pollInboxEmails(req.entrepriseDb, req.entrepriseId, {
-      limit: req.body?.limit || req.query?.limit
+      limit: req.body?.limit || req.query?.limit,
+      actorUserId
     });
     const status = data.success ? 200 : 400;
     res.status(status).json({ success: data.success, data, message: data.message });

@@ -15,14 +15,14 @@ if (!hasRole(ROLE_ADMIN_GDRI)) {
     redirect(url('pages/dashboard.php'));
 }
 
-$page_title = 'Module Mail – Fournisseurs';
+$page_title = 'Connecteur Mail – Presets fournisseurs';
 require_once '../includes/header.php';
 renderConsoleLayoutStart(
-    'Module Mail – Fournisseurs',
-    'Liste des fournisseurs mail (IMAP/SMTP) utilisée pour les presets dans la configuration mail des entités.',
+    'Connecteur Mail – Presets fournisseurs',
+    'Presets IMAP/SMTP globaux. Les comptes mail des entités se créent en console entité → Connecteurs.',
     ['narrow' => true]
 );
-renderConsoleBackLink('Extensions', url('pages/admin-modules.php'));
+renderConsoleBackLink('Connecteurs', url('pages/platform-connecteurs.php'));
 ?>
 
     <div class="card" style="margin-bottom: 1.5rem;">

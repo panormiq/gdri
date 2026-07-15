@@ -1,6 +1,6 @@
 <?php
 /**
- * Alias — redirige vers Console plateforme > Structurel.
+ * Alias — rôles métier = console entité uniquement.
  */
 require_once __DIR__ . '/../config/config.php';
 require_once __DIR__ . '/../auth/session.php';
@@ -10,4 +10,4 @@ if (!hasRole(ROLE_ADMIN_GDRI)) {
     redirect(url('pages/dashboard.php'));
 }
 
-redirect(url('pages/platform-structurel.php'));
+redirect(url('auth/set-nav-mode.php?mode=entity'));

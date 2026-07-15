@@ -57,7 +57,7 @@ function renderGdriSidebarModePicker($activeMode) {
                class="sidebar-mode-picker__option sidebar-mode-picker__option--<?= htmlspecialchars($mode['id']) ?><?= $activeMode === $mode['id'] ? ' is-active' : '' ?>"
                role="menuitem">
                 <span class="sidebar-mode-picker__option-icon"><?= $mode['icon'] ?></span>
-                <span><?= htmlspecialchars($mode['label']) ?></span>
+                <span class="sidebar-mode-picker__option-text"><?= htmlspecialchars($mode['label']) ?></span>
             </a>
             <?php endforeach; ?>
         </div>

@@ -1,34 +1,290 @@
-/* Annuaire — organisations, services, contacts */
+/* Annuaire — organisations, services, contacts (intégré shell console + sidebar GDRI) */
 
 .annuaire-shell {
-  width: 100vw;
+  width: 100%;
   max-width: 100%;
-  margin-left: calc(50% - 50vw);
-  margin-right: calc(50% - 50vw);
-  min-height: calc(100vh - 120px);
-  background: #f1f5f9;
-  padding-bottom: 2rem;
+  margin: 0;
+  min-height: 520px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  overflow: hidden;
+  background: #f8fafc;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.06);
 }
 
-.annuaire-topbar {
+.annuaire-shell--identity .annuaire-main {
+  max-width: 960px;
+  margin: 0 auto;
+  width: 100%;
+}
+
+.annuaire-shell--identity .annuaire-app-only {
+  display: none !important;
+}
+
+.annuaire-entity-bar {
+  flex-shrink: 0;
+  padding: 0.5rem 0.5rem 0;
+}
+
+.annuaire-entity-bar--sidebar {
+  margin-bottom: 0;
+}
+
+.annuaire-entity-bar__inner {
   display: flex;
-  justify-content: space-between;
+  flex-direction: column;
+  gap: 0.12rem;
+  padding: 0.55rem 0.65rem;
+  border: 1px solid #bfdbfe;
+  border-radius: 8px;
+  background: linear-gradient(180deg, #eff6ff 0%, #fff 100%);
+  cursor: default;
+  user-select: none;
+}
+
+.annuaire-entity-bar__label {
+  font-size: 0.65rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #64748b;
+}
+
+.annuaire-entity-bar__name {
+  font-size: 0.92rem;
+  font-weight: 700;
+  color: #0f172a;
+  line-height: 1.25;
+}
+
+.annuaire-entity-bar__meta {
+  font-size: 0.76rem;
+  color: #475569;
+  line-height: 1.35;
+}
+
+.annuaire-entity-bar__hint {
+  font-size: 0.68rem;
+  color: #64748b;
+  margin-top: 0.1rem;
+}
+
+.annuaire-dropboxes {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  padding: 0.45rem 0.5rem;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.annuaire-dropbox {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.annuaire-dropbox__trigger {
+  display: flex;
   align-items: center;
-  flex-wrap: wrap;
-  gap: 1rem;
-  padding: 1rem 1.5rem;
+  gap: 0.35rem;
+  width: 100%;
+  box-sizing: border-box;
+  text-align: left;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
   background: #fff;
+  padding: 0.45rem 0.55rem;
+  cursor: pointer;
+}
+
+.annuaire-dropbox__trigger:hover {
+  border-color: #94a3b8;
+  background: #f8fafc;
+}
+
+.annuaire-dropbox--open .annuaire-dropbox__trigger {
+  border-color: #0d6efd;
+  box-shadow: 0 0 0 2px rgba(13, 110, 253, 0.12);
+}
+
+.annuaire-dropbox__label {
+  flex-shrink: 0;
+  font-size: 0.65rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: #64748b;
+  min-width: 4.5rem;
+}
+
+.annuaire-dropbox__value {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: #0f172a;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.annuaire-dropbox__chev {
+  flex-shrink: 0;
+  font-size: 0.72rem;
+  color: #64748b;
+  transition: transform 0.15s ease;
+}
+
+.annuaire-dropbox--open .annuaire-dropbox__chev {
+  transform: rotate(180deg);
+}
+
+.annuaire-dropbox__panel {
+  display: none;
+  margin-top: 0.25rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #fff;
+  max-height: 220px;
+  overflow-y: auto;
+  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.08);
+}
+
+.annuaire-dropbox--open .annuaire-dropbox__panel {
+  display: block;
+}
+
+.annuaire-dropbox__item {
+  width: 100%;
+  border-radius: 0;
+  border-left: none;
+  border-right: none;
+  border-top: none;
+}
+
+.annuaire-dropbox__item:last-child {
+  border-bottom: none;
+}
+
+.annuaire-dropbox__empty {
+  padding: 0.65rem 0.75rem;
+  font-size: 0.82rem;
+  color: #94a3b8;
+  text-align: center;
+}
+
+.annuaire-sidebar-orgs__foot {
+  flex-shrink: 0;
+  padding: 0.5rem;
+  border-top: 1px solid #e2e8f0;
+}
+
+.annuaire-sidebar-orgs__foot .annuaire-sidebar-add-org {
+  width: 100%;
+}
+
+.annuaire-org-panel--main {
+  flex-shrink: 0;
+  margin: 0;
   border-bottom: 1px solid #e2e8f0;
 }
 
-.annuaire-topbar h1 { margin: 0; font-size: 1.35rem; }
+.annuaire-boutique-checks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem 0.85rem;
+  margin-top: 0.35rem;
+}
+
+.annuaire-boutique-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.88rem;
+}
+
+.annuaire-top-bar {
+  flex-shrink: 0;
+  width: 100%;
+  box-sizing: border-box;
+  background: #fff;
+  border-bottom: 1px solid #e2e8f0;
+  padding: 0.75rem 1rem 0.65rem;
+}
+
+.annuaire-search-bar {
+  width: 100%;
+  box-sizing: border-box;
+  margin-bottom: 0.65rem;
+}
+
+.annuaire-search-input {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+  font-size: 0.95rem;
+  padding: 0.55rem 0.85rem;
+  border-radius: 8px;
+  border: 1px solid #cbd5e1;
+  background: #fff;
+  color: #0f172a;
+}
+
+.annuaire-search-input:focus {
+  outline: none;
+  border-color: #0d6efd;
+  box-shadow: 0 0 0 3px rgba(13, 110, 253, 0.12);
+}
+
+.annuaire-top-bar .annuaire-filter-tabs {
+  padding: 0;
+  border-bottom: none;
+  width: 100%;
+}
 
 .annuaire-layout {
   display: grid;
-  grid-template-columns: 300px minmax(0, 1fr);
+  grid-template-columns: minmax(260px, 300px) minmax(0, 1fr);
   gap: 0;
-  min-height: calc(100vh - 200px);
+  flex: 1;
+  min-height: 520px;
+  border: none;
+  border-radius: 0;
+  overflow: hidden;
+  background: transparent;
+  box-shadow: none;
 }
+
+.console-page__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.console-page__actions .btn {
+  margin-left: 0;
+}
+
+.annuaire-shell--identity .annuaire-layout {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.annuaire-shell--identity .annuaire-app-only {
+  display: none !important;
+}
+
+.annuaire-shell--identity .annuaire-main {
+  max-width: 960px;
+  margin: 0 auto;
+}
+
 
 .annuaire-sidebar {
   background: #fff;
@@ -37,13 +293,367 @@
   flex-direction: column;
 }
 
-.annuaire-sidebar-filters {
-  padding: 0.75rem;
+.annuaire-sidebar__heading,
+.annuaire-sidebar__subheading {
+  margin: 0;
+  padding: 0.65rem 0.75rem 0.25rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #64748b;
+}
+
+.annuaire-sidebar-help-details {
+  margin: 0.5rem 0.75rem;
+  font-size: 0.82rem;
+  color: #64748b;
+}
+
+.annuaire-sidebar-help-details summary {
+  cursor: pointer;
+  font-weight: 600;
+  color: #475569;
+}
+
+.annuaire-empty--own-company {
+  line-height: 1.55;
+}
+
+.annuaire-main .annuaire-empty--prompt,
+.annuaire-main .annuaire-empty--own-company {
+  margin: 0;
+  max-width: none;
+  padding: 1.25rem 1rem;
+  text-align: center;
+}
+
+.annuaire-sidebar__heading--list {
+  padding-top: 0.35rem;
+  border-top: 1px solid #e2e8f0;
+}
+
+.annuaire-sidebar__count {
+  font-weight: 500;
+  text-transform: none;
+  letter-spacing: 0;
+  color: #94a3b8;
+}
+
+
+.annuaire-filter-tabs {
+  padding: 0.65rem 0.75rem;
   border-bottom: 1px solid #e2e8f0;
   display: flex;
   flex-wrap: wrap;
   gap: 0.35rem;
 }
+
+.annuaire-filter-btn--mine {
+  margin-left: auto;
+}
+
+.annuaire-filter-btn--mine.active {
+  background: #7c3aed;
+  border-color: #7c3aed;
+}
+
+.annuaire-main {
+  background: #fff;
+  padding: 0;
+  margin: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  min-height: 560px;
+}
+
+.annuaire-main-inner {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  height: 100%;
+  min-height: 0;
+  margin: 0;
+}
+
+.annuaire-org-brief {
+  flex-shrink: 0;
+  padding: 1rem 1.25rem;
+  border-bottom: 1px solid #e2e8f0;
+  background: #f8fafc;
+}
+
+.annuaire-org-brief__top {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.annuaire-org-brief__title {
+  margin: 0;
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.annuaire-org-brief__meta {
+  margin: 0.35rem 0 0;
+  font-size: 0.85rem;
+  color: #64748b;
+  line-height: 1.45;
+}
+
+.annuaire-org-brief--compact {
+  flex-shrink: 0;
+  padding: 0.65rem 1.25rem;
+  border-bottom: 1px solid #e2e8f0;
+  background: #fff;
+}
+
+.annuaire-org-brief--compact .annuaire-org-brief__title {
+  font-size: 1rem;
+  margin: 0;
+}
+
+.annuaire-org-brief--compact .annuaire-org-brief__meta {
+  margin: 0.25rem 0 0;
+  font-size: 0.82rem;
+}
+
+.annuaire-tags--compact {
+  margin-top: 0.25rem;
+}
+
+.annuaire-org-admin-details {
+  flex-shrink: 0;
+  border-bottom: 1px solid #e2e8f0;
+  background: #f8fafc;
+}
+
+.annuaire-org-admin-details summary {
+  cursor: pointer;
+  padding: 0.55rem 1.25rem;
+  font-weight: 600;
+  font-size: 0.88rem;
+  color: #475569;
+  list-style: none;
+}
+
+.annuaire-org-admin-details summary::-webkit-details-marker { display: none; }
+
+.annuaire-org-admin-details__hint {
+  font-weight: 400;
+  color: #94a3b8;
+  font-size: 0.82rem;
+}
+
+.annuaire-org-admin-details__body {
+  padding: 0 1.25rem 1rem;
+}
+
+.annuaire-org-brief--identity {
+  padding: 1rem 1.25rem;
+  border-bottom: 1px solid #e2e8f0;
+  background: #f8fafc;
+}
+
+.annuaire-contacts-section {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  padding: 1rem 1.25rem 1.25rem;
+}
+
+.annuaire-contacts-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.85rem;
+}
+
+.annuaire-contacts-toolbar h3 {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.annuaire-contacts-toolbar__count {
+  font-weight: 400;
+  color: #64748b;
+  font-size: 0.9rem;
+}
+
+.annuaire-add-contact-details {
+  margin-bottom: 0.85rem;
+  border: 1px dashed #cbd5e1;
+  border-radius: 10px;
+  background: #f8fafc;
+}
+
+.annuaire-add-contact-details summary {
+  cursor: pointer;
+  padding: 0.55rem 0.85rem;
+  font-weight: 600;
+  font-size: 0.88rem;
+  color: #0d6efd;
+  list-style: none;
+}
+
+.annuaire-add-contact-details summary::-webkit-details-marker { display: none; }
+
+.annuaire-add-contact-details[open] summary {
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.annuaire-add-contact-form {
+  padding: 0.85rem;
+}
+
+.annuaire-contact-cards {
+  flex: 1;
+  overflow-y: auto;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 0.75rem;
+  align-content: start;
+  min-height: 120px;
+}
+
+.annuaire-contact-card {
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 0.85rem 1rem;
+  background: #fff;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  transition: box-shadow 0.15s ease, border-color 0.15s ease;
+}
+
+.annuaire-contact-card:hover {
+  border-color: #93c5fd;
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.06);
+}
+
+.annuaire-contact-card__head {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.65rem;
+}
+
+.annuaire-contact-card__avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: #dbeafe;
+  color: #1d4ed8;
+  font-weight: 700;
+  font-size: 0.95rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.annuaire-contact-card__name {
+  font-weight: 700;
+  font-size: 0.95rem;
+  color: #0f172a;
+  line-height: 1.25;
+}
+
+.annuaire-contact-card__role {
+  font-size: 0.8rem;
+  color: #64748b;
+  margin-top: 0.1rem;
+}
+
+.annuaire-contact-card__line {
+  font-size: 0.82rem;
+  color: #475569;
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.annuaire-contact-card__line a {
+  color: #0d6efd;
+  text-decoration: none;
+}
+
+.annuaire-contact-card__line a:hover { text-decoration: underline; }
+
+.annuaire-contact-card__footer {
+  margin-top: auto;
+  padding-top: 0.5rem;
+  border-top: 1px solid #f1f5f9;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.annuaire-contact-card__owner {
+  flex: 1;
+  min-width: 0;
+}
+
+.annuaire-contact-card__owner select {
+  width: 100%;
+  font-size: 0.78rem;
+  padding: 0.2rem 0.35rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  background: #f8fafc;
+}
+
+.annuaire-contact-card__del {
+  border: none;
+  background: transparent;
+  color: #dc3545;
+  font-size: 0.78rem;
+  cursor: pointer;
+  padding: 0.2rem 0.35rem;
+  border-radius: 4px;
+}
+
+.annuaire-contact-card__del:hover {
+  background: #fef2f2;
+}
+
+.annuaire-contact-card--principal {
+  border-color: #93c5fd;
+  background: linear-gradient(180deg, #eff6ff 0%, #fff 40%);
+}
+
+.annuaire-contacts-empty {
+  grid-column: 1 / -1;
+  text-align: center;
+  padding: 2.5rem 1rem;
+  color: #94a3b8;
+  border: 1px dashed #e2e8f0;
+  border-radius: 12px;
+  background: #f8fafc;
+}
+
+.annuaire-org-item-meta {
+  font-size: 0.75rem;
+  color: #64748b;
+  margin-top: 0.15rem;
+}
+
+.annuaire-org-item-meta .annuaire-tag {
+  font-size: 0.65rem;
+  padding: 0.08rem 0.35rem;
+}
+
 
 .annuaire-filter-btn {
   border: 1px solid #cbd5e1;
@@ -60,10 +670,210 @@
   color: #fff;
 }
 
+.annuaire-sidebar-orgs {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+.annuaire-sidebar-orgs__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.35rem;
+  padding-right: 0.5rem;
+  border-top: 1px solid #e2e8f0;
+}
+
+.annuaire-sidebar-orgs__head .annuaire-sidebar__heading--list {
+  flex: 1;
+  border-top: none;
+  padding-top: 0.65rem;
+}
+
+.annuaire-sidebar-add-org {
+  flex-shrink: 0;
+  min-width: 2rem;
+  padding: 0.15rem 0.45rem;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.annuaire-org-root {
+  padding: 0.35rem 0.5rem 0;
+  flex-shrink: 0;
+}
+
+.annuaire-org-root__wrap {
+  border: 1px solid #c7d2fe;
+  border-radius: 8px;
+  background: linear-gradient(180deg, #eef2ff 0%, #fff 100%);
+  padding: 0.45rem 0.65rem 0.55rem;
+}
+
+.annuaire-org-root__wrap--active {
+  border-color: #4f46e5;
+  box-shadow: inset 0 0 0 1px #4f46e5;
+}
+
+.annuaire-org-root__select {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: none;
+  background: transparent;
+  padding: 0.15rem 0 0.35rem;
+  cursor: pointer;
+}
+
+.annuaire-org-root__select:hover .annuaire-org-root__name {
+  color: #4f46e5;
+}
+
+.annuaire-org-root__hint {
+  display: block;
+  font-size: 0.72rem;
+  color: #64748b;
+  margin-top: 0.2rem;
+}
+
+.annuaire-contacts-toolbar__hint {
+  margin: 0.2rem 0 0;
+  font-size: 0.82rem;
+  font-weight: 400;
+  color: #64748b;
+}
+
+.annuaire-contacts-section--internal {
+  background: linear-gradient(180deg, #f8fafc 0%, #fff 120px);
+}
+
+.annuaire-org-root__edit {
+  display: block;
+  width: 100%;
+  margin-top: 0.45rem;
+  font-size: 0.72rem;
+}
+
+.annuaire-org-root__badge {
+  display: inline-block;
+  font-size: 0.62rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: #1d4ed8;
+  background: #dbeafe;
+  padding: 0.08rem 0.35rem;
+  border-radius: 4px;
+  vertical-align: middle;
+}
+
+.annuaire-org-item-primary {
+  font-size: 0.65rem;
+  font-weight: 700;
+  color: #1d4ed8;
+  background: #dbeafe;
+  padding: 0.08rem 0.3rem;
+  border-radius: 4px;
+  vertical-align: middle;
+}
+
+.annuaire-org-root__label {
+  display: block;
+  font-size: 0.65rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #6366f1;
+  margin-bottom: 0.15rem;
+}
+
+.annuaire-org-root__name {
+  display: block;
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: #1e1b4b;
+}
+
+.annuaire-org-panel {
+  flex-shrink: 0;
+  padding: 0.35rem 0.5rem;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.annuaire-org-panel__inner {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 0.55rem 0.65rem;
+}
+
+.annuaire-org-panel__badge {
+  display: inline-block;
+  font-size: 0.62rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: #6366f1;
+  background: #eef2ff;
+  padding: 0.08rem 0.35rem;
+  border-radius: 4px;
+  margin-bottom: 0.25rem;
+}
+
+.annuaire-org-panel__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.35rem;
+}
+
+.annuaire-org-panel__title {
+  margin: 0;
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: #0f172a;
+  line-height: 1.25;
+}
+
+.annuaire-org-panel__meta {
+  margin: 0.35rem 0 0;
+  font-size: 0.75rem;
+  color: #64748b;
+  line-height: 1.4;
+}
+
+.annuaire-org-panel__head .btn {
+  flex-shrink: 0;
+  font-size: 0.72rem;
+  padding: 0.15rem 0.4rem;
+}
+
+.annuaire-empty--list-hint {
+  padding: 0.75rem;
+  font-size: 0.78rem;
+  color: #94a3b8;
+}
+
+.annuaire-empty--prompt {
+  padding: 2rem 1rem;
+  text-align: center;
+  color: #64748b;
+  line-height: 1.5;
+}
+
+.annuaire-contacts-section.annuaire-contacts-section--full {
+  flex: 1;
+  min-height: 0;
+  padding: 0.75rem 1rem 1rem;
+  margin: 0;
+}
+
 .annuaire-org-list {
   flex: 1;
   overflow-y: auto;
   padding: 0.5rem;
+  min-height: 80px;
 }
 
 .annuaire-org-item {
@@ -84,17 +894,6 @@
 .annuaire-org-item-title {
   font-weight: 600;
   font-size: 0.9rem;
-}
-
-.annuaire-org-item-meta {
-  font-size: 0.75rem;
-  color: #64748b;
-  margin-top: 0.15rem;
-}
-
-.annuaire-main {
-  padding: 1rem 1.25rem;
-  overflow-y: auto;
 }
 
 .annuaire-panel {
@@ -130,6 +929,13 @@
 .annuaire-tag--client { background: #dbeafe; color: #1d4ed8; }
 .annuaire-tag--fournisseur { background: #ffedd5; color: #c2410c; }
 .annuaire-tag--prospect { background: #f3e8ff; color: #7e22ce; }
+
+.annuaire-contact-table .annuaire-owner-select {
+  min-width: 140px;
+  max-width: 200px;
+  font-size: 0.82rem;
+  padding: 0.15rem 0.35rem;
+}
 
 .annuaire-contact-table {
   width: 100%;

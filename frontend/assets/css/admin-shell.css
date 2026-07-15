@@ -252,11 +252,76 @@
     flex-shrink: 0;
     background: #f5f9ff;
     border-right: 1px solid #dbe7f5;
-    padding: 1rem 0.75rem;
+    padding: 1rem 0.75rem 0.5rem;
     position: sticky;
     top: var(--header-height-minimal);
     height: calc(100vh - var(--header-height-minimal));
     overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    transition: width 0.2s ease, padding 0.2s ease;
+}
+
+.admin-sidebar__collapse-btn {
+    margin-top: auto;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.45rem;
+    width: 100%;
+    padding: 0.55rem 0.65rem;
+    border: 1px solid #cfd8dc;
+    border-radius: 8px;
+    background: #fff;
+    color: #546e7a;
+    font-size: 0.82rem;
+    font-weight: 600;
+    cursor: pointer;
+    flex-shrink: 0;
+}
+
+.admin-sidebar__collapse-btn:hover {
+    background: #eef3f7;
+}
+
+.app-shell.sidebar-collapsed .admin-sidebar {
+    width: 72px;
+    padding-left: 0.45rem;
+    padding-right: 0.45rem;
+}
+
+.app-shell.sidebar-collapsed .admin-sidebar__section-label,
+.app-shell.sidebar-collapsed .admin-sidebar__link-text,
+.app-shell.sidebar-collapsed .admin-sidebar__collapse-label,
+.app-shell.sidebar-collapsed .sidebar-mode-picker__label,
+.app-shell.sidebar-collapsed .sidebar-mode-picker__chevron,
+.app-shell.sidebar-collapsed .sidebar-mode-picker__option-text,
+.app-shell.sidebar-collapsed .admin-sidebar__hint,
+.app-shell.sidebar-collapsed .admin-sidebar__hint-btn {
+    display: none !important;
+}
+
+.app-shell.sidebar-collapsed .admin-sidebar__link {
+    justify-content: center;
+    padding-left: 0.35rem;
+    padding-right: 0.35rem;
+}
+
+.app-shell.sidebar-collapsed .admin-sidebar__collapse-btn {
+    padding-left: 0.35rem;
+    padding-right: 0.35rem;
+}
+
+.app-shell.sidebar-collapsed .sidebar-mode-picker__current {
+    justify-content: center;
+}
+
+@media (min-width: 993px) {
+    .app-shell.sidebar-collapsed .sidebar-toggle {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+    }
 }
 
 .admin-sidebar--platform {

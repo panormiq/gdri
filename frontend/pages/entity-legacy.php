@@ -27,7 +27,7 @@ $page_title = 'Legacy';
 require_once __DIR__ . '/../includes/header.php';
 renderConsoleLayoutStart(
     'Legacy',
-    'Point d\'entrée unique le temps de la migration vers la console entité.'
+    'Legacy — modules et entrées non encore migrés.'
 );
 ?>
 

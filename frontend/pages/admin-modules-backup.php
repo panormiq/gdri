@@ -21,7 +21,7 @@ renderConsoleLayoutStart(
     'Politique globale, chemin de stockage et supervision des sauvegardes par entité.',
     ['narrow' => true]
 );
-renderConsoleBackLink('Extensions', url('pages/admin-modules.php'));
+renderConsoleBackLink('Structurel', url('pages/platform-structurel.php'));
 ?>
 
     <div id="platformMsg" class="alert alert-info small" style="display:none;"></div>

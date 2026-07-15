@@ -21,6 +21,7 @@ async function updateContact(db, entrepriseId, contactId, patch = {}) {
   if (p.telephone !== undefined) update.telephone = String(p.telephone || '').trim();
   if (p.notes !== undefined) update.notes = String(p.notes || '').trim();
   if (p.userId !== undefined) update.userId = p.userId ? String(p.userId).trim() : null;
+  if (p.ownerUserId !== undefined) update.ownerUserId = p.ownerUserId ? String(p.ownerUserId).trim() : null;
   if (p.scope !== undefined) update.scope = String(p.scope || 'externe');
   if (p.serviceId !== undefined) {
     update.serviceId = p.serviceId ? String(p.serviceId).trim() : null;

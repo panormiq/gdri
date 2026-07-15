@@ -11,6 +11,7 @@ async function listContacts(db, entrepriseId, options = {}) {
   if (options.organisationId) filter.organisationId = String(options.organisationId);
   if (options.scope) filter.scope = String(options.scope);
   if (options.serviceId) filter.serviceId = String(options.serviceId);
+  if (options.ownerUserId) filter.ownerUserId = String(options.ownerUserId);
   if (options.search) {
     const q = String(options.search).trim();
     if (q) {

@@ -66,6 +66,17 @@ async function updateOrganisation(db, entrepriseId, organisationId, patch = {}) 
   if (p.gderpiBoutiqueId !== undefined) {
     update.gderpiBoutiqueId = p.gderpiBoutiqueId ? String(p.gderpiBoutiqueId).trim() : null;
   }
+  if (p.boutiqueOrganisationIds !== undefined) {
+    const ids = Array.isArray(p.boutiqueOrganisationIds) ? p.boutiqueOrganisationIds : [];
+    const seen = new Set();
+    update.boutiqueOrganisationIds = ids
+      .map(function (id) { return String(id || '').trim(); })
+      .filter(function (id) {
+        if (!id || seen.has(id)) return false;
+        seen.add(id);
+        return true;
+      });
+  }
 
   const isCompanyOrg = existing.isOwnEntity || Boolean(existing.gderpiBoutiqueId);
   const touchesIdentity = Object.keys(p).some((key) => IDENTITY_PATCH_KEYS.has(key));

@@ -22,14 +22,14 @@ if (!hasRole(ROLE_ADMIN_GDRI)) {
 $jwt_token = getJWTToken();
 $api_base_url = getApiBaseUrl();
 
-$page_title = 'Configuration Application Facebook';
+$page_title = 'Connecteur Facebook – App OAuth';
 require_once '../../includes/header.php';
 renderConsoleLayoutStart(
-    'Configuration Application Facebook',
-    'Identifiants de l\'application Facebook (App ID, App Secret) pour toute la plateforme.',
+    'Connecteur Facebook – App OAuth',
+    'Preset global Meta (App ID, App Secret). Les pages Facebook se lient en console entité → Connecteurs.',
     ['compact' => true]
 );
-renderConsoleBackLink('Extensions', url('pages/admin-modules.php'));
+renderConsoleBackLink('Connecteurs', url('pages/platform-connecteurs.php'));
 ?>
 
     <div class="card">

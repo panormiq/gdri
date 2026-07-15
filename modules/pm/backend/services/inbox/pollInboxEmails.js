@@ -54,7 +54,10 @@ async function pollInboxEmails(db, entrepriseId, options = {}) {
       continue;
     }
 
-    const card = await createCardFromEmail(db, entrepriseId, email);
+    const card = await createCardFromEmail(db, entrepriseId, {
+      ...email,
+      ownerUserId: options.actorUserId || email.ownerUserId || null
+    });
     await processedCol.insertOne({
       entrepriseId: String(entrepriseId),
       messageId,

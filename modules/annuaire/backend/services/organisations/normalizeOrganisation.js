@@ -8,6 +8,19 @@ const { normalizeRoles } = require('./organisationRoles');
 const SCOPES = new Set(['interne', 'externe']);
 const TYPES = new Set(['entreprise', 'particulier']);
 
+function normalizeBoutiqueOrganisationIds(raw) {
+  if (!Array.isArray(raw)) return [];
+  const seen = new Set();
+  const out = [];
+  raw.forEach(function (item) {
+    const id = String(item || '').trim();
+    if (!id || seen.has(id)) return;
+    seen.add(id);
+    out.push(id);
+  });
+  return out;
+}
+
 function normalizeOrganisation(raw) {
   const o = raw && typeof raw === 'object' ? raw : {};
   const scopeRaw = String(o.scope || 'externe').trim().toLowerCase();
@@ -41,6 +54,7 @@ function normalizeOrganisation(raw) {
     gderpiClientId: o.gderpiClientId != null ? String(o.gderpiClientId).trim() || null : null,
     gderpiFournisseurId: o.gderpiFournisseurId != null ? String(o.gderpiFournisseurId).trim() || null : null,
     gderpiBoutiqueId: o.gderpiBoutiqueId != null ? String(o.gderpiBoutiqueId).trim() || null : null,
+    boutiqueOrganisationIds: normalizeBoutiqueOrganisationIds(o.boutiqueOrganisationIds),
     createdAt: o.createdAt || null,
     updatedAt: o.updatedAt || null
   };

@@ -435,6 +435,16 @@ function getMigratedStructuralDefinitions() {
             'icon' => '💾',
             'url' => 'pages/modules/backup-config.php',
         ],
+        [
+            'id' => 'annuaire-identity',
+            'slugs' => ['annuaire-identity'],
+            'keywords' => ['identité entreprise', 'coordonnées entreprise', 'raison sociale'],
+            'legacyIds' => ['cfg-annuaire-identity'],
+            'title' => 'Identité entreprise',
+            'description' => 'Coordonnées légales, SIRET et adresse — synchronisées avec UGAP et la fiche entité GDRI.',
+            'icon' => '🏢',
+            'url' => 'pages/modules/annuaire.php?focus=identity',
+        ],
     ];
 }
 
@@ -526,6 +536,140 @@ function buildStructuralHubItems() {
  * Cartes pour Paramètres > Connecteurs.
  * @return array<int, array<string, mixed>>
  */
+/**
+ * Cartes pour Console plateforme > Structurel (infra globale).
+ * @return array<int, array<string, mixed>>
+ */
+function buildPlatformStructuralHubItems() {
+    return [
+        [
+            'id' => 'ia',
+            'title' => 'Serveurs IA',
+            'description' => 'Créer les serveurs mutualisés/dédiés et cocher les entités autorisées (distribution plateforme).',
+            'icon' => '🤖',
+            'url' => url('pages/modules/ia-config.php'),
+        ],
+        [
+            'id' => 'data-backup',
+            'title' => 'Sauvegarde des bases client',
+            'description' => 'Chemins de stockage et politique globale des exports MongoDB.',
+            'icon' => '💾',
+            'url' => url('pages/admin-modules-backup.php'),
+        ],
+    ];
+}
+
+/**
+ * Cartes pour Console plateforme > Agents IA (automatisations globales).
+ * @return array<int, array<string, mixed>>
+ */
+function buildPlatformAgentHubItems() {
+    return [
+        [
+            'id' => 'platform-backup',
+            'title' => 'Sauvegarde plateforme',
+            'description' => 'Supervision et politique des backups de toutes les bases entités.',
+            'icon' => '💾',
+            'url' => url('pages/admin-modules-backup.php'),
+        ],
+        [
+            'id' => 'platform-activity',
+            'title' => 'Suivi & exécutions',
+            'description' => 'Historique des actions et automatisations sur la plateforme.',
+            'icon' => '📊',
+            'url' => url('pages/user-activity.php'),
+        ],
+    ];
+}
+
+/**
+ * Cartes pour Console plateforme > Applications (catalogue global dédupliqué).
+ * @return array<int, array<string, mixed>>
+ */
+function buildPlatformApplicationHubItems(array $services) {
+    $services = dedupeServicesCatalog($services);
+    $items = [];
+    foreach ($services as $service) {
+        if (isInfrastructureService($service)) {
+            continue;
+        }
+        $visibility = strtolower(trim((string) ($service['catalog_visibility'] ?? 'public')));
+        if ($visibility === 'hidden') {
+            continue;
+        }
+        $items[] = [
+            'id' => (string) ($service['_id'] ?? $service['id'] ?? ''),
+            'title' => (string) ($service['name'] ?? 'Application'),
+            'description' => (string) ($service['description'] ?? 'Module disponible sur la plateforme.'),
+            'icon' => (string) ($service['icon'] ?? '📱'),
+            'slug' => (string) ($service['slug'] ?? ''),
+            'status' => (string) ($service['status'] ?? 'active'),
+            'catalog_type' => (string) ($service['catalog_type'] ?? 'app'),
+        ];
+    }
+    usort($items, function ($a, $b) {
+        return strcasecmp((string) ($a['title'] ?? ''), (string) ($b['title'] ?? ''));
+    });
+    return $items;
+}
+
+/**
+ * Cartes pour Console plateforme > Connecteurs (presets globaux).
+ * @return array<int, array<string, mixed>>
+ */
+function buildPlatformConnectorHubItems() {
+    return [
+        [
+            'id' => 'mail',
+            'title' => 'Connecteur Mail',
+            'description' => 'Presets IMAP/SMTP (fournisseurs) réutilisés par les comptes mail des entités.',
+            'icon' => '📧',
+            'url' => url('pages/admin-modules-mail.php'),
+            'kind' => 'connector',
+        ],
+        [
+            'id' => 'facebook',
+            'title' => 'Connecteur Facebook',
+            'description' => 'Application Meta (App ID, OAuth) pour les pages Facebook des entités.',
+            'icon' => '📘',
+            'url' => url('pages/modules/facebook-app-config.php'),
+            'kind' => 'connector',
+        ],
+    ];
+}
+
+function buildUserConnectorHubItems() {
+    $items = buildConnectorHubItems();
+    $items[] = [
+        'id' => 'account-modules',
+        'title' => 'Réglages applications',
+        'description' => 'Configuration personnelle des modules (presets, préférences…).',
+        'icon' => '🧩',
+        'url' => url('pages/account-modules.php'),
+        'kind' => 'connector',
+    ];
+    usort($items, function ($a, $b) {
+        return strcasecmp((string) ($a['title'] ?? ''), (string) ($b['title'] ?? ''));
+    });
+    return $items;
+}
+
+/**
+ * Cartes pour Mon espace > Structurel (infra personnelle).
+ * @return array<int, array<string, mixed>>
+ */
+function buildUserStructuralHubItems() {
+    return [
+        [
+            'id' => 'ia-user',
+            'title' => 'Serveur IA (perso)',
+            'description' => 'Vos clés API, serveurs personnels et accès aux modèles autorisés par l\'entité.',
+            'icon' => '🤖',
+            'url' => url('pages/modules/ia-user-config.php'),
+        ],
+    ];
+}
+
 function buildConnectorHubItems() {
     return [
         [
@@ -665,6 +809,17 @@ function getMigratedApplicationDefinitions() {
                 ['label' => 'Viewer', 'url' => '/modules/workflow/frontend/viewer/index.html', 'primary' => true],
                 ['label' => 'Builder', 'url' => '/modules/workflow/frontend/builder/index.html'],
             ],
+        ],
+        [
+            'id' => 'annuaire',
+            'slugs' => ['annuaire'],
+            'keywords' => ['annuaire', 'contacts', 'organisations'],
+            'legacyIds' => ['svc-annuaire', 'annuaire-open'],
+            'static' => true,
+            'title' => 'Annuaire',
+            'description' => 'Organisations, contacts clients/fournisseurs et collaborateurs.',
+            'icon' => '📇',
+            'url' => 'pages/modules/annuaire.php',
         ],
     ];
 }
@@ -855,6 +1010,58 @@ function buildApplicationHubItems($userIsAdmin = false) {
         }
         $seenDefinitionIds[$defId] = true;
         $items[] = $item;
+    }
+
+    usort($items, function ($a, $b) {
+        return strcasecmp((string) ($a['title'] ?? ''), (string) ($b['title'] ?? ''));
+    });
+
+    return $items;
+}
+
+/**
+ * Catalogue entité — apps autorisées, lecture seule (sans lien d'ouverture).
+ * @return array<int, array<string, mixed>>
+ */
+function buildEntityApplicationCatalogItems($userIsAdmin = false) {
+    $catalog = dedupeServicesCatalog(fetchEntityServicesCatalog());
+    $definitions = getMigratedApplicationDefinitions();
+    $items = [];
+    $seenDefinitionIds = [];
+    $usedServiceIds = [];
+
+    foreach ($catalog as $service) {
+        if (isInfrastructureService($service)) {
+            continue;
+        }
+        $serviceId = (string) ($service['_id'] ?? $service['id'] ?? '');
+        if ($serviceId !== '' && isset($usedServiceIds[$serviceId])) {
+            continue;
+        }
+
+        $definition = findBestMigratedDefinitionForService($service, $definitions);
+        if (!$definition) {
+            continue;
+        }
+
+        $defId = (string) ($definition['id'] ?? '');
+        if ($defId === '' || isset($seenDefinitionIds[$defId])) {
+            continue;
+        }
+
+        if ($serviceId !== '') {
+            $usedServiceIds[$serviceId] = true;
+        }
+        $seenDefinitionIds[$defId] = true;
+        $items[] = [
+            'id' => $defId,
+            'title' => (string) ($service['name'] ?? $definition['title']),
+            'description' => (string) ($service['description'] ?? $definition['description']),
+            'icon' => (string) ($service['icon'] ?? $definition['icon']),
+            'slug' => (string) ($service['slug'] ?? ''),
+            'status' => (string) ($service['status'] ?? 'active'),
+            'catalog_type' => (string) ($service['catalog_type'] ?? 'app'),
+        ];
     }
 
     usort($items, function ($a, $b) {
@@ -1087,7 +1294,8 @@ function fetchEntityServicesCatalog() {
 }
 
 /**
- * Pages « application » (sidebar admin masquée).
+ * Pages « application » métier (layout large, mode user par défaut).
+ * N'affecte plus la visibilité de la sidebar — voir shouldShowAdminSidebar().
  */
 function isGdriAppPage() {
     if (!empty($GLOBALS['hide_admin_sidebar'])) {
@@ -1106,7 +1314,6 @@ function isGdriAppPage() {
         'chat.php',
         'ugap.php',
         'gderpi.php',
-        'annuaire.php',
         'pm.php',
         'doc-hub.php',
         'banque.php',
@@ -1165,11 +1372,14 @@ function isGdriEntityConsolePage() {
         'entity-structurel.php',
         'entity-console.php',
         'entity-config.php',
-        'entity-legacy.php',
         'users.php',
         'entity-roles.php',
     ];
     if (in_array($basename, $consolePages, true)) {
+        return true;
+    }
+
+    if ($basename === 'annuaire.php' && strtolower(trim((string) ($_GET['focus'] ?? ''))) === 'identity') {
         return true;
     }
 
@@ -1194,11 +1404,24 @@ function isGdriUserSpacePage() {
         'dashboard.php',
         'modules.php',
         'applications.php',
+        'user-agents.php',
+        'user-connecteurs.php',
+        'user-structurel.php',
         'account-modules.php',
         'account-profile.php',
         'account-notifications.php',
+        'entity-legacy.php',
     ];
-    return in_array($basename, $userPages, true);
+    if (in_array($basename, $userPages, true)) {
+        return true;
+    }
+
+    if ($basename === 'annuaire.php') {
+        $focus = strtolower(trim((string) ($_GET['focus'] ?? '')));
+        return $focus !== 'identity';
+    }
+
+    return false;
 }
 
 /**
@@ -1250,6 +1473,9 @@ function gdriWorkspaceModeUrl($mode) {
  */
 function syncGdriWorkspaceModeFromPage() {
     if (!canAccessEntityConsole() && !canAccessPlatformConsole()) {
+        if (isGdriUserSpacePage()) {
+            $_SESSION['gdri_workspace_mode'] = 'user';
+        }
         return;
     }
 
@@ -1282,6 +1508,8 @@ function syncGdriWorkspaceModeFromPage() {
 
 /**
  * Afficher la sidebar admin (sélecteur de mode + navigation console).
+ * Toujours visible pour les utilisateurs connectés (y compris dans les apps).
+ * Seul $GLOBALS['hide_admin_sidebar'] peut la masquer explicitement.
  */
 function shouldShowAdminSidebar() {
     if (!empty($GLOBALS['hide_admin_sidebar'])) {
@@ -1290,10 +1518,7 @@ function shouldShowAdminSidebar() {
     if (!isLoggedIn()) {
         return false;
     }
-    if (isGdriAppPage()) {
-        return false;
-    }
-    return canAccessEntityConsole() || canAccessPlatformConsole();
+    return true;
 }
 
 /**
@@ -1322,7 +1547,15 @@ function isGdriPlatformShellPage() {
     $basename = basename($script);
     $platformPages = [
         'entities.php',
+        'platform-structurel.php',
+        'platform-connecteurs.php',
+        'platform-users.php',
+        'platform-applications.php',
+        'platform-agents.php',
+        'platform-roles.php',
         'admin-modules.php',
+        'admin-modules-mail.php',
+        'admin-modules-backup.php',
         'user-activity.php',
         'facebook-app-config.php',
         'ia-config.php',
@@ -1349,7 +1582,6 @@ function isGdriEntityShellPage() {
         'entity-structurel.php',
         'entity-console.php',
         'entity-config.php',
-        'entity-legacy.php',
         'entity-agents.php',
         'entity-agent-editor.php',
         'users.php',

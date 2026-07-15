@@ -16,8 +16,24 @@ if (!isLoggedIn()) {
     redirect(url('index.php'));
 }
 
-$page_title = 'Dashboard';
+$page_title = 'Accueil';
 $userRole = getUserRole();
+$workspaceMode = getGdriWorkspaceMode();
+
+if ($workspaceMode === 'user') {
+    require_once '../includes/entity-console-nav.php';
+    require_once '../includes/header.php';
+    renderConsoleLayoutStart(
+        'Accueil',
+        'Bienvenue. Le menu à gauche regroupe tout — ou utilisez les raccourcis ci-dessous.'
+    );
+    renderUserWorkspaceGuideCards();
+    renderConsoleLayoutEnd();
+    require_once '../includes/footer.php';
+    exit;
+}
+
+$page_title = 'Dashboard';
 
 require_once '../includes/header.php';
 
@@ -135,7 +151,7 @@ $api_base_url = getApiBaseUrl();
         <?php if ($userRole === 'ADMIN_GDRI'): ?>
             <!-- Dashboard Admin GDRI -->
             <div class="section-title">
-                <h2>Gestion des Entités</h2>
+                <h2>Console plateforme GDRI</h2>
             </div>
             
             <div class="cards-grid">
@@ -143,21 +159,43 @@ $api_base_url = getApiBaseUrl();
                     <div class="card-icon">🏢</div>
                     <h3 class="card-title">Entités</h3>
                     <p class="card-description">
-                        Gérer les entreprises et entités inscrites sur la plateforme
+                        Gérer les entreprises clientes et leurs modules autorisés
                     </p>
                     <a class="btn btn-primary" style="margin-top: var(--spacing-md);" href="<?php echo url('pages/entities.php'); ?>">
                         Gérer les entités
                     </a>
                 </div>
-                
+
                 <div class="card">
-                    <div class="card-icon">🔧</div>
-                    <h3 class="card-title">Services</h3>
+                    <div class="card-icon">📱</div>
+                    <h3 class="card-title">Applications</h3>
                     <p class="card-description">
-                        Configurer les services disponibles et leurs autorisations
+                        Catalogue global des applications disponibles sur la plateforme
                     </p>
-                    <a class="btn btn-primary" style="margin-top: var(--spacing-md);" href="<?php echo url('pages/entities.php'); ?>">
-                        Gérer les droits modules
+                    <a class="btn btn-primary" style="margin-top: var(--spacing-md);" href="<?php echo url('pages/platform-applications.php'); ?>">
+                        Voir le catalogue
+                    </a>
+                </div>
+
+                <div class="card">
+                    <div class="card-icon">🔌</div>
+                    <h3 class="card-title">Connecteurs</h3>
+                    <p class="card-description">
+                        Presets mail, Facebook et autres canaux globaux
+                    </p>
+                    <a class="btn btn-primary" style="margin-top: var(--spacing-md);" href="<?php echo url('pages/platform-connecteurs.php'); ?>">
+                        Ouvrir les connecteurs
+                    </a>
+                </div>
+
+                <div class="card">
+                    <div class="card-icon">⚙️</div>
+                    <h3 class="card-title">Structurel</h3>
+                    <p class="card-description">
+                        Serveurs IA plateforme, sauvegardes globales et infra partagée
+                    </p>
+                    <a class="btn btn-primary" style="margin-top: var(--spacing-md);" href="<?php echo url('pages/platform-structurel.php'); ?>">
+                        Ouvrir le structurel
                     </a>
                 </div>
                 
@@ -165,9 +203,9 @@ $api_base_url = getApiBaseUrl();
                     <div class="card-icon">👥</div>
                     <h3 class="card-title">Utilisateurs</h3>
                     <p class="card-description">
-                        Voir tous les utilisateurs de la plateforme
+                        Vue globale de tous les comptes plateforme
                     </p>
-                    <a class="btn btn-primary" style="margin-top: var(--spacing-md);" href="<?php echo url('pages/entities.php'); ?>">
+                    <a class="btn btn-primary" style="margin-top: var(--spacing-md);" href="<?php echo url('pages/platform-users.php'); ?>">
                         Voir les utilisateurs
                     </a>
                 </div>

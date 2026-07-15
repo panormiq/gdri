@@ -8,6 +8,7 @@ async function ensureContactIndexes(db) {
   await col.createIndex({ entrepriseId: 1, organisationId: 1 });
   await col.createIndex({ entrepriseId: 1, email: 1 });
   await col.createIndex({ entrepriseId: 1, userId: 1 });
+  await col.createIndex({ entrepriseId: 1, ownerUserId: 1 });
 }
 
 module.exports = ensureContactIndexes;

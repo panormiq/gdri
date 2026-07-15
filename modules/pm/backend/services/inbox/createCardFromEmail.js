@@ -14,7 +14,9 @@ async function createCardFromEmail(db, entrepriseId, email) {
     body: email.bodyText || email.snippet
   });
 
-  const annuaireHit = await resolveContactFromEmail(db, entrepriseId, email);
+  const annuaireHit = await resolveContactFromEmail(db, entrepriseId, email, {
+    ownerUserId: email.ownerUserId || null
+  });
 
   const contactName = annuaireHit?.contactName
     || String(email.fromName || '').trim();

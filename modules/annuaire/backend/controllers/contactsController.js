@@ -16,6 +16,7 @@ async function list(req, res) {
       organisationId: req.query.organisationId,
       scope: req.query.scope,
       serviceId: req.query.serviceId,
+      ownerUserId: req.query.ownerUserId,
       search: req.query.q || req.query.search
     });
     res.json({ success: true, data });
@@ -46,7 +47,8 @@ async function findByEmail(req, res) {
 
 async function create(req, res) {
   try {
-    const item = await createContact(req.entrepriseDb, req.entrepriseId, req.body || {});
+    const actorUserId = req.user?.id || req.user?._id || req.user?.userId || null;
+    const item = await createContact(req.entrepriseDb, req.entrepriseId, req.body || {}, { actorUserId });
     res.status(201).json({ success: true, data: item });
   } catch (error) {
     res.status(400).json({ success: false, message: error.message });
@@ -55,7 +57,8 @@ async function create(req, res) {
 
 async function createFromEmail(req, res) {
   try {
-    const data = await createContactFromEmail(req.entrepriseDb, req.entrepriseId, req.body || {});
+    const actorUserId = req.user?.id || req.user?._id || req.user?.userId || null;
+    const data = await createContactFromEmail(req.entrepriseDb, req.entrepriseId, req.body || {}, { actorUserId });
     res.status(data.created ? 201 : 200).json({ success: true, data });
   } catch (error) {
     res.status(400).json({ success: false, message: error.message });

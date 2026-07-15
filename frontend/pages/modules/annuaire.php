@@ -7,56 +7,83 @@ require_once '../../config/config.php';
 require_once '../../auth/session.php';
 require_once '../../includes/functions.php';
 require_once '../../includes/jwt-helper.php';
+require_once '../../includes/entity-console-nav.php';
 
 if (!hasRole(ROLE_ADMIN_GDRI) && !hasRole(ROLE_ADMIN_ENTITY) && !hasRole(ROLE_USER_ENTITY)) {
     redirect(url('pages/dashboard.php'));
 }
 
-$page_title = 'Annuaire';
+$annuaireMode = (isset($_GET['focus']) && $_GET['focus'] === 'identity') ? 'identity' : 'app';
+if ($annuaireMode === 'identity' && !hasRole(ROLE_ADMIN_GDRI) && !hasRole(ROLE_ADMIN_ENTITY)) {
+    redirect(url('pages/modules/annuaire.php'));
+}
+
+if ($annuaireMode === 'identity' && canAccessEntityConsole()) {
+    $_SESSION['gdri_workspace_mode'] = 'entity';
+    $_SESSION['gdri_admin_nav_mode'] = 'entity';
+} else {
+    $_SESSION['gdri_workspace_mode'] = 'user';
+}
+
+$page_title = $annuaireMode === 'identity' ? 'Identité entreprise' : 'Annuaire';
 $assetBase = '/modules/annuaire/frontend';
 $jwt_token = getJWTToken();
 $api_base_url = rtrim(getApiBaseUrl(), '/');
+$annuaire_current_user_id = (string) ($_SESSION['user_id'] ?? '');
+$annuaire_can_manage = hasRole(ROLE_ADMIN_GDRI) || hasRole(ROLE_ADMIN_ENTITY);
+
+$annuaireIntro = $annuaireMode === 'identity'
+    ? 'Coordonnées légales de votre entreprise (administration).'
+    : ($annuaire_can_manage
+        ? 'Boutique, client ou fournisseur à gauche — fiche et contacts à droite.'
+        : 'Choisissez une boutique, un client ou un fournisseur pour gérer les contacts.');
+
+ob_start();
+?>
+<button type="button" class="btn btn-outline btn-sm" id="annuaire-btn-refresh">Actualiser</button>
+<?php
+$annuaireActions = ob_get_clean();
 
 require_once '../../includes/header.php';
+renderConsoleLayoutStart($page_title, $annuaireIntro, ['actions' => $annuaireActions]);
 ?>
 
 <link rel="stylesheet" href="<?= htmlspecialchars($assetBase) ?>/assets/css/annuaire.css?v=<?= (int)@filemtime(__DIR__ . '/../../../modules/annuaire/frontend/assets/css/annuaire.css') ?>">
 
-<div class="annuaire-shell">
-    <div class="annuaire-topbar">
-        <h1>Annuaire</h1>
-        <div class="d-flex flex-wrap gap-2 align-items-center">
-            <span id="annuaire-gderpi-badge" class="badge bg-secondary">GDERPI …</span>
-            <button type="button" class="btn btn-outline btn-sm" id="annuaire-btn-refresh">Actualiser</button>
-            <button type="button" class="btn btn-outline btn-sm" id="annuaire-btn-import-gderpi">Importer GDERPI</button>
-            <button type="button" class="btn btn-primary btn-sm" id="annuaire-btn-add-org">+ Entité</button>
-            <a href="<?= url('pages/modules.php') ?>" class="btn btn-outline btn-sm">← Applications</a>
+<div class="annuaire-shell<?= $annuaireMode === 'identity' ? ' annuaire-shell--identity' : '' ?>">
+    <div class="annuaire-top-bar annuaire-app-only">
+        <div class="annuaire-search-bar">
+            <input type="search" id="annuaire-search" class="annuaire-search-input" placeholder="Rechercher une organisation, un email, une ville…" autocomplete="off">
+        </div>
+        <div class="annuaire-filter-tabs" id="annuaire-filter-tabs">
+            <button type="button" class="annuaire-filter-btn active" data-annuaire-kind="">Tous</button>
+            <button type="button" class="annuaire-filter-btn" data-annuaire-kind="client">Clients</button>
+            <button type="button" class="annuaire-filter-btn" data-annuaire-kind="fournisseur">Fournisseurs</button>
+            <button type="button" class="annuaire-filter-btn" data-annuaire-kind="prospect">Prospects</button>
+            <button type="button" class="annuaire-filter-btn" data-annuaire-kind="interne">Internes</button>
+            <button type="button" class="annuaire-filter-btn" data-annuaire-kind="boutique">Boutiques</button>
+            <button type="button" class="annuaire-filter-btn annuaire-filter-btn--mine" data-annuaire-owner="mine">Les miens</button>
         </div>
     </div>
-
     <div class="annuaire-layout">
-        <aside class="annuaire-sidebar">
-            <div class="annuaire-sidebar-filters">
-                <button type="button" class="annuaire-filter-btn active" data-annuaire-scope="">Tous</button>
-                <button type="button" class="annuaire-filter-btn" data-annuaire-scope="interne">Internes</button>
-                <button type="button" class="annuaire-filter-btn" data-annuaire-role="boutique">Boutiques</button>
-                <button type="button" class="annuaire-filter-btn" data-annuaire-scope="externe">Externes</button>
-            </div>
-            <div class="annuaire-sidebar-help">
-                <strong>Votre structure</strong>
-                <p><span class="annuaire-kind-badge annuaire-kind-badge--boutique">Boutique</span> — votre entreprise opérationnelle (GDERPI, SIRET, contacts)</p>
-                <p>Une boutique = une entité dans l'annuaire. Pas de doublon avec un « siège » séparé.</p>
-                <p>Import : <em>Importer GDERPI</em> ou création dans GDERPI paramétrage.</p>
-            </div>
-            <div class="p-2">
-                <input type="search" id="annuaire-search" class="form-control form-control-sm" placeholder="Rechercher…">
-            </div>
-            <div id="annuaire-org-list" class="annuaire-org-list">
-                <div class="annuaire-empty">Chargement…</div>
+        <aside class="annuaire-sidebar annuaire-app-only">
+            <div class="annuaire-sidebar-orgs">
+                <div id="annuaire-entity-bar" class="annuaire-entity-bar annuaire-entity-bar--sidebar" hidden title="Double-clic pour les coordonnées légales"></div>
+                <div id="annuaire-dropboxes" class="annuaire-dropboxes">
+                    <div class="annuaire-empty">Chargement…</div>
+                </div>
+                <?php if ($annuaire_can_manage): ?>
+                <div class="annuaire-sidebar-orgs__foot">
+                    <button type="button" class="btn btn-primary btn-sm annuaire-sidebar-add-org" id="annuaire-btn-add-org" title="Nouvelle organisation">+ Organisation</button>
+                </div>
+                <?php endif; ?>
             </div>
         </aside>
         <main id="annuaire-main" class="annuaire-main">
-            <div class="annuaire-empty">Sélectionnez une organisation</div>
+            <div class="annuaire-empty annuaire-empty--prompt">
+                <strong>Choisissez une organisation</strong><br>
+                Ouvrez une box Boutique, Client ou Fournisseur à gauche.
+            </div>
         </main>
     </div>
 </div>
@@ -122,6 +149,11 @@ require_once '../../includes/header.php';
                     <div><label for="annuaire-org-ville">Ville</label><input type="text" id="annuaire-org-ville"></div>
                     <div><label for="annuaire-org-pays">Pays</label><input type="text" id="annuaire-org-pays" value="France"></div>
                 </div>
+                <div class="annuaire-form-span-2" id="annuaire-org-boutiques-wrap" hidden>
+                    <label>Boutiques liées</label>
+                    <div id="annuaire-org-boutiques-checks" class="annuaire-boutique-checks"></div>
+                    <p class="text-muted small">Laissez vide pour rendre visible dans toutes les boutiques.</p>
+                </div>
                 <div class="annuaire-form-span-2">
                     <label for="annuaire-org-notes">Notes</label>
                     <textarea id="annuaire-org-notes" rows="3"></textarea>
@@ -139,10 +171,16 @@ require_once '../../includes/header.php';
 <script>
 window.ANNUAIRE_CONFIG = {
     apiBase: <?= json_encode($api_base_url, JSON_UNESCAPED_UNICODE) ?>,
-    jwt: <?= json_encode($jwt_token, JSON_UNESCAPED_UNICODE) ?>
+    jwt: <?= json_encode($jwt_token, JSON_UNESCAPED_UNICODE) ?>,
+    mode: <?= json_encode($annuaireMode, JSON_UNESCAPED_UNICODE) ?>,
+    currentUserId: <?= json_encode($annuaire_current_user_id, JSON_UNESCAPED_UNICODE) ?>,
+    canManage: <?= $annuaire_can_manage ? 'true' : 'false' ?>,
+    identityUrl: <?= json_encode(url('pages/modules/annuaire.php?focus=identity'), JSON_UNESCAPED_UNICODE) ?>
 };
 </script>
 <script src="<?= htmlspecialchars($assetBase) ?>/assets/js/apiCall.js?v=<?= (int)@filemtime(__DIR__ . '/../../../modules/annuaire/frontend/assets/js/apiCall.js') ?>"></script>
 <script src="<?= htmlspecialchars($assetBase) ?>/assets/js/annuaire-app.js?v=<?= (int)@filemtime(__DIR__ . '/../../../modules/annuaire/frontend/assets/js/annuaire-app.js') ?>"></script>
 
-<?php require_once '../../includes/footer.php'; ?>
+<?php
+renderConsoleLayoutEnd();
+require_once '../../includes/footer.php';

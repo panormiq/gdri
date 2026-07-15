@@ -43,6 +43,7 @@ async function createOrganisation(db, entrepriseId, data = {}) {
     gderpiClientId: normalized.gderpiClientId,
     gderpiFournisseurId: normalized.gderpiFournisseurId,
     gderpiBoutiqueId: normalized.gderpiBoutiqueId,
+    boutiqueOrganisationIds: normalized.boutiqueOrganisationIds,
     createdAt: now,
     updatedAt: now
   };

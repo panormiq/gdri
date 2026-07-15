@@ -9,6 +9,11 @@ if (!hasRole(ROLE_ADMIN_ENTITY) && !hasRole(ROLE_ADMIN_GDRI)) {
     redirect(url('pages/dashboard.php'));
 }
 
+$entityId = $_SESSION['currentEntrepriseId'] ?? ($_SESSION['entrepriseId'] ?? null);
+if (hasRole(ROLE_ADMIN_GDRI) && getGdriWorkspaceMode(!empty($entityId)) === 'platform') {
+    redirect(url('pages/platform-users.php'));
+}
+
 $page_title = 'Utilisateurs & Permissions';
 $successMessage = '';
 $errorMessage = '';

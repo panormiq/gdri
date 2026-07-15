@@ -1,21 +1,11 @@
 {
-  "lastAccessLogPosition": 95148027,
-  "lastErrorLogPosition": 20127774,
-  "attackCount": 1,
+  "lastAccessLogPosition": 95596974,
+  "lastErrorLogPosition": 20301952,
+  "attackCount": 2,
   "lastAlertTime": "2026-07-13T17:21:53.333Z",
   "lastSynFloodAlertTime": "2026-01-14T09:25:39.725Z",
   "lastSuspectAlertTime": "2026-01-09T22:41:43.689Z",
   "attacks": [
-    {
-      "timestamp": "2026-07-03T14:09:32.881Z",
-      "ip": "141.98.11.171",
-      "method": "GET",
-      "uri": "//.env",
-      "userAgent": "-",
-      "attackType": "sensitive_file_access",
-      "severity": "medium",
-      "logLine": "141.98.11.171 - - [03/Jul/2026:16:09:32 +0200] \"GET //.env HTTP/1.1\" 403 311 \"-\" \"-\""
-    },
     {
       "timestamp": "2026-07-03T14:09:32.881Z",
       "ip": "141.98.11.171",
@@ -1005,6 +995,16 @@
       "attackType": "sensitive_file_access",
       "severity": "medium",
       "logLine": "94.154.43.187 - - [14/Jul/2026:09:19:29 +0200] \"GET /.env HTTP/1.1\" 403 311 \"-\" \"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36\""
+    },
+    {
+      "timestamp": "2026-07-15T08:35:40.043Z",
+      "ip": "144.172.105.190",
+      "method": "GET",
+      "uri": "/.git/config",
+      "userAgent": "Mozilla/5.0 (X11; Linux x86_64)",
+      "attackType": "sensitive_file_access",
+      "severity": "medium",
+      "logLine": "144.172.105.190 - - [15/Jul/2026:10:35:25 +0200] \"GET /.git/config HTTP/1.1\" 403 311 \"https://www.gdri.fr/.git/config\" \"Mozilla/5.0 (X11; Linux x86_64)\""
     }
   ],
   "bannedIPs": [
@@ -23186,11 +23186,7 @@
     "181.189.10.159",
     "181.189.10.206",
     "195.178.110.160",
-    "94.154.43.177",
-    "116.204.169.2",
-    "94.154.43.187",
-    "23.128.100.245",
-    "23.128.100.247"
+    "144.172.105.190"
   ],
   "bannedSubnets": [
     "170.254.236.0/24",
@@ -25104,159 +25100,10 @@
   },
   "currentInterval": 20000,
   "lastSynCount": 0,
-  "ipReputation": {
-    "116.204.169.2": {
-      "score": 0,
-      "firstSeen": 1783963312409,
-      "lastSeen": 1783963312413,
-      "detections": [
-        {
-          "timestamp": 1783963312409,
-          "attackType": "sensitive_file_access",
-          "severity": "medium",
-          "score": 2
-        },
-        {
-          "timestamp": 1783963312410,
-          "attackType": "sensitive_file_access",
-          "severity": "medium",
-          "score": 2
-        },
-        {
-          "timestamp": 1783963312410,
-          "attackType": "sensitive_file_access",
-          "severity": "medium",
-          "score": 2
-        },
-        {
-          "timestamp": 1783963312410,
-          "attackType": "sensitive_file_access",
-          "severity": "medium",
-          "score": 2
-        },
-        {
-          "timestamp": 1783963312411,
-          "attackType": "sensitive_file_access",
-          "severity": "medium",
-          "score": 2
-        },
-        {
-          "timestamp": 1783963312411,
-          "attackType": "sensitive_file_access",
-          "severity": "medium",
-          "score": 2
-        },
-        {
-          "timestamp": 1783963312411,
-          "attackType": "sensitive_file_access",
-          "severity": "medium",
-          "score": 2
-        },
-        {
-          "timestamp": 1783963312412,
-          "attackType": "sensitive_file_access",
-          "severity": "medium",
-          "score": 2
-        },
-        {
-          "timestamp": 1783963312412,
-          "attackType": "sensitive_file_access",
-          "severity": "medium",
-          "score": 2
-        },
-        {
-          "timestamp": 1783963312413,
-          "attackType": "sensitive_file_access",
-          "severity": "medium",
-          "score": 2
-        }
-      ]
-    }
-  },
+  "ipReputation": {},
   "subnetReputation": {
-    "116.204.169.0/24": {
-      "score": 0,
-      "firstSeen": 1783963312409,
-      "lastSeen": 1783963312413,
-      "detections": [
-        {
-          "timestamp": 1783963312409,
-          "ip": "116.204.169.2",
-          "attackType": "sensitive_file_access",
-          "severity": "medium",
-          "score": 1
-        },
-        {
-          "timestamp": 1783963312410,
-          "ip": "116.204.169.2",
-          "attackType": "sensitive_file_access",
-          "severity": "medium",
-          "score": 1
-        },
-        {
-          "timestamp": 1783963312410,
-          "ip": "116.204.169.2",
-          "attackType": "sensitive_file_access",
-          "severity": "medium",
-          "score": 1
-        },
-        {
-          "timestamp": 1783963312410,
-          "ip": "116.204.169.2",
-          "attackType": "sensitive_file_access",
-          "severity": "medium",
-          "score": 1
-        },
-        {
-          "timestamp": 1783963312411,
-          "ip": "116.204.169.2",
-          "attackType": "sensitive_file_access",
-          "severity": "medium",
-          "score": 1
-        },
-        {
-          "timestamp": 1783963312411,
-          "ip": "116.204.169.2",
-          "attackType": "sensitive_file_access",
-          "severity": "medium",
-          "score": 1
-        },
-        {
-          "timestamp": 1783963312411,
-          "ip": "116.204.169.2",
-          "attackType": "sensitive_file_access",
-          "severity": "medium",
-          "score": 1
-        },
-        {
-          "timestamp": 1783963312412,
-          "ip": "116.204.169.2",
-          "attackType": "sensitive_file_access",
-          "severity": "medium",
-          "score": 1
-        },
-        {
-          "timestamp": 1783963312412,
-          "ip": "116.204.169.2",
-          "attackType": "sensitive_file_access",
-          "severity": "medium",
-          "score": 1
-        },
-        {
-          "timestamp": 1783963312413,
-          "ip": "116.204.169.2",
-          "attackType": "sensitive_file_access",
-          "severity": "medium",
-          "score": 1
-        }
-      ],
-      "ipCount": 1,
-      "ips": [
-        "116.204.169.2"
-      ]
-    },
     "176.9.56.0/24": {
-      "score": 0.6,
+      "score": 0,
       "firstSeen": 1784033010357,
       "lastSeen": 1784033010357,
       "detections": [
@@ -25275,40 +25122,12 @@
     }
   },
   "banMetadata": {
-    "94.154.43.177": {
-      "bannedAt": 1783958765819,
-      "expiresAt": 1784045165819,
+    "144.172.105.190": {
+      "bannedAt": 1784104540421,
+      "expiresAt": 1784190940421,
       "reason": "immediate_attack_type",
       "attackType": "sensitive_file_access",
-      "uri": "/.env"
-    },
-    "116.204.169.2": {
-      "bannedAt": 1783963312405,
-      "expiresAt": 1784049712405,
-      "reason": "immediate_attack_type",
-      "attackType": "sensitive_file_access",
-      "uri": "/.env.backup"
-    },
-    "94.154.43.187": {
-      "bannedAt": 1784013582432,
-      "expiresAt": 1784099982432,
-      "reason": "immediate_attack_type",
-      "attackType": "sensitive_file_access",
-      "uri": "/.env"
-    },
-    "23.128.100.245": {
-      "bannedAt": 1784033216138,
-      "expiresAt": 1784119616138,
-      "reason": "syn_flood",
-      "attackType": null,
-      "uri": null
-    },
-    "23.128.100.247": {
-      "bannedAt": 1784033216361,
-      "expiresAt": 1784119616361,
-      "reason": "syn_flood",
-      "attackType": null,
-      "uri": null
+      "uri": "/.git/config"
     }
   }
 }

@@ -192,10 +192,6 @@ if ($currentEntreprise) {
                             <?php endif; ?>
                         </button>
                         <ul class="dropdown-menu dropdown-menu--right" id="userPanelDropdownMenu">
-                            <?php if (!hasRole(ROLE_ADMIN_GDRI) && !hasRole(ROLE_ADMIN_ENTITY)): ?>
-                            <li><a href="<?php echo url('pages/modules.php'); ?>" class="dropdown-item">Applications</a></li>
-                            <?php endif; ?>
-                            <li><a href="<?php echo url('pages/account-modules.php'); ?>" class="dropdown-item">Mes applications</a></li>
                             <li><a href="<?php echo url('pages/account-profile.php'); ?>" class="dropdown-item">Mes données</a></li>
                             <li><a href="<?php echo url('pages/account-notifications.php'); ?>" class="dropdown-item">Mes notifications</a></li>
                             <li><a href="<?php echo url('auth/logout.php'); ?>" class="dropdown-item">Déconnexion</a></li>
@@ -424,6 +420,11 @@ document.addEventListener('DOMContentLoaded', function() {
 
     if (sidebarToggle) {
         sidebarToggle.addEventListener('click', function() {
+            if (appShell && isDesktopSidebar() && appShell.classList.contains('sidebar-collapsed')) {
+                applySidebarCollapsed(false);
+                localStorage.setItem(SIDEBAR_COLLAPSED_KEY, '0');
+                return;
+            }
             if (sidebar && sidebar.classList.contains('is-open')) {
                 closeSidebar();
             } else {
@@ -433,6 +434,57 @@ document.addEventListener('DOMContentLoaded', function() {
     }
     if (sidebarBackdrop) {
         sidebarBackdrop.addEventListener('click', closeSidebar);
+    }
+
+    const appShell = document.getElementById('appShell');
+    const sidebarCollapseBtn = document.getElementById('adminSidebarCollapse');
+    const SIDEBAR_COLLAPSED_KEY = 'gdri_sidebar_collapsed';
+    const desktopSidebarMq = window.matchMedia('(min-width: 993px)');
+
+    function isDesktopSidebar() {
+        return desktopSidebarMq.matches;
+    }
+
+    function applySidebarCollapsed(collapsed) {
+        if (!appShell) return;
+        appShell.classList.toggle('sidebar-collapsed', collapsed);
+        if (sidebarCollapseBtn) {
+            sidebarCollapseBtn.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+            const icon = sidebarCollapseBtn.querySelector('.admin-sidebar__collapse-icon');
+            const label = sidebarCollapseBtn.querySelector('.admin-sidebar__collapse-label');
+            if (icon) icon.textContent = collapsed ? '▶' : '◀';
+            if (label) label.textContent = collapsed ? 'Menu' : 'Réduire';
+            sidebarCollapseBtn.title = collapsed ? 'Développer le menu' : 'Réduire le menu';
+        }
+    }
+
+    function loadSidebarCollapsedPreference() {
+        if (!appShell || !isDesktopSidebar()) {
+            if (appShell) appShell.classList.remove('sidebar-collapsed');
+            return;
+        }
+        applySidebarCollapsed(localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === '1');
+    }
+
+    loadSidebarCollapsedPreference();
+
+    if (sidebarCollapseBtn) {
+        sidebarCollapseBtn.addEventListener('click', function() {
+            if (!appShell) return;
+            if (!isDesktopSidebar()) {
+                openSidebar();
+                return;
+            }
+            const next = !appShell.classList.contains('sidebar-collapsed');
+            applySidebarCollapsed(next);
+            localStorage.setItem(SIDEBAR_COLLAPSED_KEY, next ? '1' : '0');
+        });
+    }
+
+    if (typeof desktopSidebarMq.addEventListener === 'function') {
+        desktopSidebarMq.addEventListener('change', loadSidebarCollapsedPreference);
+    } else if (typeof desktopSidebarMq.addListener === 'function') {
+        desktopSidebarMq.addListener(loadSidebarCollapsedPreference);
     }
 
     const sidebarEntrepriseBtn = document.getElementById('sidebarEntrepriseBtn');
@@ -514,7 +566,7 @@ document.addEventListener('DOMContentLoaded', function() {
 <?php endif; ?>
 
 <?php if (!empty($showAdminSidebar)): ?>
-<div class="app-shell">
+<div class="app-shell" id="appShell">
     <?php require __DIR__ . '/admin-sidebar.php'; ?>
     <main class="app-main">
 <?php endif; ?>

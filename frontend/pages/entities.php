@@ -17,9 +17,12 @@ if (!hasRole(ROLE_ADMIN_GDRI)) {
     redirect(url('pages/dashboard.php'));
 }
 
-$page_title = 'Gestion des Entités';
+$tab = strtolower(trim((string) ($_GET['tab'] ?? '')));
+if ($tab === 'users-tab') {
+    redirect(url('pages/platform-users.php'));
+}
 
-require_once '../includes/header.php';
+$page_title = 'Gestion des Entités';
 
 // Récupérer toutes les entités
 $entities = [];
@@ -54,193 +57,112 @@ try {
     $allUsers = [];
 }
 
-// Les utilisateurs par entité sont chargés côté front via l'API /entities/:id/users.
-$usersByEntity = [];
+$services = dedupeServicesCatalog($services);
+$servicesById = [];
+foreach ($services as $service) {
+    $sid = (string) ($service['_id'] ?? $service['id'] ?? '');
+    if ($sid !== '') {
+        $servicesById[$sid] = $service;
+    }
+}
+$entitiesById = [];
+foreach ($entities as $entityRow) {
+    $eid = (string) ($entityRow['_id'] ?? '');
+    if ($eid !== '') {
+        $entitiesById[$eid] = $entityRow;
+    }
+}
+
+// Les utilisateurs par entité sont chargés à l'ouverture du modal de gestion.
 ?>
 
 <?php
 require_once '../includes/header.php';
 renderConsoleLayoutStart(
-    'Gestion des Entités',
-    'Gérez les entreprises clientes et leurs accès aux modules IA.'
+    'Entités',
+    'Gérez les entreprises clientes et leurs modules autorisés.'
 );
 ?>
 
-<!-- Tabs Navigation -->
 <section class="section">
     <div class="container">
-        <div class="tabs-nav">
-            <button class="tab-btn active" data-tab="entities-tab">Entités</button>
-            <button class="tab-btn" data-tab="users-tab">Utilisateurs</button>
+        <div class="section-title">
+            <h2>Liste des entités</h2>
+            <button class="btn btn-primary" id="addEntityBtn" type="button">+ Ajouter une entité</button>
         </div>
-    </div>
-</section>
 
-<!-- Section Liste des Entités -->
-<section class="section">
-    <div class="container">
-        <div class="tab-content active" id="entities-tab">
-            <div class="section-title">
-                <h2>Liste des Entités</h2>
-                <button class="btn btn-primary" id="addEntityBtn">+ Ajouter une entité</button>
-            </div>
-        
-        <div class="entities-grid" id="entitiesGrid">
+        <div class="entities-grid entities-grid--compact" id="entitiesGrid">
             <?php if (empty($entities)): ?>
                 <div class="empty-state">
                     <p>Aucune entité enregistrée pour le moment.</p>
                 </div>
             <?php else: ?>
                 <?php foreach ($entities as $entity): ?>
-                    <div class="entity-card" data-entity-id="<?= htmlspecialchars((string) $entity['_id']) ?>">
-                        <div class="entity-header">
-                            <h3><?= htmlspecialchars($entity['name']) ?></h3>
-                            <div class="entity-actions">
-                                <button class="btn-icon edit-entity" data-entity-id="<?= htmlspecialchars((string) $entity['_id']) ?>" title="Modifier">
-                                    ✏️
-                                </button>
-                                <button class="btn-icon toggle-entity" data-entity-id="<?= htmlspecialchars((string) $entity['_id']) ?>" title="<?= $entity['status'] === 'active' ? 'Désactiver' : 'Activer' ?>">
-                                    <?= $entity['status'] === 'active' ? '✅' : '❌' ?>
-                                </button>
-                            </div>
-                        </div>
-                        
-                        <div class="entity-details">
-                            <p><strong>SIRET :</strong> <?= htmlspecialchars($entity['siret']) ?></p>
-                            <p><strong>Adresse :</strong> <?= htmlspecialchars($entity['address']) ?></p>
-                            <p><strong>Statut :</strong> 
-                                <span class="badge <?= $entity['status'] === 'active' ? 'badge-success' : 'badge-warning' ?>">
-                                    <?= $entity['status'] === 'active' ? 'Actif' : 'Inactif' ?>
-                                </span>
-                            </p>
-                        </div>
-                        
-                        <!-- Modules autorisés -->
-                        <div class="entity-modules">
-                            <h4>Modules autorisés :</h4>
-                            <?php if (empty($entity['services_authorized'])): ?>
-                                <p class="text-muted">Aucun module autorisé</p>
-                            <?php else: ?>
-                                <div class="modules-list">
-                                    <?php foreach ($entity['services_authorized'] as $serviceId): ?>
-                                        <?php 
-                                        $service = array_filter($services, function($s) use ($serviceId) {
-                                            return (string) $s['_id'] === (string) $serviceId;
-                                        });
-                                        $service = reset($service);
-                                        ?>
-                                        <?php if ($service): ?>
-                                            <span class="module-badge" data-service-id="<?= htmlspecialchars((string) $serviceId) ?>"><?= htmlspecialchars($service['icon']) ?> <?= htmlspecialchars($service['name']) ?></span>
-                                        <?php endif; ?>
-                                    <?php endforeach; ?>
-                                </div>
-                            <?php endif; ?>
-                            <a class="btn btn-sm btn-outline" href="<?= url('pages/entity-modules.php?entityId=' . urlencode((string) $entity['_id'])) ?>">
-                                Gérer les modules
-                            </a>
-                        </div>
-                        
-                        <!-- Utilisateurs de l'entité -->
-                        <div class="entity-users" data-entity-id="<?= htmlspecialchars((string) $entity['_id']) ?>">
-                            <h4>Utilisateurs :</h4>
-                            <div class="users-container">
-                                <p class="text-muted">Chargement...</p>
-                            </div>
-                            <button class="btn btn-sm btn-outline add-user" data-entity-id="<?= htmlspecialchars((string) $entity['_id']) ?>">
-                                + Ajouter un utilisateur
-                            </button>
-                        </div>
-                    </div>
+                    <?php
+                        $entityId = (string) ($entity['_id'] ?? '');
+                        $moduleCount = count(is_array($entity['services_authorized'] ?? null) ? $entity['services_authorized'] : []);
+                        $isActive = ($entity['status'] ?? '') === 'active';
+                    ?>
+                    <button
+                        type="button"
+                        class="entity-card-compact"
+                        data-entity-id="<?= htmlspecialchars($entityId) ?>"
+                        aria-label="Gérer <?= htmlspecialchars((string) $entity['name']) ?>"
+                    >
+                        <?php if (!empty($entity['logo'])): ?>
+                            <img class="entity-card-compact__logo" src="<?= htmlspecialchars((string) $entity['logo']) ?>" alt="">
+                        <?php else: ?>
+                            <span class="entity-card-compact__logo entity-card-compact__logo--placeholder">🏢</span>
+                        <?php endif; ?>
+                        <span class="entity-card-compact__name"><?= htmlspecialchars((string) $entity['name']) ?></span>
+                        <span class="badge <?= $isActive ? 'badge-success' : 'badge-warning' ?>">
+                            <?= $isActive ? 'Actif' : 'Inactif' ?>
+                        </span>
+                        <span class="entity-card-compact__meta"><?= (int) $moduleCount ?> module<?= $moduleCount > 1 ? 's' : '' ?></span>
+                    </button>
                 <?php endforeach; ?>
             <?php endif; ?>
-        </div>
-        </div>
-        
-        <!-- Section Liste des Utilisateurs -->
-        <div class="tab-content" id="users-tab">
-            <div class="section-title">
-                <h2>Liste des Utilisateurs</h2>
-                <div class="section-actions">
-                    <button class="btn btn-secondary" id="createUserBtn">+ Créer un compte</button>
-                    <button class="btn btn-primary" id="addUserBtn">+ Ajouter un utilisateur</button>
-                </div>
-            </div>
-            
-            <div class="users-grid" id="usersGrid">
-                <?php if (empty($allUsers)): ?>
-                    <div class="empty-state">
-                        <p>Aucun utilisateur enregistré.</p>
-                    </div>
-                <?php else: ?>
-                    <?php foreach ($allUsers as $user): ?>
-                        <?php if ($user['role'] === 'ADMIN_GDRI') continue; ?>
-                        <div class="user-card">
-                            <div class="user-header">
-                                <h3><?= htmlspecialchars($user['email']) ?></h3>
-                                <div class="user-actions">
-                                    <button
-                                        class="btn-icon delete-user-account"
-                                        data-user-id="<?= htmlspecialchars((string) $user['_id']) ?>"
-                                        data-user-email="<?= htmlspecialchars((string) ($user['email'] ?? '')) ?>"
-                                        title="Supprimer définitivement ce compte"
-                                    >
-                                        ✕
-                                    </button>
-                                </div>
-                            </div>
-                            
-                            <div class="user-details">
-                                <p><strong>Rôle :</strong> 
-                                    <span class="badge badge-info">
-                                        <?= htmlspecialchars($user['role']) ?>
-                                    </span>
-                                </p>
-                                <p><strong>Statut :</strong> 
-                                    <span class="badge <?= $user['status'] === 'active' ? 'badge-success' : 'badge-warning' ?>">
-                                        <?= $user['status'] === 'active' ? 'Actif' : 'Inactif' ?>
-                                    </span>
-                                </p>
-                                <?php 
-                                // Format multi-entreprises : afficher toutes les entités de l'utilisateur
-                                $userEntities = [];
-                                if (isset($user['entreprises']) && is_array($user['entreprises'])) {
-                                    foreach ($user['entreprises'] as $entreprise) {
-                                        if (isset($entreprise['entrepriseId'])) {
-                                            $entityId = (string) $entreprise['entrepriseId'];
-                                            $userEntity = array_filter($entities, function($e) use ($entityId) {
-                                                return (string) $e['_id'] === $entityId;
-                                            });
-                                            $userEntity = reset($userEntity);
-                                            if ($userEntity) {
-                                                $userEntities[] = $userEntity['name'] . ' (' . ($entreprise['role'] ?? 'user') . ')';
-                                            }
-                                        }
-                                    }
-                                }
-                                // Migration : si l'utilisateur a encore entity_id (ancien format)
-                                if (empty($userEntities) && isset($user['entity_id']) && $user['entity_id']) {
-                                    $userEntity = array_filter($entities, function($e) use ($user) {
-                                        return (string) $e['_id'] === (string) $user['entity_id'];
-                                    });
-                                    $userEntity = reset($userEntity);
-                                    if ($userEntity) {
-                                        $userEntities[] = $userEntity['name'];
-                                    }
-                                }
-                                ?>
-                                <?php if (!empty($userEntities)): ?>
-                                    <p><strong>Entité(s) :</strong> <?= htmlspecialchars(implode(', ', $userEntities)) ?></p>
-                                <?php endif; ?>
-                            </div>
-                        </div>
-                    <?php endforeach; ?>
-                <?php endif; ?>
-            </div>
         </div>
     </div>
 </section>
 
 <?php renderConsoleLayoutEnd(); ?>
+
+<!-- Modal gestion entité (détail au clic sur une carte compacte) -->
+<div class="modal-overlay" id="entityManageModal">
+    <div class="modal-content modal-large">
+        <button class="modal-close" id="closeEntityManageModal" type="button">×</button>
+        <div class="modal-header entity-manage-header">
+            <div>
+                <h2 id="entityManageTitle">Entité</h2>
+                <p id="entityManageStatus" class="text-muted" style="margin:0.35rem 0 0;"></p>
+            </div>
+            <div class="entity-manage-actions">
+                <button type="button" class="btn btn-outline btn-sm" id="entityManageEditBtn">Modifier</button>
+                <a class="btn btn-outline btn-sm" id="entityManageModulesLink" href="#">Modules</a>
+            </div>
+        </div>
+        <div class="modal-body modal-scrollable">
+            <div class="entity-manage-section">
+                <h3>Informations</h3>
+                <dl class="entity-manage-dl" id="entityManageDetails"></dl>
+            </div>
+            <div class="entity-manage-section">
+                <h3>Modules autorisés</h3>
+                <div class="modules-list" id="entityManageModules"></div>
+            </div>
+            <div class="entity-manage-section">
+                <div class="entity-manage-section__head">
+                    <h3>Utilisateurs</h3>
+                    <button type="button" class="btn btn-sm btn-outline" id="entityManageAddUserBtn">+ Ajouter</button>
+                </div>
+                <div id="entityManageUsers" class="users-container">
+                    <p class="text-muted">Chargement...</p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
 
 <!-- Modal Ajouter/Modifier Entité -->
 <div class="modal-overlay" id="entityModal">
@@ -372,57 +294,124 @@ renderConsoleLayoutStart(
     </div>
 </div>
 
-<!-- Modal Créer Utilisateur -->
-<div class="modal-overlay" id="createUserModal">
-    <div class="modal-content">
-        <button class="modal-close" id="closeCreateUserModal">×</button>
-        
-        <div class="modal-header">
-            <h2>Créer un compte utilisateur</h2>
-        </div>
-        
-        <div class="modal-body">
-            <form id="createUserForm">
-                <div class="form-group">
-                    <label for="createUserEntity">Entité *</label>
-                    <select id="createUserEntity" name="entityId" required>
-                        <option value="">Sélectionner une entité</option>
-                        <?php foreach ($entities as $entity): ?>
-                            <option value="<?= htmlspecialchars((string) $entity['_id']) ?>">
-                                <?= htmlspecialchars($entity['name']) ?>
-                            </option>
-                        <?php endforeach; ?>
-                    </select>
-                </div>
-                
-                <div class="form-group">
-                    <label for="createUserEmail">Email *</label>
-                    <input type="email" id="createUserEmail" name="email" required>
-                    <small style="color: #666;">Un email d'invitation sera envoyé à cette adresse.</small>
-                </div>
-                
-                <div class="form-group">
-                    <label for="createUserRole">Rôle dans l'entité *</label>
-                    <select id="createUserRole" name="role" required>
-                        <option value="user">Utilisateur</option>
-                        <option value="admin">Administrateur</option>
-                    </select>
-                </div>
-                
-                <div class="form-error" id="createUserFormError"></div>
-                <div class="form-success" id="createUserFormSuccess"></div>
-                
-                <div class="modal-actions">
-                    <button type="button" class="btn btn-secondary" id="cancelCreateUserForm">Annuler</button>
-                    <button type="submit" class="btn btn-primary">Envoyer l'invitation</button>
-                </div>
-            </form>
-        </div>
-    </div>
-</div>
-
 <!-- Style spécifique pour cette page -->
 <style>
+.entities-grid--compact {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+    gap: var(--spacing-md);
+    margin-top: var(--spacing-lg);
+}
+
+.entity-card-compact {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.45rem;
+    padding: 0.85rem 0.65rem;
+    background: white;
+    border: 1px solid var(--color-light);
+    border-radius: 10px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+    cursor: pointer;
+    text-align: center;
+    transition: border-color 0.15s, box-shadow 0.15s, transform 0.15s;
+}
+
+.entity-card-compact:hover {
+    border-color: var(--color-primary);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+    transform: translateY(-1px);
+}
+
+.entity-card-compact__logo {
+    width: 42px;
+    height: 42px;
+    object-fit: contain;
+    border-radius: 8px;
+}
+
+.entity-card-compact__logo--placeholder {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.35rem;
+    background: var(--color-light);
+}
+
+.entity-card-compact__name {
+    font-weight: 600;
+    font-size: 0.92rem;
+    color: var(--color-primary);
+    line-height: 1.25;
+    word-break: break-word;
+}
+
+.entity-card-compact__meta {
+    font-size: 0.78rem;
+    color: var(--color-gray);
+}
+
+.modal-large {
+    max-width: 720px;
+    width: min(96vw, 720px);
+}
+
+.entity-manage-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 1rem;
+}
+
+.entity-manage-actions {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+
+.entity-manage-section {
+    margin-bottom: 1.25rem;
+    padding-bottom: 1rem;
+    border-bottom: 1px solid var(--color-light);
+}
+
+.entity-manage-section:last-child {
+    border-bottom: none;
+    margin-bottom: 0;
+    padding-bottom: 0;
+}
+
+.entity-manage-section h3 {
+    font-size: 0.95rem;
+    margin: 0 0 0.65rem;
+    color: var(--color-gray);
+}
+
+.entity-manage-section__head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 0.75rem;
+    margin-bottom: 0.65rem;
+}
+
+.entity-manage-dl {
+    display: grid;
+    grid-template-columns: 120px 1fr;
+    gap: 0.35rem 0.75rem;
+    margin: 0;
+}
+
+.entity-manage-dl dt {
+    font-weight: 600;
+    color: var(--color-gray);
+}
+
+.entity-manage-dl dd {
+    margin: 0;
+}
+
 .entities-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
@@ -840,6 +829,10 @@ renderConsoleLayoutStart(
 </style>
 
 <script>
+const ENTITIES_BY_ID = <?= json_encode($entitiesById, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
+const SERVICES_BY_ID = <?= json_encode($servicesById, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
+let activeManageEntityId = null;
+
 // Scripts de gestion des entités
 // Fonction pour charger les utilisateurs d'une entité via l'API
 async function loadEntityUsers(entityId, container) {
@@ -902,48 +895,124 @@ function escapeHtml(text) {
 }
 
 document.addEventListener('DOMContentLoaded', function() {
-    // Charger les utilisateurs pour chaque entité
-    const entityUsersContainers = document.querySelectorAll('.entity-users[data-entity-id]');
-    entityUsersContainers.forEach(container => {
-        const entityId = container.getAttribute('data-entity-id');
-        const usersContainer = container.querySelector('.users-container');
-        if (entityId && usersContainer) {
-            loadEntityUsers(entityId, usersContainer);
-        }
-    });
     console.log('Page entités chargée');
-    
-    // Gestion des tabs
-    const tabBtns = document.querySelectorAll('.tab-btn');
-    const tabContents = document.querySelectorAll('.tab-content');
-    
-    tabBtns.forEach(btn => {
-        btn.addEventListener('click', function() {
-            const targetTab = this.getAttribute('data-tab');
-            
-            // Désactiver tous les tabs
-            tabBtns.forEach(b => b.classList.remove('active'));
-            tabContents.forEach(c => c.classList.remove('active'));
-            
-            // Activer le tab cliqué
-            this.classList.add('active');
-            document.getElementById(targetTab).classList.add('active');
-        });
-    });
-    
-    // Gestion des modals
+
     const openModal = (modalId) => {
         document.getElementById(modalId).style.display = 'flex';
     };
-    
+
     const closeModal = (modalId) => {
         document.getElementById(modalId).style.display = 'none';
     };
-    
-    // Gestion de l'upload de logo
+
+    function renderEntityManageModal(entityId) {
+        const entity = ENTITIES_BY_ID[entityId];
+        if (!entity) return;
+
+        activeManageEntityId = entityId;
+        const isActive = (entity.status || '') === 'active';
+
+        document.getElementById('entityManageTitle').textContent = entity.name || 'Entité';
+        document.getElementById('entityManageStatus').textContent = isActive ? 'Statut : actif' : 'Statut : inactif';
+        document.getElementById('entityManageDetails').innerHTML = `
+            <dt>SIRET</dt><dd>${escapeHtml(entity.siret || '—')}</dd>
+            <dt>Adresse</dt><dd>${escapeHtml(entity.address || '—')}</dd>
+        `;
+
+        const modulesWrap = document.getElementById('entityManageModules');
+        const authorized = Array.isArray(entity.services_authorized) ? entity.services_authorized : [];
+        if (!authorized.length) {
+            modulesWrap.innerHTML = '<p class="text-muted">Aucun module autorisé</p>';
+        } else {
+            modulesWrap.innerHTML = authorized.map((serviceId) => {
+                const service = SERVICES_BY_ID[String(serviceId)];
+                if (!service) return '';
+                return `<span class="module-badge" data-service-id="${escapeHtml(String(serviceId))}">${escapeHtml(service.icon || '📱')} ${escapeHtml(service.name || '')}</span>`;
+            }).join('') || '<p class="text-muted">Aucun module autorisé</p>';
+        }
+
+        document.getElementById('entityManageModulesLink').href = '<?= url('pages/entity-modules.php?entityId=') ?>' + encodeURIComponent(entityId);
+        loadEntityUsers(entityId, document.getElementById('entityManageUsers'));
+        openModal('entityManageModal');
+    }
+
+    document.querySelectorAll('.entity-card-compact').forEach((card) => {
+        card.addEventListener('click', function() {
+            const entityId = this.getAttribute('data-entity-id');
+            if (entityId) renderEntityManageModal(entityId);
+        });
+    });
+
+    document.getElementById('closeEntityManageModal').addEventListener('click', () => closeModal('entityManageModal'));
+    document.getElementById('entityManageModal').addEventListener('click', function(e) {
+        if (e.target === this) closeModal('entityManageModal');
+    });
+    document.getElementById('entityManageEditBtn').addEventListener('click', () => {
+        if (activeManageEntityId) openEditEntity(activeManageEntityId);
+    });
+    document.getElementById('entityManageAddUserBtn').addEventListener('click', () => {
+        if (!activeManageEntityId) return;
+        openModal('userModal');
+        const userEntitySelect = document.getElementById('userEntity');
+        if (userEntitySelect) {
+            userEntitySelect.value = activeManageEntityId;
+            loadAvailableUsers(activeManageEntityId);
+        }
+    });
+
+    async function openEditEntity(entityId) {
+        if (!entityId) return;
+        try {
+            const apiUrl = '<?php echo getApiBaseUrl(); ?>/entities/' + entityId;
+            const jwtToken = '<?php echo getJWTToken(); ?>';
+            const response = await fetch(apiUrl, {
+                method: 'GET',
+                headers: { 'Authorization': 'Bearer ' + jwtToken },
+                credentials: 'include'
+            });
+            const data = await response.json();
+            if (!response.ok || !data.success) {
+                throw new Error(data.message || 'Erreur lors du chargement de l\'entité');
+            }
+            const entity = data.data;
+            document.getElementById('entityId').value = entityId;
+            document.getElementById('entityName').value = entity.name || '';
+            document.getElementById('entitySiret').value = entity.siret || '';
+            document.getElementById('entityAddress').value = entity.address || '';
+            document.getElementById('modalTitle').textContent = 'Modifier l\'entité';
+            ['entityName', 'entitySiret', 'entityAddress'].forEach((fieldId) => {
+                const field = document.getElementById(fieldId);
+                if (field) {
+                    field.closest('.form-group').style.display = 'block';
+                    field.setAttribute('required', 'required');
+                }
+            });
+            const logoPreview = document.getElementById('logoPreview');
+            const logoPreviewImg = document.getElementById('logoPreviewImg');
+            const removeLogoBtn = document.getElementById('removeLogoBtn');
+            const selectLogoBtn = document.getElementById('selectLogoBtn');
+            if (entity.logo) {
+                logoBase64 = entity.logo;
+                logoPreviewImg.src = entity.logo;
+                logoPreview.style.display = 'flex';
+                removeLogoBtn.style.display = 'block';
+                selectLogoBtn.querySelector('#selectLogoText').textContent = '📷 Changer le logo';
+            } else {
+                logoBase64 = null;
+                logoPreview.style.display = 'none';
+                removeLogoBtn.style.display = 'none';
+                selectLogoBtn.querySelector('#selectLogoText').textContent = '📷 Sélectionner un logo';
+            }
+            loadEntityModules(entityId);
+            closeModal('entityManageModal');
+            openModal('entityModal');
+        } catch (error) {
+            alert(error.message || 'Erreur lors du chargement de l\'entité');
+        }
+    }
+
     let logoBase64 = null;
-    
-    // Fonction pour initialiser les event listeners du logo
+
     function initLogoUpload() {
         const entityLogoInput = document.getElementById('entityLogo');
         const selectLogoBtn = document.getElementById('selectLogoBtn');
@@ -1128,135 +1197,29 @@ document.addEventListener('DOMContentLoaded', function() {
         closeModal('entityModal');
     });
     
-    // Ouvrir modal utilisateur
-    document.getElementById('addUserBtn').addEventListener('click', () => openModal('userModal'));
     document.getElementById('closeUserModal').addEventListener('click', () => closeModal('userModal'));
     document.getElementById('cancelUserForm').addEventListener('click', () => closeModal('userModal'));
-    document.getElementById('createUserBtn').addEventListener('click', () => openModal('createUserModal'));
-    document.getElementById('closeCreateUserModal').addEventListener('click', () => closeModal('createUserModal'));
-    document.getElementById('cancelCreateUserForm').addEventListener('click', () => closeModal('createUserModal'));
-    
-    // Gérer l'édition d'une entité
-    document.querySelectorAll('.edit-entity').forEach(btn => {
-        btn.addEventListener('click', async function() {
-            const entityId = this.getAttribute('data-entity-id');
-            if (!entityId) return;
-            
-            try {
-                // Charger les données de l'entité
-                const apiUrl = '<?php echo getApiBaseUrl(); ?>/entities/' + entityId;
-                const jwtToken = '<?php echo getJWTToken(); ?>';
-                
-                const response = await fetch(apiUrl, {
-                    method: 'GET',
-                    headers: {
-                        'Authorization': 'Bearer ' + jwtToken
-                    },
-                    credentials: 'include'
-                });
-                
-                const data = await response.json();
-                
-                if (!response.ok || !data.success) {
-                    throw new Error(data.message || 'Erreur lors du chargement de l\'entité');
+
+    const userEntitySelect = document.getElementById('userEntity');
+    if (userEntitySelect) {
+        userEntitySelect.addEventListener('change', function() {
+            const entityId = this.value;
+            if (entityId) {
+                loadAvailableUsers(entityId);
+            } else {
+                const userIdSelect = document.getElementById('userId');
+                if (userIdSelect) {
+                    userIdSelect.innerHTML = '<option value="">Sélectionner d\'abord une entité</option>';
                 }
-                
-                const entity = data.data;
-                
-                // Remplir le formulaire
-                document.getElementById('entityId').value = entityId;
-                document.getElementById('entityName').value = entity.name || '';
-                document.getElementById('entitySiret').value = entity.siret || '';
-                document.getElementById('entityAddress').value = entity.address || '';
-                document.getElementById('modalTitle').textContent = 'Modifier l\'entité';
-                
-                // Afficher tous les champs
-                const fieldsToShow = ['entityName', 'entitySiret', 'entityAddress'];
-                fieldsToShow.forEach(fieldId => {
-                    const field = document.getElementById(fieldId);
-                    if (field) {
-                        field.closest('.form-group').style.display = 'block';
-                        field.setAttribute('required', 'required');
-                    }
-                });
-                
-                // Charger le logo existant
-                if (entity.logo) {
-                    logoBase64 = entity.logo;
-                    logoPreviewImg.src = entity.logo;
-                    logoPreview.style.display = 'flex';
-                    removeLogoBtn.style.display = 'block';
-                    selectLogoBtn.querySelector('#selectLogoText').textContent = '📷 Changer le logo';
-                } else {
-                    logoBase64 = null;
-                    logoPreview.style.display = 'none';
-                    removeLogoBtn.style.display = 'none';
-                    selectLogoBtn.querySelector('#selectLogoText').textContent = '📷 Sélectionner un logo';
-                }
-                
-                // Charger les modules autorisés
-                loadEntityModules(entityId);
-                
-                // Ouvrir le modal
-                openModal('entityModal');
-                
-            } catch (error) {
-                console.error('Erreur lors du chargement de l\'entité:', error);
-                alert('Erreur lors du chargement de l\'entité: ' + error.message);
             }
         });
-    });
-    
-    // Fonction pour charger les modules d'une entité
-    function loadEntityModules(entityId) {
-        try {
-            // Récupérer l'entité depuis les données PHP déjà chargées
-            const entityCard = document.querySelector(`[data-entity-id="${entityId}"]`);
-            if (!entityCard) return;
-            
-            // Réinitialiser la sélection
-            selectedModules = [];
-            selectOptions.forEach(opt => opt.classList.remove('selected'));
-            
-            // Récupérer les modules autorisés depuis les badges affichés
-            const moduleBadges = entityCard.querySelectorAll('.module-badge[data-service-id]');
-            moduleBadges.forEach(badge => {
-                const serviceId = badge.getAttribute('data-service-id');
-                const serviceText = badge.textContent.trim();
-                
-                // Trouver l'option correspondante et la sélectionner
-                selectOptions.forEach(option => {
-                    if (option.getAttribute('data-value') === serviceId) {
-                        option.classList.add('selected');
-                        selectedModules.push({ value: serviceId, text: serviceText });
-                    }
-                });
-            });
-            
-            // Mettre à jour l'affichage
-            updateSelectedModules();
-            
-            // Mettre à jour le placeholder si des modules sont sélectionnés
-            if (selectedModules.length > 0) {
-                selectTrigger.querySelector('.select-placeholder').textContent = `${selectedModules.length} module(s) sélectionné(s)`;
-            } else {
-                selectTrigger.querySelector('.select-placeholder').textContent = 'Rechercher et sélectionner des modules...';
-            }
-            
-        } catch (error) {
-            console.error('Erreur lors du chargement des modules:', error);
-        }
     }
     
-    // Fermer les modals en cliquant en dehors
     document.getElementById('entityModal').addEventListener('click', function(e) {
         if (e.target === this) closeModal('entityModal');
     });
     document.getElementById('userModal').addEventListener('click', function(e) {
         if (e.target === this) closeModal('userModal');
-    });
-    document.getElementById('createUserModal').addEventListener('click', function(e) {
-        if (e.target === this) closeModal('createUserModal');
     });
     
     // Custom Select avec recherche pour les modules
@@ -1337,6 +1300,37 @@ document.addEventListener('DOMContentLoaded', function() {
                     updateSelectedModules();
                 });
             });
+        }
+    }
+    
+    function loadEntityModules(entityId) {
+        try {
+            const entity = ENTITIES_BY_ID[entityId];
+            if (!entity) return;
+            selectedModules = [];
+            selectOptions.forEach(opt => opt.classList.remove('selected'));
+            const authorized = Array.isArray(entity.services_authorized) ? entity.services_authorized : [];
+            authorized.forEach((serviceId) => {
+                const service = SERVICES_BY_ID[String(serviceId)];
+                if (!service) return;
+                selectOptions.forEach(option => {
+                    if (option.getAttribute('data-value') === String(serviceId)) {
+                        option.classList.add('selected');
+                        selectedModules.push({
+                            value: String(serviceId),
+                            text: ((service.icon || '') + ' ' + (service.name || '')).trim()
+                        });
+                    }
+                });
+            });
+            updateSelectedModules();
+            if (selectedModules.length > 0) {
+                selectTrigger.querySelector('.select-placeholder').textContent = `${selectedModules.length} module(s) sélectionné(s)`;
+            } else {
+                selectTrigger.querySelector('.select-placeholder').textContent = 'Rechercher et sélectionner des modules...';
+            }
+        } catch (error) {
+            console.error('Erreur lors du chargement des modules:', error);
         }
     }
     
@@ -1578,48 +1572,6 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     });
 
-    // Suppression définitive d'un compte utilisateur (onglet Users)
-    document.addEventListener('click', async function(e) {
-        const clickTarget = e.target instanceof Element
-            ? e.target
-            : (e.target && e.target.parentElement ? e.target.parentElement : null);
-        const button = clickTarget ? clickTarget.closest('.delete-user-account') : null;
-        if (!button) return;
-
-        const userId = button.getAttribute('data-user-id');
-        const userEmail = button.getAttribute('data-user-email') || 'cet utilisateur';
-        if (!userId) {
-            alert('ID utilisateur manquant.');
-            return;
-        }
-
-        if (!confirm(`Supprimer définitivement le compte "${userEmail}" ? Cette action est irréversible.`)) {
-            return;
-        }
-
-        try {
-            const apiBaseUrl = '<?php echo getApiBaseUrl(); ?>';
-            const response = await fetch(`${apiBaseUrl}/users/${encodeURIComponent(userId)}`, {
-                method: 'DELETE',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': 'Bearer <?php echo getJWTToken(); ?>'
-                },
-                credentials: 'include'
-            });
-
-            const data = await response.json();
-            if (!response.ok || !data.success) {
-                throw new Error(data.message || 'Erreur lors de la suppression du compte');
-            }
-
-            window.location.reload();
-        } catch (error) {
-            console.error('❌ Erreur suppression compte:', error);
-            alert(error.message || 'Erreur lors de la suppression du compte.');
-        }
-    });
-    
     // Gestion de la soumission du formulaire utilisateur
     const userForm = document.getElementById('userForm');
     if (userForm) {
@@ -1687,118 +1639,6 @@ document.addEventListener('DOMContentLoaded', function() {
                 }
             }
         });
-    }
-
-    const createUserForm = document.getElementById('createUserForm');
-    if (createUserForm) {
-        createUserForm.addEventListener('submit', async function(e) {
-            e.preventDefault();
-
-            const formError = document.getElementById('createUserFormError');
-            const formSuccess = document.getElementById('createUserFormSuccess');
-
-            formError.textContent = '';
-            formSuccess.textContent = '';
-
-            const entityId = document.getElementById('createUserEntity').value;
-            const email = document.getElementById('createUserEmail').value.trim();
-            const role = document.getElementById('createUserRole').value;
-
-            if (!entityId || !email) {
-                formError.textContent = 'Veuillez remplir tous les champs obligatoires.';
-                return;
-            }
-
-            try {
-                const apiBaseUrl = '<?php echo getApiBaseUrl(); ?>';
-                const jwtToken = '<?php echo getJWTToken(); ?>';
-                const response = await fetch(`${apiBaseUrl}/users`, {
-                    method: 'POST',
-                    headers: {
-                        'Authorization': 'Bearer ' + jwtToken,
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({ entityId, email, role }),
-                    credentials: 'include'
-                });
-
-                const data = await response.json();
-
-                if (!response.ok || !data.success) {
-                    throw new Error(data.message || 'Erreur lors de la création du compte');
-                }
-
-                formSuccess.textContent = data.message || 'Invitation envoyée avec succès.';
-                createUserForm.reset();
-
-                setTimeout(() => {
-                    closeModal('createUserModal');
-                    window.location.reload();
-                }, 800);
-            } catch (error) {
-                formError.textContent = error.message;
-            }
-        });
-    }
-    
-    // Gestion des boutons "Ajouter un utilisateur" sur les cartes d'entité
-    const addUserButtons = document.querySelectorAll('.add-user');
-    console.log('🔍 Boutons .add-user trouvés:', addUserButtons.length);
-    
-    addUserButtons.forEach((btn, index) => {
-        console.log('🔘 Bouton', index, ':', btn, 'data-entity-id:', btn.getAttribute('data-entity-id'));
-        btn.addEventListener('click', function(e) {
-            e.preventDefault();
-            e.stopPropagation();
-            
-            console.log('🖱️ Clic sur bouton .add-user');
-            const entityId = this.getAttribute('data-entity-id');
-            console.log('📍 entityId récupéré:', entityId);
-            
-            if (!entityId) {
-                console.error('❌ entityId manquant');
-                return;
-            }
-            
-            // Ouvrir le modal utilisateur
-            console.log('📂 Ouverture du modal userModal');
-            openModal('userModal');
-            
-            // Pré-remplir l'entité
-            const userEntitySelect = document.getElementById('userEntity');
-            console.log('📋 userEntitySelect trouvé:', !!userEntitySelect);
-            
-            if (userEntitySelect) {
-                userEntitySelect.value = entityId;
-                console.log('✅ entityId défini dans le select:', entityId);
-                // Charger les utilisateurs disponibles pour cette entité
-                console.log('📤 Appel de loadAvailableUsers avec entityId:', entityId);
-                loadAvailableUsers(entityId);
-            } else {
-                console.error('❌ userEntitySelect non trouvé');
-            }
-        });
-    });
-    
-    // Aussi appeler loadAvailableUsers quand le select change
-    const userEntitySelect = document.getElementById('userEntity');
-    if (userEntitySelect) {
-        console.log('📋 Ajout du listener change sur userEntitySelect');
-        userEntitySelect.addEventListener('change', function() {
-            const entityId = this.value;
-            console.log('🔄 Change sur userEntitySelect, nouvelle valeur:', entityId);
-            if (entityId) {
-                console.log('📤 Appel de loadAvailableUsers depuis change event');
-                loadAvailableUsers(entityId);
-            } else {
-                const userIdSelect = document.getElementById('userId');
-                if (userIdSelect) {
-                    userIdSelect.innerHTML = '<option value="">Sélectionner d\'abord une entité</option>';
-                }
-            }
-        });
-    } else {
-        console.error('❌ userEntitySelect non trouvé pour le listener change');
     }
 });
 </script>

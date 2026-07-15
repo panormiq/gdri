@@ -142,6 +142,10 @@ async function getAllEntityRoles(db, entityId) {
     .filter((r) => r.key && !isPlatformRoleKey(r.key));
 }
 
+function isPlatformGdriAdmin(userDoc) {
+  return String(userDoc?.role || '').trim() === 'ADMIN_GDRI';
+}
+
 /**
  * @param {import('mongodb').Collection} usersCollection
  * @param {string} entityId
@@ -153,7 +157,10 @@ async function findEntityMemberUsers(usersCollection, entityId, options = {}) {
   const entityIdStr = String(entityId);
 
   const users = await usersCollection.find({
-    entreprises: { $elemMatch: { entrepriseId: entityOid } }
+    $or: [
+      { entreprises: { $elemMatch: { entrepriseId: entityOid } } },
+      { entreprises: { $elemMatch: { entrepriseId: entityIdStr } } }
+    ]
   }).project({
     email: 1,
     status: 1,
@@ -166,7 +173,8 @@ async function findEntityMemberUsers(usersCollection, entityId, options = {}) {
 
   const members = [];
   for (const userDoc of users) {
-    if (excludePlatformOperators && isPlatformOperator(userDoc)) {
+    // Ne masquer que les admins plateforme GDRI, pas les membres entité (USER_ENTITY / ADMIN_ENTITY).
+    if (excludePlatformOperators && isPlatformGdriAdmin(userDoc)) {
       continue;
     }
     const membership = resolveEntityMembership(userDoc, entityIdStr);
@@ -174,7 +182,7 @@ async function findEntityMemberUsers(usersCollection, entityId, options = {}) {
       continue;
     }
     const rawMembershipRole = membership.role;
-    if (isPlatformRoleKey(rawMembershipRole) && String(rawMembershipRole) === 'ADMIN_GDRI') {
+    if (String(rawMembershipRole || '').trim() === 'ADMIN_GDRI') {
       continue;
     }
     const businessRoles = (Array.isArray(userDoc.entity_roles) ? userDoc.entity_roles : [])

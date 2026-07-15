@@ -10,13 +10,16 @@ const getContactById = require('./getContactById');
 
 const COLLECTION = 'annuaire_contacts';
 
-async function createContact(db, entrepriseId, data = {}) {
+async function createContact(db, entrepriseId, data = {}, meta = {}) {
   await ensureContactIndexes(db);
   const normalized = normalizeContact(data);
   if (!normalized.organisationId) throw new Error('organisationId requis');
   if (!normalized.nom && !normalized.prenom && !normalized.email) {
     throw new Error('Nom ou email requis');
   }
+
+  const actorUserId = meta.actorUserId != null ? String(meta.actorUserId).trim() || null : null;
+  const ownerUserId = normalized.ownerUserId || actorUserId || null;
 
   const org = await getOrganisationById(db, entrepriseId, normalized.organisationId);
   if (!org) throw new Error('Organisation introuvable');
@@ -47,6 +50,8 @@ async function createContact(db, entrepriseId, data = {}) {
     scope,
     principal: normalized.principal,
     userId: normalized.userId,
+    ownerUserId,
+    createdByUserId: actorUserId || normalized.createdByUserId || ownerUserId,
     notes: normalized.notes,
     createdAt: now,
     updatedAt: now
