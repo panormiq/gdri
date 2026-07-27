@@ -1,11 +1,13 @@
 {
   "id": "facebook",
   "name": "Facebook",
-  "version": "1.0.0",
+  "version": "1.4.0",
   "author": "GDR-Innovation",
-  "description": "Pages Facebook : webhook temps réel, poll Graph API, réponses commentaires et messages.",
+  "description": "Pages Facebook : webhook temps réel, poll Graph (posts / commentaires / MP), réponses.",
   "direction": "bidirectional",
   "compatiblePlatform": ">=1.0.0",
+  "audience": "contact",
+  "hosts": ["annuaire"],
   "capabilities": [
     "ingest.push",
     "ingest.poll",
@@ -38,9 +40,94 @@
       },
       "pollIntervalMinutes": {
         "type": "number",
-        "title": "Intervalle poll de secours (minutes)",
+        "title": "Intervalle poll (minutes)",
         "minimum": 5,
+        "maximum": 1440,
         "default": 15
+      },
+      "resources": {
+        "type": "array",
+        "title": "Ressources à poller (Graph)",
+        "description": "posts | comments | messages — chacun a ses propres limites.",
+        "items": {
+          "enum": ["posts", "comments", "messages"]
+        },
+        "default": ["posts"]
+      },
+      "webhookEvents": {
+        "type": "array",
+        "title": "Événements webhook (temps réel)",
+        "description": "Filtres push Meta : commentaires, messages privés, publications, autres notifications.",
+        "items": {
+          "enum": ["comments", "messages", "posts", "notifications"]
+        },
+        "default": ["comments", "messages"]
+      },
+      "postLimit": {
+        "type": "number",
+        "title": "Max posts / passage",
+        "minimum": 1,
+        "maximum": 50,
+        "default": 25
+      },
+      "limit": {
+        "type": "number",
+        "title": "Alias postLimit (rétrocompat)",
+        "minimum": 1,
+        "maximum": 50,
+        "default": 25
+      },
+      "lookbackHours": {
+        "type": "number",
+        "title": "Fenêtre de temps (heures)",
+        "minimum": 1,
+        "maximum": 2160,
+        "default": 168
+      },
+      "commentCatchupLimit": {
+        "type": "number",
+        "title": "Posts scannés pour commentaires",
+        "minimum": 1,
+        "maximum": 50,
+        "default": 20
+      },
+      "commentsPerPost": {
+        "type": "number",
+        "title": "Commentaires / post (si pas fetchAll)",
+        "minimum": 1,
+        "maximum": 100,
+        "default": 50
+      },
+      "commentsFetchAll": {
+        "type": "boolean",
+        "title": "Paginer tous les commentaires du post",
+        "default": false
+      },
+      "commentPostIds": {
+        "type": "array",
+        "title": "IDs de posts ciblés (commentaires)",
+        "items": { "type": "string" },
+        "default": []
+      },
+      "messageConversationsLimit": {
+        "type": "number",
+        "title": "Conversations Messenger / passage",
+        "minimum": 1,
+        "maximum": 50,
+        "default": 10
+      },
+      "messagesPerConversation": {
+        "type": "number",
+        "title": "Messages / conversation",
+        "minimum": 1,
+        "maximum": 50,
+        "default": 20
+      },
+      "postFields": {
+        "type": "array",
+        "title": "Champs Graph posts",
+        "items": { "type": "string" },
+        "default": ["id", "message", "story", "created_time", "from", "permalink_url"]
       },
       "graphVersion": {
         "type": "string",
@@ -57,10 +144,10 @@
   },
   "operations": {
     "ingest.push": {
-      "description": "Webhook Meta (messages, commentaires, feed)"
+      "description": "Webhook Meta (messages, commentaires, feed, notifications)"
     },
     "ingest.poll": {
-      "description": "Pull Graph API (secours + rapports planifiés)"
+      "description": "Pull Graph API incrémental (posts / commentaires / MP) → messages canoniques"
     },
     "emit.reply": {
       "description": "Réponse commentaire ou message privé"
@@ -73,13 +160,25 @@
     "ingestModes": ["push", "poll"],
     "settings": {
       "pollIntervalMinutes": 15,
+      "resources": ["posts"],
+      "webhookEvents": ["comments", "messages"],
+      "limit": 25,
+      "postLimit": 25,
+      "lookbackHours": 168,
+      "commentCatchupLimit": 20,
+      "commentsPerPost": 50,
+      "commentsFetchAll": false,
+      "commentPostIds": [],
+      "messageConversationsLimit": 10,
+      "messagesPerConversation": 20,
+      "postFields": ["id", "message", "story", "created_time", "from", "permalink_url"],
       "graphVersion": "v21.0"
     },
     "mapping": {
       "text": "message",
-      "author.id": "sender.id",
-      "author.name": "sender.name",
-      "sourceRef": "mid"
+      "author.id": "from.id",
+      "author.name": "from.name",
+      "sourceRef": "id"
     }
   },
   "permissions": ["network", "secrets", "entity-data"]

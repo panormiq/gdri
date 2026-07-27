@@ -67,13 +67,95 @@
   margin-bottom: 18px;
 }
 
+.agent-palette-type {
+  margin-bottom: 8px;
+  border: 1px solid #1f2937;
+  border-radius: 10px;
+  background: #111827;
+  overflow: hidden;
+}
+
+.agent-palette-type-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 10px 12px;
+  margin: 0;
+  border: 0;
+  background: transparent;
+  color: #e2e8f0;
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+}
+
+.agent-palette-type-header:hover {
+  background: #1a2332;
+}
+
+.agent-palette-type-label {
+  font-size: 0.78rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.agent-palette-type-count {
+  font-size: 0.72rem;
+  color: #64748b;
+  font-weight: 500;
+}
+
+.agent-palette-type-chevron {
+  margin-left: auto;
+  color: #94a3b8;
+  font-size: 0.75rem;
+  transition: transform 0.15s ease;
+}
+
+.agent-palette-type.is-open .agent-palette-type-chevron {
+  transform: rotate(90deg);
+}
+
+.agent-palette-type-body {
+  display: none;
+  padding: 0 8px 8px;
+}
+
+/* Déroule uniquement au clic (is-open) */
+.agent-palette-type.is-open > .agent-palette-type-body {
+  display: block;
+}
+
+.agent-palette-type--nested {
+  margin: 6px 0 0;
+  border-color: #243044;
+  background: #0f172a;
+}
+
+.agent-palette-type--nested .agent-palette-type-header {
+  padding: 8px 10px;
+}
+
+.agent-palette-type--nested .agent-palette-type-label {
+  font-size: 0.72rem;
+  letter-spacing: 0.03em;
+}
+
+.agent-palette-type-hint {
+  margin: 0 4px 8px;
+  font-size: 0.72rem;
+  color: #64748b;
+}
+
 .agent-brick-item {
   display: flex;
   align-items: center;
   gap: 10px;
   padding: 8px 10px;
   margin-bottom: 6px;
-  background: #111827;
+  background: #0f172a;
   border: 1px solid #1f2937;
   border-radius: 10px;
   cursor: grab;
@@ -397,6 +479,90 @@
 .agent-editor-app .btn-agent-danger {
   border-color: #7f1d1d;
   color: #fca5a5;
+}
+
+.agent-brick-config-panel .intention-row,
+.agent-brick-config-panel .route-row {
+  border: 1px solid #1f2937;
+  border-radius: 8px;
+  padding: 14px;
+  margin-bottom: 12px;
+  background: #0f172a;
+}
+
+.agent-brick-config-panel .intention-field-label {
+  display: block;
+  margin: 0 0 4px;
+  font-size: 0.78rem;
+  color: #94a3b8;
+}
+
+.agent-brick-config-panel .intention-name,
+.agent-brick-config-panel .route-intention {
+  width: 100%;
+  margin-bottom: 10px;
+  background: #111827;
+  color: #e2e8f0;
+  border: 1px solid #1f2937;
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-size: 0.95rem;
+}
+
+.agent-brick-config-panel .route-intention-label {
+  display: inline-block;
+  margin: 0 0 12px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  background: #1e293b;
+  color: #e2e8f0;
+  font-size: 0.9rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.agent-brick-config-panel .intention-definition,
+.agent-brick-config-panel .route-emails,
+.agent-brick-config-panel .route-field,
+.agent-brick-config-panel .route-target-type {
+  width: 100%;
+  margin-bottom: 10px;
+  background: #111827;
+  color: #e2e8f0;
+  border: 1px solid #1f2937;
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 0.95rem;
+  line-height: 1.45;
+  font-family: inherit;
+}
+
+.agent-brick-config-panel .intention-definition,
+.agent-brick-config-panel .route-emails {
+  resize: vertical;
+  min-height: 2.5rem;
+}
+
+.agent-brick-config-panel .intention-definition {
+  min-height: 6.5rem;
+}
+
+.agent-brick-config-panel .btn-rm-intention,
+.agent-brick-config-panel .btn-rm-route {
+  margin-top: 4px;
+}
+
+.agent-canvas path.connection-false {
+  stroke: #f97316;
+  stroke-dasharray: 6 4;
+}
+
+.agent-canvas path.connection-true {
+  stroke: #22c55e;
+}
+
+.agent-node-kind.logic {
+  color: #38bdf8;
 }
 
 @media (max-width: 960px) {

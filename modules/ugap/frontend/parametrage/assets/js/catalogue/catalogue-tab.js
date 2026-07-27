@@ -145,6 +145,7 @@
             : '<p class="ugap-catalogue-muted">Aucune option liée. Utilisez « Proposer des liaisons » ou « Créer une option ».</p>';
 
         const hideMinoration = Core()?.resolveHideMinorationInChoices?.(node) === true;
+        const showEvenIfEmpty = Core()?.resolveShowEvenIfEmptyOrBaseOnly?.(node) === true;
 
         return `
             <form class="ugap-catalogue-detail-form" data-node-detail-form>
@@ -176,6 +177,13 @@
                         <span class="ugap-catalogue-checkbox-field__label">Ne pas afficher minoration</span>
                     </span>
                     <span class="ugap-catalogue-muted ugap-catalogue-checkbox-field__hint">Dans le configurateur, les lignes minoration (MINO) sont exclues du picker de ce nœud. Coché par défaut pour Moteur / Motorisation.</span>
+                </label>
+                <label class="ugap-catalogue-modal__field ugap-catalogue-checkbox-field">
+                    <span class="ugap-catalogue-checkbox-field__row">
+                        <input type="checkbox" data-node-show-even-if-empty${showEvenIfEmpty ? ' checked' : ''}>
+                        <span class="ugap-catalogue-checkbox-field__label">Afficher même si vide ou uniquement option de base</span>
+                    </span>
+                    <span class="ugap-catalogue-muted ugap-catalogue-checkbox-field__hint">Par défaut, le configurateur masque ce nœud s’il n’a aucune option configurable. Cochez pour le forcer à l’affichage.</span>
                 </label>
                 <fieldset class="ugap-catalogue-modal__field">
                     <legend>Tags catalogue</legend>
@@ -510,6 +518,7 @@
                 keywords: String(root.querySelector('[data-node-keywords]')?.value || '').trim(),
                 decisionMode: root.querySelector('[data-node-decision]')?.value === 'multi_choice' ? 'multi_choice' : 'single_choice',
                 hideMinorationInChoices: !!root.querySelector('[data-node-hide-minoration]')?.checked,
+                showEvenIfEmptyOrBaseOnly: !!root.querySelector('[data-node-show-even-if-empty]')?.checked,
                 tags: readDetailTags(root),
             });
             await State().persistNow();

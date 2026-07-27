@@ -103,10 +103,21 @@ function renderCommandeFournisseurHtml(context) {
   const { commande, boutique, fournisseur, commandeClient, logoUrl } = context || {};
   const c = commande || {};
   const totaux = c.totaux || {};
+  const fraisPortHt = Number(c.fraisPortHt) || 0;
+  const fraisPortTva = Number(c.fraisPortTauxTva) || 0;
+  const lignesHt = Math.round((Array.isArray(c.lignes) ? c.lignes : [])
+    .reduce((sum, line) => sum + (Number(line.montantHt) || 0), 0) * 100) / 100;
   const dateCommande = formatDateFr(c.createdAt);
   const objet = String(c.objet || '').trim();
   const notes = String(c.notes || '').trim();
   const pied = String(boutique?.piedDePage || '').trim();
+
+  const fraisPortRow = fraisPortHt > 0
+    ? `<tr><td>Frais de port HT</td><td class="num">${money(fraisPortHt)}${fraisPortTva ? ` <span class="gderpi-devis-doc__muted">(TVA ${esc(fraisPortTva)} %)</span>` : ''}</td></tr>`
+    : '';
+  const htRows = fraisPortHt > 0
+    ? `<tr><td>Sous-total lignes HT</td><td class="num">${money(lignesHt)}</td></tr>${fraisPortRow}<tr><td><strong>Total HT</strong></td><td class="num"><strong>${money(totaux.totalHt)}</strong></td></tr>`
+    : `<tr><td>Total HT</td><td class="num">${money(totaux.totalHt)}</td></tr>`;
 
   const logoBlock = logoUrl
     ? `<img src="${esc(logoUrl)}" alt="Logo" class="gderpi-devis-doc__logo">`
@@ -191,7 +202,7 @@ function renderCommandeFournisseurHtml(context) {
         </table>
         <div class="gderpi-devis-doc__totals-wrap">
           <table class="gderpi-devis-doc__totals">
-            <tr><td>Total HT</td><td class="num">${money(totaux.totalHt)}</td></tr>
+            ${htRows}
             ${renderTvaBreakdown(totaux.tvaParTaux)}
             <tr><td>Total TVA</td><td class="num">${money(totaux.totalTva)}</td></tr>
             <tr class="gderpi-devis-doc__total-ttc"><td>Total TTC</td><td class="num">${money(totaux.totalTtc)}</td></tr>

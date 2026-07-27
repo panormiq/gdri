@@ -141,7 +141,19 @@
   function $(id) { return document.getElementById(id); }
 
   function catalog() {
-    return global.Adv2FieldsCatalog || { FIELD_GROUPS: [], PLACEHOLDER_DATA: {}, SAMPLE_TABLE_LINES: [] };
+    const root = global.Adv2FieldsCatalog;
+    if (!root) return { FIELD_GROUPS: [], PLACEHOLDER_DATA: {}, SAMPLE_TABLE_LINES: [] };
+    if (typeof root.resolveCatalog === 'function') {
+      return root.resolveCatalog({
+        namespace: state.namespace || state.template?.namespace || '',
+        scope: state.template?.scope || ''
+      });
+    }
+    return root;
+  }
+
+  function isUgapDevisTemplate() {
+    return catalog().id !== 'agent-review';
   }
 
   function getFocusedTextFrameId() {
@@ -2550,8 +2562,19 @@
   }
 
   function renderFieldsPanel() {
-    const groups = catalog().FIELD_GROUPS || [];
-    return groups.map((group) => {
+    const cat = catalog();
+    const groups = cat.FIELD_GROUPS || [];
+    const catalogLabel = cat.label || cat.id || 'Champs';
+    const header = `
+      <div class="adv2-field-catalog-banner" style="margin:0 0 10px;padding:8px 10px;border-radius:8px;background:#eff6ff;border:1px solid #bfdbfe;font-size:0.8rem;color:#1e3a8a;">
+        Catalogue : <strong>${escHtml(catalogLabel)}</strong>
+        <br><span style="color:#64748b;">Template <code>${escHtml(state.namespace || '')}</code></span>
+      </div>
+    `;
+    if (!groups.length) {
+      return header + '<p class="text-muted">Aucun champ pour ce type de template.</p>';
+    }
+    const body = groups.map((group) => {
       const groupId = group.id || group.label;
       const expanded = isFieldGroupExpanded(groupId);
       const chevron = expanded ? '▼' : '▶';
@@ -2572,6 +2595,7 @@
         </div>
       `;
     }).join('');
+    return header + body;
   }
 
   function renderNodeStructurePanel(node) {
@@ -3207,22 +3231,31 @@
     (state.template?.nodes || []).forEach((node) => {
       if (node.type === 'table') ensureTableConfig(node);
     });
-    const addedTotal = ensureTotalDevisZone();
-    const upgradedTotal = upgradeTotalDevisTextFrame();
-    const fixedAlign = fixTextFrameAlignmentsInTemplate();
+    // Migrations devis UGAP uniquement — pas sur les templates revue mail / agent
+    let addedTotal = false;
+    let upgradedTotal = false;
+    let fixedAlign = false;
+    if (isUgapDevisTemplate()) {
+      addedTotal = ensureTotalDevisZone();
+      upgradedTotal = upgradeTotalDevisTextFrame();
+      fixedAlign = fixTextFrameAlignmentsInTemplate();
+    }
     normalizeChildLayouts();
     state.selectedId = null;
     state.selectedGuide = null;
     state.guideEditMode = false;
+    state.fieldsExpanded = new Set();
+    state.fieldsCollapsed = new Set();
     renderTree();
     renderSidePanel();
     renderCanvas();
+    const catalogLabel = catalog().label || catalog().id || '';
     setStatus(
       addedTotal
         ? `Template ${state.namespace} chargé — zone Total devis ajoutée (enregistrez)`
         : upgradedTotal || fixedAlign
           ? `Template ${state.namespace} chargé — totaux mis à jour (enregistrez)`
-          : `Template ${state.namespace} chargé`,
+          : `Template ${state.namespace} chargé (${catalogLabel})`,
       'ok'
     );
   }
@@ -3291,10 +3324,39 @@
     }, { passive: false });
   }
 
+  async function generateTemplateWithAi() {
+    if (catalog().id !== 'agent-review') {
+      alert('La génération IA est disponible pour les templates de revue mail (agent:review:…).');
+      return;
+    }
+    const brief = window.prompt(
+      'Décrivez la page de revue à générer :',
+      'Page claire de validation facture : en-tête, expéditeur/sujet, corps du mail, liste des PDF à télécharger.'
+    );
+    if (brief === null) return;
+    if (!window.confirm('Remplacer la mise en page actuelle par une génération IA ?')) return;
+    setStatus('Génération IA en cours…');
+    const res = await global.Adv2Api.generateAi(state.namespace, {
+      brief: String(brief || '').trim(),
+      save: true
+    });
+    state.template = res.data;
+    state.selectedId = null;
+    state.selectedGuide = null;
+    state.fieldsExpanded = new Set();
+    state.fieldsCollapsed = new Set();
+    renderTree();
+    renderSidePanel();
+    renderCanvas();
+    const src = res.source === 'ia' ? 'IA' : 'secours';
+    setStatus((res.message || 'Page générée') + ` (${src})`, res.source === 'ia' ? 'ok' : 'err');
+  }
+
   function bindToolbar() {
     $('adv2-save')?.addEventListener('click', () => saveTemplate().catch((e) => setStatus(e.message, 'err')));
     $('adv2-preview')?.addEventListener('click', () => previewTemplate().catch((e) => setStatus(e.message, 'err')));
     $('adv2-reload')?.addEventListener('click', () => loadTemplate(state.namespace).catch((e) => setStatus(e.message, 'err')));
+    $('adv2-generate-ai')?.addEventListener('click', () => generateTemplateWithAi().catch((e) => setStatus(e.message, 'err')));
     $('adv2-edit-guides')?.addEventListener('click', toggleGuideEditMode);
     $('adv2-toggle-guides')?.addEventListener('click', toggleGuidesVisibility);
     $('adv2-guide-v')?.addEventListener('click', () => addGuide('v'));

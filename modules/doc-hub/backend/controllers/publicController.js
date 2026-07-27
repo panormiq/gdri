@@ -1,8 +1,17 @@
+/**
+ * FICHIER : modules/doc-hub/backend/controllers/publicController.js
+ * RÔLE : Téléchargement public par token (sans authentification) — fichier
+ *        unique, ZIP daté ou archive groupée.
+ */
+
 const path = require('path');
 const fs = require('fs');
 const database = require(path.join(__dirname, '../../../../backend/config/database'));
-const DownloadLinkService = require('../services/DownloadLinkService');
-const BundleZipService = require('../services/BundleZipService');
+const resolveDownloadToken = require('../services/links/resolveDownloadToken');
+const recordLinkDownload = require('../services/links/recordLinkDownload');
+const buildZipBuffer = require('../services/zip/buildZipBuffer');
+const buildSingleDocumentZipBuffer = require('../services/zip/buildSingleDocumentZipBuffer');
+const isZipAvailable = require('../services/zip/isZipAvailable');
 const { parseDownloadToken, hashToken } = require('../utils/tokenUtils');
 const {
   applyFilesystemDatesFromMetadata,
@@ -25,7 +34,7 @@ function extractTokenFromRequest(req) {
 }
 
 function shouldServeDatedZip(req, captureDate) {
-  if (!captureDate || !BundleZipService.isZipAvailable()) return false;
+  if (!captureDate || !isZipAvailable()) return false;
   if (req.query && String(req.query.raw) === '1') return false;
   return true;
 }
@@ -58,7 +67,7 @@ async function download(req, res) {
     const tokenHash = hashToken(tokenForLookup);
     const linkRow = await entrepriseDb.collection('doc_hub_download_links').findOne({ tokenHash });
 
-    const result = await DownloadLinkService.resolveToken(entrepriseDb, tokenForLookup, linkRow);
+    const result = await resolveDownloadToken(entrepriseDb, tokenForLookup, linkRow);
     if (!result.ok) {
       return res.status(result.status).json({ success: false, message: result.message });
     }
@@ -66,10 +75,10 @@ async function download(req, res) {
     const { link } = result;
 
     if (result.bundle) {
-      const buffer = await BundleZipService.buildZipBuffer(entrepriseDb, result.documentIds);
+      const buffer = await buildZipBuffer(entrepriseDb, result.documentIds);
       const zipName = (link.bundleLabel || 'documents').replace(/[^a-zA-Z0-9._-]/g, '_') + '.zip';
 
-      await DownloadLinkService.recordDownload(entrepriseDb, link._id);
+      await recordLinkDownload(entrepriseDb, link._id);
 
       setZipDownloadHeaders(res, { filename: zipName, contentLength: buffer.length });
       return res.send(buffer);
@@ -88,10 +97,10 @@ async function download(req, res) {
 
     const captureDate = getCaptureDateForDoc(doc);
 
-    await DownloadLinkService.recordDownload(entrepriseDb, link._id);
+    await recordLinkDownload(entrepriseDb, link._id);
 
     if (shouldServeDatedZip(req, captureDate)) {
-      const buffer = await BundleZipService.buildSingleDocumentZipBuffer(doc);
+      const buffer = await buildSingleDocumentZipBuffer(doc);
       const zipName = zipDownloadFilename(doc.filename);
       setZipDownloadHeaders(res, {
         filename: zipName,

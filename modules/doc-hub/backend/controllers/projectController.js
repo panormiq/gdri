@@ -1,4 +1,13 @@
-const ProjectService = require('../services/ProjectService');
+/**
+ * FICHIER : modules/doc-hub/backend/controllers/projectController.js
+ * RÔLE : Contrôleur des projets Doc-Hub (validation entrée + appel services/projects).
+ */
+
+const listProjects = require('../services/projects/listProjects');
+const getProjectById = require('../services/projects/getProjectById');
+const createProject = require('../services/projects/createProject');
+const updateProject = require('../services/projects/updateProject');
+const removeProject = require('../services/projects/removeProject');
 
 function parseIntQuery(value, fallback, min, max) {
   const n = Number.parseInt(value, 10);
@@ -13,7 +22,7 @@ async function list(req, res) {
     const search = typeof req.query.q === 'string' ? req.query.q.trim() : '';
     const status = req.query.status || null;
 
-    const result = await ProjectService.list(req.entrepriseDb, { limit, skip, search, status });
+    const result = await listProjects(req.entrepriseDb, { limit, skip, search, status });
     res.json({ success: true, data: result.items, meta: { total: result.total, limit, skip } });
   } catch (error) {
     console.error('Doc-Hub projects list:', error);
@@ -23,7 +32,7 @@ async function list(req, res) {
 
 async function getById(req, res) {
   try {
-    const project = await ProjectService.getById(req.entrepriseDb, req.params.id);
+    const project = await getProjectById(req.entrepriseDb, req.params.id);
     if (!project) return res.status(404).json({ success: false, message: 'Projet introuvable' });
     res.json({ success: true, data: project });
   } catch (error) {
@@ -37,7 +46,7 @@ async function create(req, res) {
     if (!title || !String(title).trim()) {
       return res.status(400).json({ success: false, message: 'Le titre est requis' });
     }
-    const project = await ProjectService.create(
+    const project = await createProject(
       req.entrepriseDb,
       { title, reference, metadata, metadataCollectionId },
       req.userId
@@ -50,7 +59,7 @@ async function create(req, res) {
 
 async function update(req, res) {
   try {
-    const project = await ProjectService.update(req.entrepriseDb, req.params.id, req.body || {});
+    const project = await updateProject(req.entrepriseDb, req.params.id, req.body || {});
     if (!project) return res.status(404).json({ success: false, message: 'Projet introuvable' });
     res.json({ success: true, data: project });
   } catch (error) {
@@ -60,7 +69,7 @@ async function update(req, res) {
 
 async function remove(req, res) {
   try {
-    const ok = await ProjectService.remove(req.entrepriseDb, req.params.id);
+    const ok = await removeProject(req.entrepriseDb, req.params.id);
     if (!ok) return res.status(404).json({ success: false, message: 'Projet introuvable' });
     res.json({ success: true });
   } catch (error) {

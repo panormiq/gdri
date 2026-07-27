@@ -1,9 +1,18 @@
-const DocumentService = require('../services/DocumentService');
+/**
+ * FICHIER : modules/doc-hub/backend/controllers/documentController.js
+ * RÔLE : Contrôleur des documents (upload multer, tags, suppression).
+ */
+
+const listDocumentsByProject = require('../services/documents/listDocumentsByProject');
+const addDocumentFromUpload = require('../services/documents/addDocumentFromUpload');
+const updateDocumentTags = require('../services/documents/updateDocumentTags');
+const removeDocument = require('../services/documents/removeDocument');
+const removeManyDocuments = require('../services/documents/removeManyDocuments');
 
 async function list(req, res) {
   try {
     const { slotCode, tag } = req.query;
-    const docs = await DocumentService.listByProject(req.entrepriseDb, req.params.id, {
+    const docs = await listDocumentsByProject(req.entrepriseDb, req.params.id, {
       slotCode: slotCode || null,
       tag: tag || null
     });
@@ -51,7 +60,7 @@ async function upload(req, res) {
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
       const hint = pickClientFileHint(file, clientFileMeta, i);
-      const doc = await DocumentService.addFromUpload(
+      const doc = await addDocumentFromUpload(
         req.entrepriseDb,
         req.entrepriseId,
         req.params.id,
@@ -88,7 +97,7 @@ async function updateTags(req, res) {
       });
     }
 
-    const doc = await DocumentService.updateTags(req.entrepriseDb, req.params.id, tags);
+    const doc = await updateDocumentTags(req.entrepriseDb, req.params.id, tags);
     if (!doc) return res.status(404).json({ success: false, message: 'Document introuvable' });
     res.json({ success: true, data: doc });
   } catch (error) {
@@ -98,7 +107,7 @@ async function updateTags(req, res) {
 
 async function remove(req, res) {
   try {
-    const ok = await DocumentService.remove(req.entrepriseDb, req.params.id, req.entrepriseId);
+    const ok = await removeDocument(req.entrepriseDb, req.params.id, req.entrepriseId);
     if (!ok) return res.status(404).json({ success: false, message: 'Document introuvable' });
     res.json({ success: true });
   } catch (error) {
@@ -113,7 +122,7 @@ async function bulkRemove(req, res) {
       return res.status(400).json({ success: false, message: 'documentIds (tableau) requis' });
     }
 
-    const result = await DocumentService.removeMany(
+    const result = await removeManyDocuments(
       req.entrepriseDb,
       req.params.id,
       documentIds,

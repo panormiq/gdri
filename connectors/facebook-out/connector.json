@@ -1,0 +1,69 @@
+{
+  "id": "facebook-out",
+  "name": "Facebook (sortant)",
+  "version": "1.1.0",
+  "author": "GDR-Innovation",
+  "description": "Publication sur le fil de la page, ou réponse (commentaire / MP).",
+  "direction": "output",
+  "compatiblePlatform": ">=1.0.0",
+  "audience": "contact",
+  "hosts": ["annuaire"],
+  "capabilities": [
+    "emit.reply",
+    "emit.publish"
+  ],
+  "credentials": {
+    "type": "oauth2",
+    "provider": "facebook",
+    "scopes": [
+      "pages_messaging",
+      "pages_manage_posts",
+      "pages_manage_engagement",
+      "pages_read_engagement"
+    ]
+  },
+  "configSchema": {
+    "type": "object",
+    "properties": {
+      "pageId": {
+        "type": "string",
+        "title": "ID Page Facebook (optionnel)"
+      },
+      "action": {
+        "type": "string",
+        "title": "Action par défaut",
+        "enum": ["publish", "reply"],
+        "default": "publish"
+      },
+      "replyMode": {
+        "type": "string",
+        "title": "Canal de réponse",
+        "enum": ["auto", "comment", "post", "message"],
+        "default": "auto"
+      },
+      "graphVersion": {
+        "type": "string",
+        "title": "Version Graph API",
+        "default": "v21.0"
+      }
+    }
+  },
+  "operations": {
+    "emit.publish": {
+      "description": "Publie un post (texte / lien / image) sur le fil de la page"
+    },
+    "emit.reply": {
+      "description": "Répond à un commentaire, commente un post, ou envoie un MP"
+    }
+  },
+  "instanceDefaults": {
+    "ingestModes": [],
+    "settings": {
+      "action": "publish",
+      "replyMode": "auto",
+      "graphVersion": "v21.0"
+    },
+    "mapping": {}
+  },
+  "permissions": ["network", "secrets", "entity-data"]
+}

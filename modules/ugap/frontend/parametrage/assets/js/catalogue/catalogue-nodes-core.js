@@ -45,6 +45,14 @@
         return isMotorCatalogNodeLabel(node);
     }
 
+    /**
+     * true = forcer l’affichage du nœud dans le configurateur même s’il est vide
+     * ou ne contient que l’option de base.
+     */
+    function resolveShowEvenIfEmptyOrBaseOnly(node) {
+        return !!(node && typeof node === 'object' && node.showEvenIfEmptyOrBaseOnly === true);
+    }
+
     function normalizeNode(raw, index) {
         const n = raw && typeof raw === 'object' ? raw : {};
         const id = resolveNodeId(n) || newId('node');
@@ -59,6 +67,9 @@
         };
         if (Object.prototype.hasOwnProperty.call(n, 'hideMinorationInChoices')) {
             row.hideMinorationInChoices = n.hideMinorationInChoices === true;
+        }
+        if (Object.prototype.hasOwnProperty.call(n, 'showEvenIfEmptyOrBaseOnly')) {
+            row.showEvenIfEmptyOrBaseOnly = n.showEvenIfEmptyOrBaseOnly === true;
         }
         return row;
     }
@@ -274,5 +285,6 @@
         migrateLegacyCatalog,
         isMotorCatalogNodeLabel,
         resolveHideMinorationInChoices,
+        resolveShowEvenIfEmptyOrBaseOnly,
     };
 })(window);

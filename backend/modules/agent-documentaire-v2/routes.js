@@ -9,6 +9,10 @@ const fs = require('fs');
 const path = require('path');
 const { getTemplateService } = require('./service-container');
 const HtmlRenderService = require('./services/HtmlRenderService');
+const AiReviewTemplateService = require('./services/AiReviewTemplateService');
+const { authenticateJWT } = require('../../config/jwt');
+
+const aiReviewTemplateService = new AiReviewTemplateService();
 
 const PREVIEW_PLACEHOLDERS = JSON.parse(
   fs.readFileSync(path.join(__dirname, 'seeds/ugap-preview-placeholders.json'), 'utf8')
@@ -53,6 +57,69 @@ router.put('/templates/:namespace', async (req, res) => {
     const svc = getTemplateService();
     const saved = await svc.save(req.params.namespace, req.body || {});
     res.json({ success: true, data: saved });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+/** Crée un template de départ (ex. revue facture) s'il n'existe pas. */
+router.post('/templates/:namespace/ensure-seed', async (req, res) => {
+  try {
+    const svc = getTemplateService();
+    const force = !!(req.body && req.body.force);
+    const saved = await svc.ensureSeedTemplate(req.params.namespace, { force });
+    res.json({ success: true, data: saved, created: true });
+  } catch (error) {
+    res.status(400).json({ success: false, error: error.message });
+  }
+});
+
+/**
+ * Génère (ou régénère) une page de revue mail via IA, puis enregistre le template.
+ * POST /templates/:namespace/generate-ai
+ * body: { brief?, save?=true, entrepriseId? }
+ */
+router.post('/templates/:namespace/generate-ai', authenticateJWT, async (req, res) => {
+  try {
+    const namespace = String(req.params.namespace || '').trim();
+    if (!namespace) {
+      return res.status(400).json({ success: false, error: 'Namespace requis' });
+    }
+    const brief = String((req.body && req.body.brief) || '').trim();
+    const agentContext = String((req.body && req.body.agentContext) || '').trim();
+    const reviewContext = String((req.body && req.body.reviewContext) || '').trim();
+    const save = !req.body || req.body.save !== false;
+    const entrepriseId =
+      (req.body && (req.body.entrepriseId || req.body.entityId)) ||
+      (req.user && (req.user.currentEntrepriseId || req.user.entrepriseId)) ||
+      null;
+
+    const generated = await aiReviewTemplateService.generate({
+      namespace,
+      brief,
+      agentContext,
+      reviewContext,
+      entrepriseId
+    });
+
+    let saved = generated.template;
+    if (save) {
+      const svc = getTemplateService();
+      saved = await svc.save(namespace, generated.template);
+    }
+
+    res.json({
+      success: true,
+      data: saved,
+      source: generated.source,
+      iaError: generated.iaError || null,
+      iaMeta: generated.iaMeta || null,
+      allowedVars: generated.allowedVars,
+      message:
+        generated.source === 'ia'
+          ? 'Page générée par IA'
+          : `Page générée (modèle de secours${generated.iaError ? ` — ${generated.iaError}` : ''})`
+    });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
   }

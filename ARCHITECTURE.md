@@ -119,16 +119,24 @@ gdri/
 }
 ```
 
-## Agents IA (à implémenter)
+## Agents IA & automatisation
 
-### 1. Agent Analyse d'intention
-Caractérise un message/texte pour classification et actions personnalisées.
+> Architecture cible : **[`AGENT-AUTOMATION.md`](AGENT-AUTOMATION.md)**  
+> Connecteurs I/O : [`CONNECTOR-SDK.md`](CONNECTOR-SDK.md)
 
-### 2. Agent Mail
-Transfert automatique au bon service selon l'analyse d'intention, prépare des réponses.
+### Principe
 
-### 3. Agent Documentaire Dossier technique
-Transforme documents Word en modèles techniques pour simplifier rédactions futures.
+Multi-canaux (mail, contact, WhatsApp, FB…) → **adapteur** (options selon le trigger) → **pipeline métier commun**.  
+App user = config (intentions, routage, canaux) ; flows = automatisations gérées automatiquement.
+
+### Agents produits (exemples)
+
+1. **Analyse d'intention** — brique réutilisable (pas une app isolée).
+2. **Agent multi-canal** (mail / contact / WhatsApp…) — devis auto, routage SAV, etc.
+3. **Agent Documentaire** — dossier technique (module dédié).
+4. **Agent Facebook** — legacy webhook encore actif ; bascule progressive vers l’orchestrateur.
+
+Legacy Facebook / Mail : **conservés** jusqu’à stabilisation de l’outil agent.
 
 **Structure du module :**
 ```

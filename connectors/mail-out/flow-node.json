@@ -50,10 +50,15 @@
           "attachPrevious": {
             "type": "boolean",
             "title": "Joindre le fichier de l'étape précédente",
+            "default": false
+          },
+          "usePreviousRoute": {
+            "type": "boolean",
+            "title": "Utiliser destinataire/sujet/corps du routage précédent",
             "default": true
           }
         },
-        "required": ["accountRef", "to"]
+        "required": ["accountRef"]
       },
       "outputMessage": {
         "type": "mail-result",

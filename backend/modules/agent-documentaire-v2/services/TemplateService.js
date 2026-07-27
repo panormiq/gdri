@@ -179,6 +179,29 @@ class TemplateService {
     return doc;
   }
 
+  /**
+   * Crée un template depuis un seed connu s'il n'existe pas encore.
+   * @param {string} namespace
+   * @param {{ force?: boolean }} [options]
+   */
+  async ensureSeedTemplate(namespace, options = {}) {
+    const ns = String(namespace || '').trim();
+    const seedByNs = {
+      'agent:review:invoice': 'agent-review-invoice.json'
+    };
+    const seedFile = seedByNs[ns];
+    if (!seedFile) {
+      throw new Error(`Aucun modèle de départ pour « ${ns} »`);
+    }
+    const existing = await this.collection.findOne({ namespace: ns });
+    if (existing && !options.force) {
+      return existing;
+    }
+    const seed = this.normalizeTemplate(this.loadSeed(seedFile));
+    seed.namespace = ns;
+    return this.save(ns, seed);
+  }
+
   async list(filters = {}) {
     return this.collection.find(filters).sort({ 'metadata.updatedAt': -1 }).toArray();
   }

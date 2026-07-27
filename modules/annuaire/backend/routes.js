@@ -49,4 +49,6 @@ router.post('/integrations/gderpi/import', ...auth, requireAnnuaireRole(writeRol
 router.post('/integrations/gderpi/organisations/:organisationId/create-client', ...auth, requireAnnuaireRole(writeRoles), integrationsController.gderpiCreateClient);
 router.post('/integrations/gderpi/organisations/:organisationId/create-fournisseur', ...auth, requireAnnuaireRole(writeRoles), integrationsController.gderpiCreateFournisseur);
 
+router.get('/integrations/connectors/status', ...auth, requireAnnuaireRole(readRoles), integrationsController.connectorsStatus);
+
 module.exports = router;

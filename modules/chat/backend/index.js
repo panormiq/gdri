@@ -1,6 +1,6 @@
 /**
- * Module Chat IA
- * Fichier : modules/chat/backend/index.js
+ * FICHIER : modules/chat/backend/index.js
+ * RÔLE : Point d'entrée module Chat IA — init indexes + routes.
  */
 
 const routes = require('./routes');
@@ -13,7 +13,6 @@ const routes = require('./routes');
 async function init(app, db) {
   console.log('  💬 Initialisation module Chat IA...');
   try {
-    const globalCol = db.getCollection('chat_global_settings');
     const entityCol = db.getCollection('chat_entity_settings');
     const userCol = db.getCollection('chat_user_settings');
     const accessCol = db.getCollection('chat_entity_user_access');
@@ -28,10 +27,6 @@ async function init(app, db) {
   }
 }
 
-/**
- * Retourne les routes du module
- * @returns {Express.Router} Routeur Express
- */
 function getRoutes() {
   return routes;
 }

@@ -17,6 +17,8 @@
       this.onBusy = options.onBusy || (() => {});
       this.onImportFile = options.onImportFile || null;
       this.onAnimateAsset = options.onAnimateAsset || null;
+      this.onDeleteAsset = options.onDeleteAsset || null;
+      this.onSelectionChange = options.onSelectionChange || null;
 
       this.source = null;
       this.crop = null;
@@ -250,25 +252,126 @@
       this.previewEl.appendChild(img);
     }
 
-    addSavedItem(data) {
+    getSavedItems() {
+      if (!this.savedListEl) return [];
+      return Array.from(this.savedListEl.querySelectorAll('.ms-extract-saved-item[data-filename]'));
+    }
+
+    getSelectedAssets() {
+      return this.getSavedItems()
+        .filter((li) => li.classList.contains('is-selected'))
+        .map((li) => ({
+          id: li.dataset.id || '',
+          filename: li.dataset.filename || '',
+        }))
+        .filter((a) => a.filename || a.id);
+    }
+
+    notifySelectionChange() {
+      if (this.onSelectionChange) this.onSelectionChange(this.getSelectedAssets(), this.getSavedItems().length);
+    }
+
+    setItemSelected(li, selected) {
+      if (!li) return;
+      li.classList.toggle('is-selected', !!selected);
+      li.setAttribute('aria-selected', selected ? 'true' : 'false');
+    }
+
+    selectAllSaved(select) {
+      this.getSavedItems().forEach((li) => this.setItemSelected(li, select));
+      this.notifySelectionChange();
+    }
+
+    ensureSavedEmptyState() {
       if (!this.savedListEl) return;
+      if (this.getSavedItems().length === 0 && !this.savedListEl.querySelector('.ms-extract-empty')) {
+        const empty = document.createElement('li');
+        empty.className = 'ms-extract-empty';
+        empty.textContent = 'Aucun objet extrait pour l\'instant.';
+        this.savedListEl.appendChild(empty);
+      }
+      this.notifySelectionChange();
+    }
+
+    removeSavedItem(ref) {
+      if (!this.savedListEl || !ref) return false;
+      const id = ref.id ? String(ref.id) : '';
+      const filename = ref.filename ? String(ref.filename) : '';
+      let removed = false;
+      this.getSavedItems().forEach((li) => {
+        const match = (id && li.dataset.id === id) || (filename && li.dataset.filename === filename);
+        if (!match) return;
+        li.remove();
+        removed = true;
+      });
+      if (this.result && (
+        (id && String(this.result.id || this.result._id || '') === id)
+        || (filename && this.result.filename === filename)
+      )) {
+        this.result = null;
+        if (this.previewEl) this.previewEl.innerHTML = '';
+      }
+      if (removed) this.ensureSavedEmptyState();
+      return removed;
+    }
+
+    addSavedItem(data) {
+      if (!this.savedListEl || !data || !data.filename) return;
+      const existing = this.getSavedItems().some((li) => li.dataset.filename === data.filename);
+      if (existing) return;
       const empty = this.savedListEl.querySelector('.ms-extract-empty');
       if (empty) empty.remove();
+      const id = data.id != null && data.id !== ''
+        ? String(data.id)
+        : (data._id != null ? String(data._id) : '');
       const li = document.createElement('li');
       li.className = 'ms-extract-saved-item';
+      li.dataset.filename = data.filename;
+      if (id) li.dataset.id = id;
+      li.setAttribute('role', 'option');
+      li.setAttribute('aria-selected', 'false');
       li.innerHTML = `
+        <span class="ms-list-check" aria-hidden="true"></span>
         <img src="${data.url}?v=${encodeURIComponent(data.filename)}" alt="">
         <div class="ms-extract-saved-info">
           <span>${data.title || data.filename}</span>
           <small>${data.width}×${data.height}</small>
         </div>
-        <button type="button" class="ms-btn ms-btn-ghost ms-extract-animate-btn">Animer</button>
-        <a href="${data.downloadUrl || data.url}" class="ms-btn ms-btn-ghost" download>Télécharger</a>`;
+        <div class="ms-extract-saved-btns">
+          <button type="button" class="ms-btn ms-btn-ghost ms-extract-animate-btn">Animer</button>
+          <a href="${data.downloadUrl || data.url}" class="ms-btn ms-btn-ghost" download>Télécharger</a>
+          <button type="button" class="ms-btn ms-btn-ghost ms-list-delete-btn" title="Supprimer">×</button>
+        </div>`;
       const animateBtn = li.querySelector('.ms-extract-animate-btn');
       if (animateBtn && this.onAnimateAsset) {
-        animateBtn.addEventListener('click', () => this.onAnimateAsset(data));
+        animateBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          this.onAnimateAsset(data);
+        });
       }
+      const delBtn = li.querySelector('.ms-list-delete-btn');
+      if (delBtn) {
+        delBtn.addEventListener('click', async (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          if (!confirm('Supprimer cet objet extrait ?')) return;
+          delBtn.disabled = true;
+          try {
+            if (this.onDeleteAsset) await this.onDeleteAsset({ id, filename: data.filename });
+            else this.removeSavedItem({ id, filename: data.filename });
+          } catch (err) {
+            delBtn.disabled = false;
+            this.onStatus('Suppression: ' + err.message);
+          }
+        });
+      }
+      li.addEventListener('click', (e) => {
+        if (e.target.closest('a, button')) return;
+        this.setItemSelected(li, !li.classList.contains('is-selected'));
+        this.notifySelectionChange();
+      });
       this.savedListEl.prepend(li);
+      this.notifySelectionChange();
     }
 
     setResult(data) {

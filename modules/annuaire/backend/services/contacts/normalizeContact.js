@@ -4,6 +4,19 @@
 
 const crypto = require('crypto');
 
+function normalizeBoutiqueOrganisationIds(raw) {
+  if (!Array.isArray(raw)) return [];
+  const seen = new Set();
+  const out = [];
+  raw.forEach(function (item) {
+    const id = String(item || '').trim();
+    if (!id || seen.has(id)) return;
+    seen.add(id);
+    out.push(id);
+  });
+  return out;
+}
+
 function normalizeContact(raw) {
   const c = raw && typeof raw === 'object' ? raw : {};
   const scopeRaw = String(c.scope || '').trim().toLowerCase();
@@ -22,7 +35,8 @@ function normalizeContact(raw) {
     userId: c.userId != null ? String(c.userId).trim() || null : null,
     ownerUserId: c.ownerUserId != null ? String(c.ownerUserId).trim() || null : null,
     createdByUserId: c.createdByUserId != null ? String(c.createdByUserId).trim() || null : null,
-    notes: String(c.notes || '').trim()
+    notes: String(c.notes || '').trim(),
+    boutiqueOrganisationIds: normalizeBoutiqueOrganisationIds(c.boutiqueOrganisationIds)
   };
 }
 

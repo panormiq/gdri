@@ -11,6 +11,16 @@ const HEADER_ROW_HEIGHT_MM = 8;
 const TABLE_ROW_GAP_MM = 0.5;
 /** Espace minimal entre le bas du tableau et le bloc totaux / pied. */
 const LIGNES_TO_FOOTER_GAP_MM = 4;
+/** Hauteur d'une ligne de texte dans une cellule (9pt, interligne ~1.25). */
+const ROW_LINE_HEIGHT_MM = 4;
+/** Padding vertical + bordures d'une cellule (6px haut + 6px bas). */
+const ROW_VERTICAL_PADDING_MM = 3.6;
+/** Largeur moyenne d'un caractère à 9pt (volontairement pessimiste). */
+const CELL_TEXT_CHAR_MM = 1.8;
+/** Padding horizontal cellule (8px gauche + 8px droite) + bordures. */
+const CELL_HORIZONTAL_PADDING_MM = 4.6;
+/** Garde-fou : nombre max de lignes de texte estimées par cellule. */
+const MAX_ESTIMATED_TEXT_LINES = 8;
 
 const HEADER_ZONE_TYPES = new Set(['entreprise', 'client', 'devis']);
 const CLOSING_FOOTER_ZONE_TYPES = new Set(['total-devis', 'transport', 'bon-pour-accord']);
@@ -32,6 +42,56 @@ function tableHeightForRows(rowCount) {
 function zoneHeightForRows(rowCount, tableYInZone = 1.8) {
   const inset = Number(tableYInZone) || 1.8;
   return inset + tableHeightForRows(rowCount) + 1;
+}
+
+/**
+ * Nombre de lignes de texte qu'occupera une ligne du tableau une fois
+ * le texte replié dans ses colonnes (word-wrap). Estimation pessimiste.
+ */
+function estimateRowTextLines(row, fieldOrder, columnWidths, tableWidthMm = 172.8) {
+  const r = row && typeof row === 'object' ? row : {};
+  const order = Array.isArray(fieldOrder) && fieldOrder.length ? fieldOrder : Object.keys(r);
+  if (!order.length) return 1;
+  const widths = normalizeColumnWidths(order, columnWidths);
+  let maxLines = 1;
+  order.forEach((key) => {
+    const text = String(r[key] ?? '').trim();
+    if (!text) return;
+    const colMm = ((Number(widths[key]) || (100 / order.length)) / 100) * tableWidthMm;
+    const usableMm = Math.max(CELL_TEXT_CHAR_MM * 4, colMm - CELL_HORIZONTAL_PADDING_MM);
+    const charsPerLine = Math.max(4, Math.floor(usableMm / CELL_TEXT_CHAR_MM));
+    const lines = Math.min(MAX_ESTIMATED_TEXT_LINES, Math.ceil(text.length / charsPerLine));
+    if (lines > maxLines) maxLines = lines;
+  });
+  return maxLines;
+}
+
+function estimatedRowHeightMm(textLines) {
+  const n = Math.max(1, Number(textLines) || 1);
+  return Math.max(ROW_HEIGHT_MM, ROW_VERTICAL_PADDING_MM + n * ROW_LINE_HEIGHT_MM);
+}
+
+/** Hauteur estimée (mm) de chaque ligne du devis selon le template. */
+function computeRowHeightsMm(lines, template) {
+  const rows = Array.isArray(lines) ? lines : [];
+  const { table } = findLignesLayout(template);
+  const cfg = table?.tableConfig || {};
+  const rawOrder = Array.isArray(cfg.fieldOrder) && cfg.fieldOrder.length
+    ? cfg.fieldOrder
+    : (Array.isArray(cfg.visibleFields) ? cfg.visibleFields : []);
+  const order = rawOrder.filter(Boolean);
+  const fieldOrder = order.length ? order : ['refUgap', 'libelle', 'prix'];
+  const tableWidthMm = Number(table?.layout?.width) || 172.8;
+  return rows.map((row) => estimatedRowHeightMm(
+    estimateRowTextLines(row, fieldOrder, cfg.columnWidths, tableWidthMm)
+  ));
+}
+
+/** Hauteur tableau (mm) pour un corps de lignes de hauteur donnée. */
+function tableHeightForBodyMm(bodyMm) {
+  const b = Math.max(0, Number(bodyMm) || 0);
+  if (b <= 0) return HEADER_ROW_HEIGHT_MM + 2;
+  return HEADER_ROW_HEIGHT_MM + TABLE_ROW_GAP_MM + b;
 }
 
 /** Hauteur max de la zone lignes (seule zone redimensionnée automatiquement). */
@@ -249,33 +309,46 @@ function availableTableHeight(pageConfig, template, pageKind) {
   return maxTableHeightInZone(Math.max(minZone, maxZone), tableYInZone);
 }
 
+/**
+ * Répartit les lignes par pages en fonction de leur hauteur estimée (mm),
+ * pas d'un simple comptage : une ligne au libellé long occupe plusieurs
+ * lignes de texte et consomme plus de hauteur.
+ */
 function paginateLines(lines, template, pageConfig = {}) {
   const rows = Array.isArray(lines) ? lines : [];
   if (!rows.length) return [[]];
 
-  const firstCap = rowsPerPage(availableTableHeight(pageConfig, template, 'first'));
-  const middleCap = rowsPerPage(availableTableHeight(pageConfig, template, 'middle'));
-  const lastCap = rowsPerPage(availableTableHeight(pageConfig, template, 'last'));
+  const heights = computeRowHeightsMm(rows, template);
+  const bodyBudget = (kind) => Math.max(
+    ROW_HEIGHT_MM,
+    availableTableHeight(pageConfig, template, kind) - HEADER_ROW_HEIGHT_MM - TABLE_ROW_GAP_MM
+  );
+  const firstBudget = bodyBudget('first');
+  const middleBudget = bodyBudget('middle');
+  const lastBudget = bodyBudget('last');
+  const remainingHeightFrom = (idx) => heights.slice(idx).reduce((a, b) => a + b, 0);
 
   // Page unique = aussi la dernière page : les totaux y sont affichés,
-  // donc la capacité de référence est lastCap (pas firstCap).
-  if (rows.length <= lastCap) return [rows];
+  // donc le budget de référence est celui de la dernière page.
+  if (remainingHeightFrom(0) <= lastBudget) return [rows];
 
-  // Multi-pages : remplir la 1re page au maximum en gardant au moins
-  // une ligne pour les pages suivantes.
-  const firstTake = Math.min(firstCap, rows.length - 1);
-  const chunks = [rows.slice(0, firstTake)];
-  let offset = firstTake;
-
+  const chunks = [];
+  let offset = 0;
   while (offset < rows.length) {
-    const remaining = rows.length - offset;
-    if (remaining <= lastCap) {
+    if (remainingHeightFrom(offset) <= lastBudget) {
       chunks.push(rows.slice(offset));
       break;
     }
-    // Remplir la page intermédiaire sans dépasser sa capacité, en gardant
-    // au moins une ligne pour la page suivante (qui peut être la dernière).
-    const take = Math.max(1, Math.min(middleCap, remaining - 1));
+    const budget = chunks.length === 0 ? firstBudget : middleBudget;
+    let take = 0;
+    let used = 0;
+    while (offset + take < rows.length && used + heights[offset + take] <= budget) {
+      used += heights[offset + take];
+      take += 1;
+    }
+    // Toujours avancer d'au moins une ligne, et en garder au moins une
+    // pour la page suivante (qui peut être la dernière).
+    take = Math.max(1, Math.min(take, rows.length - offset - 1));
     chunks.push(rows.slice(offset, offset + take));
     offset += take;
   }
@@ -293,6 +366,10 @@ module.exports = {
   FOOTER_ZONE_TYPES,
   rowsPerPage,
   tableHeightForRows,
+  tableHeightForBodyMm,
+  estimateRowTextLines,
+  estimatedRowHeightMm,
+  computeRowHeightsMm,
   zoneHeightForRows,
   maxLignesZoneHeightMm,
   maxTableHeightInZone,

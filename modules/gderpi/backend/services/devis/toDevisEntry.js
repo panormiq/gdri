@@ -21,10 +21,15 @@ function isoDate(value) {
 
 function toDevisEntry(doc) {
   if (!doc) return null;
-  const normalized = normalizeDevis(doc);
+  // Ne jamais régénérer d'UUID à la lecture : sinon la liste affiche un id
+  // qui n'existe pas en base → « Devis introuvable » à l'envoi / GET.
+  const persistedId = String(doc.devisId || doc.id || '').trim();
+  if (!persistedId) return null;
+  const normalized = normalizeDevis({ ...doc, id: persistedId, devisId: persistedId });
   return {
     ...normalized,
-    devisId: normalized.id,
+    id: persistedId,
+    devisId: persistedId,
     createdAt: isoDate(doc.createdAt) || normalized.createdAt,
     updatedAt: isoDate(doc.updatedAt) || normalized.updatedAt,
     dateValidite: isoDate(doc.dateValidite) || normalized.dateValidite

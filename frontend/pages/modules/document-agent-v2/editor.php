@@ -3,12 +3,14 @@ require_once '../../../config/config.php';
 require_once '../../../auth/session.php';
 require_once '../../../includes/functions.php';
 
-if (!hasRole(ROLE_ADMIN_GDRI) && !hasRole(ROLE_ADMIN_ENTITY)) {
+if (!hasRole(ROLE_ADMIN_GDRI) && !hasRole(ROLE_ADMIN_ENTITY) && !hasRole(ROLE_USER_ENTITY)) {
     redirect(url('pages/dashboard.php'));
 }
 
 $page_title = 'Agent Documentaire V2 — Éditeur';
 $templateNs = isset($_GET['template']) ? trim($_GET['template']) : 'ugap:devis:default';
+$isAgentReviewTpl = (strpos($templateNs, 'agent:review') === 0)
+    || (strpos($templateNs, ':review:') !== false);
 
 $adv2CssPath = __DIR__ . '/assets/css/canvas-editor.css';
 $extra_styles = [url('pages/modules/document-agent-v2/assets/css/canvas-editor.css') . '?v=' . (int) @filemtime($adv2CssPath)];
@@ -31,10 +33,18 @@ require_once '../../../includes/header.php';
                 <p class="hero-description">
                     Déplacez les zones sur la page. Guides et aimants actifs (Alt pour désactiver).
                     Template : <code><?= htmlspecialchars($templateNs) ?></code>
+                    <?php if ($isAgentReviewTpl): ?>
+                        — catalogue champs : <strong>Mail reçu</strong> (pas devis UGAP)
+                    <?php else: ?>
+                        — catalogue champs : <strong>Devis UGAP</strong>
+                    <?php endif; ?>
                 </p>
             </div>
             <div class="hero-actions">
                 <a class="btn btn-outline" href="<?= url('pages/modules/document-agent-v2/index.php'); ?>">← Retour</a>
+                <?php if ($isAgentReviewTpl): ?>
+                <button type="button" class="btn btn-outline" id="adv2-generate-ai" title="Générer / régénérer la mise en page via IA">✨ Générer par IA</button>
+                <?php endif; ?>
                 <button type="button" class="btn btn-outline" id="adv2-preview">Aperçu HTML</button>
                 <button type="button" class="btn btn-primary" id="adv2-save">Enregistrer</button>
             </div>

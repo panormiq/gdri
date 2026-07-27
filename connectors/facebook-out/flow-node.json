@@ -1,0 +1,120 @@
+{
+  "id": "facebook-out",
+  "name": "Facebook sortant",
+  "version": "1.1.0",
+  "category": "connector",
+  "kind": "action",
+  "visibility": "orchestrator-only",
+  "description": "Publie un post sur la page, ou répond (commentaire / publication / message privé).",
+  "canvas": {
+    "icon": "flow-node.svg",
+    "iconEmoji": "📘",
+    "color": "#1877f2",
+    "borderRadius": 12,
+    "width": 220,
+    "inputs": [
+      { "id": "main", "label": "Entrée", "type": "main", "maxConnections": 1 }
+    ],
+    "outputs": [
+      { "id": "success", "label": "Succès", "type": "main" },
+      { "id": "failure", "label": "Échec", "type": "main" }
+    ]
+  },
+  "operations": {
+    "emit.reply": {
+      "label": "Facebook sortant",
+      "description": "Publier sur le fil ou répondre (commentaire / MP).",
+      "configSchema": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "title": "Action",
+            "enum": ["publish", "reply"],
+            "default": "publish",
+            "description": "publish = nouveau post sur la page · reply = répondre à un message/commentaire"
+          },
+          "pageId": {
+            "type": "string",
+            "title": "Compte / page Facebook",
+            "description": "Page sur laquelle publier ou répondre (pages connectées de l'entité)"
+          },
+          "message": {
+            "type": "string",
+            "title": "Texte",
+            "default": "{{body}}",
+            "description": "Variables : {{body}}, {{subject}}, champs du message…"
+          },
+          "usePreviousRoute": {
+            "type": "boolean",
+            "title": "Utiliser le corps du routage précédent",
+            "default": true
+          },
+          "link": {
+            "type": "string",
+            "title": "Lien (publication)",
+            "description": "URL à partager sur le fil (action = publish)"
+          },
+          "imageUrl": {
+            "type": "string",
+            "title": "URL image (publication)",
+            "description": "Publie via /photos si renseigné (action = publish)"
+          },
+          "published": {
+            "type": "boolean",
+            "title": "Publier immédiatement",
+            "default": true,
+            "description": "false = brouillon / non publié (selon droits page)"
+          },
+          "replyMode": {
+            "type": "string",
+            "title": "Canal de réponse",
+            "enum": ["auto", "comment", "post", "message"],
+            "default": "auto",
+            "description": "Utilisé si action = reply"
+          },
+          "commentId": {
+            "type": "string",
+            "title": "ID commentaire (réponse)",
+            "description": "Force la réponse sous ce commentaire"
+          },
+          "postId": {
+            "type": "string",
+            "title": "ID post (réponse)",
+            "description": "Force un commentaire sur cette publication"
+          },
+          "recipientId": {
+            "type": "string",
+            "title": "PSID destinataire MP",
+            "description": "Force un message privé vers cet utilisateur"
+          }
+        }
+      },
+      "outputMessage": {
+        "type": "facebook-out-result",
+        "fields": ["success", "channel", "pageId", "postId"]
+      }
+    },
+    "emit.publish": {
+      "label": "Publier un post",
+      "description": "Alias : publication sur le fil de la page.",
+      "configSchema": {
+        "type": "object",
+        "properties": {
+          "pageId": { "type": "string", "title": "ID page (optionnel)" },
+          "message": { "type": "string", "title": "Texte", "default": "{{body}}" },
+          "link": { "type": "string", "title": "Lien" },
+          "imageUrl": { "type": "string", "title": "URL image" },
+          "published": { "type": "boolean", "title": "Publier immédiatement", "default": true },
+          "usePreviousRoute": { "type": "boolean", "title": "Utiliser le corps du routage précédent", "default": true }
+        }
+      },
+      "outputMessage": {
+        "type": "facebook-out-result",
+        "fields": ["success", "channel", "pageId", "postId"]
+      }
+    }
+  },
+  "permissions": ["network", "secrets"],
+  "serviceRef": "connectors/facebook-out"
+}

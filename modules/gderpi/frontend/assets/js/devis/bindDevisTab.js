@@ -1094,7 +1094,7 @@
           renderDevisListActions(d) +
         '</td></tr>';
     }).join('');
-    tbody.querySelectorAll('[data-devis-id]').forEach((row) => {
+    tbody.querySelectorAll('tr[data-devis-id]').forEach((row) => {
       const id = row.getAttribute('data-devis-id');
       const devis = devisList.find((d) => String(d.devisId || d.id) === String(id));
       const open = () => openDevis(id);
@@ -1912,6 +1912,16 @@
     global.GderpiStatus.showStatus('Carte PM liée.', 'success');
   }
 
+  async function ensurePmCard() {
+    if (!editingId) return;
+    const res = await global.GderpiApi.apiCall('/devis/' + encodeURIComponent(editingId) + '/pm-ensure-card', {
+      method: 'POST',
+      body: '{}'
+    });
+    fillEditor(res.data);
+    global.GderpiStatus.showStatus('Carte PM créée et liée.', 'success');
+  }
+
   async function unlinkPmCard() {
     if (!editingId || !confirm('Retirer la liaison avec la carte PM ?')) return;
     const res = await global.GderpiApi.apiCall('/devis/' + encodeURIComponent(editingId) + '/pm-link', {
@@ -2002,8 +2012,12 @@
     const cardId = devis?.pmCardId;
     if (!cardId) {
       wrap.innerHTML = canWrite() && editingId
-        ? '<button type="button" class="btn btn-outline btn-sm" id="gderpi-devis-pm-link-btn">Lier une carte PM</button>'
+        ? '<button type="button" class="btn btn-primary btn-sm" id="gderpi-devis-pm-create-btn">Créer une carte PM</button> ' +
+          '<button type="button" class="btn btn-outline btn-sm" id="gderpi-devis-pm-link-btn">Lier une carte existante</button>'
         : '<span class="text-muted">Aucune carte liée</span>';
+      wrap.querySelector('#gderpi-devis-pm-create-btn')?.addEventListener('click', () => {
+        ensurePmCard().catch(handleErr);
+      });
       wrap.querySelector('#gderpi-devis-pm-link-btn')?.addEventListener('click', () => {
         openPmCardLinkPicker().catch(handleErr);
       });

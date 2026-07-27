@@ -12,16 +12,23 @@
   const modelHints = document.getElementById('modelHints');
   const typingEl = document.getElementById('typing');
   const galleryEl = document.getElementById('gallery');
+  const gallerySelectAllBtn = document.getElementById('gallerySelectAllBtn');
+  const galleryDeleteSelectedBtn = document.getElementById('galleryDeleteSelectedBtn');
+  const gallerySelectionInfo = document.getElementById('gallerySelectionInfo');
 
   const sceneMessagesEl = document.getElementById('sceneMessages');
   const sceneInput = document.getElementById('sceneInput');
   const sceneSendBtn = document.getElementById('sceneSendBtn');
+  const sceneCreateBtn = document.getElementById('sceneCreateBtn');
   const scenePlanBtn = document.getElementById('scenePlanBtn');
   const sceneTypingEl = document.getElementById('sceneTyping');
   const layerContextEl = document.getElementById('layerContext');
   const layerChipEl = document.getElementById('layerChip');
   const layerContextClear = document.getElementById('layerContextClear');
   const sceneNewBtn = document.getElementById('sceneNewBtn');
+  const sceneSaveBtn = document.getElementById('sceneSaveBtn');
+  const sceneProjectListEl = document.getElementById('sceneProjectList');
+  const sceneSaveStateEl = document.getElementById('sceneSaveState');
   const sceneExportSvg = document.getElementById('sceneExportSvg');
   const sceneAddText = document.getElementById('sceneAddText');
   const sceneAddCharacter = document.getElementById('sceneAddCharacter');
@@ -39,13 +46,20 @@
   const extractPreviewActions = document.getElementById('extractPreviewActions');
   const extractAnimateBtn = document.getElementById('extractAnimateBtn');
 
+  const SCENE_PROJECT_ID_KEY = 'gdri-ms-scene-project-id';
+
   let conversationId = loadSimpleConversationId();
   let sceneConversationId = null;
   let sceneEditor = null;
   let extractEditor = null;
   let animateEditor = null;
+  let clipEditor = null;
   let animateConversationId = null;
   let layerContextPinned = true;
+  let currentProjectId = null;
+  let sceneDirty = false;
+  let sceneProjects = [];
+  let suppressSceneDirty = false;
 
   const ANIMATION_CHAT_SYSTEM = `Tu es l'assistant animation Studio Média GDRI.
 Convertis la demande en JSON UNIQUEMENT :
@@ -57,7 +71,7 @@ Quand on te demande un brouillon / plan de scène, réponds UNIQUEMENT avec un J
 {"version":1,"title":"...","canvas":{"width":1200,"height":630,"background":"#ffffff"},"layers":[...]}
 Chaque calque image doit avoir : id, type:"image", title, description (courte en français), role ("background" ou "object"), zIndex, bbox, status:"brouillon".
 NE PAS rédiger de prompt Flux à cette étape (pas de champ prompt, ou prompt vide).
-Calque texte : type:"text", title, content, style, bbox.
+Calque texte : type:"text", title, content, style, textPath, bbox.
 bbox = emplacement exact en pixels sur le canvas ; respecter les proportions voulues (ex. drapeau 3:2, bannière fond = taille du canvas).
 role background = fond plein (ciel, dégradé). role object = élément superposable (drapeau, logo, personnage).
 
@@ -72,21 +86,29 @@ Quand on te demande des prompts Flux pour un manifest, réponds UNIQUEMENT :
 
 ÉTAPE 3 — génération : faite par l'application, pas par toi.
 
-MODIFICATIONS FINES (calque actif fourni) :
-{"layerPatch":{"id":"...","title":"...","description":"...","role":"...","prompt":"...","content":"...","style":{},"bbox":{}}}
+MODIFICATIONS FINES (calque actif fourni) — JSON uniquement :
+{"layerPatch":{"id":"...","title":"...","content":"...","prompt":"...","style":{},"textPath":{"preset":"arcUp|arcDown|wave|circle|straight","strength":55},"bbox":{},"groupId":"..."}}
+Cadre autour d'un texte :
+{"layerPatch":{"id":"<id-texte>","groupId":"grp-1"},"addFrame":{"padding":18,"shape":"roundedRect","stroke":"#1a1a1a","strokeWidth":4,"fill":"transparent","effect":"shadow"}}
+Ou {"addLayers":[{"type":"shape","title":"Cadre","groupId":"grp-1","zIndex":0,"bbox":{...},"style":{"shape":"roundedRect","stroke":"#1a1a1a","strokeWidth":4,"fill":"transparent","rx":16,"effect":"shadow|glow|none"}}]}
+textPath.preset : straight, arcUp, arcDown, wave, circle (strength 0-100).
+style texte : fontSize, fontWeight, color, align, fontId.
 
-Règles : texte toujours en calque séparé. Les objets sont générés sur fond chroma uni puis détourés ; chromaColor ne doit pas apparaître dans le sujet.`;
+Règles : texte toujours en calque séparé. Cadre = type shape regroupé (groupId) sous le texte. Objets image : fond chroma puis détourage.`;
 
   const SIMPLE_CHAT_SYSTEM = `Tu es l'assistant du Studio Média GDRI (onglet Chat simple).
 
 GÉNÉRATION D'IMAGES :
 - Tu ne produis pas d'images toi-même. La génération est faite par Flux/ComfyUI via l'application.
 - Si l'utilisateur demande une image, un dessin, une illustration, un coloriage, un logo, une affiche, etc., réponds UNIQUEMENT avec ce JSON (aucun texte avant ou après) :
-{"generateImage":"<prompt détaillé en anglais, adapté à Flux Schnell>"}
+{"generateImage":"<prompt en anglais, adapté à Flux Schnell>"}
+- Le prompt doit rester FIDÈLE à la demande : précise le sujet, le style et le cadrage demandés.
+- N'ajoute PAS de factions, personnages, objets ou scènes non demandés (ex. si on demande un Space Marine seul, ne pas inventer bataille, Necrons, Mechanicus, etc.).
+- Tu peux clarifier en anglais (armure power armor, bolter, etc.) sans élargir le sujet.
 - Pour une conversation normale (sans demande d'image), réponds en français de façon concise.
 - Ne invente JAMAIS de placeholder du type [nom_image] ni de lien vers une image inexistante.`;
 
-  const SIMPLE_CHAT_CTX_VERSION = '2';
+  const SIMPLE_CHAT_CTX_VERSION = '3';
   const SIMPLE_CHAT_CTX_KEY = 'gdri-ms-simple-chat';
 
   function loadSimpleConversationId() {
@@ -214,13 +236,24 @@ GÉNÉRATION D'IMAGES :
 
   function setSceneBusy(busy, label) {
     sceneSendBtn.disabled = busy;
-    scenePlanBtn.disabled = busy;
+    if (sceneCreateBtn) sceneCreateBtn.disabled = busy;
+    if (sceneSaveBtn) sceneSaveBtn.disabled = busy;
+    if (sceneNewBtn) sceneNewBtn.disabled = busy;
+    if (scenePlanBtn) scenePlanBtn.disabled = busy;
     sceneInput.disabled = busy;
     if (sceneRefineBtn) sceneRefineBtn.disabled = busy;
     if (sceneGenAllBtn) sceneGenAllBtn.disabled = busy;
     if (sceneRefineBtnSide) sceneRefineBtnSide.disabled = busy;
     if (sceneGenAllBtnSide) sceneGenAllBtnSide.disabled = busy;
-    if (sceneRegenBtn) sceneRegenBtn.disabled = busy || !sceneEditor || !sceneEditor.getSelectedLayer() || sceneEditor.getSelectedLayer().type !== 'image';
+    if (sceneRegenBtn) {
+      const sel = sceneEditor && sceneEditor.getSelectedLayer();
+      const canRegen = sel && (sel.type === 'image' || sel.type === 'character');
+      sceneRegenBtn.disabled = busy || !canRegen;
+    }
+    const propAiAsk = document.getElementById('propAiAsk');
+    const propAiAskBtn = document.getElementById('propAiAskBtn');
+    if (propAiAsk) propAiAsk.disabled = busy;
+    if (propAiAskBtn) propAiAskBtn.disabled = busy;
     sceneTypingEl.style.display = busy ? 'block' : 'none';
     if (label) sceneTypingEl.textContent = label;
   }
@@ -231,6 +264,90 @@ GÉNÉRATION D'IMAGES :
     div.textContent = text;
     el.appendChild(div);
     scrollBottom(el);
+    return div;
+  }
+
+  /** Carte de validation : l'utilisateur peut éditer le prompt Flux avant génération. */
+  function showPromptValidation(targetEl, prompt, options = {}) {
+    const initial = String(prompt || '').trim();
+    if (!initial) return null;
+
+    const div = document.createElement('div');
+    div.className = 'ms-msg bot ms-prompt-review';
+
+    const title = document.createElement('div');
+    title.className = 'ms-prompt-review-title';
+    title.textContent = options.title || 'Valider le prompt avant génération';
+
+    const hint = document.createElement('div');
+    hint.className = 'ms-prompt-review-hint';
+    hint.textContent = options.hint
+      || 'Modifiez le texte si besoin, puis validez. Rien n\'est envoyé à Flux tant que vous n\'avez pas confirmé.';
+
+    const ta = document.createElement('textarea');
+    ta.className = 'ms-prompt-review-input';
+    ta.rows = 4;
+    ta.value = initial;
+    ta.setAttribute('aria-label', 'Prompt Flux à valider');
+
+    const actions = document.createElement('div');
+    actions.className = 'ms-prompt-review-actions';
+
+    const cancelBtn = document.createElement('button');
+    cancelBtn.type = 'button';
+    cancelBtn.className = 'ms-btn ms-btn-ghost';
+    cancelBtn.textContent = 'Annuler';
+
+    const genBtnLocal = document.createElement('button');
+    genBtnLocal.type = 'button';
+    genBtnLocal.className = 'ms-btn ms-btn-primary';
+    genBtnLocal.textContent = 'Valider et générer';
+
+    actions.appendChild(cancelBtn);
+    actions.appendChild(genBtnLocal);
+    div.appendChild(title);
+    div.appendChild(hint);
+    div.appendChild(ta);
+    div.appendChild(actions);
+    targetEl.appendChild(div);
+    scrollBottom(targetEl);
+    ta.focus();
+    ta.setSelectionRange(ta.value.length, ta.value.length);
+
+    const lock = (busy) => {
+      cancelBtn.disabled = busy;
+      genBtnLocal.disabled = busy;
+      ta.disabled = busy;
+    };
+
+    cancelBtn.addEventListener('click', () => {
+      div.remove();
+      setStatus('Génération annulée.');
+    });
+
+    genBtnLocal.addEventListener('click', async () => {
+      const finalPrompt = ta.value.trim();
+      if (!finalPrompt) {
+        ta.focus();
+        return;
+      }
+      lock(true);
+      genBtnLocal.textContent = 'Génération…';
+      setSimpleBusy(true, 'Génération Flux en cours…');
+      try {
+        const img = await generateImage(finalPrompt);
+        div.remove();
+        addImageMessage(img, targetEl, true);
+        setStatus('Image générée.');
+      } catch (e) {
+        lock(false);
+        genBtnLocal.textContent = 'Valider et générer';
+        addTextMessage(targetEl, 'Erreur image: ' + e.message, 'bot');
+      } finally {
+        setSimpleBusy(false);
+      }
+    });
+
     return div;
   }
 
@@ -262,19 +379,277 @@ GÉNÉRATION D'IMAGES :
     if (withGallery) addGalleryThumb(data);
   }
 
+  function generationId(data) {
+    if (!data) return '';
+    if (data.id != null && data.id !== '') return String(data.id);
+    const raw = data._id;
+    if (raw == null || raw === '') return '';
+    if (typeof raw === 'string') return raw;
+    if (typeof raw === 'object' && raw.$oid) return String(raw.$oid);
+    return String(raw);
+  }
+
+  function ensureGalleryEmptyState() {
+    if (!galleryEl) return;
+    const thumbs = galleryEl.querySelectorAll('.ms-thumb');
+    if (thumbs.length === 0 && !galleryEl.querySelector('.ms-empty')) {
+      const empty = document.createElement('div');
+      empty.className = 'ms-empty';
+      empty.textContent = 'Vos images apparaîtront ici';
+      galleryEl.appendChild(empty);
+    }
+    updateGallerySelectionUI();
+  }
+
+  function getGalleryThumbs() {
+    return galleryEl ? Array.from(galleryEl.querySelectorAll('.ms-thumb[data-id]')) : [];
+  }
+
+  function getSelectedGalleryIds() {
+    return getGalleryThumbs()
+      .filter((thumb) => thumb.classList.contains('is-selected'))
+      .map((thumb) => thumb.dataset.id)
+      .filter(Boolean);
+  }
+
+  function updateGallerySelectionUI() {
+    const thumbs = getGalleryThumbs();
+    const selected = getSelectedGalleryIds();
+    const count = selected.length;
+    const allSelected = thumbs.length > 0 && count === thumbs.length;
+
+    if (gallerySelectionInfo) {
+      gallerySelectionInfo.hidden = count === 0;
+      gallerySelectionInfo.textContent = count === 0
+        ? '0 sélectionnée(s)'
+        : `${count} sélectionnée(s)`;
+    }
+    if (galleryDeleteSelectedBtn) {
+      galleryDeleteSelectedBtn.disabled = count === 0;
+      galleryDeleteSelectedBtn.textContent = count > 0 ? `Supprimer (${count})` : 'Supprimer';
+    }
+    if (gallerySelectAllBtn) {
+      gallerySelectAllBtn.disabled = thumbs.length === 0;
+      gallerySelectAllBtn.textContent = allSelected ? 'Aucun' : 'Tout';
+      gallerySelectAllBtn.title = allSelected ? 'Tout désélectionner' : 'Tout sélectionner';
+    }
+  }
+
+  function setThumbSelected(thumb, selected) {
+    if (!thumb || !thumb.dataset.id) return;
+    thumb.classList.toggle('is-selected', !!selected);
+    thumb.setAttribute('aria-selected', selected ? 'true' : 'false');
+  }
+
+  function toggleThumbSelected(thumb) {
+    if (!thumb || !thumb.dataset.id) return;
+    setThumbSelected(thumb, !thumb.classList.contains('is-selected'));
+    updateGallerySelectionUI();
+  }
+
+  function selectAllGalleryThumbs(select) {
+    getGalleryThumbs().forEach((thumb) => setThumbSelected(thumb, select));
+    updateGallerySelectionUI();
+  }
+
+  async function deleteGeneration(id) {
+    const res = await fetch(msApi(`/generations/${encodeURIComponent(id)}`), {
+      method: 'DELETE',
+      credentials: 'include',
+    });
+    const data = await parseApiResponse(res);
+    if (!data.success) throw new Error(data.message || 'Suppression impossible.');
+    return data.data;
+  }
+
+  async function deleteGenerationsBulk(ids) {
+    const res = await fetch(msApi('/generations/delete'), {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids }),
+    });
+    const data = await parseApiResponse(res);
+    if (!data.success) throw new Error(data.message || 'Suppression impossible.');
+    return data.data;
+  }
+
+  function removeGalleryThumbsByIds(ids) {
+    const idSet = new Set((ids || []).map(String));
+    getGalleryThumbs().forEach((thumb) => {
+      if (idSet.has(String(thumb.dataset.id))) thumb.remove();
+    });
+    ensureGalleryEmptyState();
+  }
+
+  function removeAssetEverywhere(refs) {
+    const list = Array.isArray(refs) ? refs : [refs];
+    list.forEach((ref) => {
+      if (!ref) return;
+      if (extractEditor && extractEditor.removeSavedItem) extractEditor.removeSavedItem(ref);
+      if (animateEditor && animateEditor.removeAssetItem) animateEditor.removeAssetItem(ref);
+      if (ref.id) removeGalleryThumbsByIds([ref.id]);
+    });
+    const previewActions = document.getElementById('extractPreviewActions');
+    if (previewActions && extractEditor && !extractEditor.result) {
+      previewActions.hidden = true;
+    }
+  }
+
+  async function deletePersistedAssets(refs) {
+    const list = (Array.isArray(refs) ? refs : [refs]).filter(Boolean);
+    const withId = list.filter((r) => r.id);
+    const withoutId = list.filter((r) => !r.id && r.filename);
+    if (withId.length) {
+      const result = await deleteGenerationsBulk(withId.map((r) => r.id));
+      const deletedIds = new Set(((result && result.deleted) || withId.map((r) => r.id)).map(String));
+      removeAssetEverywhere(withId.filter((r) => deletedIds.has(String(r.id))));
+    }
+    if (withoutId.length) {
+      removeAssetEverywhere(withoutId);
+    }
+    return list.length;
+  }
+
+  function bindListSelectionControls(options) {
+    const {
+      selectAllBtn,
+      deleteBtn,
+      getSelected,
+      getTotal,
+      selectAll,
+      confirmLabel,
+    } = options;
+    const sync = (selected, total) => {
+      const count = (selected || []).length;
+      const allSelected = total > 0 && count === total;
+      if (deleteBtn) {
+        deleteBtn.disabled = count === 0;
+        deleteBtn.textContent = count > 0 ? `Supprimer (${count})` : 'Supprimer';
+      }
+      if (selectAllBtn) {
+        selectAllBtn.disabled = total === 0;
+        selectAllBtn.textContent = allSelected ? 'Aucun' : 'Tout';
+        selectAllBtn.title = allSelected ? 'Tout désélectionner' : 'Tout sélectionner';
+      }
+    };
+    if (selectAllBtn) {
+      selectAllBtn.addEventListener('click', () => {
+        const total = getTotal();
+        if (!total) return;
+        const selected = getSelected();
+        selectAll(!(selected.length === total));
+      });
+    }
+    if (deleteBtn) {
+      deleteBtn.addEventListener('click', async () => {
+        const selected = getSelected();
+        if (!selected.length) return;
+        const label = typeof confirmLabel === 'function'
+          ? confirmLabel(selected.length)
+          : `Supprimer ${selected.length} élément(s) ?`;
+        if (!confirm(label)) return;
+        deleteBtn.disabled = true;
+        if (selectAllBtn) selectAllBtn.disabled = true;
+        setStatus(`Suppression de ${selected.length} élément(s)…`);
+        try {
+          await deletePersistedAssets(selected);
+          setStatus(`${selected.length} élément(s) supprimé(s).`);
+        } catch (err) {
+          setStatus('Suppression: ' + err.message);
+          sync(getSelected(), getTotal());
+        }
+      });
+    }
+    return sync;
+  }
+
   function addGalleryThumb(data) {
     const empty = galleryEl.querySelector('.ms-empty');
     if (empty) empty.remove();
+    const id = generationId(data);
     const thumb = document.createElement('div');
     thumb.className = 'ms-thumb';
-    thumb.title = data.prompt || '';
+    thumb.title = data.prompt || data.title || '';
+    thumb.setAttribute('role', 'option');
+    thumb.setAttribute('aria-selected', 'false');
+    if (id) thumb.dataset.id = id;
     const img = document.createElement('img');
     img.src = resolveImageUrl(data);
-    img.alt = data.prompt || '';
+    img.alt = data.prompt || data.title || '';
     img.loading = 'lazy';
     img.onerror = () => { thumb.classList.add('ms-thumb--error'); };
     thumb.appendChild(img);
+    if (id) {
+      const check = document.createElement('span');
+      check.className = 'ms-thumb-check';
+      check.setAttribute('aria-hidden', 'true');
+      thumb.appendChild(check);
+
+      const delBtn = document.createElement('button');
+      delBtn.type = 'button';
+      delBtn.className = 'ms-thumb-delete';
+      delBtn.title = 'Supprimer';
+      delBtn.setAttribute('aria-label', 'Supprimer cette création');
+      delBtn.textContent = '×';
+      delBtn.addEventListener('click', async (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (!confirm('Supprimer cette création ?')) return;
+        delBtn.disabled = true;
+        try {
+          await deleteGeneration(id);
+          thumb.remove();
+          ensureGalleryEmptyState();
+          setStatus('Création supprimée.');
+        } catch (err) {
+          delBtn.disabled = false;
+          setStatus('Suppression: ' + err.message);
+        }
+      });
+      thumb.appendChild(delBtn);
+
+      thumb.addEventListener('click', (e) => {
+        if (e.target.closest('.ms-thumb-delete')) return;
+        toggleThumbSelected(thumb);
+      });
+    }
     galleryEl.prepend(thumb);
+    updateGallerySelectionUI();
+  }
+
+  function initGallerySelection() {
+    if (gallerySelectAllBtn) {
+      gallerySelectAllBtn.addEventListener('click', () => {
+        const thumbs = getGalleryThumbs();
+        if (!thumbs.length) return;
+        const allSelected = thumbs.every((t) => t.classList.contains('is-selected'));
+        selectAllGalleryThumbs(!allSelected);
+      });
+    }
+    if (galleryDeleteSelectedBtn) {
+      galleryDeleteSelectedBtn.addEventListener('click', async () => {
+        const ids = getSelectedGalleryIds();
+        if (!ids.length) return;
+        const label = ids.length === 1
+          ? 'Supprimer cette création ?'
+          : `Supprimer les ${ids.length} créations sélectionnées ?`;
+        if (!confirm(label)) return;
+        galleryDeleteSelectedBtn.disabled = true;
+        gallerySelectAllBtn && (gallerySelectAllBtn.disabled = true);
+        setStatus(`Suppression de ${ids.length} création(s)…`);
+        try {
+          const result = await deleteGenerationsBulk(ids);
+          const deleted = (result && result.deleted) || ids;
+          removeGalleryThumbsByIds(deleted);
+          setStatus(`${(result && result.deletedCount) || deleted.length} création(s) supprimée(s).`);
+        } catch (err) {
+          setStatus('Suppression: ' + err.message);
+          updateGallerySelectionUI();
+        }
+      });
+    }
+    updateGallerySelectionUI();
   }
 
   async function ensureConversation(context) {
@@ -423,9 +798,15 @@ GÉNÉRATION D'IMAGES :
       `type: ${layer.type}`,
       `bbox: x=${bbox.x}, y=${bbox.y}, w=${bbox.width}, h=${bbox.height}`,
     ];
+    if (layer.groupId) header.push(`groupId: ${layer.groupId}`);
     if (layer.type === 'text') {
       header.push(`content: ${layer.content}`);
       header.push(`style: ${JSON.stringify(layer.style)}`);
+      header.push(`textPath: ${JSON.stringify(layer.textPath || { preset: 'straight', strength: 55 })}`);
+      header.push('Actions possibles: textPath (arcUp/arcDown/wave/circle), style, addFrame (cadre regroupé), content.');
+    } else if (layer.type === 'shape') {
+      header.push(`style shape: ${JSON.stringify(layer.style)}`);
+      header.push('Actions possibles: style.shape/stroke/strokeWidth/fill/rx/effect (none|shadow|glow).');
     } else if (layer.type === 'character') {
       header.push(`prompt personnage: ${layer.prompt}`);
       if (layer.orientation) header.push(`orientation: ${JSON.stringify(layer.orientation)}`);
@@ -437,27 +818,137 @@ GÉNÉRATION D'IMAGES :
     }
     header.push('[/CALQUE ACTIF]');
     header.push('');
+    header.push('Réponds UNIQUEMENT en JSON (layerPatch et/ou addFrame et/ou addLayers).');
     header.push(`Demande utilisateur: ${userText}`);
     return header.join('\n');
   }
 
-  function updateLayerContextUI(layer) {
-    if (!layer || !layerContextPinned) {
-      layerContextEl.hidden = true;
+  /** Modifications texte/cadre fréquentes sans attendre le LLM. */
+  function tryLocalLayerEdit(layer, text) {
+    const t = String(text || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    if (!layer || !t) return null;
+
+    if (layer.type === 'text') {
+      if (/(courbe|courber|arc|suivre.*(chemin|courbe)|bandeau)/.test(t)) {
+        let preset = 'arcUp';
+        if (/bas|down|inverse/.test(t)) preset = 'arcDown';
+        else if (/vague|wave|ondul/.test(t)) preset = 'wave';
+        else if (/cercle|circle|rond/.test(t)) preset = 'circle';
+        return { layerPatch: { id: layer.id, textPath: { preset, strength: 65 } }, summary: `Texte courbé (${preset}).` };
+      }
+      if (/(cadre|encadr|entoure|bordure|frame)/.test(t)) {
+        const effect = /lueur|glow|brill/.test(t) ? 'glow' : 'shadow';
+        const stroke = /or|dore|gold/.test(t) ? '#c9a227' : (/blanc|white/.test(t) ? '#ffffff' : '#1a1a1a');
+        return {
+          addFrame: {
+            padding: 18,
+            shape: 'roundedRect',
+            stroke,
+            strokeWidth: /epais|thick/.test(t) ? 7 : 4,
+            fill: 'transparent',
+            effect,
+          },
+          layerPatch: { id: layer.id },
+          summary: 'Cadre ajouté et regroupé avec le texte.',
+        };
+      }
+      if (/(plus grand|agrand|bigger|larger)/.test(t)) {
+        const size = Math.min(200, (Number(layer.style?.fontSize) || 32) + 8);
+        return { layerPatch: { id: layer.id, style: { fontSize: size } }, summary: `Taille ${size}px.` };
+      }
+      if (/(plus petit|reduire|smaller)/.test(t)) {
+        const size = Math.max(8, (Number(layer.style?.fontSize) || 32) - 8);
+        return { layerPatch: { id: layer.id, style: { fontSize: size } }, summary: `Taille ${size}px.` };
+      }
+      const colorHit = t.match(/(?:couleur|color|texte)\s+(rouge|bleu|vert|blanc|noir|or|red|blue|green|white|black|gold)\b/);
+      if (colorHit) {
+        const colorMap = {
+          rouge: '#c0392b', red: '#c0392b', bleu: '#2980b9', blue: '#2980b9',
+          vert: '#27ae60', green: '#27ae60', blanc: '#ffffff', white: '#ffffff',
+          noir: '#1a1a1a', black: '#1a1a1a', or: '#c9a227', gold: '#c9a227',
+        };
+        const hex = colorMap[colorHit[1]];
+        if (hex) {
+          return { layerPatch: { id: layer.id, style: { color: hex } }, summary: `Couleur ${hex}.` };
+        }
+      }
+    }
+
+    if (layer.type === 'shape') {
+      if (/(lueur|glow|brill)/.test(t)) {
+        return { layerPatch: { id: layer.id, style: { effect: 'glow' } }, summary: 'Effet lueur.' };
+      }
+      if (/(ombre|shadow)/.test(t)) {
+        return { layerPatch: { id: layer.id, style: { effect: 'shadow' } }, summary: 'Effet ombre.' };
+      }
+      if (/(rond|arrondi|coin)/.test(t)) {
+        const rx = Math.min(80, (Number(layer.style?.rx) || 16) + 12);
+        return { layerPatch: { id: layer.id, style: { shape: 'roundedRect', rx } }, summary: `Arrondi ${rx}px.` };
+      }
+      if (/(epais|thick|bordure)/.test(t)) {
+        const strokeWidth = Math.min(24, (Number(layer.style?.strokeWidth) || 4) + 2);
+        return { layerPatch: { id: layer.id, style: { strokeWidth } }, summary: `Contour ${strokeWidth}px.` };
+      }
+    }
+
+    return null;
+  }
+
+  function applyLayerEditResult(parsed, targetLayer) {
+    if (!parsed || !sceneEditor) return false;
+    let ok = false;
+    if (parsed.layerPatch && parsed.layerPatch.id) {
+      ok = sceneEditor.applyLayerPatch(parsed.layerPatch.id, parsed.layerPatch) || ok;
+    } else if (parsed.layerPatch && targetLayer) {
+      ok = sceneEditor.applyLayerPatch(targetLayer.id, parsed.layerPatch) || ok;
+    }
+    if (parsed.addFrame && targetLayer) {
+      const frame = sceneEditor.addFrameAroundLayer(targetLayer, parsed.addFrame);
+      ok = !!frame || ok;
+    }
+    if (Array.isArray(parsed.addLayers) && parsed.addLayers.length) {
+      // Lier au calque cible si groupId manquant
+      const groupId = targetLayer?.groupId
+        || parsed.layerPatch?.groupId
+        || parsed.addLayers.find((l) => l.groupId)?.groupId
+        || `grp-${Date.now().toString(36)}`;
+      if (targetLayer && !targetLayer.groupId) {
+        sceneEditor.applyLayerPatch(targetLayer.id, { groupId });
+      }
+      const layers = parsed.addLayers.map((l) => ({
+        ...l,
+        groupId: l.groupId || groupId,
+        zIndex: l.zIndex != null ? l.zIndex : Math.max(0, (targetLayer?.zIndex || 1) - 1),
+      }));
+      ok = sceneEditor.addLayers(layers) > 0 || ok;
+    }
+    return ok;
+  }
+
+  function updateSceneCoach(layer) {
+    const coach = document.getElementById('sceneCoach');
+    if (!coach) return;
+    if (!layer) {
+      coach.textContent = 'Cliquez un élément pour le modifier à droite · glissez pour le déplacer';
+      coach.classList.remove('is-active');
       return;
     }
-    layerContextEl.hidden = false;
-    const label = layer.type === 'text'
-      ? `Texte — ${MediaStudioScene.getLayerTitle(layer).slice(0, 40)}`
-      : `Image — ${MediaStudioScene.getLayerTitle(layer).slice(0, 40)}`;
-    layerChipEl.textContent = label;
-    layerChipEl.title = layer.id;
-    sceneInput.placeholder = `Modifier « ${layer.id} » ou décrire le changement…`;
+    const title = MediaStudioScene.getLayerTitle(layer);
+    coach.textContent = `Sélection : « ${title} » — modifiez à droite, ou glissez sur le canevas`;
+    coach.classList.add('is-active');
+  }
+
+  function updateLayerContextUI(layer) {
+    // Le bas sert uniquement à créer ; le contexte d'édition est à droite.
+    if (layerContextEl) layerContextEl.hidden = true;
+    if (sceneInput) sceneInput.placeholder = 'Décrivez la scène à créer…';
+    updateSceneCoach(layerContextPinned ? layer : null);
   }
 
   function applySceneAiResponse(response, options = {}) {
     const parsed = MediaStudioScene.parseJsonFromText(response);
     if (!parsed) return false;
+    const silent = options.silent === true;
 
     if (parsed.version === 1 && Array.isArray(parsed.layers)) {
       sceneEditor.setManifest(parsed);
@@ -472,22 +963,36 @@ GÉNÉRATION D'IMAGES :
         sceneEditor.persist();
       }
       const n = sceneEditor.manifest.layers.length;
-      addTextMessage(sceneMessagesEl, `Brouillon « ${sceneEditor.manifest.title} » — ${n} calque(s). Ajustez les positions puis : 2. Prompts Flux.`, 'bot');
+      if (!silent) {
+        addTextMessage(
+          sceneMessagesEl,
+          `Scène « ${sceneEditor.manifest.title} » — ${n} élément(s). Vous pouvez les déplacer.`,
+          'bot'
+        );
+      }
       return true;
     }
 
     if (Array.isArray(parsed.fluxPrompts) && parsed.fluxPrompts.length) {
       const n = sceneEditor.applyFluxPrompts(parsed.fluxPrompts);
       if (n > 0) {
-        addTextMessage(sceneMessagesEl, `${n} prompt(s) Flux prêts. Vérifiez dans Propriétés puis : 3. Générer images.`, 'bot');
+        if (!silent) {
+          addTextMessage(sceneMessagesEl, `${n} élément(s) prêts à générer.`, 'bot');
+        }
         return true;
       }
     }
 
-    if (parsed.layerPatch && parsed.layerPatch.id) {
-      const ok = sceneEditor.applyLayerPatch(parsed.layerPatch.id, parsed.layerPatch);
+    if (parsed.layerPatch || parsed.addFrame || Array.isArray(parsed.addLayers)) {
+      const target = parsed.layerPatch?.id
+        ? sceneEditor.manifest.layers.find((l) => l.id === parsed.layerPatch.id)
+        : sceneEditor.getSelectedLayer();
+      const ok = applyLayerEditResult(parsed, target);
       if (ok) {
-        addTextMessage(sceneMessagesEl, `Calque « ${parsed.layerPatch.id} » mis à jour.`, 'bot');
+        const label = target ? MediaStudioScene.getLayerTitle(target) : 'Élément';
+        if (!silent) {
+          addTextMessage(sceneMessagesEl, `« ${label} » mis à jour.`, 'bot');
+        }
         updateLayerContextUI(sceneEditor.getSelectedLayer());
         return true;
       }
@@ -500,33 +1005,43 @@ GÉNÉRATION D'IMAGES :
     return layer.role === 'background';
   }
 
-  async function regenerateLayer(layer, force = false) {
+  async function regenerateLayer(layer, force = false, options = {}) {
+    const manageBusy = options.manageBusy !== false;
+    const quiet = options.quiet === true;
     if (sceneEditor) sceneEditor.flushPropsFromDom();
-    layer = layer && sceneEditor ? sceneEditor.getSelectedLayer() || layer : layer;
+    // En génération en lot, utiliser le calque passé ; sinon le calque sélectionné.
+    if (!options.usePassedLayer && sceneEditor) {
+      layer = sceneEditor.getSelectedLayer() || layer;
+    }
     const isCharacter = layer && layer.type === 'character';
     if (!layer || (layer.type !== 'image' && !isCharacter)) {
-      if (force) {
-        addTextMessage(sceneMessagesEl, 'Sélectionnez un calque image ou personnage à régénérer.', 'bot');
+      if (force && !quiet) {
+        addTextMessage(sceneMessagesEl, 'Sélectionnez une image ou un personnage à régénérer.', 'bot');
       }
-      return;
+      return false;
     }
     const prompt = String(layer.prompt || '').trim();
+    const title = MediaStudioScene.getLayerTitle(layer);
     if (!prompt) {
-      addTextMessage(sceneMessagesEl, isCharacter
-        ? `Personnage « ${layer.id} » : décrivez l'apparence dans le prompt Flux.`
-        : `Calque « ${layer.id} » : pas de prompt Flux. Lancez l'étape 2.`, 'bot');
-      return;
+      if (!quiet) {
+        addTextMessage(sceneMessagesEl, isCharacter
+          ? `« ${title} » : décrivez l'apparence dans Propriétés.`
+          : `« ${title} » n'est pas encore prêt — recréez la scène ou régénérez les images.`, 'bot');
+      }
+      return false;
     }
-    if (!force && layer.asset && layer.asset.filename) return;
+    if (!force && layer.asset && layer.asset.filename) return true;
     const size = sceneEditor.getGenerationSize(layer);
     const isBackground = !isCharacter && isBackgroundLayer(layer);
     const refNote = layer.referenceImage && layer.referenceImage.filename ? ' + photo réf.' : '';
-    setSceneBusy(true, isCharacter
-      ? `Génération personnage Flux${refNote} (${size.width}×${size.height})…`
-      : (isBackground
-        ? `Génération Flux (${size.width}×${size.height})…`
-        : `Génération Flux + détourage (${size.width}×${size.height})…`));
-    addTextMessage(sceneMessagesEl, `Flux « ${layer.id} » — ${prompt.slice(0, 120)}${prompt.length > 120 ? '…' : ''}${refNote}`, 'bot');
+    if (manageBusy) {
+      setSceneBusy(true, `Génération « ${title} » (${size.width}×${size.height})…`);
+    } else if (sceneTypingEl) {
+      sceneTypingEl.textContent = `Génération « ${title} »…`;
+    }
+    if (!quiet) {
+      addTextMessage(sceneMessagesEl, `Génération « ${title} »…${refNote}`, 'bot');
+    }
     try {
       const img = await generateImage(prompt, {
         ...size,
@@ -539,14 +1054,6 @@ GÉNÉRATION D'IMAGES :
           : null,
         chromaColor: layer.chromaColor || null,
       });
-      const chromaNote = img.chroma_color
-        ? ` · détourage fond ${img.chroma_color}${img.chroma_detected_from_image ? ' (couleur détectée sur l\'image)' : ''}`
-        : ' · ATTENTION: couleur chroma non transmise';
-      if (img.generation_prompt) {
-        addTextMessage(sceneMessagesEl, `ComfyUI (extrait) : ${img.generation_prompt.slice(0, 140)}…${chromaNote}`, 'bot');
-      } else if (img.chroma_color) {
-        addTextMessage(sceneMessagesEl, `Détourage appliqué — fond chroma ${img.chroma_color}`, 'bot');
-      }
       if (img.chroma_color) {
         layer.chromaColor = img.chroma_color;
         sceneEditor.persist();
@@ -565,38 +1072,77 @@ GÉNÉRATION D'IMAGES :
         bboxHeight: layer.bbox.height,
         generatedAt: new Date().toISOString(),
       });
-      addTextMessage(sceneMessagesEl, `Calque « ${layer.id} » généré${isBackground ? '' : ' (fond retiré)'}${img.used_reference ? ' · guidé par photo réf.' : ''}.`, 'bot');
-      addImageMessage(img, sceneMessagesEl, true);
-      setStatus('Calque régénéré (Flux).');
+      if (!quiet) {
+        addTextMessage(
+          sceneMessagesEl,
+          `« ${title} » généré${isBackground ? '' : ' (détouré)'}${img.used_reference ? ' · guidé par photo' : ''}.`,
+          'bot'
+        );
+        addImageMessage(img, sceneMessagesEl, true);
+      }
+      setStatus(`« ${title} » prêt.`);
+      return true;
     } catch (e) {
-      addTextMessage(sceneMessagesEl, 'Erreur génération: ' + e.message, 'bot');
+      addTextMessage(sceneMessagesEl, `Erreur « ${title} » : ${e.message}`, 'bot');
+      return false;
     } finally {
-      setSceneBusy(false);
-      updateLayerContextUI(sceneEditor.getSelectedLayer());
+      if (manageBusy) {
+        setSceneBusy(false);
+        updateLayerContextUI(sceneEditor.getSelectedLayer());
+      }
     }
   }
 
-  async function generateAllImageLayers(force = false) {
+  async function generateAllImageLayers(force = false, options = {}) {
+    const manageBusy = options.manageBusy !== false;
     if (sceneEditor) sceneEditor.flushPropsFromDom();
-    const layers = sceneEditor.manifest.layers.filter((l) => l.type === 'image');
+    const layers = sceneEditor.manifest.layers.filter((l) => l.type === 'image' || l.type === 'character');
     const todo = layers.filter((l) => l.prompt && (force || !(l.asset && l.asset.filename)));
     if (!todo.length) {
-      addTextMessage(sceneMessagesEl, 'Aucun calque image à générer. Étape 2 : Prompts Flux.', 'bot');
-      return;
+      const needPrep = layers.some((l) => !String(l.prompt || '').trim());
+      addTextMessage(
+        sceneMessagesEl,
+        needPrep
+          ? 'Aucun élément prêt. Décrivez un visuel puis cliquez Créer la scène.'
+          : 'Toutes les images sont déjà générées.',
+        'bot'
+      );
+      return false;
     }
-    addTextMessage(sceneMessagesEl, `Génération Flux : ${todo.length} calque(s)…`, 'bot');
-    for (const layer of todo) {
-      await regenerateLayer(layer, true);
+    if (manageBusy) setSceneBusy(true, `Génération de ${todo.length} image(s)…`);
+    addTextMessage(sceneMessagesEl, `Génération de ${todo.length} image(s)…`, 'bot');
+    let ok = 0;
+    try {
+      for (const layer of todo) {
+        const done = await regenerateLayer(layer, true, {
+          manageBusy: false,
+          quiet: true,
+          usePassedLayer: true,
+        });
+        if (done) ok += 1;
+      }
+      addTextMessage(sceneMessagesEl, `${ok}/${todo.length} image(s) générée(s).`, 'bot');
+      setStatus(`${ok} image(s) prête(s).`);
+      return ok > 0;
+    } finally {
+      if (manageBusy) {
+        setSceneBusy(false);
+        updateLayerContextUI(sceneEditor.getSelectedLayer());
+      }
     }
   }
 
-  async function handleRefinePrompts() {
+  async function handleRefinePrompts(options = {}) {
+    const manageBusy = options.manageBusy !== false;
+    const silent = options.silent === true;
     const imageLayers = sceneEditor.manifest.layers.filter((l) => l.type === 'image');
     if (!imageLayers.length) {
-      addTextMessage(sceneMessagesEl, 'Aucun calque image. Commencez par l\'étape 1 (Brouillon).', 'bot');
-      return;
+      if (!silent) {
+        addTextMessage(sceneMessagesEl, 'Aucun élément image. Créez d\'abord une scène.', 'bot');
+      }
+      return false;
     }
-    setSceneBusy(true, 'Rédaction des prompts Flux…');
+    if (manageBusy) setSceneBusy(true, 'Préparation des images…');
     try {
       if (!sceneConversationId) {
         sceneConversationId = await ensureConversation(SCENE_SYSTEM);
@@ -615,42 +1161,131 @@ GÉNÉRATION D'IMAGES :
       const reply = await sendChat(sceneConversationId, `Étape 2 PROMPTS FLUX — rédige les prompts (SUJET SEUL, sans mention de fond/chroma/transparent) et chromaColor (#hex) pour chaque calque OBJET.
 chromaColor = fond uni pour détourage, couleur absente du sujet. Drapeau FR → #FF00FF. Pas de chromaColor sur les fonds. Ne décris jamais le fond dans le prompt : le serveur l'ajoute seul.
 ${manifestSummary}`);
-      const applied = applySceneAiResponse(reply);
-      if (!applied) addTextMessage(sceneMessagesEl, reply, 'bot');
-      setStatus('Prompts Flux prêts.');
+      const applied = applySceneAiResponse(reply, { silent });
+      if (!applied && !silent) addTextMessage(sceneMessagesEl, reply, 'bot');
+      if (applied) setStatus('Préparation terminée.');
+      return applied;
     } catch (e) {
       addTextMessage(sceneMessagesEl, 'Erreur: ' + e.message, 'bot');
+      return false;
     } finally {
-      setSceneBusy(false);
+      if (manageBusy) setSceneBusy(false);
     }
   }
 
-  async function handleSceneSend(planMode) {
-    const text = sceneInput.value.trim();
-    if (!text) return;
-    sceneInput.value = '';
+  /** Pipeline unique : découpe → prompts → génération images. */
+  async function handleCreateScene(textFromInput) {
+    const text = String(textFromInput != null ? textFromInput : sceneInput.value).trim();
+    if (!text) {
+      addTextMessage(sceneMessagesEl, 'Décrivez d\'abord le visuel dans le champ ci-dessous.', 'bot');
+      return;
+    }
+    if (textFromInput == null) sceneInput.value = '';
 
-    const layer = layerContextPinned ? sceneEditor.getSelectedLayer() : null;
-    const displayText = layer ? `[${layer.id}] ${text}` : text;
-    addTextMessage(sceneMessagesEl, displayText, 'user');
+    layerContextPinned = false;
+    updateLayerContextUI(null);
+    addTextMessage(sceneMessagesEl, text, 'user');
 
-    const payload = planMode
-      ? `Étape 1 BROUILLON — découpe en calques (JSON SceneManifest uniquement, sans prompts Flux) : ${text}`
-      : buildLayerContextMessage(text, layer);
-
-    setSceneBusy(true, planMode ? 'Découpage en calques (brouillon)…' : 'L\'IA répond…');
+    setSceneBusy(true, 'Création de la scène…');
     try {
       if (!sceneConversationId) {
         sceneConversationId = await ensureConversation(SCENE_SYSTEM);
       }
-      const reply = await sendChat(sceneConversationId, payload);
-      const applied = applySceneAiResponse(reply, { brouillonOnly: planMode });
-      if (!applied) addTextMessage(sceneMessagesEl, reply, 'bot');
-      setStatus(planMode ? 'Brouillon prêt.' : 'Réponse reçue.');
+
+      const planReply = await sendChat(
+        sceneConversationId,
+        `Étape 1 BROUILLON — découpe en calques (JSON SceneManifest uniquement, sans prompts Flux) : ${text}`
+      );
+      const planned = applySceneAiResponse(planReply, { brouillonOnly: true, silent: true });
+      if (!planned) {
+        addTextMessage(sceneMessagesEl, planReply, 'bot');
+        setStatus('Création incomplète.');
+        return;
+      }
+
+      const n = sceneEditor.manifest.layers.length;
+      addTextMessage(
+        sceneMessagesEl,
+        `Scène « ${sceneEditor.manifest.title} » — ${n} élément(s). Génération des images…`,
+        'bot'
+      );
+
+      const refined = await handleRefinePrompts({ manageBusy: false, silent: true });
+      if (!refined) {
+        addTextMessage(
+          sceneMessagesEl,
+          'La découpe est prête, mais la préparation des images a échoué. Réessayez « Régénérer images ».',
+          'bot'
+        );
+        return;
+      }
+
+      await generateAllImageLayers(true, { manageBusy: false });
+      addTextMessage(
+        sceneMessagesEl,
+        'Scène prête. Déplacez les éléments, modifiez à droite, puis cliquez Sauvegarder pour la conserver.',
+        'bot'
+      );
+      setStatus('Scène prête — pensez à sauvegarder.');
+      markSceneDirty();
     } catch (e) {
       addTextMessage(sceneMessagesEl, 'Erreur: ' + e.message, 'bot');
     } finally {
       setSceneBusy(false);
+      updateLayerContextUI(sceneEditor.getSelectedLayer());
+    }
+  }
+
+  async function handleSceneSend() {
+    // Zone du bas = création uniquement.
+    await handleCreateScene();
+  }
+
+  /** Modification IA d'un élément — panneau droit uniquement. */
+  async function handleLayerAiAsk(layer, text) {
+    if (!layer || !String(text || '').trim()) return;
+    const title = MediaStudioScene.getLayerTitle(layer);
+    addTextMessage(sceneMessagesEl, `Modifier « ${title} » : ${text}`, 'user');
+
+    if (sceneEditor.getSelectedLayer()?.id !== layer.id) {
+      sceneEditor.selectLayer(layer.id, true);
+    }
+
+    // Raccourcis locaux (courbe, cadre, taille…) — immédiat.
+    const local = tryLocalLayerEdit(layer, text);
+    if (local) {
+      const ok = applyLayerEditResult(local, layer);
+      if (ok) {
+        addTextMessage(sceneMessagesEl, local.summary || `« ${title} » mis à jour.`, 'bot');
+        setStatus(local.summary || 'Élément mis à jour.');
+        updateLayerContextUI(sceneEditor.getSelectedLayer());
+        return;
+      }
+    }
+
+    setSceneBusy(true, `Modification de « ${title} »…`);
+    try {
+      // Nouvelle conversation pour intégrer les consignes texte/cadre à jour.
+      sceneConversationId = await ensureConversation(SCENE_SYSTEM);
+      const reply = await sendChat(sceneConversationId, buildLayerContextMessage(text, layer));
+      const applied = applySceneAiResponse(reply);
+      if (!applied) addTextMessage(sceneMessagesEl, reply, 'bot');
+      const updated = sceneEditor.manifest.layers.find((l) => l.id === layer.id) || sceneEditor.getSelectedLayer();
+      if (
+        applied
+        && updated
+        && (updated.type === 'image' || updated.type === 'character')
+        && String(updated.prompt || '').trim()
+      ) {
+        await regenerateLayer(updated, true, { usePassedLayer: true, manageBusy: false });
+      } else if (applied) {
+        setStatus('Élément mis à jour.');
+      }
+    } catch (e) {
+      addTextMessage(sceneMessagesEl, 'Erreur: ' + e.message, 'bot');
+    } finally {
+      setSceneBusy(false);
+      updateLayerContextUI(sceneEditor.getSelectedLayer());
     }
   }
 
@@ -671,16 +1306,254 @@ ${manifestSummary}`);
     if (name === 'animate' && animateEditor) {
       animateEditor.layoutCanvas();
     }
+    if (name === 'clip' && clipEditor) {
+      clipEditor.layoutCanvas();
+    }
   }
 
   function openAnimationForAsset(data) {
     if (!animateEditor) {
-      setStatus('Éditeur animation indisponible.');
+      setStatus('Éditeur animation objets indisponible.');
       return;
     }
     animateEditor.addAssetItem(data);
     animateEditor.loadAsset(data);
     switchTab('animate');
+  }
+
+  function openClipForAsset(data) {
+    if (!clipEditor) {
+      setStatus('Éditeur clip hybride indisponible.');
+      return;
+    }
+    clipEditor.addAssetItem(data);
+    clipEditor.loadAsset(data);
+    switchTab('clip');
+  }
+
+  function loadStoredProjectId() {
+    try {
+      return localStorage.getItem(SCENE_PROJECT_ID_KEY) || null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function setCurrentProjectId(id) {
+    currentProjectId = id || null;
+    try {
+      if (currentProjectId) localStorage.setItem(SCENE_PROJECT_ID_KEY, currentProjectId);
+      else localStorage.removeItem(SCENE_PROJECT_ID_KEY);
+    } catch (_) { /* ignore */ }
+    renderProjectList();
+    updateSaveStateUI();
+  }
+
+  function markSceneDirty() {
+    if (suppressSceneDirty) return;
+    sceneDirty = true;
+    updateSaveStateUI();
+  }
+
+  function updateSaveStateUI() {
+    if (!sceneSaveStateEl) return;
+    sceneSaveStateEl.classList.remove('is-dirty', 'is-saved');
+    if (!currentProjectId) {
+      sceneSaveStateEl.textContent = sceneDirty ? 'Non sauvegardée' : 'Nouvelle scène';
+      if (sceneDirty) sceneSaveStateEl.classList.add('is-dirty');
+      return;
+    }
+    if (sceneDirty) {
+      sceneSaveStateEl.textContent = 'Modifications non sauvées';
+      sceneSaveStateEl.classList.add('is-dirty');
+    } else {
+      sceneSaveStateEl.textContent = 'Sauvegardée';
+      sceneSaveStateEl.classList.add('is-saved');
+    }
+  }
+
+  function formatProjectDate(value) {
+    if (!value) return '';
+    try {
+      const d = new Date(value);
+      if (Number.isNaN(d.getTime())) return '';
+      return d.toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+    } catch (_) {
+      return '';
+    }
+  }
+
+  function renderProjectList() {
+    if (!sceneProjectListEl) return;
+    sceneProjectListEl.innerHTML = '';
+    if (!sceneProjects.length) {
+      const li = document.createElement('li');
+      li.className = 'ms-project-empty';
+      li.textContent = 'Aucune scène sauvegardée.';
+      sceneProjectListEl.appendChild(li);
+      return;
+    }
+    sceneProjects.forEach((project) => {
+      const li = document.createElement('li');
+      li.className = 'ms-project-item';
+      if (project.id === currentProjectId) li.classList.add('active');
+      const meta = [
+        `${project.layerCount || 0} élém.`,
+        formatProjectDate(project.updated_at),
+      ].filter(Boolean).join(' · ');
+      li.innerHTML = `
+        <button type="button" class="ms-project-select" data-action="open" title="Ouvrir">
+          <span class="ms-project-name"></span>
+          <span class="ms-project-meta"></span>
+        </button>
+        <button type="button" class="ms-project-delete" data-action="delete" title="Supprimer">×</button>`;
+      li.querySelector('.ms-project-name').textContent = project.title || 'Sans titre';
+      li.querySelector('.ms-project-meta').textContent = meta;
+      li.querySelector('[data-action="open"]').addEventListener('click', () => openSceneProject(project.id));
+      li.querySelector('[data-action="delete"]').addEventListener('click', (e) => {
+        e.stopPropagation();
+        deleteSceneProject(project.id, project.title);
+      });
+      sceneProjectListEl.appendChild(li);
+    });
+  }
+
+  async function refreshProjectList() {
+    try {
+      const res = await fetch(msApi('/projects'), { credentials: 'include' });
+      const data = await parseApiResponse(res);
+      if (!data.success || !Array.isArray(data.data)) {
+        throw new Error(data.message || 'Liste des scènes indisponible.');
+      }
+      sceneProjects = data.data;
+      renderProjectList();
+    } catch (e) {
+      setStatus('Scènes: ' + e.message);
+    }
+  }
+
+  async function saveCurrentScene() {
+    if (!sceneEditor) return;
+    sceneEditor.flushPropsFromDom();
+    const title = (document.getElementById('sceneTitle')?.value || sceneEditor.manifest.title || 'Sans titre').trim()
+      || 'Sans titre';
+    sceneEditor.manifest.title = title;
+    if (document.getElementById('sceneTitle')) {
+      document.getElementById('sceneTitle').value = title;
+    }
+
+    if (sceneSaveBtn) sceneSaveBtn.disabled = true;
+    setStatus('Sauvegarde…');
+    try {
+      const payload = { title, manifest: sceneEditor.manifest, status: 'draft' };
+      let res;
+      if (currentProjectId) {
+        res = await fetch(msApi(`/projects/${encodeURIComponent(currentProjectId)}`), {
+          method: 'PUT',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+      } else {
+        res = await fetch(msApi('/projects'), {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+      }
+      const data = await parseApiResponse(res);
+      if (!data.success || !data.data) {
+        throw new Error(data.message || 'Échec de la sauvegarde.');
+      }
+      setCurrentProjectId(data.data.id);
+      sceneDirty = false;
+      updateSaveStateUI();
+      await refreshProjectList();
+      addTextMessage(sceneMessagesEl, `Scène « ${data.data.title} » sauvegardée.`, 'bot');
+      setStatus('Scène sauvegardée.');
+    } catch (e) {
+      addTextMessage(sceneMessagesEl, 'Erreur sauvegarde: ' + e.message, 'bot');
+      setStatus('Erreur sauvegarde.');
+    } finally {
+      if (sceneSaveBtn) sceneSaveBtn.disabled = false;
+    }
+  }
+
+  async function openSceneProject(projectId) {
+    if (!projectId || projectId === currentProjectId) return;
+    if (sceneDirty && !confirm('Des modifications ne sont pas sauvegardées. Ouvrir quand même ?')) {
+      return;
+    }
+    setStatus('Ouverture de la scène…');
+    try {
+      const res = await fetch(msApi(`/projects/${encodeURIComponent(projectId)}`), { credentials: 'include' });
+      const data = await parseApiResponse(res);
+      if (!data.success || !data.data || !data.data.manifest) {
+        throw new Error(data.message || 'Scène introuvable.');
+      }
+      suppressSceneDirty = true;
+      sceneEditor.setManifest(data.data.manifest);
+      setCurrentProjectId(data.data.id);
+      sceneDirty = false;
+      suppressSceneDirty = false;
+      updateSaveStateUI();
+      updateLayerContextUI(null);
+      addTextMessage(sceneMessagesEl, `Scène « ${data.data.title} » ouverte.`, 'bot');
+      setStatus('Scène ouverte.');
+    } catch (e) {
+      suppressSceneDirty = false;
+      addTextMessage(sceneMessagesEl, 'Erreur ouverture: ' + e.message, 'bot');
+      setStatus('Erreur ouverture.');
+    }
+  }
+
+  async function deleteSceneProject(projectId, title) {
+    if (!projectId) return;
+    const label = title || 'cette scène';
+    if (!confirm(`Supprimer « ${label} » ?`)) return;
+    try {
+      const res = await fetch(msApi(`/projects/${encodeURIComponent(projectId)}`), {
+        method: 'DELETE',
+        credentials: 'include',
+      });
+      const data = await parseApiResponse(res);
+      if (!data.success) throw new Error(data.message || 'Suppression impossible.');
+      if (currentProjectId === projectId) {
+        suppressSceneDirty = true;
+        sceneEditor.newProject();
+        setCurrentProjectId(null);
+        sceneDirty = false;
+        suppressSceneDirty = false;
+        updateSaveStateUI();
+        updateLayerContextUI(null);
+        addTextMessage(sceneMessagesEl, 'Scène supprimée. Nouvelle scène vide.', 'bot');
+      } else {
+        addTextMessage(sceneMessagesEl, `Scène « ${label} » supprimée.`, 'bot');
+      }
+      await refreshProjectList();
+      setStatus('Scène supprimée.');
+    } catch (e) {
+      addTextMessage(sceneMessagesEl, 'Erreur suppression: ' + e.message, 'bot');
+    }
+  }
+
+  function startNewScene(force = false) {
+    if (!force && sceneDirty && !confirm('Nouvelle scène ? Les modifications non sauvegardées seront perdues.')) {
+      return;
+    }
+    if (!force && !sceneDirty && sceneEditor.manifest.layers.length && !confirm('Nouvelle scène ? Remplacer le canevas actuel ?')) {
+      return;
+    }
+    suppressSceneDirty = true;
+    sceneEditor.newProject();
+    setCurrentProjectId(null);
+    sceneDirty = false;
+    suppressSceneDirty = false;
+    updateSaveStateUI();
+    updateLayerContextUI(null);
+    addTextMessage(sceneMessagesEl, 'Nouvelle scène. Décrivez un visuel puis cliquez Créer la scène, ou Sauvegarder.', 'bot');
+    setStatus('Nouvelle scène.');
   }
 
   function initSceneEditor() {
@@ -692,25 +1565,33 @@ ${manifestSummary}`);
       canvasSizeLabel: document.getElementById('canvasSizeLabel'),
       regenBtn: sceneRegenBtn,
       onLayerSelect: (layer) => {
-        if (layerContextPinned) updateLayerContextUI(layer);
-        else updateLayerContextUI(null);
+        layerContextPinned = !!layer;
+        updateLayerContextUI(layer);
       },
+      onAskLayerAi: handleLayerAiAsk,
+      onManifestChange: () => markSceneDirty(),
     });
     sceneEditor.onRegenerateLayer = regenerateLayer;
     sceneEditor.onUploadReference = uploadReferenceImage;
 
-    if (sceneRefineBtn) sceneRefineBtn.addEventListener('click', handleRefinePrompts);
-    if (sceneRefineBtnSide) sceneRefineBtnSide.addEventListener('click', handleRefinePrompts);
-    if (sceneGenAllBtn) sceneGenAllBtn.addEventListener('click', () => generateAllImageLayers(false));
-    if (sceneGenAllBtnSide) sceneGenAllBtnSide.addEventListener('click', () => generateAllImageLayers(false));
+    if (sceneRefineBtn) sceneRefineBtn.addEventListener('click', () => handleRefinePrompts());
+    if (sceneRefineBtnSide) sceneRefineBtnSide.addEventListener('click', () => handleRefinePrompts());
+    if (sceneGenAllBtn) sceneGenAllBtn.addEventListener('click', () => generateAllImageLayers(true));
+    if (sceneGenAllBtnSide) sceneGenAllBtnSide.addEventListener('click', () => generateAllImageLayers(true));
+    if (sceneCreateBtn) {
+      sceneCreateBtn.addEventListener('click', () => handleCreateScene());
+    }
+    if (sceneSaveBtn) {
+      sceneSaveBtn.addEventListener('click', () => saveCurrentScene());
+    }
+    if (sceneNewBtn) {
+      sceneNewBtn.addEventListener('click', () => startNewScene());
+    }
 
-    sceneNewBtn.addEventListener('click', () => {
-      if (confirm('Nouveau projet ? Les calques non exportés seront remplacés.')) {
-        sceneEditor.newProject();
-        addTextMessage(sceneMessagesEl, 'Nouveau projet créé.', 'bot');
-        updateLayerContextUI(null);
-      }
-    });
+    const titleEl = document.getElementById('sceneTitle');
+    if (titleEl) {
+      titleEl.addEventListener('input', () => markSceneDirty());
+    }
 
     sceneAddText.addEventListener('click', () => sceneEditor.addTextLayer());
     if (sceneAddCharacter) {
@@ -727,19 +1608,16 @@ ${manifestSummary}`);
       URL.revokeObjectURL(a.href);
     });
 
-    layerContextClear.addEventListener('click', () => {
-      layerContextPinned = false;
-      updateLayerContextUI(null);
-      sceneInput.placeholder = 'Planifier une scène ou message libre…';
-    });
-
-    layerContextEl.addEventListener('click', (e) => {
-      if (e.target === layerContextClear) return;
-      const layer = sceneEditor.getSelectedLayer();
-      if (layer) {
-        layerContextPinned = true;
-        updateLayerContextUI(layer);
-        sceneInput.focus();
+    currentProjectId = loadStoredProjectId();
+    sceneDirty = false;
+    updateSaveStateUI();
+    updateSceneCoach(null);
+    refreshProjectList().then(() => {
+      if (currentProjectId && sceneProjects.some((p) => p.id === currentProjectId)) {
+        // Brouillon local déjà chargé par SceneEditor ; on garde l'id actif.
+        renderProjectList();
+      } else if (currentProjectId) {
+        setCurrentProjectId(null);
       }
     });
   }
@@ -778,6 +1656,17 @@ ${manifestSummary}`);
       height: document.getElementById('extractCropH'),
     };
 
+    const syncExtractSelection = bindListSelectionControls({
+      selectAllBtn: document.getElementById('extractSelectAllBtn'),
+      deleteBtn: document.getElementById('extractDeleteSelectedBtn'),
+      getSelected: () => (extractEditor ? extractEditor.getSelectedAssets() : []),
+      getTotal: () => (extractEditor ? extractEditor.getSavedItems().length : 0),
+      selectAll: (select) => extractEditor && extractEditor.selectAllSaved(select),
+      confirmLabel: (n) => (n === 1
+        ? 'Supprimer cet objet extrait ?'
+        : `Supprimer les ${n} objets extraits sélectionnés ?`),
+    });
+
     extractEditor = new global.MediaStudioExtract.ExtractEditor({
       stageEl: document.getElementById('extractStage'),
       previewEl: document.getElementById('extractPreview'),
@@ -787,7 +1676,13 @@ ${manifestSummary}`);
       onStatus: setStatus,
       onImportFile: handleExtractImportFile,
       onAnimateAsset: (data) => openAnimationForAsset(data),
+      onDeleteAsset: async (ref) => {
+        await deletePersistedAssets([ref]);
+        setStatus('Objet extrait supprimé.');
+      },
+      onSelectionChange: syncExtractSelection,
     });
+    syncExtractSelection([], 0);
 
     Object.values(cropInputs).forEach((el) => {
       if (!el) return;
@@ -818,7 +1713,9 @@ ${manifestSummary}`);
           const title = (extractTitle && extractTitle.value.trim()) || 'Objet extrait';
           const data = await extractObjectFromCrop(extractEditor.source.filename, crop, title);
           data.url = resolveImageUrl(data);
+          data.downloadUrl = resolveDownloadUrl(data);
           extractEditor.setResult(data);
+          if (animateEditor) animateEditor.addAssetItem(data);
           if (extractDownloadBtn) {
             extractDownloadBtn.href = resolveDownloadUrl(data);
             extractDownloadBtn.setAttribute('download', data.filename);
@@ -861,7 +1758,20 @@ ${manifestSummary}`);
     }
 
     const stageEl = document.getElementById('animateStage');
+    const syncAnimateSelection = bindListSelectionControls({
+      selectAllBtn: document.getElementById('animateSelectAllBtn'),
+      deleteBtn: document.getElementById('animateDeleteSelectedBtn'),
+      getSelected: () => (animateEditor ? animateEditor.getSelectedAssets() : []),
+      getTotal: () => (animateEditor ? animateEditor.getAssetItems().length : 0),
+      selectAll: (select) => animateEditor && animateEditor.selectAllAssets(select),
+      confirmLabel: (n) => (n === 1
+        ? 'Supprimer cet objet ?'
+        : `Supprimer les ${n} objets sélectionnés ?`),
+    });
+
     animateEditor = new global.MediaStudioAnimate.AnimationEditor({
+      workflow: 'objects',
+      panelId: 'panel-animate',
       stageEl,
       zoneListEl: document.getElementById('animateZoneList'),
       layerListEl: document.getElementById('animateLayerList'),
@@ -889,11 +1799,17 @@ ${manifestSummary}`);
       promptLlmCheckEl: document.getElementById('animatePromptLlm'),
       promptGenerateBtn: document.getElementById('animatePromptGenerateBtn'),
       i2vGenerateBtn: document.getElementById('animateI2vGenerateBtn'),
+      onDeleteAsset: async (ref) => {
+        await deletePersistedAssets([ref]);
+        setStatus('Objet supprimé.');
+      },
+      onSelectionChange: syncAnimateSelection,
       msApi,
       parseApiResponse,
       onGeneratePrompt: requestAnimationLlm,
       onStatus: setStatus,
     });
+    syncAnimateSelection([], 0);
 
     const animateImportBtn = document.getElementById('animateImportBtn');
     const animateFileInput = document.getElementById('animateFileInput');
@@ -926,6 +1842,109 @@ ${manifestSummary}`);
     }
   }
 
+  function initClipEditor() {
+    if (!global.MediaStudioAnimate || !global.MediaStudioAnimate.AnimationEditor) return;
+
+    clipEditor = new global.MediaStudioAnimate.AnimationEditor({
+      workflow: 'clip',
+      panelId: 'panel-clip',
+      stageEl: document.getElementById('clipStage'),
+      zoneListEl: document.getElementById('clipZoneList'),
+      layerListEl: document.getElementById('clipLayerList'),
+      cadreListEl: document.getElementById('clipCadreList'),
+      assetListEl: document.getElementById('clipAssetList'),
+      toolGlowBtn: document.getElementById('clipToolGlow'),
+      toolButtonBtn: document.getElementById('clipToolButton'),
+      toolMoveBtn: document.getElementById('clipToolMove'),
+      toolDeleteBtn: document.getElementById('clipToolDelete'),
+      playBtn: document.getElementById('clipPlayBtn'),
+      exportBtn: document.getElementById('clipExportBtn'),
+      exportFormatSelect: document.getElementById('clipExportFormat'),
+      durationInput: document.getElementById('clipDuration'),
+      workspaceWInput: document.getElementById('clipWorkspaceW'),
+      workspaceHInput: document.getElementById('clipWorkspaceH'),
+      outputWInput: document.getElementById('clipOutputW'),
+      outputHInput: document.getElementById('clipOutputH'),
+      outputXInput: document.getElementById('clipOutputX'),
+      outputYInput: document.getElementById('clipOutputY'),
+      addCadreBtn: document.getElementById('clipAddCadreBtn'),
+      splitCadresBtn: document.getElementById('clipSplitCadresBtn'),
+      assignCadresBtn: document.getElementById('clipAssignCadresBtn'),
+      promptPanelEl: document.getElementById('clipPromptPanel'),
+      promptInputEl: document.getElementById('clipPromptInput'),
+      promptLlmCheckEl: document.getElementById('clipPromptLlm'),
+      promptGenerateBtn: document.getElementById('clipPromptGenerateBtn'),
+      i2vGenerateBtn: document.getElementById('clipI2vGenerateBtn'),
+      addKeyframeBtn: document.getElementById('clipAddKeyframeBtn'),
+      playheadInput: document.getElementById('clipPlayhead'),
+      playheadLabel: document.getElementById('clipPlayheadLabel'),
+      keyframeListEl: document.getElementById('clipKeyframeList'),
+      msApi,
+      parseApiResponse,
+      onStatus: setStatus,
+    });
+
+    const clipCreateBtn = document.getElementById('clipCreateBtn');
+    const clipCreatePrompt = document.getElementById('clipCreatePrompt');
+    const clipCreateType = document.getElementById('clipCreateType');
+    const clipCreateHint = document.getElementById('clipCreateHint');
+
+    async function generateSubjectForClip() {
+      const prompt = (clipCreatePrompt && clipCreatePrompt.value.trim()) || '';
+      if (!prompt) {
+        setStatus('Clip hybride : décrivez le sujet à générer.');
+        return;
+      }
+      const isCharacter = !clipCreateType || clipCreateType.value === 'character';
+      if (clipCreateBtn) clipCreateBtn.disabled = true;
+      if (clipCreatePrompt) clipCreatePrompt.disabled = true;
+      if (clipCreateType) clipCreateType.disabled = true;
+      if (clipCreateHint) {
+        clipCreateHint.textContent = isCharacter
+          ? 'Génération personnage Flux + détourage…'
+          : 'Génération objet Flux + détourage…';
+      }
+      setStatus('Clip hybride : génération du sujet…');
+      try {
+        const img = await generateImage(prompt, {
+          transparent: true,
+          layer: true,
+          character: isCharacter,
+          layerTitle: prompt.slice(0, 48),
+        });
+        addGalleryThumb(img);
+        openClipForAsset({
+          id: generationId(img),
+          filename: img.filename,
+          url: resolveImageUrl(img),
+          downloadUrl: resolveDownloadUrl(img),
+          title: (img.title || prompt).slice(0, 64),
+          width: img.width,
+          height: img.height,
+        });
+        if (clipCreateHint) clipCreateHint.textContent = 'Sujet prêt — keyframes, puis LTX optionnel.';
+        setStatus(`Clip hybride : ${prompt.slice(0, 40)} prêt.`);
+      } catch (e) {
+        setStatus('Clip hybride: ' + e.message);
+        if (clipCreateHint) clipCreateHint.textContent = 'Échec — vérifiez ComfyUI.';
+      } finally {
+        if (clipCreateBtn) clipCreateBtn.disabled = false;
+        if (clipCreatePrompt) clipCreatePrompt.disabled = false;
+        if (clipCreateType) clipCreateType.disabled = false;
+      }
+    }
+
+    if (clipCreateBtn) clipCreateBtn.addEventListener('click', () => generateSubjectForClip());
+    if (clipCreatePrompt) {
+      clipCreatePrompt.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+          e.preventDefault();
+          generateSubjectForClip();
+        }
+      });
+    }
+  }
+
   async function loadExtractedItems() {
     if (!extractEditor) return;
     try {
@@ -936,6 +1955,7 @@ ${manifestSummary}`);
         .filter((item) => item.type === 'extract')
         .forEach((item) => {
           const asset = {
+            id: item.id || (item._id != null ? String(item._id) : ''),
             filename: item.filename,
             url: item.url && /^https?:\/\//i.test(item.url)
               ? item.url
@@ -984,7 +2004,9 @@ ${manifestSummary}`);
       const res = await fetch(msApi('/generations'), { credentials: 'include' });
       const data = await parseApiResponse(res);
       if (!data.success || !Array.isArray(data.data)) return;
-      data.data.forEach((item) => addGalleryThumb(item));
+      data.data
+        .filter((item) => !item.type || item.type === 'image')
+        .forEach((item) => addGalleryThumb(item));
     } catch { /* ignore */ }
   }
 
@@ -1074,12 +2096,11 @@ ${manifestSummary}`);
     }
   });
 
-  sceneSendBtn.addEventListener('click', () => handleSceneSend(false));
-  scenePlanBtn.addEventListener('click', () => handleSceneSend(true));
+  if (sceneSendBtn) sceneSendBtn.addEventListener('click', () => handleCreateScene());
   sceneInput.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      handleSceneSend(false);
+      handleCreateScene();
     }
   });
 
@@ -1087,6 +2108,8 @@ ${manifestSummary}`);
   initSceneEditor();
   initExtractEditor();
   initAnimateEditor();
+  initClipEditor();
+  initGallerySelection();
   loadHealth();
   loadGallery();
   loadExtractedItems();

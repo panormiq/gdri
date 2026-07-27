@@ -78,10 +78,17 @@ function getUserWorkspaceNavSections($includeLegacy = null) {
             'label' => 'Automatiser',
             'items' => [
                 [
-                    'label' => 'Automatisations',
-                    'url' => url('pages/user-agents.php'),
-                    'path' => '/pages/user-agents.php',
-                    'icon' => '🤖',
+                    'label' => 'Agents automatiques',
+                    'url' => url('pages/user-agents-auto.php'),
+                    'path' => '/pages/user-agents-auto.php',
+                    'alt_paths' => ['/pages/user-agents.php'],
+                    'icon' => '⚡',
+                ],
+                [
+                    'label' => 'Agents assistés',
+                    'url' => url('pages/user-agents-assisted.php'),
+                    'path' => '/pages/user-agents-assisted.php',
+                    'icon' => '🧑‍💻',
                 ],
             ],
         ],

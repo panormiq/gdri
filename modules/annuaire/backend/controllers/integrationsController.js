@@ -6,10 +6,20 @@ const importFromGderpi = require('../services/integrations/gderpi/importFromGder
 const createGderpiClientFromOrganisation = require('../services/integrations/gderpi/createGderpiClientFromOrganisation');
 const createGderpiFournisseurFromOrganisation = require('../services/integrations/gderpi/createGderpiFournisseurFromOrganisation');
 const getGderpiCompatStatus = require('../services/integrations/gderpi/getGderpiCompatStatus');
+const getConnectorsStatus = require('../services/integrations/connectors/getConnectorsStatus');
 
 async function gderpiStatus(req, res) {
   try {
     const data = await getGderpiCompatStatus(req.entrepriseDb, req.entrepriseId);
+    res.json({ success: true, data });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+}
+
+async function connectorsStatus(req, res) {
+  try {
+    const data = await getConnectorsStatus(req.entrepriseId);
     res.json({ success: true, data });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
@@ -51,4 +61,10 @@ async function gderpiCreateFournisseur(req, res) {
   }
 }
 
-module.exports = { gderpiStatus, gderpiImport, gderpiCreateClient, gderpiCreateFournisseur };
+module.exports = {
+  gderpiStatus,
+  gderpiImport,
+  gderpiCreateClient,
+  gderpiCreateFournisseur,
+  connectorsStatus
+};

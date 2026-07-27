@@ -1,9 +1,10 @@
 /**
- * Index et initialisation DB — Doc-Hub
+ * FICHIER : modules/doc-hub/backend/dbSetup.js
+ * RÔLE : Index Mongo et données par défaut (slots, tags) d'une base entreprise.
  */
 
-const SlotService = require('./services/SlotService');
-const TagService = require('./services/TagService');
+const ensureDefaultSlots = require('./services/slots/ensureDefaultSlots');
+const ensureDefaultTags = require('./services/tags/ensureDefaultTags');
 
 async function ensureIndexes(entrepriseDb) {
   await entrepriseDb.collection('doc_hub_projects').createIndex({ status: 1, updatedAt: -1 });
@@ -18,8 +19,8 @@ async function ensureIndexes(entrepriseDb) {
 
 async function prepareEntrepriseDb(entrepriseDb) {
   await ensureIndexes(entrepriseDb);
-  await SlotService.ensureDefaultSlots(entrepriseDb);
-  await TagService.ensureDefaultTags(entrepriseDb);
+  await ensureDefaultSlots(entrepriseDb);
+  await ensureDefaultTags(entrepriseDb);
 }
 
 module.exports = { ensureIndexes, prepareEntrepriseDb };

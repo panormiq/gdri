@@ -1,14 +1,14 @@
 /**
  * FICHIER : modules/gderpi/backend/services/articles/resolveArticlePrixAchatHt.js
- * RÔLE : Retourne le prix d'achat HT d'un article (fournisseur ou legacy).
+ * RÔLE : Retourne le prix d'achat HT d'un article (entrée fournisseur).
  *
- * ENTRÉES : article, fournisseurId optionnel
- * SORTIES : number
+ * ENTRÉES : article, fournisseurId optionnel, boutiqueFournisseurId optionnel
+ * SORTIES : number (0 si aucun tarif d'achat)
  *
  * DÉPEND DE : resolveArticleFournisseurEntry.js
- * NE PAS : persistance
+ * NE PAS : persistance, fallback sur prix de vente catalogue
  *
- * APPELÉ PAR : buildBesoinsFromLignes.js
+ * APPELÉ PAR : buildBesoinsFromLignes.js, applyPrixAchatHtToLignesFournisseur.js
  */
 
 const resolveArticleFournisseurEntry = require('./resolveArticleFournisseurEntry');
@@ -19,8 +19,7 @@ function resolveArticlePrixAchatHt(article, fournisseurId, boutiqueFournisseurId
   if (fromEntry != null && Number.isFinite(Number(fromEntry))) {
     return Math.round(Number(fromEntry) * 100) / 100;
   }
-  const legacy = Number(article?.prixHt);
-  return Number.isFinite(legacy) ? Math.round(legacy * 100) / 100 : 0;
+  return 0;
 }
 
 module.exports = resolveArticlePrixAchatHt;

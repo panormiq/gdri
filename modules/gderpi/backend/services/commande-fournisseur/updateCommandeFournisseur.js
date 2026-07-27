@@ -1,6 +1,6 @@
 /**
  * FICHIER : modules/gderpi/backend/services/commande-fournisseur/updateCommandeFournisseur.js
- * RÔLE : Met à jour une commande fournisseur (objet, notes, lignes, fournisseur en brouillon).
+ * RÔLE : Met à jour une commande fournisseur (objet, notes, lignes, frais de port, fournisseur en brouillon).
  */
 
 const getCommandeFournisseurById = require('./getCommandeFournisseurById');
@@ -23,6 +23,15 @@ async function updateCommandeFournisseur(db, entrepriseId, commandeFournisseurId
   if (p.objet !== undefined) update.objet = String(p.objet || '').trim();
   if (p.notes !== undefined) update.notes = String(p.notes || '').trim();
 
+  if (p.fraisPortHt !== undefined) {
+    const frais = Number(p.fraisPortHt) || 0;
+    update.fraisPortHt = frais > 0 ? Math.round(frais * 100) / 100 : 0;
+  }
+  if (p.fraisPortTauxTva !== undefined) {
+    const tva = Number(p.fraisPortTauxTva);
+    update.fraisPortTauxTva = Number.isFinite(tva) ? tva : 20;
+  }
+
   let headerFournisseurId = existing.fournisseurId;
   let headerFournisseurBoutiqueId = existing.fournisseurBoutiqueId;
 
@@ -42,6 +51,18 @@ async function updateCommandeFournisseur(db, entrepriseId, commandeFournisseurId
     update.fournisseurBoutiqueId = headerFournisseurBoutiqueId;
   }
 
+  const fraisPortHt = update.fraisPortHt !== undefined
+    ? update.fraisPortHt
+    : (Number(existing.fraisPortHt) || 0);
+  const fraisPortTauxTva = update.fraisPortTauxTva !== undefined
+    ? update.fraisPortTauxTva
+    : (Number.isFinite(Number(existing.fraisPortTauxTva)) ? Number(existing.fraisPortTauxTva) : 20);
+
+  const needsTotals = Array.isArray(p.lignes)
+    || p.fraisPortHt !== undefined
+    || p.fraisPortTauxTva !== undefined
+    || supplierPatch;
+
   if (Array.isArray(p.lignes)) {
     const existingById = new Map((existing.lignes || []).map((l) => [l.id, l]));
     const lignes = p.lignes.map((l, i) => {
@@ -56,7 +77,6 @@ async function updateCommandeFournisseur(db, entrepriseId, commandeFournisseurId
     });
     if (!lignes.length) throw new Error('Au moins une ligne requise');
     update.lignes = lignes;
-    update.totaux = calculateDevisTotals(lignes);
   } else if (supplierPatch && Array.isArray(existing.lignes)) {
     update.lignes = existing.lignes.map((l, i) => {
       const normalized = normalizeDevisLine(l, i);
@@ -64,7 +84,12 @@ async function updateCommandeFournisseur(db, entrepriseId, commandeFournisseurId
       normalized.boutiqueFournisseurId = headerFournisseurBoutiqueId;
       return normalized;
     });
-    update.totaux = calculateDevisTotals(update.lignes);
+  }
+
+  if (needsTotals) {
+    const lignes = update.lignes || existing.lignes || [];
+    update.totaux = calculateDevisTotals(lignes, { fraisPortHt, fraisPortTauxTva });
+    if (fraisPortHt <= 0) update.fraisPortTauxTva = 0;
   }
 
   await db.collection(COLLECTION).updateOne(

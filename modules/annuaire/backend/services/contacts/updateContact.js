@@ -20,6 +20,7 @@ async function updateContact(db, entrepriseId, contactId, patch = {}) {
   if (p.email !== undefined) update.email = String(p.email || '').trim().toLowerCase();
   if (p.telephone !== undefined) update.telephone = String(p.telephone || '').trim();
   if (p.notes !== undefined) update.notes = String(p.notes || '').trim();
+  if (p.organisationId !== undefined) update.organisationId = String(p.organisationId || '').trim();
   if (p.userId !== undefined) update.userId = p.userId ? String(p.userId).trim() : null;
   if (p.ownerUserId !== undefined) update.ownerUserId = p.ownerUserId ? String(p.ownerUserId).trim() : null;
   if (p.scope !== undefined) update.scope = String(p.scope || 'externe');
@@ -37,6 +38,17 @@ async function updateContact(db, entrepriseId, contactId, patch = {}) {
   if (p.principal === true) {
     update.principal = true;
     await ensureSinglePrincipal(db, entrepriseId, existing.organisationId, contactId);
+  }
+  if (p.boutiqueOrganisationIds !== undefined) {
+    const ids = Array.isArray(p.boutiqueOrganisationIds) ? p.boutiqueOrganisationIds : [];
+    const seen = new Set();
+    update.boutiqueOrganisationIds = ids
+      .map(function (id) { return String(id || '').trim(); })
+      .filter(function (id) {
+        if (!id || seen.has(id)) return false;
+        seen.add(id);
+        return true;
+      });
   }
 
   await db.collection(COLLECTION).updateOne(

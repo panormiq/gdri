@@ -3,25 +3,40 @@
  */
 
 const ensureContactIndexes = require('./ensureContactIndexes');
+const buildContactFilter = require('./buildContactFilter');
 const toContactEntry = require('./toContactEntry');
 
 async function listContacts(db, entrepriseId, options = {}) {
   await ensureContactIndexes(db);
   const filter = { entrepriseId: String(entrepriseId) };
-  if (options.organisationId) filter.organisationId = String(options.organisationId);
+  if (options.view === 'entity') {
+    const orgFilter = await buildContactFilter(db, entrepriseId, null, { view: 'entity' });
+    Object.assign(filter, orgFilter);
+  } else if (options.organisationId) {
+    const orgFilter = await buildContactFilter(db, entrepriseId, options.organisationId);
+    Object.assign(filter, orgFilter);
+  }
   if (options.scope) filter.scope = String(options.scope);
   if (options.serviceId) filter.serviceId = String(options.serviceId);
   if (options.ownerUserId) filter.ownerUserId = String(options.ownerUserId);
   if (options.search) {
     const q = String(options.search).trim();
     if (q) {
-      filter.$or = [
-        { prenom: { $regex: q, $options: 'i' } },
-        { nom: { $regex: q, $options: 'i' } },
-        { email: { $regex: q, $options: 'i' } },
-        { fonction: { $regex: q, $options: 'i' } },
-        { telephone: { $regex: q, $options: 'i' } }
-      ];
+      const searchClause = {
+        $or: [
+          { prenom: { $regex: q, $options: 'i' } },
+          { nom: { $regex: q, $options: 'i' } },
+          { email: { $regex: q, $options: 'i' } },
+          { fonction: { $regex: q, $options: 'i' } },
+          { telephone: { $regex: q, $options: 'i' } }
+        ]
+      };
+      if (filter.$or) {
+        filter.$and = [{ $or: filter.$or }, searchClause];
+        delete filter.$or;
+      } else {
+        Object.assign(filter, searchClause);
+      }
     }
   }
 

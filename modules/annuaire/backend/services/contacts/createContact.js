@@ -9,6 +9,7 @@ const ensureSinglePrincipal = require('./ensureSinglePrincipal');
 const getContactById = require('./getContactById');
 
 const COLLECTION = 'annuaire_contacts';
+const ORG_COL = 'annuaire_organisations';
 
 async function createContact(db, entrepriseId, data = {}, meta = {}) {
   await ensureContactIndexes(db);
@@ -24,13 +25,28 @@ async function createContact(db, entrepriseId, data = {}, meta = {}) {
   const org = await getOrganisationById(db, entrepriseId, normalized.organisationId);
   if (!org) throw new Error('Organisation introuvable');
 
-  const scope = normalized.scope || org.scope || 'externe';
+  let organisationId = normalized.organisationId;
+  let scope = normalized.scope || org.scope || 'externe';
+  const isInternal = scope === 'interne' || Boolean(org.gderpiBoutiqueId)
+    || normalized.boutiqueOrganisationIds.length > 0;
+
+  if (isInternal) {
+    scope = 'interne';
+    const ownDoc = org.isOwnEntity
+      ? org
+      : await db.collection(ORG_COL).findOne({
+        entrepriseId: String(entrepriseId),
+        isOwnEntity: true
+      });
+    if (ownDoc) organisationId = ownDoc.organisationId;
+  }
+
   let serviceLibelle = normalized.serviceLibelle;
   if (normalized.serviceId) {
     const svc = await db.collection('annuaire_services').findOne({
       entrepriseId: String(entrepriseId),
       serviceId: normalized.serviceId,
-      organisationId: normalized.organisationId
+      organisationId: organisationId
     });
     if (svc) serviceLibelle = svc.libelle;
   }
@@ -39,7 +55,7 @@ async function createContact(db, entrepriseId, data = {}, meta = {}) {
   const doc = {
     entrepriseId: String(entrepriseId),
     contactId: normalized.id,
-    organisationId: normalized.organisationId,
+    organisationId: organisationId,
     serviceId: normalized.serviceId,
     serviceLibelle,
     prenom: normalized.prenom,
@@ -53,6 +69,7 @@ async function createContact(db, entrepriseId, data = {}, meta = {}) {
     ownerUserId,
     createdByUserId: actorUserId || normalized.createdByUserId || ownerUserId,
     notes: normalized.notes,
+    boutiqueOrganisationIds: normalized.boutiqueOrganisationIds,
     createdAt: now,
     updatedAt: now
   };

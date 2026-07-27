@@ -7,11 +7,20 @@
 
   const API_BASE = (global.API_BASE_URL || '/api').replace(/\/$/, '') + '/agent-documentaire-v2';
 
+  function authHeaders(extra) {
+    const headers = { 'Content-Type': 'application/json', ...(extra || {}) };
+    const jwt = global.GDRI_JWT || global.JWT_TOKEN || null;
+    if (jwt && !headers.Authorization) {
+      headers.Authorization = 'Bearer ' + jwt;
+    }
+    return headers;
+  }
+
   async function api(path, options) {
     const res = await fetch(`${API_BASE}${path}`, {
       credentials: 'include',
-      headers: { 'Content-Type': 'application/json', ...(options?.headers || {}) },
-      ...options
+      ...options,
+      headers: authHeaders(options?.headers || {})
     });
     const ct = res.headers.get('content-type') || '';
     if (!ct.includes('application/json')) {
@@ -35,6 +44,12 @@
         body: JSON.stringify(body)
       });
     },
+    generateAi(namespace, body) {
+      return api(`/templates/${encodeURIComponent(namespace)}/generate-ai`, {
+        method: 'POST',
+        body: JSON.stringify(body || {})
+      });
+    },
     previewHtml(namespace, payload) {
       let variables = {};
       let template;
@@ -50,7 +65,7 @@
       return fetch(`${API_BASE}/templates/${encodeURIComponent(namespace)}/preview`, {
         method: 'POST',
         credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
+        headers: authHeaders(),
         body: JSON.stringify({
           variables,
           template: template || undefined

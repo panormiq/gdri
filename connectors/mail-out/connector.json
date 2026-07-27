@@ -6,6 +6,8 @@
   "description": "Envoi d'emails via SMTP (compte infra Mail de l'entité).",
   "direction": "output",
   "compatiblePlatform": ">=1.0.0",
+  "audience": "contact",
+  "hosts": ["annuaire"],
   "capabilities": [
     "emit.mail"
   ],

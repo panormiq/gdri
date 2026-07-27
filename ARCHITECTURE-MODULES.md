@@ -233,24 +233,30 @@ router.put('/entities/:entityId',
 
 ### Organisation des fichiers
 
+> Structure détaillée et conventions de code : voir **`modules/STRUCTURE.md`** (référence : module **annuaire**).
+
 ```
 modules/{nom-module}/
+├── module.php                      # Manifest PHP (id, name, icon, view_url) pour le catalogue d'apps
 ├── backend/
 │   ├── index.js                    # Point d'entrée du module
 │   ├── routes.js                   # Définition des routes
-│   ├── package.json                # Configuration du module
-│   ├── controllers/                # Contrôleurs (logique métier)
-│   │   └── {module}Controller.js
-│   ├── services/                   # Services (accès données)
-│   │   └── {Module}Service.js
+│   ├── package.json                # Configuration du module (routes[], enabled, app{})
+│   ├── controllers/                # 1 contrôleur par ressource (req/res, pas de logique métier)
+│   │   └── {ressource}Controller.js
+│   ├── services/                   # Logique métier — 1 dossier par domaine, 1 fonction par fichier
+│   │   └── {domaine}/
+│   │       └── {uneFonction}.js    # ex. listContacts.js exporte listContacts
 │   └── middleware/                 # Middlewares spécifiques
-│       ├── require{Role}Role.js    # Contrôle d'accès
+│       ├── require{Module}Role.js  # Contrôle d'accès
 │       └── use{Module}EntrepriseDb.js # Multitenant
 └── frontend/
-    ├── index.html                  # Interface utilisateur
-    ├── {module}.js                 # JavaScript frontend
-    └── {module}.css                # Styles
+    └── assets/
+        ├── css/{module}.css        # Styles chargés par la page PHP du front principal
+        └── js/{module}-app.js      # JS de l'app
 ```
+
+La **page utilisateur** vit dans le front principal : `frontend/pages/modules/{nom-module}.php` (elle charge les assets ci-dessus). Les pages de config backoffice suivent le pattern `frontend/pages/modules/{nom-module}-config.php`.
 
 ### Point d'entrée du module (`backend/index.js`)
 

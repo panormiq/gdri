@@ -1,0 +1,61 @@
+{
+  "id": "analyse-intention",
+  "name": "Analyse d'intention",
+  "version": "1.0.0",
+  "category": "ai",
+  "kind": "action",
+  "visibility": "orchestrator-only",
+  "description": "Bloc IA : messages + liste d'intentions + prompt → intention_principale. Pas de destinataires (voir brique Routage). Ouvre l'onglet Intentions.",
+  "canvas": {
+    "icon": "flow-node.svg",
+    "iconEmoji": "🎯",
+    "color": "#7c3aed",
+    "borderRadius": 12,
+    "width": 220,
+    "inputs": [
+      { "id": "main", "label": "Entrée", "type": "main", "maxConnections": 1 }
+    ],
+    "outputs": [
+      { "id": "main", "label": "Analyse", "type": "main" }
+    ]
+  },
+  "operations": {
+    "analyse.run": {
+      "label": "Analyser les intentions",
+      "description": "Utilise la config Intentions de cet agent (pas les connecteurs).",
+      "configSchema": {
+        "type": "object",
+        "properties": {
+          "messageField": {
+            "type": "string",
+            "title": "Champ message à analyser",
+            "format": "context-field",
+            "default": "text",
+            "description": "Choisissez un champ fourni par le déclencheur / blocs amont"
+          }
+        }
+      },
+      "outputMessage": {
+        "type": "analyse-result",
+        "fields": [
+          { "key": "intention_principale", "label": "Intention principale" },
+          { "key": "analyses", "label": "Analyses détaillées" },
+          { "key": "reponse_requise", "label": "Réponse requise" },
+          { "key": "confidence", "label": "Confiance" }
+        ]
+      }
+    }
+  },
+  "configUi": {
+    "type": "panel",
+    "tabId": "intentions",
+    "tabLabel": "Intentions"
+  },
+  "agentConfig": {
+    "tabId": "intentions",
+    "tabLabel": "Intentions",
+    "brickId": "analyse-intention"
+  },
+  "permissions": ["ai"],
+  "serviceRef": "modules/analyse-intention"
+}

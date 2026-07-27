@@ -51,20 +51,6 @@ renderConsoleLayoutStart($page_title, $annuaireIntro, ['actions' => $annuaireAct
 <link rel="stylesheet" href="<?= htmlspecialchars($assetBase) ?>/assets/css/annuaire.css?v=<?= (int)@filemtime(__DIR__ . '/../../../modules/annuaire/frontend/assets/css/annuaire.css') ?>">
 
 <div class="annuaire-shell<?= $annuaireMode === 'identity' ? ' annuaire-shell--identity' : '' ?>">
-    <div class="annuaire-top-bar annuaire-app-only">
-        <div class="annuaire-search-bar">
-            <input type="search" id="annuaire-search" class="annuaire-search-input" placeholder="Rechercher une organisation, un email, une ville…" autocomplete="off">
-        </div>
-        <div class="annuaire-filter-tabs" id="annuaire-filter-tabs">
-            <button type="button" class="annuaire-filter-btn active" data-annuaire-kind="">Tous</button>
-            <button type="button" class="annuaire-filter-btn" data-annuaire-kind="client">Clients</button>
-            <button type="button" class="annuaire-filter-btn" data-annuaire-kind="fournisseur">Fournisseurs</button>
-            <button type="button" class="annuaire-filter-btn" data-annuaire-kind="prospect">Prospects</button>
-            <button type="button" class="annuaire-filter-btn" data-annuaire-kind="interne">Internes</button>
-            <button type="button" class="annuaire-filter-btn" data-annuaire-kind="boutique">Boutiques</button>
-            <button type="button" class="annuaire-filter-btn annuaire-filter-btn--mine" data-annuaire-owner="mine">Les miens</button>
-        </div>
-    </div>
     <div class="annuaire-layout">
         <aside class="annuaire-sidebar annuaire-app-only">
             <div class="annuaire-sidebar-orgs">
@@ -175,7 +161,13 @@ window.ANNUAIRE_CONFIG = {
     mode: <?= json_encode($annuaireMode, JSON_UNESCAPED_UNICODE) ?>,
     currentUserId: <?= json_encode($annuaire_current_user_id, JSON_UNESCAPED_UNICODE) ?>,
     canManage: <?= $annuaire_can_manage ? 'true' : 'false' ?>,
-    identityUrl: <?= json_encode(url('pages/modules/annuaire.php?focus=identity'), JSON_UNESCAPED_UNICODE) ?>
+    identityUrl: <?= json_encode(url('pages/modules/annuaire.php?focus=identity'), JSON_UNESCAPED_UNICODE) ?>,
+    connectorHubUrl: <?= json_encode(url('pages/entity-connecteurs.php'), JSON_UNESCAPED_UNICODE) ?>,
+    connectorUrls: {
+        'mail-in': <?= json_encode(url('pages/modules/mail-config.php?module=mail'), JSON_UNESCAPED_UNICODE) ?>,
+        'mail-out': <?= json_encode(url('pages/modules/mail-config.php?module=mail'), JSON_UNESCAPED_UNICODE) ?>,
+        'facebook': <?= json_encode(url('pages/modules/connector-instances.php?connector=facebook'), JSON_UNESCAPED_UNICODE) ?>
+    }
 };
 </script>
 <script src="<?= htmlspecialchars($assetBase) ?>/assets/js/apiCall.js?v=<?= (int)@filemtime(__DIR__ . '/../../../modules/annuaire/frontend/assets/js/apiCall.js') ?>"></script>

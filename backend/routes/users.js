@@ -17,6 +17,9 @@ const {
   resolveInitialUserServiceIds,
   resolveUserEntityServices
 } = require('../core/entity-user-services');
+const {
+  ensureContactForEntityUserByEntrepriseId
+} = require('../../modules/annuaire/backend/services/contacts/ensureContactForEntityUser');
 
 const TOKEN_INVITE_TTL_HOURS = 48;
 const TOKEN_RESET_TTL_HOURS = 2;
@@ -27,6 +30,14 @@ function objectIdToString(value) {
     return String(value);
   } catch (_) {
     return '';
+  }
+}
+
+async function syncAnnuaireContactForEntityUser(entityId, userPayload) {
+  try {
+    await ensureContactForEntityUserByEntrepriseId(entityId, userPayload);
+  } catch (err) {
+    console.warn('⚠️  Sync contact Annuaire (utilisateur):', err.message);
   }
 }
 
@@ -289,6 +300,14 @@ router.post('/', authenticateJWT, async (req, res) => {
           console.warn('⚠️  Email invitation non envoyé:', mailError.message);
         }
 
+        await syncAnnuaireContactForEntityUser(entityId, {
+          email: normalizedEmail,
+          userId: existingUser._id,
+          name: existingUser.name || existingUser.username || '',
+          prenom: existingUser.prenom || existingUser.firstName || '',
+          nom: existingUser.nom || existingUser.lastName || ''
+        });
+
         return res.json({
           success: true,
           message: emailSent
@@ -371,6 +390,14 @@ router.post('/', authenticateJWT, async (req, res) => {
         console.warn(`⚠️  Référence entreprise non créée: ${refError.message}`);
       }
 
+      await syncAnnuaireContactForEntityUser(entityId, {
+        email: normalizedEmail,
+        userId: existingUser._id,
+        name: existingUser.name || existingUser.username || '',
+        prenom: existingUser.prenom || existingUser.firstName || '',
+        nom: existingUser.nom || existingUser.lastName || ''
+      });
+
       return res.json({
         success: true,
         message: 'Utilisateur existant ajouté à l\'entité avec succès.',
@@ -438,6 +465,11 @@ router.post('/', authenticateJWT, async (req, res) => {
     } catch (refError) {
       console.warn(`⚠️  Référence entreprise non créée: ${refError.message}`);
     }
+
+    await syncAnnuaireContactForEntityUser(entityId, {
+      email: normalizedEmail,
+      userId: newUserId
+    });
 
     const baseUrl = buildAppBaseUrl(req);
     const inviteLink = `${baseUrl}/frontend/pages/first-connection.php?token=${rawToken}`;
@@ -542,6 +574,21 @@ router.post('/first-connection', async (req, res) => {
       { _id: tokenDoc._id },
       { $set: { usedAt: now } }
     );
+
+    const activatedUser = await usersCollection.findOne({ _id: new ObjectId(tokenDoc.userId) });
+    const entityIdForContact = tokenDoc.entityId
+      || activatedUser?.currentEntrepriseId
+      || (activatedUser?.entreprises && activatedUser.entreprises[0] && activatedUser.entreprises[0].entrepriseId)
+      || null;
+    if (entityIdForContact && activatedUser?.email) {
+      await syncAnnuaireContactForEntityUser(entityIdForContact, {
+        email: activatedUser.email,
+        userId: activatedUser._id,
+        name: activatedUser.name || activatedUser.username || '',
+        prenom: activatedUser.prenom || activatedUser.firstName || '',
+        nom: activatedUser.nom || activatedUser.lastName || ''
+      });
+    }
 
     res.json({ success: true, message: 'Mot de passe défini avec succès' });
   } catch (error) {

@@ -21,6 +21,7 @@ const deleteDevis = require('../services/devis/deleteDevis');
 const generateDevisPdf = require('../services/devis/generateDevisPdf');
 const sendDevisToClient = require('../services/devis/sendDevisToClient');
 const linkDevisPmCard = require('../services/devis/linkDevisPmCard');
+const ensureDevisPmCard = require('../services/devis/ensureDevisPmCard');
 
 async function list(req, res) {
   try {
@@ -153,4 +154,27 @@ async function linkPmCard(req, res) {
   }
 }
 
-module.exports = { list, getById, create, update, changeStatus, renderHtml, downloadPdf, remove, sendToClient, linkPmCard };
+async function ensurePmCard(req, res) {
+  try {
+    const item = await ensureDevisPmCard(req.entrepriseDb, req.entrepriseId, req.params.id);
+    res.json({ success: true, data: item });
+  } catch (error) {
+    console.error('GDERPI devis ensurePmCard:', error);
+    const status = error.message === 'Devis introuvable' ? 404 : 400;
+    res.status(status).json({ success: false, message: error.message || 'Erreur création carte PM' });
+  }
+}
+
+module.exports = {
+  list,
+  getById,
+  create,
+  update,
+  changeStatus,
+  renderHtml,
+  downloadPdf,
+  remove,
+  sendToClient,
+  linkPmCard,
+  ensurePmCard
+};

@@ -821,6 +821,39 @@ function getMigratedApplicationDefinitions() {
             'icon' => '📇',
             'url' => 'pages/modules/annuaire.php',
         ],
+        [
+            'id' => 'banque',
+            'slugs' => ['banque'],
+            'keywords' => ['banque', 'oxygene', 'relevé bancaire', 'releve bancaire'],
+            'legacyIds' => ['svc-banque', 'banque-open'],
+            'static' => true,
+            'title' => 'Import bancaire Oxygène',
+            'description' => 'Relevé PDF → tableau éditable → CSV Oxygène.',
+            'icon' => '🏦',
+            'url' => 'pages/modules/banque.php',
+        ],
+        [
+            'id' => 'chat',
+            'slugs' => ['chat', 'module-chat-ia'],
+            'keywords' => ['chat', 'chat ia', 'assistant'],
+            'legacyIds' => ['svc-chat', 'chat-open', 'svc-module-chat-ia', 'module-chat-ia'],
+            'static' => true,
+            'title' => 'Chat IA',
+            'description' => 'Assistant IA avec contexte, mémoire de conversation et choix serveur/modèle.',
+            'icon' => '💬',
+            'url' => 'pages/modules/chat.php',
+        ],
+        [
+            'id' => 'doc-hub',
+            'slugs' => ['doc-hub', 'dochub'],
+            'keywords' => ['doc-hub', 'dochub', 'ged', 'documents'],
+            'legacyIds' => ['svc-doc-hub', 'doc-hub-open', 'svc-dochub'],
+            'static' => true,
+            'title' => 'Doc-Hub',
+            'description' => 'GED par projet — documents, tags, diffusion par liens sécurisés.',
+            'icon' => '📁',
+            'url' => 'pages/modules/doc-hub.php',
+        ],
     ];
 }
 
@@ -1405,6 +1438,9 @@ function isGdriUserSpacePage() {
         'modules.php',
         'applications.php',
         'user-agents.php',
+        'user-agents-auto.php',
+        'user-agents-assisted.php',
+        'agent-human-review.php',
         'user-connecteurs.php',
         'user-structurel.php',
         'account-modules.php',
@@ -1492,6 +1528,19 @@ function syncGdriWorkspaceModeFromPage() {
     if (isGdriPlatformShellPage()) {
         $_SESSION['gdri_workspace_mode'] = 'platform';
         $_SESSION['gdri_admin_nav_mode'] = 'platform';
+        return;
+    }
+
+    // Éditeur d'agent : reste en Mon espace si ouvert depuis Agents auto/assistés.
+    if ($basename === 'entity-agent-editor.php') {
+        $space = strtolower(trim((string) ($_GET['space'] ?? '')));
+        $return = strtolower(trim((string) ($_GET['return'] ?? '')));
+        if ($space === 'user' || in_array($return, ['auto', 'automatic', 'assisted'], true)) {
+            $_SESSION['gdri_workspace_mode'] = 'user';
+            return;
+        }
+        $_SESSION['gdri_workspace_mode'] = 'entity';
+        $_SESSION['gdri_admin_nav_mode'] = 'entity';
         return;
     }
 

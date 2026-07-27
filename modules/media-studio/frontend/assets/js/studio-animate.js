@@ -8,6 +8,10 @@
   const DEFAULT_WORKSPACE = { width: 2400, height: 1350 };
   const DEFAULT_BG = '#141820';
 
+  function KF() {
+    return global.MediaStudioKeyframes || null;
+  }
+
   function uid(prefix) {
     return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 5)}`;
   }
@@ -322,8 +326,16 @@
 
   async function syncSceneVideos(scene, tSec) {
     const tasks = [];
+    const K = KF();
     (scene.layers || []).forEach((layer) => {
       if (!layer.img) return;
+      const ltx = K ? K.getLtxEffectAt(layer, tSec) : null;
+      if (ltx && ltx.video) {
+        const localT = tSec - (Number(ltx.start) || 0);
+        const dur = ltx.duration || ltx.video.duration || 2;
+        tasks.push(seekVideoTo(ltx.video, Math.min(localT, dur - 0.034)));
+        return;
+      }
       const assignedCadre = layer.cadreId
         ? (scene.cadres || []).find((c) => c.id === layer.cadreId)
         : getCadreAtTime(scene, tSec);
@@ -335,6 +347,34 @@
       tasks.push(seekVideoTo(clip.video, localT % dur));
     });
     await Promise.all(tasks);
+  }
+
+  function easeInOut(u) {
+    const t = clamp(u, 0, 1);
+    return t * t * (3 - 2 * t);
+  }
+
+  function getCameraState(scene, tSec, durationSec) {
+    const cam = scene.camera;
+    if (!cam || !cam.enabled) return { dx: 0, dy: 0, scale: 1 };
+    const e = easeInOut(tSec / Math.max(0.001, durationSec));
+    return {
+      dx: (Number(cam.panX) || 0) * e,
+      dy: (Number(cam.panY) || 0) * e,
+      scale: 1 + (Number(cam.zoom) || 0) * e,
+    };
+  }
+
+  function getLayerTravelOffset(layer, cadre, tSec) {
+    if (!layer.travelByCadre || !cadre) return { x: 0, y: 0 };
+    const travel = layer.travelByCadre[cadre.id];
+    if (!travel) return { x: 0, y: 0 };
+    const localDur = Math.max(0.1, cadre.end - cadre.start);
+    const e = easeInOut((tSec - cadre.start) / localDur);
+    return {
+      x: (Number(travel.dx) || 0) * e,
+      y: (Number(travel.dy) || 0) * e,
+    };
   }
 
   function applyFullEffectTransform(ctx, w, h, effect, tSec, durationSec) {
@@ -425,6 +465,7 @@
     const crop = options.cropOutput === true;
     const cw = crop ? out.width : ws.width;
     const ch = crop ? out.height : ws.height;
+    const K = KF();
 
     if (options.transparent) ctx.clearRect(0, 0, cw, ch);
     else {
@@ -440,26 +481,53 @@
       const iw = layer.img.naturalWidth;
       const ih = layer.img.naturalHeight;
 
+      const ltx = K ? K.getLtxEffectAt(layer, tSec) : null;
+      // Pendant l'effet LTX : pose figée au début (évite double motion / couture)
+      const poseT = ltx ? (Number(ltx.start) || 0) : tSec;
+      let pose;
+      if (options.liveLayerId && options.liveLayerId === layer.id) {
+        pose = {
+          x: layer.x, y: layer.y, width: layer.width, height: layer.height,
+          rotation: getLayerRotation(layer),
+        };
+      } else if (K) {
+        pose = K.getLayerPoseAt(layer, poseT);
+      } else {
+        pose = {
+          x: layer.x, y: layer.y, width: layer.width, height: layer.height,
+          rotation: getLayerRotation(layer),
+        };
+      }
+
       const assignedCadre = layer.cadreId
         ? (scene.cadres || []).find((c) => c.id === layer.cadreId)
         : getCadreAtTime(scene, tSec);
       const zones = assignedCadre ? getLayerZones(layer, assignedCadre.id) : [];
       const fullEffects = assignedCadre ? getLayerFullEffects(layer, assignedCadre.id) : [];
-      const videoClip = assignedCadre ? getLayerVideoClip(layer, assignedCadre.id) : null;
+      const videoClip = !ltx && assignedCadre ? getLayerVideoClip(layer, assignedCadre.id) : null;
       const inWindow = assignedCadre && tSec >= assignedCadre.start && tSec < assignedCadre.end;
       const localDur = assignedCadre ? Math.max(0.1, assignedCadre.end - assignedCadre.start) : 1;
       const localT = inWindow ? tSec - assignedCadre.start : 0;
-      const animate = inWindow && (videoClip || zones.length > 0 || fullEffects.length > 0);
+      const animate = !ltx && inWindow && (videoClip || zones.length > 0 || fullEffects.length > 0);
 
       ctx.save();
-      const rot = getLayerRotation(layer);
-      const cx = layer.x + layer.width / 2;
-      const cy = layer.y + layer.height / 2;
+      const rot = pose.rotation || 0;
+      const cx = pose.x + pose.width / 2;
+      const cy = pose.y + pose.height / 2;
       ctx.translate(cx, cy);
       ctx.rotate(degToRad(rot));
-      ctx.translate(-layer.width / 2, -layer.height / 2);
-      ctx.scale(layer.width / iw, layer.height / ih);
-      if (animate && videoClip && videoClip.video) {
+      ctx.translate(-pose.width / 2, -pose.height / 2);
+      ctx.scale(pose.width / iw, pose.height / ih);
+
+      if (ltx && ltx.video) {
+        const localLtx = tSec - (Number(ltx.start) || 0);
+        syncVideoClipTime(ltx, localLtx);
+        if (ltx.video.readyState >= 2) {
+          ctx.drawImage(ltx.video, 0, 0, iw, ih);
+        } else {
+          ctx.drawImage(layer.img, 0, 0, iw, ih);
+        }
+      } else if (animate && videoClip && videoClip.video) {
         syncVideoClipTime(videoClip, localT);
         if (videoClip.video.readyState >= 2) {
           ctx.drawImage(videoClip.video, 0, 0, iw, ih);
@@ -523,7 +591,16 @@
       this.promptLlmCheckEl = options.promptLlmCheckEl;
       this.promptGenerateBtn = options.promptGenerateBtn;
       this.i2vGenerateBtn = options.i2vGenerateBtn;
+      this.addKeyframeBtn = options.addKeyframeBtn || null;
+      this.playheadInput = options.playheadInput || null;
+      this.playheadLabel = options.playheadLabel || null;
+      this.keyframeListEl = options.keyframeListEl || null;
+      /** 'objects' = flux extract/zones/LTX cadre · 'clip' = générer + keyframes + LTX playhead */
+      this.workflow = options.workflow === 'clip' ? 'clip' : 'objects';
+      this.panelId = options.panelId || (this.workflow === 'clip' ? 'panel-clip' : 'panel-animate');
       this.onGeneratePrompt = options.onGeneratePrompt || null;
+      this.onDeleteAsset = options.onDeleteAsset || null;
+      this.onSelectionChange = options.onSelectionChange || null;
       this.msApi = options.msApi || ((p) => p);
       this.parseApiResponse = options.parseApiResponse || ((r) => r.json());
       this.onStatus = options.onStatus || (() => {});
@@ -543,6 +620,7 @@
       this.playing = false;
       this.rafId = null;
       this.playStart = 0;
+      this.playheadSec = 0;
       this.drawDrag = null;
       this.layerTransform = null;
       this.viewZoom = 1;
@@ -550,6 +628,7 @@
       this.viewPanY = 0;
       this.layout = { scale: 1, ox: 0, oy: 0 };
       this.knownAssets = new Set();
+      this.scene.camera = { enabled: false, panX: 0, panY: 0, zoom: 0 };
 
       this.canvas = document.createElement('canvas');
       this.canvas.className = 'ms-animate-canvas';
@@ -582,6 +661,8 @@
       this.bindSceneInputs();
       this.resizeCanvas();
       this.renderCadreList();
+      this.syncPlayheadUi();
+      this.renderKeyframeList();
       window.addEventListener('resize', () => this.layoutCanvas());
     }
 
@@ -615,6 +696,14 @@
       if (this.i2vGenerateBtn) {
         this.i2vGenerateBtn.addEventListener('click', () => this.generateActiveLayerI2v());
       }
+      if (this.addKeyframeBtn) {
+        this.addKeyframeBtn.addEventListener('click', () => this.addKeyframeAtPlayhead());
+      }
+      if (this.playheadInput) {
+        this.playheadInput.addEventListener('input', () => {
+          this.setPlayhead(Number(this.playheadInput.value) || 0, { paint: true });
+        });
+      }
     }
 
     bindSceneInputs() {
@@ -639,10 +728,15 @@
       });
       if (this.durationInput) {
         this.durationInput.addEventListener('change', () => {
-          splitCadresEvenly(this.scene, this.getDurationSec());
+          const dur = this.getDurationSec();
+          splitCadresEvenly(this.scene, dur);
+          if (this.playheadInput) {
+            this.playheadInput.max = String(dur);
+          }
+          this.setPlayhead(Math.min(this.playheadSec, dur), { paint: true });
           this.renderCadreList();
           this.renderLayerList();
-          this.paintFrame(0);
+          this.renderKeyframeList();
         });
       }
     }
@@ -669,7 +763,7 @@
     }
 
     isViewActive() {
-      const panel = document.getElementById('panel-animate');
+      const panel = document.getElementById(this.panelId || 'panel-animate');
       return panel && panel.classList.contains('active');
     }
 
@@ -803,7 +897,7 @@
           c.end = clamp(Number(li.querySelector('.ms-cadre-end').value) || dur, c.start + 0.5, dur);
           li.querySelector('.ms-cadre-start').value = String(c.start);
           li.querySelector('.ms-cadre-end').value = String(c.end);
-          this.paintFrame(this.playing ? this.getPlayTimeSec() : 0);
+          this.paintFrame(this.getEditTimeSec());
         };
         li.querySelector('.ms-cadre-start').addEventListener('change', sync);
         li.querySelector('.ms-cadre-end').addEventListener('change', sync);
@@ -848,6 +942,8 @@
         cadreId: cadre ? cadre.id : null,
         zonesByCadre: {},
         videoClipsByCadre: {},
+        ltxEffects: [],
+        keyframes: [],
         img: null,
       };
 
@@ -860,6 +956,9 @@
         return null;
       }
 
+      const K = KF();
+      if (K) K.ensureKeyframes(layer);
+
       this.scene.layers.push(layer);
       this.activeLayerId = layer.id;
       if (cadre) this.activeCadreId = cadre.id;
@@ -869,11 +968,13 @@
       this.renderLayerList();
       this.renderCadreList();
       this.renderZoneList();
+      this.renderKeyframeList();
       this.renderZonesOverlay();
-      this.paintFrame(0);
+      this.syncPlayheadUi();
+      this.paintFrame(this.getEditTimeSec());
 
       if (!options.replace) {
-        this.onStatus(`${layer.asset.title} ajouté (cadre : ${cadre?.label || '—'}).`);
+        this.onStatus(`${layer.asset.title} ajouté — posez des keyframes puis LTX effet si besoin.`);
       }
       return layer;
     }
@@ -1081,7 +1182,7 @@
         }
         this.renderLayerList();
         this.renderZonesOverlay();
-        this.paintFrame(this.playing ? this.getPlayTimeSec() : 0);
+        this.paintFrame(this.getEditTimeSec());
         return;
       }
       if (!this.drawDrag || e.pointerId !== this.drawDrag.pointerId) return;
@@ -1094,8 +1195,16 @@
 
     onPointerUp(e) {
       if (this.layerTransform && e.pointerId === this.layerTransform.pointerId) {
+        const layer = this.scene.layers.find((l) => l.id === this.layerTransform.layerId);
         this.layerTransform = null;
+        if (layer && this.workflow === 'clip') {
+          const K = KF();
+          if (K) K.upsertKeyframe(layer, this.getEditTimeSec());
+          this.renderKeyframeList();
+          this.onStatus(`Keyframe @ ${this.getEditTimeSec().toFixed(1)} s`);
+        }
         this.renderLayerList();
+        this.paintFrame(this.getEditTimeSec());
         return;
       }
       if (!this.drawDrag || e.pointerId !== this.drawDrag.pointerId) return;
@@ -1128,7 +1237,7 @@
       this.renderLayerList();
       this.renderZoneList();
       this.renderZonesOverlay();
-      this.paintFrame(this.playing ? this.getPlayTimeSec() : 0);
+      this.paintFrame(this.getEditTimeSec());
     }
 
     deleteSelectedZone() {
@@ -1140,7 +1249,7 @@
       this.selectedZoneId = null;
       this.renderZoneList();
       this.renderZonesOverlay();
-      this.paintFrame(this.playing ? this.getPlayTimeSec() : 0);
+      this.paintFrame(this.getEditTimeSec());
     }
 
     updatePromptPanel() {
@@ -1182,7 +1291,7 @@
       this.renderLayerList();
       this.renderZoneList();
       this.renderZonesOverlay();
-      this.paintFrame(this.playing ? this.getPlayTimeSec() : 0);
+      this.paintFrame(this.getEditTimeSec());
     }
 
     async applyI2vResult(layer, cadreId, data) {
@@ -1207,7 +1316,154 @@
       this.renderLayerList();
       this.renderZoneList();
       this.renderZonesOverlay();
-      this.paintFrame(this.playing ? this.getPlayTimeSec() : 0);
+      this.paintFrame(this.getEditTimeSec());
+    }
+
+    getEditTimeSec() {
+      if (this.playing) return this.getPlayTimeSec();
+      return this.playheadSec;
+    }
+
+    syncPlayheadUi() {
+      const dur = this.getDurationSec();
+      if (this.playheadInput) {
+        this.playheadInput.max = String(dur);
+        this.playheadInput.value = String(Math.round(this.playheadSec * 10) / 10);
+      }
+      if (this.playheadLabel) {
+        this.playheadLabel.textContent = `${this.playheadSec.toFixed(1)} s / ${dur.toFixed(0)} s`;
+      }
+    }
+
+    syncLayersToTime(tSec) {
+      const K = KF();
+      if (!K) return;
+      (this.scene.layers || []).forEach((layer) => {
+        K.applyPoseToLayer(layer, K.getLayerPoseAt(layer, tSec));
+      });
+    }
+
+    setPlayhead(tSec, options = {}) {
+      const dur = this.getDurationSec();
+      this.playheadSec = clamp(Number(tSec) || 0, 0, dur);
+      this.syncPlayheadUi();
+      this.syncLayersToTime(this.playheadSec);
+      this.renderKeyframeList();
+      this.renderZonesOverlay();
+      if (options.paint !== false) this.paintFrame(this.playheadSec);
+    }
+
+    addKeyframeAtPlayhead() {
+      const layer = this.getActiveLayer();
+      const K = KF();
+      if (!layer || !K) {
+        this.onStatus('Sélectionnez un calque.');
+        return;
+      }
+      K.upsertKeyframe(layer, this.playheadSec);
+      this.renderKeyframeList();
+      this.renderLayerList();
+      this.onStatus(`Keyframe ajoutée @ ${this.playheadSec.toFixed(1)} s — déplacez le calque pour animer.`);
+      this.paintFrame(this.playheadSec);
+    }
+
+    removeKeyframeById(keyframeId) {
+      const layer = this.getActiveLayer();
+      const K = KF();
+      if (!layer || !K) return;
+      K.removeKeyframe(layer, keyframeId);
+      this.syncLayersToTime(this.playheadSec);
+      this.renderKeyframeList();
+      this.renderLayerList();
+      this.paintFrame(this.playheadSec);
+    }
+
+    renderKeyframeList() {
+      if (!this.keyframeListEl) return;
+      const layer = this.getActiveLayer();
+      const K = KF();
+      if (!layer || !K) {
+        this.keyframeListEl.innerHTML = '<li class="ms-animate-empty">Sélectionnez un calque.</li>';
+        return;
+      }
+      const kfs = K.ensureKeyframes(layer);
+      this.keyframeListEl.innerHTML = '';
+      kfs.forEach((kf, i) => {
+        const li = document.createElement('li');
+        li.className = 'ms-animate-zone-item';
+        if (Math.abs(kf.t - this.playheadSec) < 0.05) li.classList.add('selected');
+        li.innerHTML = `
+          <span>KF ${i + 1} · ${kf.t.toFixed(1)} s</span>
+          <small>${Math.round(kf.x)},${Math.round(kf.y)} · ${Math.round(kf.rotation)}°</small>
+          <button type="button" class="ms-btn ms-btn-ghost ms-kf-goto" title="Aller">↗</button>
+          <button type="button" class="ms-btn ms-btn-ghost ms-kf-del" title="Supprimer">×</button>`;
+        li.querySelector('.ms-kf-goto').addEventListener('click', (e) => {
+          e.stopPropagation();
+          this.setPlayhead(kf.t, { paint: true });
+        });
+        li.querySelector('.ms-kf-del').addEventListener('click', (e) => {
+          e.stopPropagation();
+          this.removeKeyframeById(kf.id);
+        });
+        li.addEventListener('click', () => this.setPlayhead(kf.t, { paint: true }));
+        this.keyframeListEl.appendChild(li);
+      });
+      (layer.ltxEffects || []).forEach((fx) => {
+        const li = document.createElement('li');
+        li.className = 'ms-animate-zone-item ms-animate-clip-item';
+        const end = (Number(fx.start) || 0) + (Number(fx.duration) || 2);
+        li.innerHTML = `<span>Effet LTX</span><small>${(Number(fx.start) || 0).toFixed(1)}→${end.toFixed(1)} s</small>
+          <button type="button" class="ms-btn ms-btn-ghost ms-ltx-del" title="Supprimer">×</button>`;
+        li.querySelector('.ms-ltx-del').addEventListener('click', (e) => {
+          e.stopPropagation();
+          layer.ltxEffects = (layer.ltxEffects || []).filter((x) => x.id !== fx.id);
+          this.renderKeyframeList();
+          this.paintFrame(this.getEditTimeSec());
+        });
+        this.keyframeListEl.appendChild(li);
+      });
+    }
+
+    /** Capture le calque à la pose courante (frame du plan) → PNG data URL. */
+    async captureLayerFrameDataUrl(layer, tSec) {
+      const K = KF();
+      const pose = K ? K.getLayerPoseAt(layer, tSec) : {
+        x: layer.x, y: layer.y, width: layer.width, height: layer.height, rotation: 0,
+      };
+      const iw = layer.img.naturalWidth;
+      const ih = layer.img.naturalHeight;
+      const canvas = document.createElement('canvas');
+      canvas.width = iw;
+      canvas.height = ih;
+      const ctx = canvas.getContext('2d', { alpha: true });
+      ctx.clearRect(0, 0, iw, ih);
+      ctx.drawImage(layer.img, 0, 0, iw, ih);
+      void pose;
+      return canvas.toDataURL('image/png');
+    }
+
+    async applyLtxEffect(layer, data, startSec) {
+      if (!layer.ltxEffects) layer.ltxEffects = [];
+      const clipUrl = data.url && /^https?:\/\//i.test(data.url)
+        ? data.url
+        : this.msApi(data.url || `/clip/${encodeURIComponent(data.filename)}`);
+      const video = await loadVideoClip(`${clipUrl}?v=${encodeURIComponent(data.filename || Date.now())}`);
+      const duration = data.duration || video.duration || 2;
+      layer.ltxEffects.push({
+        id: uid('ltx'),
+        start: Math.round((Number(startSec) || 0) * 100) / 100,
+        duration,
+        url: clipUrl,
+        filename: data.filename,
+        fps: data.fps || 24,
+        background_color: data.background_color || null,
+        prompt: data.prompt,
+        sourceFrameT: startSec,
+        video,
+      });
+      this.renderKeyframeList();
+      this.renderZoneList();
+      this.paintFrame(this.getEditTimeSec());
     }
 
     async generateActiveLayerI2v() {
@@ -1219,40 +1475,55 @@
       }
       const prompt = (this.promptInputEl && this.promptInputEl.value.trim()) || '';
       if (!prompt) {
-        this.onStatus('Décrivez le mouvement (ex. runes qui s\'illuminent, boutons qui s\'enfoncent).');
+        this.onStatus(this.workflow === 'clip'
+          ? 'Décrivez l\'effet LTX (ex. runes qui s\'illuminent).'
+          : 'Décrivez le mouvement (ex. runes qui s\'illuminent).');
         return;
       }
-      if (!layer.promptByCadre) layer.promptByCadre = {};
-      layer.promptByCadre[cadre.id] = prompt;
 
       if (isMechanicalMotionPrompt(prompt)) {
-        this.onStatus('Tir/chargeur/boutons : LTX = flou sur l\'image. Animation par zones à la place…');
+        this.onStatus('Tir/chargeur/boutons : LTX = flou. Animation par zones à la place…');
         await this.generateActiveLayerPrompt();
         return;
       }
 
       if (this.i2vGenerateBtn) this.i2vGenerateBtn.disabled = true;
       if (this.promptGenerateBtn) this.promptGenerateBtn.disabled = true;
-      this.onStatus('Génération clip IA (LTX, fond uni)… 2 à 8 min, patientez.');
+
+      const isClip = this.workflow === 'clip';
+      const startSec = isClip ? this.getEditTimeSec() : (cadre ? cadre.start : 0);
+      this.onStatus(isClip
+        ? `Effet LTX depuis frame @ ${startSec.toFixed(1)} s… 2 à 8 min.`
+        : 'Génération clip IA (LTX, fond uni)… 2 à 8 min, patientez.');
 
       try {
+        const body = {
+          sourceFilename: layer.asset.filename,
+          prompt,
+          layerTitle: layer.asset.title,
+          engine: 'ltx',
+        };
+        if (isClip) {
+          body.imageDataUrl = await this.captureLayerFrameDataUrl(layer, startSec);
+          body.effectStart = startSec;
+        }
         const res = await fetch(this.msApi('/animate-i2v'), {
           method: 'POST',
           credentials: 'include',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            sourceFilename: layer.asset.filename,
-            prompt,
-            layerTitle: layer.asset.title,
-            engine: 'ltx',
-          }),
+          body: JSON.stringify(body),
         });
         const json = await this.parseApiResponse(res);
         if (!json.success) throw new Error(json.message || 'Erreur clip IA');
-        await this.applyI2vResult(layer, cadre.id, json.data);
-        const dur = json.data.duration ? `${json.data.duration.toFixed(1)} s` : '~2 s';
-        const ltxP = (json.data.ltx_prompt || json.data.prompt || '').slice(0, 120);
-        this.onStatus(`Clip IA prêt (${dur}) · Prompt LTX : ${ltxP}${ltxP.length >= 120 ? '…' : ''}`);
+        if (isClip) {
+          await this.applyLtxEffect(layer, json.data, startSec);
+          const dur = json.data.duration ? `${json.data.duration.toFixed(1)} s` : '~2 s';
+          this.onStatus(`Effet LTX collé @ ${startSec.toFixed(1)} s (${dur}).`);
+        } else {
+          await this.applyI2vResult(layer, cadre.id, json.data);
+          const dur = json.data.duration ? `${json.data.duration.toFixed(1)} s` : '~2 s';
+          this.onStatus(`Clip IA prêt (${dur}) sur cadre « ${cadre.label} ».`);
+        }
       } catch (err) {
         this.onStatus('Erreur clip IA : ' + err.message);
       } finally {
@@ -1308,14 +1579,88 @@
       }
     }
 
+    getAssetItems() {
+      if (!this.assetListEl) return [];
+      return Array.from(this.assetListEl.querySelectorAll('.ms-animate-asset-item[data-filename]'));
+    }
+
+    getSelectedAssets() {
+      return this.getAssetItems()
+        .filter((li) => li.classList.contains('is-selected'))
+        .map((li) => ({
+          id: li.dataset.id || '',
+          filename: li.dataset.filename || '',
+        }))
+        .filter((a) => a.filename || a.id);
+    }
+
+    notifySelectionChange() {
+      if (this.onSelectionChange) this.onSelectionChange(this.getSelectedAssets(), this.getAssetItems().length);
+    }
+
+    setItemSelected(li, selected) {
+      if (!li) return;
+      li.classList.toggle('is-selected', !!selected);
+      li.setAttribute('aria-selected', selected ? 'true' : 'false');
+    }
+
+    selectAllAssets(select) {
+      this.getAssetItems().forEach((li) => this.setItemSelected(li, select));
+      this.notifySelectionChange();
+    }
+
+    ensureAssetEmptyState() {
+      if (!this.assetListEl) return;
+      if (this.getAssetItems().length === 0 && !this.assetListEl.querySelector('.ms-animate-empty')) {
+        const empty = document.createElement('li');
+        empty.className = 'ms-animate-empty';
+        empty.textContent = 'Extrayez un objet ou importez un PNG.';
+        this.assetListEl.appendChild(empty);
+      }
+      this.notifySelectionChange();
+    }
+
+    removeLayersByFilename(filename) {
+      if (!filename) return;
+      const toRemove = this.scene.layers
+        .filter((l) => l.asset && l.asset.filename === filename)
+        .map((l) => l.id);
+      toRemove.forEach((id) => this.removeLayer(id));
+    }
+
+    removeAssetItem(ref) {
+      if (!this.assetListEl || !ref) return false;
+      const id = ref.id ? String(ref.id) : '';
+      const filename = ref.filename ? String(ref.filename) : '';
+      let removed = false;
+      this.getAssetItems().forEach((li) => {
+        const match = (id && li.dataset.id === id) || (filename && li.dataset.filename === filename);
+        if (!match) return;
+        if (li.dataset.filename) this.knownAssets.delete(li.dataset.filename);
+        li.remove();
+        removed = true;
+      });
+      if (filename) this.removeLayersByFilename(filename);
+      if (removed) this.ensureAssetEmptyState();
+      return removed;
+    }
+
     addAssetItem(data) {
-      if (!this.assetListEl || this.knownAssets.has(data.filename)) return;
+      if (!this.assetListEl || !data || !data.filename || this.knownAssets.has(data.filename)) return;
       this.knownAssets.add(data.filename);
       const empty = this.assetListEl.querySelector('.ms-animate-empty');
       if (empty) empty.remove();
+      const id = data.id != null && data.id !== ''
+        ? String(data.id)
+        : (data._id != null ? String(data._id) : '');
       const li = document.createElement('li');
       li.className = 'ms-animate-asset-item';
+      li.dataset.filename = data.filename;
+      if (id) li.dataset.id = id;
+      li.setAttribute('role', 'option');
+      li.setAttribute('aria-selected', 'false');
       li.innerHTML = `
+        <span class="ms-list-check" aria-hidden="true"></span>
         <img src="${data.url}?v=${encodeURIComponent(data.filename)}" alt="">
         <div class="ms-animate-asset-info">
           <span>${data.title || data.filename}</span>
@@ -1324,16 +1669,47 @@
         <div class="ms-animate-asset-btns">
           <button type="button" class="ms-btn ms-btn-ghost ms-animate-open-btn">Nouvelle scène</button>
           <button type="button" class="ms-btn ms-btn-ghost ms-animate-add-btn">+ Calque</button>
+          <button type="button" class="ms-btn ms-btn-ghost ms-list-delete-btn" title="Supprimer">×</button>
         </div>`;
-      li.querySelector('.ms-animate-open-btn').addEventListener('click', () => this.loadAsset(data));
-      li.querySelector('.ms-animate-add-btn').addEventListener('click', () => this.addLayerToScene(data));
+      li.querySelector('.ms-animate-open-btn').addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.loadAsset(data);
+      });
+      li.querySelector('.ms-animate-add-btn').addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.addLayerToScene(data);
+      });
+      const delBtn = li.querySelector('.ms-list-delete-btn');
+      if (delBtn) {
+        delBtn.addEventListener('click', async (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          if (!confirm('Supprimer cet objet ?')) return;
+          delBtn.disabled = true;
+          try {
+            if (this.onDeleteAsset) await this.onDeleteAsset({ id, filename: data.filename });
+            else this.removeAssetItem({ id, filename: data.filename });
+          } catch (err) {
+            delBtn.disabled = false;
+            this.onStatus('Suppression: ' + err.message);
+          }
+        });
+      }
+      li.addEventListener('click', (e) => {
+        if (e.target.closest('a, button')) return;
+        this.setItemSelected(li, !li.classList.contains('is-selected'));
+        this.notifySelectionChange();
+      });
       this.assetListEl.prepend(li);
+      this.notifySelectionChange();
     }
 
     renderLayerList() {
       if (!this.layerListEl) return;
       if (!this.scene.layers.length) {
-        this.layerListEl.innerHTML = '<li class="ms-animate-empty">Importez des objets via « + Calque ».</li>';
+        this.layerListEl.innerHTML = this.workflow === 'clip'
+          ? '<li class="ms-animate-empty">Générez un sujet, puis animez-le.</li>'
+          : '<li class="ms-animate-empty">Importez des objets via la liste ci-dessous.</li>';
         return;
       }
       this.layerListEl.innerHTML = '';
@@ -1345,7 +1721,8 @@
           `<option value="${c.id}"${layer.cadreId === c.id ? ' selected' : ''}>${c.label}</option>`
         ).join('');
         const zoneCount = Object.values(layer.zonesByCadre || {}).reduce((n, z) => n + z.length, 0);
-        const clipCount = Object.values(layer.videoClipsByCadre || {}).filter((c) => c && c.url).length;
+        const kfCount = (layer.keyframes || []).length;
+        const ltxCount = (layer.ltxEffects || []).length;
         li.innerHTML = `
           <div class="ms-animate-layer-head">
             <strong>${i + 1}. ${layer.asset.title}</strong>
@@ -1354,12 +1731,13 @@
           <label class="ms-animate-layer-cadre">Animation cadre
             <select class="ms-layer-cadre-select">${cadreOpts}</select>
           </label>
-          <small>${clipCount} clip IA · ${zoneCount} zone(s) · ${Math.round(getLayerRotation(layer))}° · pos ${Math.round(layer.x)},${Math.round(layer.y)}</small>`;
+          <small>${kfCount} KF · ${ltxCount} LTX · ${zoneCount} zone(s) · ${Math.round(getLayerRotation(layer))}°</small>`;
         li.addEventListener('click', (e) => {
           if (e.target.closest('button') || e.target.closest('select')) return;
           this.activeLayerId = layer.id;
           this.renderLayerList();
           this.renderZoneList();
+          this.renderKeyframeList();
           this.renderZonesOverlay();
           this.updatePromptPanel();
         });
@@ -1382,21 +1760,37 @@
       if (!this.zoneListEl) return;
       const layer = this.getActiveLayer();
       const cadre = this.getActiveCadre();
+      const K = KF();
       const zones = layer ? getLayerZones(layer, cadre?.id) : [];
       const clip = layer && cadre ? getLayerVideoClip(layer, cadre.id) : null;
-      if (!layer || (!zones.length && !clip)) {
-        const hint = layer && cadre
-          ? `Cadre « ${cadre.label} » — générez un clip IA ou dessinez des zones sur ${layer.asset.title}.`
-          : 'Sélectionnez un calque et un cadre actif.';
+      const ltxCount = layer && layer.ltxEffects ? layer.ltxEffects.length : 0;
+      const kfCount = layer && layer.keyframes ? layer.keyframes.length : 0;
+      const kfMotion = layer && K ? K.hasKeyframeMotion(layer) : false;
+      if (!layer || (!zones.length && !clip && !ltxCount && !kfMotion)) {
+        const hint = layer
+          ? `Keyframes (${kfCount}) — scrub + déplacer, ou effet LTX @ playhead.`
+          : 'Sélectionnez un calque.';
         this.zoneListEl.innerHTML = `<li class="ms-animate-empty">${hint}</li>`;
         return;
       }
       this.zoneListEl.innerHTML = '';
+      if (kfMotion) {
+        const li = document.createElement('li');
+        li.className = 'ms-animate-zone-item ms-animate-clip-item';
+        li.innerHTML = `<span>Keyframes</span><small>${kfCount} poses</small>`;
+        this.zoneListEl.appendChild(li);
+      }
+      if (ltxCount) {
+        const li = document.createElement('li');
+        li.className = 'ms-animate-zone-item ms-animate-clip-item';
+        li.innerHTML = `<span>Effets LTX</span><small>${ltxCount}</small>`;
+        this.zoneListEl.appendChild(li);
+      }
       if (clip) {
         const li = document.createElement('li');
         li.className = 'ms-animate-zone-item ms-animate-clip-item';
         const dur = clip.duration ? `${clip.duration.toFixed(1)} s` : 'clip';
-        li.innerHTML = `<span>Clip IA (LTX)</span><small>${dur} · fond ${clip.background_color || 'uni'}</small>`;
+        li.innerHTML = `<span>Clip cadre (legacy)</span><small>${dur}</small>`;
         this.zoneListEl.appendChild(li);
       }
       zones.forEach((z, i) => {
@@ -1512,6 +1906,9 @@
         this.stopPlay();
         return;
       }
+      this.playheadSec = t;
+      this.syncPlayheadUi();
+      this.syncLayersToTime(t);
       this.paintFrame(t);
       this.rafId = requestAnimationFrame(this.tick);
     };
@@ -1524,7 +1921,7 @@
     startPlay() {
       if (!this.scene.layers.length) return;
       this.playing = true;
-      this.playStart = performance.now();
+      this.playStart = performance.now() - this.playheadSec * 1000;
       if (this.playBtn) this.playBtn.textContent = 'Pause';
       this.tick();
     }
@@ -1535,12 +1932,17 @@
       this.rafId = null;
       const dur = this.getDurationSec();
       if (this.playBtn) this.playBtn.textContent = `▶ Aperçu ${dur} s`;
-      this.paintFrame(0);
+      this.setPlayhead(this.playheadSec, { paint: true });
     }
 
     paintFrame(tSec) {
       if (!this.ctx) return;
-      renderComposedFrame(this.ctx, this.scene, tSec, this.getDurationSec(), { transparent: false, cropOutput: false });
+      const t = tSec == null ? this.getEditTimeSec() : tSec;
+      renderComposedFrame(this.ctx, this.scene, t, this.getDurationSec(), {
+        transparent: false,
+        cropOutput: false,
+        liveLayerId: this.layerTransform ? this.layerTransform.layerId : null,
+      });
     }
 
     async paintExportFrame(tSec, transparent) {
@@ -1562,8 +1964,15 @@
         const z = Object.values(l.zonesByCadre || {}).some((arr) => arr.length);
         const v = Object.values(l.videoClipsByCadre || {}).some((clip) => clip && clip.url);
         const f = Object.values(l.fullEffectsByCadre || {}).some((arr) => arr.length);
-        return z || v || f || (Array.isArray(l.zones) && l.zones.length);
+        const ltx = (l.ltxEffects || []).length > 0;
+        return z || v || f || ltx || (Array.isArray(l.zones) && l.zones.length);
       });
+    }
+
+    hasKeyframeMotion() {
+      const K = KF();
+      if (!K) return false;
+      return this.scene.layers.some((l) => K.hasKeyframeMotion(l));
     }
 
     async exportAnimation() {
@@ -1576,6 +1985,13 @@
       if (!this.scene.layers.length) {
         this.onStatus('Ajoutez au moins un calque.');
         return false;
+      }
+      if (this.workflow === 'clip') {
+        if (!this.hasAnyZones() && !this.hasKeyframeMotion()) {
+          this.onStatus('Ajoutez ≥2 keyframes ou un effet LTX avant export.');
+          return false;
+        }
+        return true;
       }
       if (!this.hasAnyZones()) {
         this.onStatus('Générez un clip IA ou ajoutez des zones sur au moins un cadre.');

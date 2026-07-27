@@ -239,6 +239,7 @@ router.get('/devis/:id', authenticateJWT, useGderpiEntrepriseDb, requireGderpiRo
 router.post('/devis', authenticateJWT, useGderpiEntrepriseDb, requireGderpiRole(writeRoles), devisController.create);
 router.put('/devis/:id', authenticateJWT, useGderpiEntrepriseDb, requireGderpiRole(writeRoles), devisController.update);
 router.patch('/devis/:id/pm-link', authenticateJWT, useGderpiEntrepriseDb, requireGderpiRole(writeRoles), devisController.linkPmCard);
+router.post('/devis/:id/pm-ensure-card', authenticateJWT, useGderpiEntrepriseDb, requireGderpiRole(writeRoles), devisController.ensurePmCard);
 router.patch('/devis/:id/status', authenticateJWT, useGderpiEntrepriseDb, requireGderpiRole(writeRoles), devisController.changeStatus);
 router.post('/devis/:id/send', authenticateJWT, useGderpiEntrepriseDb, requireGderpiRole(writeRoles), devisController.sendToClient);
 router.delete('/devis/:id', authenticateJWT, useGderpiEntrepriseDb, requireGderpiRole(writeRoles), devisController.remove);

@@ -1,0 +1,109 @@
+{
+  "namespace": "agent:review:invoice",
+  "name": "Revue facture",
+  "documentMode": "canvas",
+  "scope": "agent-review",
+  "page": {
+    "format": "A4",
+    "widthMm": 210,
+    "heightMm": 297,
+    "margins": { "top": 15, "right": 15, "bottom": 15, "left": 15 }
+  },
+  "guides": {
+    "vertical": [],
+    "horizontal": [40, 90]
+  },
+  "snap": {
+    "enabled": true,
+    "thresholdMm": 1.5,
+    "snapToPage": true,
+    "snapToGuides": true,
+    "snapToNodes": true
+  },
+  "nodes": [
+    {
+      "id": "zone_header",
+      "type": "zone",
+      "zoneType": "header",
+      "parentId": null,
+      "layout": { "x": 15, "y": 15, "width": 180, "height": 22, "unit": "mm" },
+      "zIndex": 1,
+      "style": { "border": "none", "backgroundColor": "transparent" },
+      "children": ["tf_header"]
+    },
+    {
+      "id": "tf_header",
+      "type": "text-frame",
+      "parentId": "zone_header",
+      "layout": { "x": 0, "y": 0, "width": 180, "height": 22, "unit": "mm" },
+      "content": {
+        "mode": "flow",
+        "html": "<h1 style=\"margin:0;font-size:18px;\">Revue facture</h1><p style=\"margin:4px 0 0;color:#64748b;\">Validez le contenu puis les pièces jointes avant suppression du mail.</p>"
+      },
+      "style": { "fontSize": 12 }
+    },
+    {
+      "id": "zone_meta",
+      "type": "zone",
+      "zoneType": "meta",
+      "parentId": null,
+      "layout": { "x": 15, "y": 42, "width": 180, "height": 28, "unit": "mm" },
+      "zIndex": 2,
+      "style": { "border": "1px solid #e2e8f0", "backgroundColor": "rgba(248,250,252,0.95)" },
+      "children": ["tf_meta"]
+    },
+    {
+      "id": "tf_meta",
+      "type": "text-frame",
+      "parentId": "zone_meta",
+      "layout": { "x": 3, "y": 3, "width": 174, "height": 22, "unit": "mm" },
+      "content": {
+        "mode": "flow",
+        "html": "<p><strong>De :</strong> {{from}}</p><p><strong>Sujet :</strong> {{subject}}</p><p><strong>Réf. IMAP :</strong> {{sourceRef}}</p>"
+      },
+      "style": { "fontSize": 11 }
+    },
+    {
+      "id": "zone_body",
+      "type": "zone",
+      "zoneType": "body",
+      "parentId": null,
+      "layout": { "x": 15, "y": 78, "width": 180, "height": 120, "unit": "mm" },
+      "zIndex": 3,
+      "style": { "border": "1px dashed #94a3b8", "backgroundColor": "#ffffff" },
+      "children": ["tf_body"]
+    },
+    {
+      "id": "tf_body",
+      "type": "text-frame",
+      "parentId": "zone_body",
+      "layout": { "x": 3, "y": 3, "width": 174, "height": 114, "unit": "mm" },
+      "content": {
+        "mode": "flow",
+        "html": "<p><strong>Corps du mail</strong></p><p>{{text}}</p>"
+      },
+      "style": { "fontSize": 11 }
+    },
+    {
+      "id": "zone_attachments",
+      "type": "zone",
+      "zoneType": "attachments",
+      "parentId": null,
+      "layout": { "x": 15, "y": 206, "width": 180, "height": 50, "unit": "mm" },
+      "zIndex": 4,
+      "style": { "border": "1px solid #fdba74", "backgroundColor": "rgba(255,247,237,0.95)" },
+      "children": ["tf_attachments"]
+    },
+    {
+      "id": "tf_attachments",
+      "type": "text-frame",
+      "parentId": "zone_attachments",
+      "layout": { "x": 3, "y": 3, "width": 174, "height": 44, "unit": "mm" },
+      "content": {
+        "mode": "flow",
+        "html": "<p><strong>Pièces jointes</strong></p><p>{{attachments_html}}</p>"
+      },
+      "style": { "fontSize": 11 }
+    }
+  ]
+}

@@ -697,6 +697,13 @@
         return Core?.resolveHideMinorationInChoices?.(node) === true;
     }
 
+    /** true = forcer l’affichage configurateur même si le nœud est vide / base seule. */
+    function slotShowsEvenIfEmptyOrBaseOnly(slot) {
+        const node = getCatalogNodeForSlot(slot);
+        const Core = global.UgapCatalogueNodesCore;
+        return Core?.resolveShowEvenIfEmptyOrBaseOnly?.(node) === true;
+    }
+
     function isMotorChoiceSlot(slot) {
         return isMotorCatalogNode(slot);
     }
@@ -2007,6 +2014,7 @@
         isMotorCatalogContainerSlot,
         isMotorGenericOptionCatalogSlot,
         slotHidesMinorationInChoices,
+        slotShowsEvenIfEmptyOrBaseOnly,
         isOptionOnMotorChoiceSlotNode,
         isOptionOnSiblingMotorisationNode,
         isImportGeneratedBaseOption,

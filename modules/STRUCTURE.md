@@ -1,6 +1,6 @@
 # Structure type d’un module (réutilisable)
 
-Ce document décrit le **modèle à suivre pour la plupart des modules** : backend, front (app utilisateur), backoffice, et organisation des API. Le module **IA** est la référence implémentée.
+Ce document décrit le **modèle à suivre pour la plupart des modules** : backend, front (app utilisateur), backoffice, et organisation des API. Le module **annuaire** est la référence implémentée de l'architecture cible ; toute migration d'un module doit converger vers cette structure.
 
 ---
 
@@ -9,10 +9,39 @@ Ce document décrit le **modèle à suivre pour la plupart des modules** : backe
 | Facette | Rôle | Où ça vit |
 |--------|------|-----------|
 | **Backend** | API, logique métier, accès données | `modules/<nom>/backend/` (routes montées sous `/api/<nom>`) |
-| **Front (app user)** | Pages utilisées par les utilisateurs finaux | Pages dans `frontend/pages/modules/` ; le dossier `modules/<nom>/frontend/` peut ne contenir qu’un README qui pointe vers ces pages |
+| **Front (app user)** | Pages utilisées par les utilisateurs finaux | Page PHP dans `frontend/pages/modules/<nom>.php`, qui charge les assets du module (`modules/<nom>/frontend/assets/css/`, `assets/js/`) |
 | **Backoffice** | Config du module par entité, droits, paramètres | Même front principal : `frontend/pages/modules/<nom>-config.php`, `<nom>-llms.php`, etc. |
 
 - **Un seul front** : une seule app (frontend principal) avec une **zone user** (apps) et une **zone backoffice** (admin). Les pages backoffice appellent les routes d’admin du module.
+- **Manifest `module.php`** à la racine du module (id, name, description, icon, `view_url`) : référence l'app dans le catalogue du front PHP.
+
+---
+
+## 1bis. Organisation du code backend (architecture cible)
+
+```
+modules/<nom>/backend/
+├── index.js                       # init() + routes() — rien d'autre
+├── routes.js                      # Déclaration des routes, middlewares chaînés
+├── package.json                   # name, routes[], enabled, bloc app{} optionnel
+├── controllers/                   # 1 fichier par ressource — reçoit req/res, appelle les services
+│   └── <ressource>Controller.js
+├── services/                      # Logique métier, découpée par domaine
+│   └── <domaine>/                 # ex. contacts/, organisations/, integrations/gderpi/
+│       ├── <uneFonction>.js       # UNE fonction exportée par fichier (module.exports = fn)
+│       └── ...
+└── middleware/
+    ├── use<Module>EntrepriseDb.js # Multitenant (req.entrepriseDb, req.entrepriseId)
+    └── require<Module>Role.js     # Contrôle d'accès par rôles
+```
+
+Règles (voir aussi `modules/gderpi/CONVENTIONS.md`) :
+
+- **Une fonction = un fichier** dans `services/` ; nom du fichier = nom de la fonction (`listContacts.js` → `listContacts`). ~50–150 lignes par fichier.
+- **En-tête obligatoire** en tête de fichier : `/** FICHIER : modules/<nom>/backend/... */` (+ RÔLE, ENTRÉES/SORTIES si utile).
+- Les **contrôleurs** ne contiennent pas de logique métier : ils valident l'entrée, appellent les fonctions de `services/`, formatent la réponse.
+- Accès au core GDRI depuis le backend d'un module : `require(path.join(__dirname, '../../../backend/config/jwt'))` (chemins vers la racine du projet).
+- Ordre des middlewares sur chaque route : `authenticateJWT` → `use<Module>EntrepriseDb` → `require<Module>Role([...])` → contrôleur.
 
 ---
 
@@ -46,14 +75,14 @@ Pour l’instant, les deux coexistent sous `/api/<nom>/`. Lors d’un refactor g
 
 ---
 
-## 5. Référence : module IA
+## 5. Référence : module Annuaire (architecture cible)
 
-- **Backend** : `modules/ia/backend/` — routes `/api/ia/*` (providers, config, llms CRUD, rights, entity-users, generate, health).
-- **Backoffice** :  
-  - `frontend/pages/modules/ia-config.php` (config globale legacy),  
-  - `frontend/pages/modules/ia-llms.php` (CRUD LLMs par entité),  
-  - `frontend/pages/modules/ia-llm-rights.php` (droits LLM par utilisateur).
-- **Front (user)** : vide pour l’instant ; les autres modules appellent `POST /api/ia/generate` ou `getIAClientForEntity()`.
-- **Données** : collections en base principale (ex. `ia_llms`, `ia_llm_user_rights`), scopées par `entity_id`.
+- **Manifest** : `modules/annuaire/module.php` (id, name, icon, `view_url` → `pages/modules/annuaire.php`).
+- **Backend** : `modules/annuaire/backend/` — routes `/api/annuaire/*` (organisations, services, contacts, members, integrations/gderpi) ;  
+  `controllers/` (1 par ressource), `services/<domaine>/<uneFonction>.js`, `middleware/useAnnuaireEntrepriseDb.js` + `requireAnnuaireRole.js`.
+- **Front (user)** : `frontend/pages/modules/annuaire.php` charge `modules/annuaire/frontend/assets/css/annuaire.css` et `assets/js/annuaire-app.js`.
+- **Données** : collections en base entreprise (`annuaire_organisations`, `annuaire_services`, `annuaire_contacts`), scopées par `entrepriseId`.
 
-En s’inspirant de ce modèle (backend + front + backoffice, scoping entité, un seul front avec deux zones), la plupart des modules peuvent garder la même structure.
+Ancienne référence (module **IA**) : backend `modules/ia/backend/`, backoffice `ia-config.php` / `ia-llms.php` / `ia-llm-rights.php`, données en base principale scopées `entity_id`. Le module IA reste valable pour le pattern « backoffice + helpers exportés » (`getIAClientForEntity()`), mais son organisation interne (services monolithiques) n'est plus le modèle à suivre.
+
+En s’inspirant de ce modèle (backend + front + backoffice, scoping entité, un seul front avec deux zones, une fonction par fichier), la plupart des modules peuvent garder la même structure.

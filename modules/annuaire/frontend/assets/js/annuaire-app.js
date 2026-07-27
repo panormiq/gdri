@@ -8,8 +8,7 @@
     services: [],
     selectedOrgId: null,
     contextBoutiqueId: null,
-    selectionSource: 'boutique',
-    filterKind: '',
+    selectionSource: 'entity',
     filterOwner: '',
     myContacts: null,
     currentUserId: String(cfg.currentUserId || '').trim(),
@@ -17,8 +16,14 @@
     identityMode: cfg.mode === 'identity',
     canManage: cfg.canManage === true,
     identityUrl: String(cfg.identityUrl || ''),
-    openDropbox: ''
+    connectorHubUrl: String(cfg.connectorHubUrl || ''),
+    connectorUrls: cfg.connectorUrls && typeof cfg.connectorUrls === 'object' ? cfg.connectorUrls : {},
+    connectorsStatus: null,
+    openDropbox: '',
+    contactSearchFilter: ''
   };
+
+  let entityBarClickTimer = null;
 
   const ROLE_LABELS = {
     client: 'Client',
@@ -28,62 +33,6 @@
     interne: 'Interne',
     boutique: 'Boutique'
   };
-
-  const KIND_TAB_LABELS = {
-    '': 'Tous',
-    client: 'Clients',
-    fournisseur: 'Fournisseurs',
-    prospect: 'Prospects',
-    interne: 'Internes',
-    boutique: 'Boutiques'
-  };
-
-  function applyKindFilter(list, kind) {
-    const k = kind != null ? kind : state.filterKind;
-    if (!k) return list;
-    if (k === 'interne') {
-      return list.filter(function (o) {
-        return o.scope === 'interne' || (o.roles || []).indexOf('interne') >= 0;
-      });
-    }
-    if (k === 'boutique') {
-      return list.filter(function (o) {
-        return o.gderpiBoutiqueId || (o.roles || []).indexOf('boutique') >= 0;
-      });
-    }
-    return list.filter(function (o) {
-      return (o.roles || []).indexOf(k) >= 0;
-    });
-  }
-
-  function dropboxVisible(kind) {
-    const k = state.filterKind;
-    if (!k) return true;
-    if (k === 'boutique') return kind === 'boutique';
-    if (k === 'interne') return kind === 'client';
-    return kind === k;
-  }
-
-  function updateFilterTabCounts() {
-    document.querySelectorAll('[data-annuaire-kind]').forEach(function (btn) {
-      const kind = btn.getAttribute('data-annuaire-kind') || '';
-      const label = KIND_TAB_LABELS[kind] || kind;
-      let n = 0;
-      if (kind === 'boutique') n = state.organisations.filter(isBoutiqueOrg).length;
-      else if (kind === 'interne') {
-        n = state.organisations.filter(function (o) {
-          return o.scope === 'interne' || (o.roles || []).indexOf('interne') >= 0;
-        }).length;
-      } else if (kind) {
-        n = state.organisations.filter(function (o) {
-          return (o.roles || []).indexOf(kind) >= 0;
-        }).length;
-      } else {
-        n = state.organisations.filter(function (o) { return !isOwnCompanyOrg(o); }).length;
-      }
-      btn.textContent = n ? label + ' (' + n + ')' : label;
-    });
-  }
 
   function sortByDisplayName(a, b) {
     return (a.displayName || '').localeCompare(b.displayName || '', 'fr');
@@ -106,55 +55,33 @@
     return links.indexOf(boutiqueId) >= 0;
   }
 
-  function filterOrgsBySearch(list) {
-    const needle = searchNeedle();
-    if (!needle) return list;
-    return list.filter(function (o) {
-      const hay = [
-        o.displayName,
-        o.raisonSociale,
-        o.email,
-        o.ville,
-        (o.roles || []).join(' ')
-      ].filter(Boolean).join(' ').toLowerCase();
-      return hay.indexOf(needle) >= 0;
-    });
-  }
-
   function listClientsForPicker() {
     let list = state.organisations.filter(function (o) {
       if (isOwnCompanyOrg(o)) return false;
-      if (state.filterKind === 'interne') {
-        return o.scope === 'interne' || (o.roles || []).indexOf('interne') >= 0;
-      }
       return (o.roles || []).indexOf('client') >= 0
         || (o.roles || []).indexOf('prospect') >= 0
         || (o.roles || []).indexOf('partenaire') >= 0;
     });
-    list = applyKindFilter(list);
     if (state.contextBoutiqueId) {
       list = list.filter(function (o) { return orgLinkedToBoutique(o, state.contextBoutiqueId); });
     }
     list = applyOwnerOrganisationFilter(list);
-    return filterOrgsBySearch(list).sort(sortByDisplayName);
+    return list.sort(sortByDisplayName);
   }
 
   function listFournisseursForPicker() {
     let list = state.organisations.filter(function (o) {
       return !isOwnCompanyOrg(o) && (o.roles || []).indexOf('fournisseur') >= 0;
     });
-    list = applyKindFilter(list);
     if (state.contextBoutiqueId) {
       list = list.filter(function (o) { return orgLinkedToBoutique(o, state.contextBoutiqueId); });
     }
     list = applyOwnerOrganisationFilter(list);
-    return filterOrgsBySearch(list).sort(sortByDisplayName);
+    return list.sort(sortByDisplayName);
   }
 
   function listBoutiquesForPicker() {
-    let list = state.organisations.filter(isBoutiqueOrg);
-    list = applyKindFilter(list);
-    return filterOrgsBySearch(list).sort(sortByDisplayName);
+    return state.organisations.filter(isBoutiqueOrg).sort(sortByDisplayName);
   }
 
   function defaultBoutiqueId() {
@@ -211,9 +138,28 @@
       || null;
   }
 
-  function searchNeedle() {
-    const q = document.getElementById('annuaire-search');
+  function contactSearchNeedle() {
+    if (state.contactSearchFilter) return state.contactSearchFilter.toLowerCase();
+    const q = document.getElementById('annuaire-search-contacts');
     return q && q.value.trim() ? q.value.trim().toLowerCase() : '';
+  }
+
+  function filterContactsBySearch(list) {
+    const needle = contactSearchNeedle();
+    if (!needle) return list;
+    return list.filter(function (c) {
+      const hay = [
+        c.displayName,
+        c.prenom,
+        c.nom,
+        c.email,
+        c.telephone,
+        c.fonction,
+        c.serviceLabel,
+        c.serviceLibelle
+      ].filter(Boolean).join(' ').toLowerCase();
+      return hay.indexOf(needle) >= 0;
+    });
   }
 
   function isOwnCompanyOrg(org) {
@@ -225,13 +171,38 @@
     openOrgModal(org);
   }
 
+  function isInternalTeamView(org) {
+    if (state.selectionSource === 'entity') return true;
+    return Boolean(org && isBoutiqueOrg(org));
+  }
+
+  function internalContactOwnerOrg() {
+    return state.organisations.find(function (o) { return o.isOwnEntity; }) || entityLegalOrg();
+  }
+
+  function servicesOrganisationIdForView(org) {
+    if (isInternalTeamView(org)) {
+      const owner = internalContactOwnerOrg();
+      return owner ? owner.organisationId : org.organisationId;
+    }
+    return org.organisationId;
+  }
+
   function contactsSectionMeta(org) {
-    if (isOwnCompanyOrg(org)) {
+    if (state.selectionSource === 'entity') {
       return {
         title: 'Équipe interne',
-        hint: 'Collaborateurs de votre entreprise (Direction, Commercial…).',
+        hint: 'Tous les collaborateurs de l\'entreprise.',
         addLabel: '+ Ajouter un collaborateur',
-        empty: 'Aucun collaborateur. Ajoutez les membres de votre équipe ici.'
+        empty: 'Aucun collaborateur.'
+      };
+    }
+    if (isInternalTeamView(org)) {
+      return {
+        title: 'Équipe interne',
+        hint: 'Uniquement les collaborateurs qui ont cette boutique cochée.',
+        addLabel: '+ Ajouter un collaborateur',
+        empty: 'Aucun collaborateur assigné à cette boutique.'
       };
     }
     return {
@@ -242,18 +213,71 @@
     };
   }
 
+  function renderContactBoutiqueChecksHtml(name, selectedIds) {
+    const boutiques = state.organisations.filter(isBoutiqueOrg).sort(sortByDisplayName);
+    const selected = new Set(selectedIds || []);
+    if (!boutiques.length) {
+      return '<p class="text-muted small">Aucune boutique disponible.</p>';
+    }
+    return boutiques.map(function (b) {
+      const checked = selected.has(b.organisationId) ? ' checked' : '';
+      return '<label class="annuaire-boutique-check"><input type="checkbox" name="' + esc(name) + '" value="' +
+        esc(b.organisationId) + '"' + checked + '> ' + esc(b.displayName) + '</label>';
+    }).join('');
+  }
+
+  function collectInternalBoutiqueAssignment() {
+    const checked = [];
+    document.querySelectorAll('input[name="annuaire-c-boutique"]:checked').forEach(function (cb) {
+      checked.push(cb.value);
+    });
+    const owner = internalContactOwnerOrg();
+    if (!owner) return null;
+    return {
+      organisationId: owner.organisationId,
+      boutiqueOrganisationIds: checked
+    };
+  }
+
+  function contactBoutiqueLabels(c) {
+    const links = c.boutiqueOrganisationIds || [];
+    if (!links.length) return ['Aucune boutique'];
+    return links.map(function (id) {
+      const b = state.organisations.find(function (o) { return o.organisationId === id; });
+      return b ? b.displayName : id;
+    });
+  }
+
+  function contactVisibleInBoutique(c, boutiqueId) {
+    if (!boutiqueId) return true;
+    const links = c.boutiqueOrganisationIds || [];
+    return links.indexOf(boutiqueId) >= 0;
+  }
+
   function renderContactsSectionHtml(org, orgContacts) {
     const meta = contactsSectionMeta(org);
+    const internal = isInternalTeamView(org);
     const contactCardsHtml = orgContacts.length
-      ? orgContacts.map(renderContactCard).join('')
+      ? orgContacts.map(function (c) { return renderContactCard(c, internal); }).join('')
       : '<div class="annuaire-contacts-empty">' + esc(meta.empty) + '</div>';
+    const defaultBoutiques = state.contextBoutiqueId ? [state.contextBoutiqueId] : [];
+    const boutiqueChecks = internal
+      ? '<div class="annuaire-form-span-2 annuaire-contact-boutiques-field">' +
+          '<label>Boutiques assignées</label>' +
+          '<div class="annuaire-boutique-checks">' +
+            renderContactBoutiqueChecksHtml('annuaire-c-boutique', defaultBoutiques) +
+          '</div>' +
+          '<p class="text-muted small">Aucune case = visible dans toutes les boutiques. Sinon, uniquement celles cochées.</p>' +
+        '</div>'
+      : '';
     return '<section class="annuaire-contacts-section annuaire-contacts-section--full' +
-      (isOwnCompanyOrg(org) ? ' annuaire-contacts-section--internal' : '') + '">' +
+      (internal ? ' annuaire-contacts-section--internal' : '') + '">' +
       '<div class="annuaire-contacts-toolbar">' +
         '<div>' +
           '<h3>' + esc(meta.title) + ' <span class="annuaire-contacts-toolbar__count">· ' + orgContacts.length + '</span></h3>' +
           (meta.hint ? '<p class="annuaire-contacts-toolbar__hint">' + esc(meta.hint) + '</p>' : '') +
         '</div>' +
+      '</div>' +
       '<details class="annuaire-add-contact-details">' +
         '<summary>' + esc(meta.addLabel) + '</summary>' +
         '<div class="annuaire-add-contact-form">' +
@@ -271,11 +295,72 @@
             '<div><label>Responsable</label><select id="annuaire-c-owner">' +
               renderOwnerSelectOptions(state.currentUserId) +
             '</select></div>' +
+            boutiqueChecks +
           '</div>' +
           '<button type="button" class="btn btn-primary btn-sm" id="annuaire-btn-add-contact" style="margin-top:0.65rem;">Enregistrer</button>' +
         '</div>' +
       '</details>' +
+      '<div class="annuaire-contacts-search">' +
+        '<input type="search" id="annuaire-search-contacts" class="annuaire-search-input" ' +
+          'placeholder="Rechercher un contact (nom, email, fonction…)" autocomplete="off" ' +
+          'value="' + esc(state.contactSearchFilter) + '">' +
+        '<button type="button" class="annuaire-filter-btn annuaire-filter-btn--mine' +
+          (state.filterOwner === 'mine' ? ' active' : '') +
+          '" data-annuaire-owner="mine">Les miens</button>' +
+      '</div>' +
       '<div class="annuaire-contact-cards">' + contactCardsHtml + '</div>' +
+    '</section>';
+  }
+
+  function connectorConfigUrl(connectorId) {
+    const urls = state.connectorUrls || {};
+    return String(urls[connectorId] || state.connectorHubUrl || '').trim();
+  }
+
+  function connectorStatusLabel(item) {
+    if (!item.available) return 'Non installé';
+    if (!item.configured) return 'À configurer';
+    if (!item.enabled) return 'Désactivé';
+    return 'OK';
+  }
+
+  function connectorStatusClass(item) {
+    if (!item.available) return 'annuaire-connector-chip--missing';
+    if (!item.configured) return 'annuaire-connector-chip--warn';
+    if (!item.enabled) return 'annuaire-connector-chip--off';
+    return 'annuaire-connector-chip--ok';
+  }
+
+  function renderConnectorsStatusHtml() {
+    if (state.identityMode) return '';
+    const list = (state.connectorsStatus && state.connectorsStatus.connectors) || [];
+    if (!list.length) return '';
+
+    const itemsHtml = list.map(function (item) {
+      const url = connectorConfigUrl(item.id);
+      const status = connectorStatusLabel(item);
+      const needsConfig = item.available && !item.configured;
+      const linkHtml = (url && (needsConfig || state.canManage))
+        ? ('<a class="annuaire-connector-chip__link" href="' + esc(url) + '">' +
+            (needsConfig ? 'Configurer' : 'Ouvrir') + '</a>')
+        : '';
+      return '<div class="annuaire-connector-chip ' + connectorStatusClass(item) + '">' +
+        '<span class="annuaire-connector-chip__name">' + esc(item.name || item.id) + '</span>' +
+        '<span class="annuaire-connector-chip__status">' + esc(status) + '</span>' +
+        linkHtml +
+      '</div>';
+    }).join('');
+
+    const hub = state.connectorHubUrl
+      ? ('<a class="annuaire-connectors__hub" href="' + esc(state.connectorHubUrl) + '">Tous les connecteurs</a>')
+      : '';
+
+    return '<section class="annuaire-connectors" aria-label="Connecteurs contacts">' +
+      '<div class="annuaire-connectors__head">' +
+        '<span class="annuaire-connectors__title">Connecteurs</span>' +
+        hub +
+      '</div>' +
+      '<div class="annuaire-connectors__list">' + itemsHtml + '</div>' +
     '</section>';
   }
 
@@ -311,6 +396,25 @@
     '</div>';
   }
 
+  function clearPickerSelection() {
+    const owner = state.organisations.find(function (o) { return o.isOwnEntity; });
+    const entity = owner || entityLegalOrg();
+    if (!entity) return;
+    if (
+      state.selectionSource === 'entity'
+      && !state.contextBoutiqueId
+      && state.selectedOrgId === entity.organisationId
+    ) {
+      closeAllDropboxes();
+      renderSidebar();
+      return;
+    }
+    state.selectionSource = 'entity';
+    state.contextBoutiqueId = null;
+    closeAllDropboxes();
+    return selectOrganisation(entity.organisationId, { asEntity: true });
+  }
+
   function renderEntityBar() {
     const el = document.getElementById('annuaire-entity-bar');
     if (!el || state.identityMode) return;
@@ -321,17 +425,40 @@
       return;
     }
     const contactLine = [entity.email, entity.telephone].filter(Boolean).join(' · ');
+    const isActive = state.selectionSource === 'entity';
     el.hidden = false;
     el.innerHTML =
-      '<div class="annuaire-entity-bar__inner" tabindex="0" role="button" aria-label="Coordonnées légales — double-clic pour modifier">' +
+      '<div class="annuaire-entity-bar__inner' + (isActive ? ' annuaire-entity-bar__inner--active' : '') +
+        '" tabindex="0" role="button" aria-label="Entité légale — clic pour tout désélectionner, double-clic pour modifier">' +
         '<span class="annuaire-entity-bar__label">Entité légale</span>' +
         '<span class="annuaire-entity-bar__name">' + esc(entity.displayName) + '</span>' +
         (contactLine ? '<span class="annuaire-entity-bar__meta">' + esc(contactLine) + '</span>' : '') +
-        (state.canManage ? '<span class="annuaire-entity-bar__hint">Double-clic · coordonnées</span>' : '') +
+        (state.canManage ? '<span class="annuaire-entity-bar__hint">Clic · désélectionner · double-clic · coordonnées</span>' : '') +
       '</div>';
     const inner = el.querySelector('.annuaire-entity-bar__inner');
-    if (inner && state.canManage) {
-      inner.addEventListener('dblclick', function () { openOwnCompanyEditor(entity); });
+    if (inner) {
+      inner.addEventListener('click', function () {
+        if (entityBarClickTimer) clearTimeout(entityBarClickTimer);
+        entityBarClickTimer = setTimeout(function () {
+          entityBarClickTimer = null;
+          clearPickerSelection();
+        }, 250);
+      });
+      if (state.canManage) {
+        inner.addEventListener('dblclick', function (ev) {
+          ev.preventDefault();
+          if (entityBarClickTimer) {
+            clearTimeout(entityBarClickTimer);
+            entityBarClickTimer = null;
+          }
+          openOwnCompanyEditor(entity);
+        });
+      }
+      inner.addEventListener('keydown', function (ev) {
+        if (ev.key !== 'Enter' && ev.key !== ' ') return;
+        ev.preventDefault();
+        clearPickerSelection();
+      });
     }
   }
 
@@ -353,7 +480,6 @@
   }
 
   function renderDropbox(kind, label, options, selectedId) {
-    if (!dropboxVisible(kind)) return '';
     const openClass = state.openDropbox === kind ? ' annuaire-dropbox--open' : '';
     const found = options.find(function (o) { return o.organisationId === selectedId; });
     const value = found ? found.displayName : '— Choisir —';
@@ -424,10 +550,10 @@
     const fournisseurs = listFournisseursForPicker();
     const org = selectedOrg();
 
-    let boutiqueSelected = state.contextBoutiqueId || '';
+    let boutiqueSelected = '';
     let clientSelected = '';
     let frsSelected = '';
-    if (org) {
+    if (state.selectionSource !== 'entity' && org) {
       if (state.selectionSource === 'client') clientSelected = org.organisationId;
       else if (state.selectionSource === 'fournisseur') frsSelected = org.organisationId;
       else if (isBoutiqueOrg(org) || state.selectionSource === 'boutique') {
@@ -435,8 +561,6 @@
         state.contextBoutiqueId = org.organisationId;
       }
     }
-
-    updateFilterTabCounts();
 
     el.innerHTML =
       renderDropbox('boutique', 'Boutique', boutiques, boutiqueSelected) +
@@ -459,10 +583,11 @@
     return d.slice(0, 2).toUpperCase();
   }
 
-  function renderContactCard(c) {
+  function renderContactCard(c, internalView) {
     const principal = c.principal ? ' annuaire-contact-card--principal' : '';
     const roleLine = c.fonction || c.serviceLabel || c.serviceLibelle || '';
     const serviceOnly = c.serviceLabel && c.fonction ? c.serviceLabel : '';
+    const showBoutiques = internalView || c.scope === 'interne';
     let html = '<article class="annuaire-contact-card' + principal + '">' +
       '<div class="annuaire-contact-card__head">' +
         '<div class="annuaire-contact-card__avatar">' + esc(contactInitials(c)) + '</div>' +
@@ -471,6 +596,13 @@
           (roleLine ? '<div class="annuaire-contact-card__role">' + esc(roleLine) + '</div>' : '') +
         '</div>' +
       '</div>';
+    if (showBoutiques) {
+      html += '<div class="annuaire-contact-card__boutiques">' +
+        contactBoutiqueLabels(c).map(function (label) {
+          return '<span class="annuaire-tag annuaire-tag--boutique">' + esc(label) + '</span>';
+        }).join('') +
+      '</div>';
+    }
     if (c.email) {
       html += '<div class="annuaire-contact-card__line">✉ <a href="mailto:' + esc(c.email) + '">' + esc(c.email) + '</a></div>';
     }
@@ -479,6 +611,17 @@
     }
     if (serviceOnly) {
       html += '<div class="annuaire-contact-card__line">' + esc(serviceOnly) + '</div>';
+    }
+    if (showBoutiques) {
+      const linked = (c.boutiqueOrganisationIds || []).slice();
+      html += '<details class="annuaire-contact-boutiques-edit">' +
+        '<summary>Modifier les boutiques assignées</summary>' +
+        '<div class="annuaire-boutique-checks" data-contact-id="' + esc(c.contactId) + '">' +
+          renderContactBoutiqueChecksHtml('annuaire-cb-' + c.contactId, linked) +
+        '</div>' +
+        '<button type="button" class="btn btn-outline btn-sm annuaire-save-contact-boutiques" data-contact-id="' +
+          esc(c.contactId) + '">Enregistrer boutiques</button>' +
+      '</details>';
     }
     html += '<div class="annuaire-contact-card__footer">' +
       '<div class="annuaire-contact-card__owner">' +
@@ -528,6 +671,19 @@
     });
   }
 
+  function updateContactBoutiques(contactId) {
+    const checked = [];
+    document.querySelectorAll('input[name="annuaire-cb-' + contactId + '"]:checked').forEach(function (cb) {
+      checked.push(cb.value);
+    });
+    return global.AnnuaireApi.call('/contacts/' + encodeURIComponent(contactId), {
+      method: 'PUT',
+      body: JSON.stringify({ boutiqueOrganisationIds: checked })
+    }).then(function () {
+      return selectOrganisation(state.selectedOrgId);
+    }).catch(function (err) { alert(err.message); });
+  }
+
   function updateContactOwner(contactId, ownerUserId, previousOwnerId) {
     return global.AnnuaireApi.call('/contacts/' + encodeURIComponent(contactId), {
       method: 'PUT',
@@ -542,13 +698,31 @@
   }
 
   function orgContactsForView(org) {
-    let list = state.contacts.filter(function (c) {
-      return c.organisationId === org.organisationId;
-    });
+    let list = state.contacts.slice();
+    if (!isInternalTeamView(org)) {
+      list = list.filter(function (c) {
+        return c.organisationId === org.organisationId;
+      });
+    } else if (state.selectionSource === 'boutique' && org) {
+      list = list.filter(function (c) {
+        return contactVisibleInBoutique(c, org.organisationId);
+      });
+    }
     if (state.filterOwner === 'mine' && state.currentUserId) {
       list = list.filter(function (c) { return c.ownerUserId === state.currentUserId; });
     }
-    return list;
+    return filterContactsBySearch(list);
+  }
+
+  function onContactSearchInput(input) {
+    state.contactSearchFilter = input.value;
+    const pos = input.selectionStart;
+    renderMain();
+    const next = document.getElementById('annuaire-search-contacts');
+    if (next) {
+      next.focus();
+      try { next.setSelectionRange(pos, pos); } catch (_) { /* ignore */ }
+    }
   }
 
   function renderOrgHeaderHtml(org) {
@@ -613,7 +787,11 @@
     if (!main) return;
     const org = selectedOrg();
     if (!org) {
-      main.innerHTML = '<div class="annuaire-empty annuaire-empty--prompt"><strong>Choisissez une entité</strong><br>Utilisez les listes Boutique, Client ou Fournisseur ci-dessus.</div>';
+      main.innerHTML =
+        '<div class="annuaire-main-inner">' +
+          renderConnectorsStatusHtml() +
+          '<div class="annuaire-empty annuaire-empty--prompt"><strong>Entité légale</strong><br>Choisissez une boutique, un client ou un fournisseur dans les listes à gauche.</div>' +
+        '</div>';
       return;
     }
 
@@ -622,6 +800,7 @@
     main.innerHTML =
       '<div class="annuaire-main-inner">' +
         (state.identityMode ? renderOrgHeaderHtml(org) : renderOrgRecapHtml(org)) +
+        renderConnectorsStatusHtml() +
         (state.identityMode ? '' : renderContactsSectionHtml(org, orgContacts)) +
       '</div>';
 
@@ -632,6 +811,12 @@
     main.querySelectorAll('.annuaire-del-contact').forEach(function (btn) {
       btn.addEventListener('click', function () {
         if (confirm('Supprimer ce contact ?')) deleteContact(btn.getAttribute('data-id'));
+      });
+    });
+    main.querySelectorAll('.annuaire-save-contact-boutiques').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        btn.disabled = true;
+        updateContactBoutiques(btn.getAttribute('data-contact-id')).finally(function () { btn.disabled = false; });
       });
     });
     main.querySelectorAll('.annuaire-owner-select').forEach(function (sel) {
@@ -647,11 +832,18 @@
     });
   }
 
-  function selectOrganisation(orgId) {
+  function selectOrganisation(orgId, opts) {
+    opts = opts || {};
     state.selectedOrgId = orgId;
     const org = state.organisations.find(function (o) { return o.organisationId === orgId; });
-    if (org) {
-      if (isBoutiqueOrg(org)) {
+    if (opts.asEntity) {
+      state.selectionSource = 'entity';
+      state.contextBoutiqueId = null;
+    } else if (org) {
+      if (org.isOwnEntity) {
+        state.selectionSource = 'entity';
+        state.contextBoutiqueId = null;
+      } else if (isBoutiqueOrg(org)) {
         state.contextBoutiqueId = org.organisationId;
         state.selectionSource = 'boutique';
       } else if ((org.roles || []).indexOf('client') >= 0) {
@@ -660,11 +852,19 @@
         state.selectionSource = 'fournisseur';
       }
     }
-    renderDropboxes();
-    return global.AnnuaireApi.call('/services?organisationId=' + encodeURIComponent(orgId))
+    renderSidebar();
+    const asEntity = Boolean(opts.asEntity || state.selectionSource === 'entity');
+    const owner = internalContactOwnerOrg();
+    const servicesOrgId = asEntity
+      ? ((owner || org || {}).organisationId || orgId)
+      : (org ? servicesOrganisationIdForView(org) : orgId);
+    const contactsUrl = asEntity
+      ? '/contacts?view=entity'
+      : '/contacts?organisationId=' + encodeURIComponent(orgId);
+    return global.AnnuaireApi.call('/services?organisationId=' + encodeURIComponent(servicesOrgId))
       .then(function (res) {
         state.services = res.data || [];
-        return global.AnnuaireApi.call('/contacts?organisationId=' + encodeURIComponent(orgId));
+        return global.AnnuaireApi.call(contactsUrl);
       })
       .then(function (res) {
         state.contacts = res.data || [];
@@ -695,6 +895,23 @@
     return list.filter(function (o) { return orgIds[o.organisationId]; });
   }
 
+  function loadConnectorsStatus() {
+    if (state.identityMode) {
+      state.connectorsStatus = null;
+      return Promise.resolve(null);
+    }
+    return global.AnnuaireApi.call('/integrations/connectors/status')
+      .then(function (res) {
+        state.connectorsStatus = res.data || { connectors: [] };
+        return state.connectorsStatus;
+      })
+      .catch(function (err) {
+        console.warn('Annuaire connectors status:', err && err.message ? err.message : err);
+        state.connectorsStatus = { connectors: [] };
+        return state.connectorsStatus;
+      });
+  }
+
   function loadOrganisations() {
     if (state.identityMode) {
       return global.AnnuaireApi.call('/organisations/own').then(function (res) {
@@ -712,26 +929,36 @@
       });
     }
 
-    const q = document.getElementById('annuaire-search');
-    const params = new URLSearchParams();
-    if (q && q.value.trim()) params.set('q', q.value.trim());
-    const qs = params.toString() ? '?' + params.toString() : '';
-    return loadMyContactsIndex().then(function () {
-      return global.AnnuaireApi.call('/organisations' + qs);
+    return loadConnectorsStatus().then(function () {
+      return loadMyContactsIndex();
+    }).then(function () {
+      return global.AnnuaireApi.call('/organisations');
     }).then(function (res) {
       state.organisations = res.data || [];
-      if (!state.contextBoutiqueId) {
-        state.contextBoutiqueId = defaultBoutiqueId();
-      }
       const orgExists = state.selectedOrgId && state.organisations.some(function (o) {
         return o.organisationId === state.selectedOrgId;
       });
       if (!orgExists) {
-        state.selectedOrgId = pickDefaultOrgId();
-        state.selectionSource = 'boutique';
+        const entity = (state.organisations || []).find(function (o) { return o.isOwnEntity; });
+        if (entity) {
+          state.selectedOrgId = entity.organisationId;
+          state.selectionSource = 'entity';
+          state.contextBoutiqueId = null;
+        } else {
+          state.selectedOrgId = pickDefaultOrgId();
+          state.selectionSource = 'boutique';
+          if (!state.contextBoutiqueId) {
+            state.contextBoutiqueId = defaultBoutiqueId();
+          }
+        }
       }
       renderSidebar();
-      if (state.selectedOrgId) return selectOrganisation(state.selectedOrgId);
+      if (state.selectedOrgId) {
+        return selectOrganisation(
+          state.selectedOrgId,
+          state.selectionSource === 'entity' ? { asEntity: true } : null
+        );
+      }
       renderMain();
     });
   }
@@ -920,19 +1147,29 @@
   function addContact() {
     const org = selectedOrg();
     if (!org) return;
+    const payload = {
+      prenom: (document.getElementById('annuaire-c-prenom') || {}).value || '',
+      nom: (document.getElementById('annuaire-c-nom') || {}).value || '',
+      email: (document.getElementById('annuaire-c-email') || {}).value || '',
+      telephone: (document.getElementById('annuaire-c-tel') || {}).value || '',
+      fonction: (document.getElementById('annuaire-c-fonction') || {}).value || '',
+      serviceId: (document.getElementById('annuaire-c-service') || {}).value || null,
+      ownerUserId: (document.getElementById('annuaire-c-owner') || {}).value || null,
+      scope: isInternalTeamView(org) ? 'interne' : org.scope,
+      organisationId: isInternalTeamView(org)
+        ? (internalContactOwnerOrg() || org).organisationId
+        : org.organisationId
+    };
+    if (isInternalTeamView(org)) {
+      const assign = collectInternalBoutiqueAssignment();
+      if (assign) {
+        payload.organisationId = assign.organisationId;
+        payload.boutiqueOrganisationIds = assign.boutiqueOrganisationIds;
+      }
+    }
     global.AnnuaireApi.call('/contacts', {
       method: 'POST',
-      body: JSON.stringify({
-        organisationId: org.organisationId,
-        prenom: (document.getElementById('annuaire-c-prenom') || {}).value || '',
-        nom: (document.getElementById('annuaire-c-nom') || {}).value || '',
-        email: (document.getElementById('annuaire-c-email') || {}).value || '',
-        telephone: (document.getElementById('annuaire-c-tel') || {}).value || '',
-        fonction: (document.getElementById('annuaire-c-fonction') || {}).value || '',
-        serviceId: (document.getElementById('annuaire-c-service') || {}).value || null,
-        ownerUserId: (document.getElementById('annuaire-c-owner') || {}).value || null,
-        scope: org.scope
-      })
+      body: JSON.stringify(payload)
     }).then(function () {
       const details = document.querySelector('.annuaire-add-contact-details');
       if (details) details.removeAttribute('open');
@@ -948,33 +1185,6 @@
       .catch(function (err) { alert(err.message); });
   }
 
-  function bindFilters() {
-    document.querySelectorAll('[data-annuaire-kind]').forEach(function (btn) {
-      btn.addEventListener('click', function () {
-        document.querySelectorAll('[data-annuaire-kind]').forEach(function (b) {
-          b.classList.remove('active');
-        });
-        btn.classList.add('active');
-        state.filterKind = btn.getAttribute('data-annuaire-kind') || '';
-        renderDropboxes();
-        syncSelectionAfterBoutiqueChange();
-        if (state.selectedOrgId) {
-          selectOrganisation(state.selectedOrgId);
-        } else {
-          renderMain();
-        }
-      });
-    });
-    const mineBtn = document.querySelector('[data-annuaire-owner="mine"]');
-    if (mineBtn) {
-      mineBtn.addEventListener('click', function () {
-        state.filterOwner = state.filterOwner === 'mine' ? '' : 'mine';
-        mineBtn.classList.toggle('active', state.filterOwner === 'mine');
-        loadOrganisations();
-      });
-    }
-  }
-
   function bindOrgModal() {
     document.getElementById('annuaire-org-form')?.addEventListener('submit', saveOrganisation);
     document.querySelectorAll('[data-annuaire-modal-close]').forEach(function (el) {
@@ -983,32 +1193,21 @@
   }
 
   function init() {
-    bindFilters();
     bindOrgModal();
     document.addEventListener('click', function (ev) {
       if (!ev.target.closest('.annuaire-dropbox')) closeAllDropboxes();
     });
     document.getElementById('annuaire-btn-refresh')?.addEventListener('click', loadOrganisations);
     document.getElementById('annuaire-btn-add-org')?.addEventListener('click', addOrganisation);
-    document.getElementById('annuaire-search')?.addEventListener('input', function () {
-      renderDropboxes();
-      const org = selectedOrg();
-      if (org && state.selectionSource === 'client' && !listClientsForPicker().some(function (o) {
-        return o.organisationId === org.organisationId;
-      })) {
-        state.selectedOrgId = state.contextBoutiqueId || pickDefaultOrgId();
-        state.selectionSource = 'boutique';
-        if (state.selectedOrgId) selectOrganisation(state.selectedOrgId);
-        else renderMain();
-        return;
+    document.getElementById('annuaire-main')?.addEventListener('click', function (ev) {
+      if (ev.target.closest('[data-annuaire-owner="mine"]')) {
+        state.filterOwner = state.filterOwner === 'mine' ? '' : 'mine';
+        loadOrganisations();
       }
-      if (org && state.selectionSource === 'fournisseur' && !listFournisseursForPicker().some(function (o) {
-        return o.organisationId === org.organisationId;
-      })) {
-        state.selectedOrgId = state.contextBoutiqueId || pickDefaultOrgId();
-        state.selectionSource = 'boutique';
-        if (state.selectedOrgId) selectOrganisation(state.selectedOrgId);
-        else renderMain();
+    });
+    document.getElementById('annuaire-main')?.addEventListener('input', function (ev) {
+      if (ev.target && ev.target.id === 'annuaire-search-contacts') {
+        onContactSearchInput(ev.target);
       }
     });
 

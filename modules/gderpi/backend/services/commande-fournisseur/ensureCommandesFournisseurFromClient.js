@@ -6,6 +6,7 @@
 const getCommandeClientById = require('../commande-client/getCommandeClientById');
 const listCommandesFournisseur = require('./listCommandesFournisseur');
 const createFromCommandeClient = require('./createFromCommandeClient');
+const repairCommandeFournisseurPrixAchat = require('./repairCommandeFournisseurPrixAchat');
 const commandeNeedsAchats = require('../workflow/commandeNeedsAchats');
 
 async function ensureCommandesFournisseurFromClient(db, entrepriseId, commandeClientId) {
@@ -15,7 +16,17 @@ async function ensureCommandesFournisseurFromClient(db, entrepriseId, commandeCl
 
   const existing = await listCommandesFournisseur(db, entrepriseId, { commandeClientId });
   const active = existing.filter((c) => String(c.statut) !== 'annulee');
-  if (active.length) return active;
+  if (active.length) {
+    const repaired = [];
+    for (const cf of active) {
+      if (String(cf.statut) === 'brouillon') {
+        repaired.push(await repairCommandeFournisseurPrixAchat(db, entrepriseId, cf));
+      } else {
+        repaired.push(cf);
+      }
+    }
+    return repaired;
+  }
 
   return createFromCommandeClient(db, entrepriseId, commandeClientId, { markBesoins: false });
 }

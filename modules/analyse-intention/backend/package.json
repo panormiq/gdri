@@ -8,10 +8,10 @@
   "dependencies": [],
   "requiredServices": [],
   "compatibleVersion": ">=1.0.0",
+  "enabled": true,
   "catalog": {
     "type": "agent",
     "visibility": "public",
-    "parent_app": "facebook",
     "entry_url": "pages/modules/analyse-intention-config.php"
   }
 }

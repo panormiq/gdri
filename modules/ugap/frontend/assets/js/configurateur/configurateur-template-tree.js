@@ -774,8 +774,66 @@
         return hooks?.parcoursReadOnly === true;
     }
 
+    /** True si la ligne de choix est une option de base (incluse, non configurable). */
+    function isBaseChoiceRow(state, hooks, row) {
+        if (!row) return true;
+        if (row.isBaseOption === true) return true;
+        const opt = resolvePickerCatalogOption(state, hooks, row?.id);
+        if (!opt) return true;
+        return isBaseCatalogOption(hooks, opt) || isImportGeneratedBaseOption(opt);
+    }
+
+    /**
+     * Configurateur devis : true s'il existe au moins une option non-base à proposer.
+     * Vide ou uniquement option(s) de base → false.
+     */
+    function slotHasConfigurableChoices(state, hooks, slot) {
+        const group = slotToGroup(slot);
+        const rows = filterStandardChoiceRows(
+            state,
+            hooks,
+            parcoursChoiceRows(state, slot, hooks),
+            group
+        );
+        return rows.some((row) => !isBaseChoiceRow(state, hooks, row));
+    }
+
+    /** Sélection active non-base sur le poste (pour ne pas masquer un choix déjà fait). */
+    function slotHasNonBaseConfiguratorSelection(state, hooks, slot) {
+        const ids = parcoursSelectedIds(state, slot, hooks);
+        if (!ids.length) return false;
+        const group = slotToGroup(slot);
+        const display = group.decisionMode === 'multi_choice'
+            ? null
+            : getSingleChoiceDisplay(state, group, hooks);
+        // Base affichée par défaut (implicite) : ne compte pas comme sélection configurable.
+        if (display?.isBaseDefault && !display?.isExplicitSelection && ids.length === 1) {
+            const onlyId = String(ids[0] || '').trim();
+            const shownId = String(display?.option?.id || '').trim();
+            if (onlyId && onlyId === shownId) return false;
+        }
+        return ids.some((id) => {
+            const opt = resolvePickerCatalogOption(state, hooks, id);
+            if (!opt) return false;
+            return !isBaseCatalogOption(hooks, opt) && !isImportGeneratedBaseOption(opt);
+        });
+    }
+
     function shouldShowParcoursSlot(state, hooks, slot) {
-        if (isParametrageBaseMode(hooks) || hooks?.showAllParcoursSlots === true) return true;
+        // Paramétrage / réordonnancement : toujours afficher la structure.
+        if (isParametrageBaseMode(hooks) || isParcoursReorderTableMode(hooks)) return true;
+
+        // Case nœud catalogue : forcer l’affichage même si vide / base seule.
+        const forceShowEmpty = getModelBaseOptions()?.slotShowsEvenIfEmptyOrBaseOnly?.(slot) === true;
+
+        // Configurateur : masquer si aucune option, ou uniquement option(s) de base.
+        if (!forceShowEmpty
+            && !slotHasConfigurableChoices(state, hooks, slot)
+            && !slotHasNonBaseConfiguratorSelection(state, hooks, slot)) {
+            return false;
+        }
+
+        if (hooks?.showAllParcoursSlots === true) return true;
 
         const group = hydrateGroupOptions(state, slotToGroup(slot));
         const isMulti = getModelBaseOptions()?.isMultiChoiceSlot?.(slot) === true

@@ -79,13 +79,21 @@ async function createDevis(db, entrepriseId, data) {
   };
 
   await db.collection(COLLECTION).insertOne(doc);
-  const entry = toDevisEntry(doc);
+  let entry = toDevisEntry(doc);
 
-  if (entry.pmCardId) {
-    try {
-      const notifyPmFromDevis = require('../../integrations/pm-bridge/notifyPmFromDevis');
-      await notifyPmFromDevis(db, entrepriseId, entry);
-    } catch (_) {}
+  try {
+    const notifyPmFromDevis = require('../../integrations/pm-bridge/notifyPmFromDevis');
+    // Sans carte liée : en crée une automatiquement dans la colonne Devis du board PM
+    await notifyPmFromDevis(db, entrepriseId, entry, { createIfMissing: true });
+    if (!entry.pmCardId) {
+      const refreshed = await db.collection(COLLECTION).findOne({
+        entrepriseId: String(entrepriseId),
+        devisId: String(entry.devisId).trim()
+      });
+      if (refreshed) entry = toDevisEntry(refreshed);
+    }
+  } catch (error) {
+    console.warn('GDERPI createDevis → PM:', error.message || error);
   }
 
   return entry;

@@ -61,12 +61,26 @@ class FlowBrickRegistry {
     }
   }
 
+  resolveOrigin(basePath) {
+    const normalized = path.resolve(basePath);
+    if (normalized.startsWith(path.resolve(CONNECTORS_ROOT) + path.sep)
+      || normalized === path.resolve(CONNECTORS_ROOT)) {
+      return 'connector';
+    }
+    if (normalized.startsWith(path.resolve(MODULES_ROOT) + path.sep)
+      || normalized === path.resolve(MODULES_ROOT)) {
+      return 'module';
+    }
+    return 'core';
+  }
+
   registerFromFile(manifestPath, basePath) {
     try {
       const raw = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
       if (!raw.id) return;
       const brick = {
         ...raw,
+        origin: raw.origin || this.resolveOrigin(basePath),
         _basePath: basePath,
         _manifestPath: manifestPath
       };

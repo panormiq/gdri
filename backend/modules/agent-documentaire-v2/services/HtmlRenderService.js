@@ -20,6 +20,10 @@ const {
 
   tableHeightForRows,
 
+  tableHeightForBodyMm,
+
+  computeRowHeightsMm,
+
   zoneHeightForRows,
 
   clampZoneHeightForRows,
@@ -173,7 +177,8 @@ function replaceVariables(html, variables) {
 
       const value = variables[k];
 
-      if (k === 'ugap:lignes.table') return String(value ?? '');
+      // HTML déjà préparé côté serveur (tables, listes de PJ…)
+      if (k === 'ugap:lignes.table' || k === 'attachments_html') return String(value ?? '');
 
       return escapeHtml(value);
 
@@ -215,10 +220,16 @@ function tableFieldLabels() {
 
     categorie: 'Catégorie',
 
-    prix: 'Prix UGAP HT'
+    prix: 'Prix UGAP HT',
+
+    prixPublic: 'Prix public HT'
 
   };
 
+}
+
+function isDevisPriceColumnKey(key) {
+  return key === 'prix' || key === 'prixPublic';
 }
 
 
@@ -271,7 +282,11 @@ function renderTableHtmlFromLines(lines, tableConfig) {
 
         const raw = line?.[key];
 
-        const display = key === 'prix' && raw && !String(raw).includes('€') ? `${raw} €` : raw;
+        const display = isDevisPriceColumnKey(key)
+          && raw != null && raw !== ''
+          && !String(raw).includes('€')
+          ? `${raw} €`
+          : (raw ?? '');
 
         html += `<td style="border:1px solid #ccc;padding:6px 8px;vertical-align:top;">${escapeHtml(display)}</td>`;
 
@@ -363,12 +378,17 @@ function layoutAnchoredFromPageBottom(node, page) {
 }
 
 function layoutOverridesForLignesZone(node, pageContext, template) {
-  const { isFirst, isMultiPage, lineCount } = pageContext;
+  const { isFirst, isMultiPage, lineCount, linesBodyHeightMm } = pageContext;
   const lignesInfo = findLignesLayout(template);
   const rows = Math.max(0, Number(lineCount) || 0);
+  const bodyMm = Number(linesBodyHeightMm);
   const maxZoneH = maxLignesZoneHeightMm(template, template.page || {}, pageContext);
+  const zoneHeightForBody = (Number(lignesInfo.tableYInZone) || 1.8)
+    + tableHeightForBodyMm(bodyMm) + 1;
   const dynamicHeight = rows > 0
-    ? clampZoneHeightForRows(rows, lignesInfo.tableYInZone, maxZoneH)
+    ? (Number.isFinite(bodyMm) && bodyMm > 0
+      ? Math.min(zoneHeightForBody, maxZoneH)
+      : clampZoneHeightForRows(rows, lignesInfo.tableYInZone, maxZoneH))
     : Math.min(Number(node.layout?.height) || 90, maxZoneH);
 
   if (!isMultiPage || isFirst) {
@@ -524,8 +544,12 @@ class HtmlRenderService {
       let tableLayout = { ...(node.layout || {}) };
       if (lignesTable && rows > 0) {
         const maxZoneH = maxLignesZoneHeightMm(template, template.page || {}, pageContext);
+        const bodyMm = Number(pageContext.linesBodyHeightMm);
+        const idealTableH = Number.isFinite(bodyMm) && bodyMm > 0
+          ? tableHeightForBodyMm(bodyMm)
+          : tableHeightForRows(rows);
         const tableH = Math.min(
-          tableHeightForRows(rows),
+          idealTableH,
           Math.max(10, maxZoneH - (tableLayout.y ?? lignesInfo.tableYInZone) - 1)
         );
         tableLayout = {
@@ -676,6 +700,10 @@ class HtmlRenderService {
 
       }
 
+      const chunkHeights = Array.isArray(chunkLines)
+        ? computeRowHeightsMm(chunkLines, renderTemplate)
+        : [];
+
       const pageContext = {
 
         isFirst: pageIndex === 0,
@@ -688,7 +716,9 @@ class HtmlRenderService {
 
         totalPages: pageChunks.length,
 
-        lineCount: Array.isArray(chunkLines) ? chunkLines.length : 0
+        lineCount: Array.isArray(chunkLines) ? chunkLines.length : 0,
+
+        linesBodyHeightMm: chunkHeights.reduce((a, b) => a + b, 0)
 
       };
 

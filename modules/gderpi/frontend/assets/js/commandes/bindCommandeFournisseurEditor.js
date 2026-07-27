@@ -170,6 +170,15 @@
     return { ...line, montantHt: ht };
   }
 
+  function getFraisPortFromDom() {
+    const ht = Number(document.getElementById('gderpi-cmd-frs-frais-port-ht')?.value) || 0;
+    const tva = Number(document.getElementById('gderpi-cmd-frs-frais-port-tva')?.value);
+    return {
+      fraisPortHt: ht > 0 ? Math.round(ht * 100) / 100 : 0,
+      fraisPortTauxTva: ht > 0 && Number.isFinite(tva) ? tva : 20
+    };
+  }
+
   function calcDocTotals() {
     let totalHt = 0;
     let totalTva = 0;
@@ -178,9 +187,64 @@
       totalHt += line.montantHt;
       totalTva += line.montantHt * (Number(line.tauxTva) || 0) / 100;
     });
+    const frais = getFraisPortFromDom();
+    if (frais.fraisPortHt > 0) {
+      totalHt += frais.fraisPortHt;
+      totalTva += frais.fraisPortHt * frais.fraisPortTauxTva / 100;
+    }
     totalHt = Math.round(totalHt * 100) / 100;
     totalTva = Math.round(totalTva * 100) / 100;
     return { totalHt, totalTva, totalTtc: Math.round((totalHt + totalTva) * 100) / 100 };
+  }
+
+  function bindFraisPortFields() {
+    ['gderpi-cmd-frs-frais-port-ht', 'gderpi-cmd-frs-frais-port-tva'].forEach((id) => {
+      const el = document.getElementById(id);
+      if (!el || el.dataset.gderpiFraisBound) return;
+      el.dataset.gderpiFraisBound = '1';
+      el.addEventListener('input', () => {
+        markDirty();
+        renderTotals();
+      });
+    });
+  }
+
+  function syncFraisPortFields(options) {
+    const opts = options && typeof options === 'object' ? options : {};
+    const resetValues = opts.resetValues === true;
+    const editable = isEditable();
+    const fraisHtEl = document.getElementById('gderpi-cmd-frs-frais-port-ht');
+    const fraisTvaEl = document.getElementById('gderpi-cmd-frs-frais-port-tva');
+    const fraisEditRow = document.getElementById('gderpi-cmd-frs-frais-port-edit-row');
+    if (resetValues) {
+      if (mode === 'create') {
+        if (fraisHtEl) fraisHtEl.value = '';
+        if (fraisTvaEl) fraisTvaEl.value = 20;
+      } else {
+        if (fraisHtEl) {
+          fraisHtEl.value = Number(currentCommande?.fraisPortHt) > 0 ? currentCommande.fraisPortHt : '';
+        }
+        if (fraisTvaEl) {
+          fraisTvaEl.value = Number(currentCommande?.fraisPortHt) > 0
+            && Number.isFinite(Number(currentCommande?.fraisPortTauxTva))
+            ? currentCommande.fraisPortTauxTva
+            : 20;
+        }
+      }
+    }
+    if (fraisEditRow) fraisEditRow.hidden = !editable;
+    if (fraisHtEl) fraisHtEl.disabled = !editable;
+    if (fraisTvaEl) fraisTvaEl.disabled = !editable;
+    bindFraisPortFields();
+  }
+
+  function renderFraisPortRow() {
+    const row = document.getElementById('gderpi-cmd-frs-frais-port-row');
+    const frais = getFraisPortFromDom();
+    const showDisplay = !isEditable() && frais.fraisPortHt > 0;
+    if (row) row.hidden = !showDisplay;
+    const cell = document.getElementById('gderpi-cmd-frs-frais-port-display');
+    if (cell && frais.fraisPortHt > 0) cell.textContent = fmt(frais.fraisPortHt);
   }
 
   function cloneLine(line) {
@@ -207,7 +271,10 @@
   function articleFromCatalog(a) {
     const frs = resolveFrsEntry(a);
     const refFrs = frs?.referenceFournisseur || '';
-    const prix = frs?.prixAchatHt != null ? Number(frs.prixAchatHt) : (Number(a.prixHt) || 0);
+    // Tarif d'achat fournisseur uniquement (jamais le prix de vente catalogue).
+    const prix = frs?.prixAchatHt != null && frs.prixAchatHt !== ''
+      ? Number(frs.prixAchatHt)
+      : 0;
     const ids = supplierIds();
     return calcLineTotals({
       articleId: a.articleId || a.id,
@@ -225,6 +292,32 @@
       fournisseurId: ids.fournisseurId,
       boutiqueFournisseurId: ids.boutiqueFournisseurId
     });
+  }
+
+  function applyCatalogPurchasePricesToLines() {
+    if (!isEditable() || !articles.length) return false;
+    let changed = false;
+    lines = lines.map((l) => {
+      if (isLineEmpty(l) || !l.articleId) return l;
+      const catalog = articles.find((a) => String(a.articleId || a.id) === String(l.articleId));
+      if (!catalog) return l;
+      const mapped = articleFromCatalog(catalog);
+      const nextPrix = Number(mapped.prixHt) || 0;
+      const nextRef = mapped.referenceFournisseur || '';
+      if (Number(l.prixHt) === nextPrix && String(l.referenceFournisseur || '') === nextRef) {
+        return l;
+      }
+      changed = true;
+      return calcLineTotals({
+        ...l,
+        prixHt: nextPrix,
+        referenceFournisseur: nextRef || l.referenceFournisseur || '',
+        referenceClient: nextRef || l.referenceClient || '',
+        fournisseurId: mapped.fournisseurId || l.fournisseurId,
+        boutiqueFournisseurId: mapped.boutiqueFournisseurId || l.boutiqueFournisseurId
+      });
+    });
+    return changed;
   }
 
   function markDirty() {
@@ -477,6 +570,8 @@
     }
     lines = (currentCommande?.lignes || []).map(cloneLine);
     if (isEditable()) ensureTrailingEmptyLine();
+    if (applyCatalogPurchasePricesToLines()) markDirty();
+    syncFraisPortFields({ resetValues: true });
     renderHeader();
     if (editorModal) renderLines();
   }
@@ -764,6 +859,7 @@
       notesEl.disabled = !isEditable();
     }
 
+    syncFraisPortFields();
     renderEditorActions();
   }
 
@@ -788,6 +884,11 @@
     const tfoot = document.querySelector('#gderpi-cmd-frs-lines-tbody')?.closest('table')?.querySelector('tfoot');
     if (tfoot) {
       tfoot.querySelectorAll('tr').forEach((row) => {
+        if (row.id === 'gderpi-cmd-frs-frais-port-edit-row') {
+          const labelCell = row.querySelector('td[colspan]');
+          if (labelCell) labelCell.colSpan = Math.max(1, colspanBase - 2);
+          return;
+        }
         const labelCell = row.querySelector('td[colspan]');
         if (labelCell) labelCell.colSpan = colspanBase;
       });
@@ -964,6 +1065,7 @@
 
   function renderTotals() {
     const totals = calcDocTotals();
+    renderFraisPortRow();
     const ht = document.getElementById('gderpi-cmd-frs-total-ht');
     const tva = document.getElementById('gderpi-cmd-frs-total-tva');
     const ttc = document.getElementById('gderpi-cmd-frs-total-ttc');
@@ -975,9 +1077,12 @@
   function collectPayload() {
     syncAllLinesFromDom();
     const filledLines = lines.filter((l) => !isLineEmpty(l)).map(calcLineTotals);
+    const frais = getFraisPortFromDom();
     const payload = {
       objet: document.getElementById('gderpi-cmd-frs-objet')?.value?.trim() || '',
       notes: document.getElementById('gderpi-cmd-frs-notes')?.value?.trim() || '',
+      fraisPortHt: frais.fraisPortHt,
+      fraisPortTauxTva: frais.fraisPortTauxTva,
       lignes: filledLines
     };
     if (mode === 'create') {
@@ -1043,6 +1148,7 @@
     currentCommande = res.data;
     lines = (currentCommande?.lignes || []).map(cloneLine);
     if (isEditable()) ensureTrailingEmptyLine();
+    syncFraisPortFields({ resetValues: true });
     renderHeader();
     renderLines();
     global.GderpiStatus.showStatus('Commande fournisseur enregistrée.', 'success');
@@ -1070,6 +1176,10 @@
     if (objetEl) objetEl.value = '';
     const notesEl = document.getElementById('gderpi-cmd-frs-notes');
     if (notesEl) notesEl.value = '';
+    const fraisHtEl = document.getElementById('gderpi-cmd-frs-frais-port-ht');
+    if (fraisHtEl) fraisHtEl.value = '';
+    const fraisTvaEl = document.getElementById('gderpi-cmd-frs-frais-port-tva');
+    if (fraisTvaEl) fraisTvaEl.value = 20;
   }
 
   async function openNewCommande(options) {
@@ -1103,6 +1213,7 @@
     }
     const notesEl = cmdFrsEl('gderpi-cmd-frs-notes');
     if (notesEl) notesEl.value = '';
+    syncFraisPortFields({ resetValues: true });
 
     openEditor();
     enableCreateSelects();
@@ -1140,22 +1251,20 @@
           markDirty();
           renderLinesHint();
           if (mode === 'edit') {
-            const article = lines.find((l) => l.articleId);
-            if (article?.articleId) {
-              const catalog = articles.find((a) => String(a.articleId || a.id) === String(article.articleId));
-              if (catalog) {
-                const mapped = articleFromCatalog(catalog);
-                lines = lines.map((l) => {
-                  if (isLineEmpty(l)) return l;
-                  return {
-                    ...l,
-                    referenceFournisseur: mapped.referenceFournisseur,
-                    referenceClient: mapped.referenceFournisseur,
-                    prixHt: mapped.prixHt
-                  };
-                });
-              }
-            }
+            lines = lines.map((l) => {
+              if (isLineEmpty(l) || !l.articleId) return l;
+              const catalog = articles.find((a) => String(a.articleId || a.id) === String(l.articleId));
+              if (!catalog) return l;
+              const mapped = articleFromCatalog(catalog);
+              return calcLineTotals({
+                ...l,
+                referenceFournisseur: mapped.referenceFournisseur,
+                referenceClient: mapped.referenceFournisseur,
+                prixHt: mapped.prixHt,
+                fournisseurId: mapped.fournisseurId,
+                boutiqueFournisseurId: mapped.boutiqueFournisseurId
+              });
+            });
           }
           renderLines();
         } else if (id === 'gderpi-cmd-frs-boutique') {

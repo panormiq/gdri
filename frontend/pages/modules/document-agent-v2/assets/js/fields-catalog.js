@@ -1,6 +1,6 @@
 /**
  * FICHIER : frontend/pages/modules/document-agent-v2/assets/js/fields-catalog.js
- * RÔLE : Catalogue des champs UGAP + données placeholder pour l'aperçu éditeur.
+ * RÔLE : Catalogues de champs par type de template (devis UGAP, revue mail agent…).
  */
 (function initAdv2FieldsCatalog(global) {
   'use strict';
@@ -12,7 +12,7 @@
     + '</svg>'
   );
 
-  const PLACEHOLDER_DATA = {
+  const UGAP_PLACEHOLDER_DATA = {
     'ugap:entreprise.logoUrl': LOGO_PLACEHOLDER,
     'ugap:entreprise.raisonSociale': 'GDR-Innovation SAS',
     'ugap:entreprise.adresse': '12 rue de la Marine',
@@ -59,24 +59,24 @@
   };
 
   const SAMPLE_TABLE_LINES = [
-    { refUgap: 'UG-MOD-01', refFournisseur: 'GDRI-B8-001', libelle: 'Bateau école 8 m — configuration de base', libelleApp: 'Coque 8 m', prix: '28 900,00 €' },
-    { refUgap: 'UG-MOT-40', refFournisseur: 'YAM-F40-2024', libelle: 'Moteur Yamaha 40 CV', libelleApp: 'Moteur hors-bord 4 temps', prix: '4 250,00 €' },
-    { refUgap: 'UG-COQ-01', refFournisseur: 'GDRI-C8-POL', libelle: 'Coque polyester 8 m', libelleApp: 'Coque 8 m polyester', prix: '28 900,00 €' },
-    { refUgap: 'UG-EQU-12', libelle: 'Équipement sécurité pack UGAP', libelleApp: 'Pack sécurité réglementaire', prix: '1 850,00 €' },
-    { refUgap: 'UG-NAV-03', libelle: 'Pack navigation VHF + GPS', libelleApp: 'Navigation côtière', prix: '2 150,00 €' },
-    { refUgap: 'UG-ANC-02', libelle: 'Ancre et mouillage 12 kg', libelleApp: 'Ancre Bruce 12 kg', prix: '420,00 €' },
-    { refUgap: 'UG-BAN-01', libelle: 'Banquette pilote ergonomique', libelleApp: 'Banquette réglable', prix: '890,00 €' },
-    { refUgap: 'UG-TOP-04', libelle: 'Taud de soleil arceau alu', libelleApp: 'Protection solaire', prix: '1 120,00 €' },
-    { refUgap: 'UG-REM-01', libelle: 'Remorque routière homologuée', libelleApp: 'Remorque 2 essieux', prix: '3 600,00 €' },
-    { refUgap: 'UG-FOR-02', libelle: 'Formation équipage 2 jours', libelleApp: 'Stage sécurité mer', prix: '980,00 €' },
-    { refUgap: 'UG-PEI-01', libelle: 'Peinture antifouling premium', libelleApp: 'Antifouling biocontrôle', prix: '760,00 €' },
-    { refUgap: 'UG-ELE-05', libelle: 'Batterie service 110 Ah', libelleApp: 'Batterie AGM', prix: '310,00 €' },
-    { refUgap: 'UG-GEN-01', libelle: 'Générateur de secours 2 kW', libelleApp: 'Groupe portable', prix: '1 450,00 €' },
-    { refUgap: 'UG-RAD-02', libelle: 'Radar compact 18 pouces', libelleApp: 'Radar pulse compression', prix: '2 890,00 €' },
-    { refUgap: 'UG-SON-01', libelle: 'Sondeur cartographie HD', libelleApp: 'Sondeur multibeam', prix: '1 680,00 €' }
+    { refUgap: 'UG-MOD-01', refFournisseur: 'GDRI-B8-001', libelle: 'Bateau école 8 m — configuration de base', libelleApp: 'Coque 8 m', prix: '28 900,00 €', prixPublic: '34 680,00 €' },
+    { refUgap: 'UG-MOT-40', refFournisseur: 'YAM-F40-2024', libelle: 'Moteur Yamaha 40 CV', libelleApp: 'Moteur hors-bord 4 temps', prix: '4 250,00 €', prixPublic: '5 100,00 €' },
+    { refUgap: 'UG-COQ-01', refFournisseur: 'GDRI-C8-POL', libelle: 'Coque polyester 8 m', libelleApp: 'Coque 8 m polyester', prix: '28 900,00 €', prixPublic: '34 680,00 €' },
+    { refUgap: 'UG-EQU-12', libelle: 'Équipement sécurité pack UGAP', libelleApp: 'Pack sécurité réglementaire', prix: '1 850,00 €', prixPublic: '2 220,00 €' },
+    { refUgap: 'UG-NAV-03', libelle: 'Pack navigation VHF + GPS', libelleApp: 'Navigation côtière', prix: '2 150,00 €', prixPublic: '2 580,00 €' },
+    { refUgap: 'UG-ANC-02', libelle: 'Ancre et mouillage 12 kg', libelleApp: 'Ancre Bruce 12 kg', prix: '420,00 €', prixPublic: '504,00 €' },
+    { refUgap: 'UG-BAN-01', libelle: 'Banquette pilote ergonomique', libelleApp: 'Banquette réglable', prix: '890,00 €', prixPublic: '1 068,00 €' },
+    { refUgap: 'UG-TOP-04', libelle: 'Taud de soleil arceau alu', libelleApp: 'Protection solaire', prix: '1 120,00 €', prixPublic: '1 344,00 €' },
+    { refUgap: 'UG-REM-01', libelle: 'Remorque routière homologuée', libelleApp: 'Remorque 2 essieux', prix: '3 600,00 €', prixPublic: '4 320,00 €' },
+    { refUgap: 'UG-FOR-02', libelle: 'Formation équipage 2 jours', libelleApp: 'Stage sécurité mer', prix: '980,00 €', prixPublic: '1 176,00 €' },
+    { refUgap: 'UG-PEI-01', libelle: 'Peinture antifouling premium', libelleApp: 'Antifouling biocontrôle', prix: '760,00 €', prixPublic: '912,00 €' },
+    { refUgap: 'UG-ELE-05', libelle: 'Batterie service 110 Ah', libelleApp: 'Batterie AGM', prix: '310,00 €', prixPublic: '372,00 €' },
+    { refUgap: 'UG-GEN-01', libelle: 'Générateur de secours 2 kW', libelleApp: 'Groupe portable', prix: '1 450,00 €', prixPublic: '1 740,00 €' },
+    { refUgap: 'UG-RAD-02', libelle: 'Radar compact 18 pouces', libelleApp: 'Radar pulse compression', prix: '2 890,00 €', prixPublic: '3 468,00 €' },
+    { refUgap: 'UG-SON-01', libelle: 'Sondeur cartographie HD', libelleApp: 'Sondeur multibeam', prix: '1 680,00 €', prixPublic: '2 016,00 €' }
   ];
 
-  const FIELD_GROUPS = [
+  const UGAP_FIELD_GROUPS = [
     {
       id: 'entreprise',
       label: 'Entreprise',
@@ -166,20 +166,127 @@
     }
   ];
 
+  /** Champs fournis par mail-in / revue agent (HITL). */
+  const AGENT_REVIEW_FIELD_GROUPS = [
+    {
+      id: 'mail-meta',
+      label: 'Mail reçu',
+      fields: [
+        { key: 'from', label: 'Expéditeur' },
+        { key: 'subject', label: 'Sujet' },
+        { key: 'text', label: 'Corps du mail' },
+        { key: 'sourceRef', label: 'UID IMAP / référence' },
+        { key: 'messageId', label: 'Message-ID' },
+        { key: 'channel', label: 'Canal' }
+      ]
+    },
+    {
+      id: 'mail-author',
+      label: 'Expéditeur (détail)',
+      fields: [
+        { key: 'author.email', label: 'Email expéditeur' },
+        { key: 'author.name', label: 'Nom expéditeur' }
+      ]
+    },
+    {
+      id: 'mail-attachments',
+      label: 'Pièces jointes',
+      fields: [
+        { key: 'attachments_html', label: 'Liste PJ (HTML avec liens)' },
+        { key: 'attachmentCount', label: 'Nombre de PJ' }
+      ]
+    },
+    {
+      id: 'mail-account',
+      label: 'Compte / dossier',
+      fields: [
+        { key: 'metadata.accountRef', label: 'Compte mail' },
+        { key: 'metadata.mailbox', label: 'Dossier IMAP' }
+      ]
+    }
+  ];
+
+  const AGENT_REVIEW_PLACEHOLDER_DATA = {
+    from: 'Games Workshop <billing@games-workshop.com>',
+    subject: 'Your Invoice INV-2026-0042',
+    text: 'Bonjour,\n\nVeuillez trouver ci-joint votre facture.\n\nCordialement,\nGames Workshop',
+    sourceRef: '1842',
+    messageId: '<invoice-42@games-workshop.com>',
+    channel: 'mail',
+    'author.email': 'billing@games-workshop.com',
+    'author.name': 'Games Workshop',
+    attachments_html: '<ul><li><a href="#">INV-2026-0042.pdf</a> (240 Ko)</li><li><a href="#">delivery-note.pdf</a> (88 Ko)</li></ul>',
+    attachmentCount: '2',
+    'metadata.accountRef': 'comptable@mon-entite.fr',
+    'metadata.mailbox': 'INBOX'
+  };
+
   const TABLE_LINE_FIELDS = [
     { key: 'refUgap', label: 'Réf. UGAP' },
     { key: 'refFournisseur', label: 'Réf. fournisseur' },
     { key: 'libelle', label: 'Libellé UGAP' },
     { key: 'libelleApp', label: 'Libellé' },
     { key: 'categorie', label: 'Catégorie' },
-    { key: 'prix', label: 'Prix UGAP HT' }
+    { key: 'prix', label: 'Prix UGAP HT' },
+    { key: 'prixPublic', label: 'Prix public HT' }
   ];
 
+  function detectCatalogId(meta) {
+    const namespace = String(meta?.namespace || '').toLowerCase();
+    const scope = String(meta?.scope || '').toLowerCase();
+    if (
+      scope === 'agent-review'
+      || namespace.startsWith('agent:review')
+      || namespace.startsWith('agent-review')
+      || namespace.includes(':review:')
+    ) {
+      return 'agent-review';
+    }
+    return 'ugap';
+  }
+
+  function resolveCatalog(meta) {
+    const id = detectCatalogId(meta || {});
+    if (id === 'agent-review') {
+      return {
+        id: 'agent-review',
+        label: 'Revue mail / agent',
+        FIELD_GROUPS: AGENT_REVIEW_FIELD_GROUPS,
+        PLACEHOLDER_DATA: AGENT_REVIEW_PLACEHOLDER_DATA,
+        SAMPLE_TABLE_LINES: [],
+        LOGO_PLACEHOLDER,
+        TABLE_LINE_FIELDS: []
+      };
+    }
+    return {
+      id: 'ugap',
+      label: 'Devis UGAP',
+      FIELD_GROUPS: UGAP_FIELD_GROUPS,
+      PLACEHOLDER_DATA: UGAP_PLACEHOLDER_DATA,
+      SAMPLE_TABLE_LINES,
+      LOGO_PLACEHOLDER,
+      TABLE_LINE_FIELDS
+    };
+  }
+
+  // Rétrocompat : export par défaut = devis UGAP
   global.Adv2FieldsCatalog = {
-    FIELD_GROUPS,
-    PLACEHOLDER_DATA,
+    FIELD_GROUPS: UGAP_FIELD_GROUPS,
+    PLACEHOLDER_DATA: UGAP_PLACEHOLDER_DATA,
     SAMPLE_TABLE_LINES,
     LOGO_PLACEHOLDER,
-    TABLE_LINE_FIELDS
+    TABLE_LINE_FIELDS,
+    CATALOGS: {
+      ugap: {
+        FIELD_GROUPS: UGAP_FIELD_GROUPS,
+        PLACEHOLDER_DATA: UGAP_PLACEHOLDER_DATA
+      },
+      'agent-review': {
+        FIELD_GROUPS: AGENT_REVIEW_FIELD_GROUPS,
+        PLACEHOLDER_DATA: AGENT_REVIEW_PLACEHOLDER_DATA
+      }
+    },
+    detectCatalogId,
+    resolveCatalog
   };
 }(window));

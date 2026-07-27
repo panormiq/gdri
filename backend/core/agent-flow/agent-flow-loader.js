@@ -20,6 +20,13 @@ async function loadAgentFlows(app, database) {
   const actions = bricks.filter((b) => b.kind === 'action').length;
   console.log(`🧩 Briques flow : ${bricks.length} (${triggers} triggers, ${actions} actions)`);
 
+  try {
+    const { AgentBrickConfigService } = require('./AgentBrickConfigService');
+    await new AgentBrickConfigService(database).ensureIndexes();
+  } catch (e) {
+    console.warn('  ⚠️ Index agent_flow_brick_configs:', e.message);
+  }
+
   app.use('/api/agent-flows', createAgentFlowsRouter(database));
 
   scheduler = new AgentFlowScheduler(database);

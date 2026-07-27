@@ -14,6 +14,7 @@ async function list(req, res) {
   try {
     const data = await listContacts(req.entrepriseDb, req.entrepriseId, {
       organisationId: req.query.organisationId,
+      view: req.query.view,
       scope: req.query.scope,
       serviceId: req.query.serviceId,
       ownerUserId: req.query.ownerUserId,

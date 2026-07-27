@@ -11,17 +11,27 @@
  * APPELÉ PAR : devisController, workflow
  */
 
+const { ObjectId } = require('mongodb');
 const ensureDevisIndexes = require('./ensureDevisIndexes');
 const toDevisEntry = require('./toDevisEntry');
 
 const COLLECTION = 'gderpi_devis';
 
 async function getDevisById(db, entrepriseId, devisId) {
+  const id = String(devisId || '').trim();
+  if (!id) return null;
+
   await ensureDevisIndexes(db);
   const col = db.collection(COLLECTION);
+  const ent = String(entrepriseId);
+  const or = [{ devisId: id }, { id }];
+  if (ObjectId.isValid(id) && String(new ObjectId(id)) === id) {
+    or.push({ _id: new ObjectId(id) });
+  }
+
   const doc = await col.findOne({
-    entrepriseId: String(entrepriseId),
-    devisId: String(devisId).trim()
+    entrepriseId: ent,
+    $or: or
   });
   return toDevisEntry(doc);
 }

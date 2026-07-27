@@ -5,6 +5,7 @@
 const express = require('express');
 const path = require('path');
 const fs = require('fs');
+const { ObjectId } = require('mongodb');
 const router = express.Router();
 const { authenticateJWT } = require(path.join(__dirname, '../../../backend/config/jwt'));
 const database = require(path.join(__dirname, '../../../backend/config/database'));
@@ -112,10 +113,120 @@ router.get('/generations', authenticateJWT, async (req, res) => {
     const items = await col
       .find({ entity_id: entityId, user_id: userId })
       .sort({ created_at: -1 })
-      .limit(50)
+      .limit(200)
       .toArray();
-    return res.json({ success: true, data: items });
+    const data = items.map((item) => ({
+      ...item,
+      id: String(item._id),
+      _id: String(item._id),
+    }));
+    return res.json({ success: true, data });
   } catch (error) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+function resolveGenerationFilePath(record) {
+  const filename = path.basename(String((record && record.filename) || ''));
+  if (!filename || filename === '.' || filename === '..') return null;
+  if (record.type === 'i2v_clip') {
+    const clipPath = path.join(CLIPS_DIR, filename);
+    if (fs.existsSync(clipPath)) return clipPath;
+  }
+  const mediaPath = path.join(MEDIA_DIR, filename);
+  if (fs.existsSync(mediaPath)) return mediaPath;
+  return null;
+}
+
+async function deleteGenerationRecords(entityId, userId, ids) {
+  const uniqueIds = [...new Set((ids || []).map((id) => String(id || '').trim()).filter(Boolean))];
+  const objectIds = uniqueIds.filter((id) => ObjectId.isValid(id)).map((id) => new ObjectId(id));
+  if (!objectIds.length) {
+    return { deleted: [], missing: uniqueIds, deletedCount: 0 };
+  }
+
+  const col = database.getCollection('media_studio_generations');
+  const records = await col.find({
+    _id: { $in: objectIds },
+    entity_id: entityId,
+    user_id: userId,
+  }).toArray();
+
+  const foundIds = new Set(records.map((r) => String(r._id)));
+  const missing = uniqueIds.filter((id) => !foundIds.has(id));
+
+  if (records.length) {
+    await col.deleteMany({
+      _id: { $in: records.map((r) => r._id) },
+      entity_id: entityId,
+      user_id: userId,
+    });
+  }
+
+  for (const record of records) {
+    const filePath = resolveGenerationFilePath(record);
+    if (!filePath) continue;
+    try {
+      fs.unlinkSync(filePath);
+    } catch (fileErr) {
+      console.warn('[media-studio] delete file:', fileErr.message);
+    }
+  }
+
+  return {
+    deleted: records.map((r) => String(r._id)),
+    missing,
+    deletedCount: records.length,
+  };
+}
+
+router.delete('/generations/:id', authenticateJWT, async (req, res) => {
+  try {
+    const entityId = getEntityId(req);
+    const userId = getUserId(req);
+    const id = String(req.params.id || '').trim();
+    if (!entityId || !userId) {
+      return res.status(401).json({ success: false, message: 'Authentification requise.' });
+    }
+    if (!ObjectId.isValid(id)) {
+      return res.status(400).json({ success: false, message: 'Identifiant invalide.' });
+    }
+
+    const result = await deleteGenerationRecords(entityId, userId, [id]);
+    if (!result.deletedCount) {
+      return res.status(404).json({ success: false, message: 'Création introuvable.' });
+    }
+
+    return res.json({
+      success: true,
+      data: { id: result.deleted[0], deletedCount: 1 },
+    });
+  } catch (error) {
+    console.error('[media-studio] delete generation:', error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+router.post('/generations/delete', authenticateJWT, async (req, res) => {
+  try {
+    const entityId = getEntityId(req);
+    const userId = getUserId(req);
+    if (!entityId || !userId) {
+      return res.status(401).json({ success: false, message: 'Authentification requise.' });
+    }
+
+    const ids = Array.isArray(req.body && req.body.ids) ? req.body.ids : [];
+    if (!ids.length) {
+      return res.status(400).json({ success: false, message: 'Aucune création sélectionnée.' });
+    }
+    if (ids.length > 200) {
+      return res.status(400).json({ success: false, message: 'Trop de créations sélectionnées (max 200).' });
+    }
+
+    const result = await deleteGenerationRecords(entityId, userId, ids);
+    return res.json({ success: true, data: result });
+  } catch (error) {
+    console.error('[media-studio] delete generations:', error);
     return res.status(500).json({ success: false, message: error.message });
   }
 });
@@ -383,17 +494,35 @@ router.post('/animate-prompt', authenticateJWT, (req, res) => {
   }
 });
 
+function saveDataUrlPng(dataUrl, prefix = 'frame') {
+  const m = String(dataUrl || '').match(/^data:image\/png;base64,(.+)$/i);
+  if (!m) throw new Error('imageDataUrl PNG invalide (data:image/png;base64,…).');
+  const buffer = Buffer.from(m[1], 'base64');
+  if (buffer.length < 32) throw new Error('imageDataUrl vide.');
+  if (buffer.length > 25 * 1024 * 1024) throw new Error('imageDataUrl trop volumineux (max 25 Mo).');
+  fs.mkdirSync(IMPORTS_DIR, { recursive: true });
+  const filename = `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.png`;
+  const fullPath = path.join(IMPORTS_DIR, filename);
+  fs.writeFileSync(fullPath, buffer);
+  return { filename, fullPath };
+}
+
 router.post('/animate-i2v', authenticateJWT, async (req, res) => {
   try {
     const prompt = String((req.body && req.body.prompt) || '').trim();
     const sourceFilename = req.body.sourceFilename
       ? path.basename(String(req.body.sourceFilename))
       : null;
+    const imageDataUrl = req.body.imageDataUrl ? String(req.body.imageDataUrl) : null;
     const layerTitle = String((req.body && req.body.layerTitle) || '').trim();
     const engine = String((req.body && req.body.engine) || 'ltx').toLowerCase();
+    const effectStart = req.body.effectStart != null ? Number(req.body.effectStart) : null;
 
-    if (!sourceFilename) {
-      return res.status(400).json({ success: false, message: 'sourceFilename requis (PNG calque).' });
+    if (!sourceFilename && !imageDataUrl) {
+      return res.status(400).json({
+        success: false,
+        message: 'sourceFilename ou imageDataUrl requis (frame du plan).',
+      });
     }
     if (!prompt) {
       return res.status(400).json({ success: false, message: 'Décrivez le mouvement (ex. runes qui s\'illuminent).' });
@@ -419,7 +548,13 @@ router.post('/animate-i2v', authenticateJWT, async (req, res) => {
       });
     }
 
-    const source = resolveAnimationSource(sourceFilename);
+    let source;
+    if (imageDataUrl) {
+      source = saveDataUrlPng(imageDataUrl, 'ltx-frame');
+    } else {
+      source = resolveAnimationSource(sourceFilename);
+    }
+
     const result = await animateI2v.generateFromSourcePath(source.fullPath, {
       prompt,
       layerTitle,
@@ -435,7 +570,9 @@ router.post('/animate-i2v', authenticateJWT, async (req, res) => {
       entity_id: getEntityId(req),
       user_id: getUserId(req),
       type: 'i2v_clip',
-      source_filename: source.filename,
+      source_filename: sourceFilename || source.filename,
+      frame_filename: imageDataUrl ? source.filename : null,
+      effect_start: Number.isFinite(effectStart) ? effectStart : null,
       user_prompt: result.user_prompt || prompt,
       prompt: result.ltx_prompt || result.prompt,
       engine,
@@ -461,7 +598,8 @@ router.post('/animate-i2v', authenticateJWT, async (req, res) => {
       data: {
         id: String(insertResult.insertedId),
         ...result,
-        sourceFilename: source.filename,
+        sourceFilename: sourceFilename || source.filename,
+        effectStart: Number.isFinite(effectStart) ? effectStart : null,
       },
     });
   } catch (error) {
@@ -648,6 +786,172 @@ router.get('/download/:filename', authenticateJWT, (req, res) => {
       return res.status(404).json({ success: false, message: 'Fichier introuvable.' });
     }
     return res.download(filePath, filename);
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+function serializeProject(doc) {
+  if (!doc) return null;
+  return {
+    id: String(doc._id),
+    _id: String(doc._id),
+    title: doc.title || 'Sans titre',
+    status: doc.status || 'draft',
+    manifest: doc.manifest || null,
+    thumbnail: doc.thumbnail || null,
+    layerCount: Array.isArray(doc.manifest && doc.manifest.layers) ? doc.manifest.layers.length : 0,
+    created_at: doc.created_at,
+    updated_at: doc.updated_at,
+  };
+}
+
+function parseProjectObjectId(id) {
+  const raw = String(id || '').trim();
+  if (!ObjectId.isValid(raw)) return null;
+  return new ObjectId(raw);
+}
+
+/** Liste des scènes sauvegardées de l'utilisateur */
+router.get('/projects', authenticateJWT, async (req, res) => {
+  try {
+    const entityId = getEntityId(req);
+    const userId = getUserId(req);
+    if (!entityId || !userId) {
+      return res.status(400).json({ success: false, message: 'Utilisateur ou entité manquant.' });
+    }
+    const col = database.getCollection('media_studio_projects');
+    const items = await col
+      .find({ entity_id: entityId, user_id: userId, status: { $ne: 'archived' } })
+      .project({
+        title: 1,
+        status: 1,
+        thumbnail: 1,
+        created_at: 1,
+        updated_at: 1,
+        'manifest.layers': 1,
+        'manifest.title': 1,
+      })
+      .sort({ updated_at: -1 })
+      .limit(100)
+      .toArray();
+
+    return res.json({ success: true, data: items.map(serializeProject) });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+/** Détail d'une scène (manifest complet) */
+router.get('/projects/:id', authenticateJWT, async (req, res) => {
+  try {
+    const entityId = getEntityId(req);
+    const userId = getUserId(req);
+    const oid = parseProjectObjectId(req.params.id);
+    if (!oid) return res.status(400).json({ success: false, message: 'Identifiant invalide.' });
+    const col = database.getCollection('media_studio_projects');
+    const doc = await col.findOne({
+      _id: oid,
+      entity_id: entityId,
+      user_id: userId,
+      status: { $ne: 'archived' },
+    });
+    if (!doc) return res.status(404).json({ success: false, message: 'Scène introuvable.' });
+    return res.json({ success: true, data: serializeProject(doc) });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+/** Créer une scène */
+router.post('/projects', authenticateJWT, async (req, res) => {
+  try {
+    const entityId = getEntityId(req);
+    const userId = getUserId(req);
+    if (!entityId || !userId) {
+      return res.status(400).json({ success: false, message: 'Utilisateur ou entité manquant.' });
+    }
+    const body = req.body || {};
+    const manifest = body.manifest && typeof body.manifest === 'object'
+      ? body.manifest
+      : {
+        version: 1,
+        title: String(body.title || 'Sans titre').trim() || 'Sans titre',
+        canvas: { width: 1200, height: 630, background: '#ffffff' },
+        layers: [],
+      };
+    if (body.title) manifest.title = String(body.title).trim() || manifest.title || 'Sans titre';
+    const now = new Date();
+    const doc = {
+      entity_id: entityId,
+      user_id: userId,
+      title: String(manifest.title || 'Sans titre').trim() || 'Sans titre',
+      manifest,
+      status: 'draft',
+      thumbnail: body.thumbnail || null,
+      created_at: now,
+      updated_at: now,
+    };
+    const col = database.getCollection('media_studio_projects');
+    const result = await col.insertOne(doc);
+    doc._id = result.insertedId;
+    return res.status(201).json({ success: true, data: serializeProject(doc) });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+/** Sauvegarder / mettre à jour une scène */
+router.put('/projects/:id', authenticateJWT, async (req, res) => {
+  try {
+    const entityId = getEntityId(req);
+    const userId = getUserId(req);
+    const oid = parseProjectObjectId(req.params.id);
+    if (!oid) return res.status(400).json({ success: false, message: 'Identifiant invalide.' });
+    const body = req.body || {};
+    const col = database.getCollection('media_studio_projects');
+    const existing = await col.findOne({
+      _id: oid,
+      entity_id: entityId,
+      user_id: userId,
+      status: { $ne: 'archived' },
+    });
+    if (!existing) return res.status(404).json({ success: false, message: 'Scène introuvable.' });
+
+    const update = { updated_at: new Date() };
+    if (body.manifest && typeof body.manifest === 'object') {
+      update.manifest = body.manifest;
+      if (body.manifest.title) update.title = String(body.manifest.title).trim() || existing.title;
+    }
+    if (body.title != null) update.title = String(body.title).trim() || existing.title;
+    if (body.status === 'draft' || body.status === 'ready') update.status = body.status;
+    if (body.thumbnail !== undefined) update.thumbnail = body.thumbnail;
+
+    await col.updateOne({ _id: oid }, { $set: update });
+    const doc = await col.findOne({ _id: oid });
+    return res.json({ success: true, data: serializeProject(doc) });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+/** Supprimer une scène */
+router.delete('/projects/:id', authenticateJWT, async (req, res) => {
+  try {
+    const entityId = getEntityId(req);
+    const userId = getUserId(req);
+    const oid = parseProjectObjectId(req.params.id);
+    if (!oid) return res.status(400).json({ success: false, message: 'Identifiant invalide.' });
+    const col = database.getCollection('media_studio_projects');
+    const result = await col.deleteOne({
+      _id: oid,
+      entity_id: entityId,
+      user_id: userId,
+    });
+    if (!result.deletedCount) {
+      return res.status(404).json({ success: false, message: 'Scène introuvable.' });
+    }
+    return res.json({ success: true, data: { id: String(oid), deleted: true } });
   } catch (error) {
     return res.status(500).json({ success: false, message: error.message });
   }

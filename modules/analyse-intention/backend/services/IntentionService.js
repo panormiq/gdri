@@ -33,7 +33,12 @@ class IntentionService {
     if (customIntentions && customIntentions.length > 0) {
       intentionsList = customIntentions.map((intention, index) => {
         const name = intention.name || intention;
-        return `${index + 1}. ${name}`;
+        const definition = typeof intention === 'object'
+          ? (intention.definition || intention.description || '')
+          : '';
+        return definition
+          ? `${index + 1}. ${name} — ${definition}`
+          : `${index + 1}. ${name}`;
       }).join('\n');
     } else {
       const defaultIntentions = ['commercial', 'sav', 'technique', 'critique', 'positif', 'spam', 'generic'];

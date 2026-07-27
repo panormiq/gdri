@@ -1568,6 +1568,22 @@ require_once '../../includes/header.php';
                             <thead id="gderpi-cmd-frs-lines-thead"><tr><th>Réf. interne</th><th>Réf. fournisseur</th><th>Libellé</th><th>Unité</th><th>Qté</th><th class="text-end">Prix achat HT</th><th class="text-end">Rem.%</th><th class="text-end">TVA</th><th class="text-end">Montant HT</th><th></th></tr></thead>
                             <tbody id="gderpi-cmd-frs-lines-tbody"></tbody>
                             <tfoot>
+                                <tr id="gderpi-cmd-frs-frais-port-edit-row">
+                                    <td colspan="6" class="text-end"><label for="gderpi-cmd-frs-frais-port-ht">Frais de port HT</label></td>
+                                    <td colspan="2">
+                                        <div class="gderpi-devis-frais-port-fields">
+                                            <input id="gderpi-cmd-frs-frais-port-ht" class="form-control form-control-sm text-end gderpi-devis-frais-port-ht" type="number" min="0" step="0.01" placeholder="0,00">
+                                            <label class="gderpi-devis-frais-port-tva-label" for="gderpi-cmd-frs-frais-port-tva">TVA %</label>
+                                            <input id="gderpi-cmd-frs-frais-port-tva" class="form-control form-control-sm text-end gderpi-devis-frais-port-tva" type="number" min="0" step="0.1" value="20">
+                                        </div>
+                                    </td>
+                                    <td></td>
+                                </tr>
+                                <tr id="gderpi-cmd-frs-frais-port-row" hidden>
+                                    <td colspan="8" class="text-end">Frais de port HT</td>
+                                    <td class="text-end" id="gderpi-cmd-frs-frais-port-display">0,00 €</td>
+                                    <td></td>
+                                </tr>
                                 <tr><td colspan="8" class="text-end"><strong>Total HT</strong></td><td class="text-end" id="gderpi-cmd-frs-total-ht">0,00 €</td><td></td></tr>
                                 <tr><td colspan="8" class="text-end"><strong>TVA</strong></td><td class="text-end" id="gderpi-cmd-frs-total-tva">0,00 €</td><td></td></tr>
                                 <tr><td colspan="8" class="text-end"><strong>Total TTC</strong></td><td class="text-end" id="gderpi-cmd-frs-total-ttc">0,00 €</td><td></td></tr>

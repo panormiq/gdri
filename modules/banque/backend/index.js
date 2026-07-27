@@ -1,3 +1,8 @@
+/**
+ * FICHIER : modules/banque/backend/index.js
+ * RÔLE : Point d'entrée module Banque.
+ */
+
 const routes = require('./routes');
 
 async function init() {
@@ -8,7 +13,4 @@ function getRoutes() {
   return routes;
 }
 
-module.exports = {
-  init,
-  routes: getRoutes
-};
+module.exports = { init, routes: getRoutes };

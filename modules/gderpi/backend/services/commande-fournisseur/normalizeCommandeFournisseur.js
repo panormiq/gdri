@@ -21,7 +21,13 @@ function normalizeCommandeFournisseur(raw) {
   const c = raw && typeof raw === 'object' ? raw : {};
   const lignesRaw = Array.isArray(c.lignes) ? c.lignes : [];
   const lignes = lignesRaw.map((l, i) => normalizeDevisLine(l, i));
-  const totaux = c.totaux && typeof c.totaux === 'object' ? c.totaux : calculateDevisTotals(lignes);
+  const fraisPortHt = Number(c.fraisPortHt) || 0;
+  const fraisPortTauxTva = Number.isFinite(Number(c.fraisPortTauxTva))
+    ? Number(c.fraisPortTauxTva)
+    : 20;
+  const totaux = c.totaux && typeof c.totaux === 'object'
+    ? c.totaux
+    : calculateDevisTotals(lignes, { fraisPortHt, fraisPortTauxTva });
   const statutRaw = String(c.statut || 'brouillon').trim().toLowerCase();
 
   return {
@@ -35,6 +41,8 @@ function normalizeCommandeFournisseur(raw) {
     statut: STATUTS.has(statutRaw) ? statutRaw : 'brouillon',
     objet: String(c.objet || '').trim(),
     notes: String(c.notes || '').trim(),
+    fraisPortHt: fraisPortHt > 0 ? Math.round(fraisPortHt * 100) / 100 : 0,
+    fraisPortTauxTva: fraisPortHt > 0 ? fraisPortTauxTva : 0,
     lignes,
     totaux,
     historique: Array.isArray(c.historique) ? c.historique : [],

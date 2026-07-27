@@ -58,10 +58,17 @@ async function createCommandeFournisseur(db, entrepriseId, data) {
     lignes.push(line);
   }
 
+  const fraisRaw = Number(p.fraisPortHt) || 0;
+  const fraisPortHt = fraisRaw > 0 ? Math.round(fraisRaw * 100) / 100 : 0;
+  const fraisTvaRaw = Number(p.fraisPortTauxTva);
+  const fraisPortTauxTva = fraisPortHt > 0
+    ? (Number.isFinite(fraisTvaRaw) ? fraisTvaRaw : 20)
+    : 0;
+
   await ensureCommandeFournisseurIndexes(db);
   const commandeFournisseurId = crypto.randomUUID();
   const numero = await nextSequenceNumber(db, entrepriseId, boutiqueId, 'commande_fournisseur');
-  const totaux = calculateDevisTotals(lignes);
+  const totaux = calculateDevisTotals(lignes, { fraisPortHt, fraisPortTauxTva });
   const now = new Date();
 
   const objetDefault = origine === 'stock' ? 'Réapprovisionnement stock' : 'Commande fournisseur';
@@ -79,6 +86,8 @@ async function createCommandeFournisseur(db, entrepriseId, data) {
     statut: 'brouillon',
     objet,
     notes: String(p.notes || '').trim(),
+    fraisPortHt,
+    fraisPortTauxTva,
     lignes,
     totaux,
     historique: [{ statut: 'brouillon', date: now }],

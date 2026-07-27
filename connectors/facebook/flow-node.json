@@ -1,0 +1,81 @@
+{
+  "id": "facebook",
+  "name": "Facebook (poll / webhook)",
+  "version": "1.3.0",
+  "category": "connector",
+  "kind": "trigger",
+  "visibility": "orchestrator-only",
+  "description": "Déclenche le flow pour chaque événement Facebook (webhook : commentaires, MP, publications, notifs — ou poll Graph).",
+  "canvas": {
+    "icon": "flow-node.svg",
+    "iconEmoji": "📘",
+    "color": "#1877f2",
+    "borderRadius": 12,
+    "width": 220,
+    "inputs": [],
+    "outputs": [
+      { "id": "main", "label": "Message", "type": "main" }
+    ]
+  },
+  "trigger": {
+    "type": "connector",
+    "connectorId": "facebook",
+    "configSchema": {
+      "type": "object",
+      "properties": {
+        "pageId": {
+          "type": "string",
+          "title": "Compte / page Facebook",
+          "description": "Page connectée de l'entité (facebook_configs). Recommandé pour cibler l'écoute."
+        },
+        "limit": {
+          "type": "number",
+          "title": "Max messages / passage",
+          "description": "Nombre max d'items Graph récupérés par poll (1–50)",
+          "minimum": 1,
+          "maximum": 50,
+          "default": 25
+        },
+        "lookbackHours": {
+          "type": "number",
+          "title": "Fenêtre (heures)",
+          "description": "Ne prendre que les messages dans cette fenêtre (1 h – 90 j)",
+          "minimum": 1,
+          "maximum": 2160,
+          "default": 168
+        },
+        "webhookEvents": {
+          "type": "array",
+          "title": "Événements webhook",
+          "description": "comments | messages | posts | notifications",
+          "items": {
+            "enum": ["comments", "messages", "posts", "notifications"]
+          },
+          "default": ["comments", "messages"]
+        }
+      }
+    },
+    "outputContext": {
+      "type": "facebook-message",
+      "fields": [
+        { "key": "text", "label": "Texte du message" },
+        { "key": "from", "label": "Auteur" },
+        { "key": "messageId", "label": "ID message" },
+        { "key": "channel", "label": "Canal" },
+        { "key": "pageId", "label": "Page Facebook" }
+      ]
+    }
+  },
+  "configUi": {
+    "type": "panel",
+    "tabId": "facebook",
+    "tabLabel": "Facebook"
+  },
+  "agentConfig": {
+    "tabId": "facebook",
+    "tabLabel": "Facebook",
+    "brickId": "facebook"
+  },
+  "permissions": ["network", "secrets"],
+  "serviceRef": "connectors/facebook"
+}

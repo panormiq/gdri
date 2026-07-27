@@ -143,6 +143,8 @@ module.exports = MyConnector;
 |-------|-------------|
 | `id` | Identifiant unique (slug) |
 | `direction` | `input` \| `output` \| `bidirectional` |
+| `audience` | Optionnel : `contact` si le connecteur parle à des personnes (hôte Annuaire) |
+| `hosts` | Optionnel : modules hôtes UI (ex. `["annuaire"]`) — config reste côté connecteurs |
 | `capabilities` | Ops supportées (`ingest.push`, `ingest.poll`, `emit.*`) |
 | `credentials.type` | `none` \| `api_key` \| `bearer` \| `basic` \| `oauth2` |
 | `configSchema` | JSON Schema → formulaire admin auto-généré |
@@ -244,24 +246,14 @@ L'utilisateur ne configure que les champs qui diffèrent du modèle.
 
 ---
 
-## Flux agent (futur proche)
+## Flux agent (orchestrateur)
 
-Collection `agent_flows` :
+> Spec produit / architecture : **[`AGENT-AUTOMATION.md`](AGENT-AUTOMATION.md)**  
+> (multi-trigger, adapteur canal, pipeline partagé, app agent, roadmap briques métier + assistant IA).
 
-```json
-{
-  "entrepriseId": "abc123",
-  "name": "Support réseaux",
-  "inputs": [{ "instanceId": "inst-fb-page1" }],
-  "agent": "analyse-intention",
-  "agentConfigRef": "default",
-  "outputs": [
-    { "instanceId": "inst-mail-out", "when": "intention.urgent" }
-  ]
-}
-```
+Les connecteurs ne font que l’I/O. L’orchestration (analyse, routage, devis…) vit dans `agent_flows` + briques `flow-node.json`.
 
-L'orchestrateur (`ConnectorRuntime`) reçoit un message canonique, appelle l'agent, puis route vers les sorties.
+Legacy Facebook / Mail reste actif le temps que l’outil agent soit stable.
 
 ---
 
@@ -286,7 +278,7 @@ L'orchestrateur (`ConnectorRuntime`) reçoit un message canonique, appelle l'age
 | ID | Statut | Description |
 |----|--------|-------------|
 | `http-generic` | ✅ Fonctionnel | Webhook + poll + emit HTTP + 3 presets |
-| `facebook` | 📋 Manifeste + stub | instanceDefaults Graph/Meta |
+| `facebook` | ✅ Poll Graph | `ingestPoll` posts/commentaires (settings `resources`, `limit`, `lookbackHours`) + webhook stub ; token via `facebook_configs` |
 | `mail-in` | ✅ Fonctionnel | instanceDefaults IMAP + sync auto |
 | `mail-out` | ✅ Fonctionnel | instanceDefaults SMTP + sync auto |
 | `_template` | 📄 Modèle | Copier pour créer un connecteur tiers |

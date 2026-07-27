@@ -52,19 +52,23 @@ async function saveAccounts(req, res) {
 }
 
 async function getSendRecipient(req, res) {
+  const type = req.query.type;
+  const id = req.query.id;
   try {
     const data = await resolveGderpiSendRecipient(
       req.entrepriseDb,
       req.entrepriseId,
-      {
-        type: req.query.type,
-        id: req.query.id
-      },
+      { type, id },
       req
     );
     res.json({ success: true, data });
   } catch (error) {
-    console.error('GDERPI mail send recipient:', error);
+    console.error('GDERPI mail send recipient:', {
+      type,
+      id,
+      entrepriseId: req.entrepriseId,
+      message: error.message
+    });
     const status = /introuvable/i.test(error.message) ? 404 : 400;
     res.status(status).json({ success: false, message: error.message || 'Erreur serveur' });
   }

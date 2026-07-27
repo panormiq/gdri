@@ -76,6 +76,8 @@ class ConnectorRegistry {
       direction: c.manifest.direction || 'input',
       capabilities: c.manifest.capabilities || [],
       description: c.manifest.description || '',
+      audience: c.manifest.audience || null,
+      hosts: Array.isArray(c.manifest.hosts) ? c.manifest.hosts : [],
       source: c.source
     }));
   }

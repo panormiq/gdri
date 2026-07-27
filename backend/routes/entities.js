@@ -10,6 +10,9 @@ const { authenticateJWT } = require('../config/jwt');
 const Entity = require('../models/Entity');
 const { ObjectId } = require('mongodb');
 const { dedupeServicesList } = require('../core/services-catalog-dedupe');
+const {
+  ensureContactForEntityUserByEntrepriseId
+} = require('../../modules/annuaire/backend/services/contacts/ensureContactForEntityUser');
 
 function serializeDoc(value) {
   if (Array.isArray(value)) return value.map(serializeDoc);
@@ -554,6 +557,18 @@ router.post('/:entityId/users', authenticateJWT, async (req, res) => {
     } catch (refError) {
       // Ne pas échouer si la référence ne peut pas être créée (la base peut ne pas exister)
       console.warn(`⚠️  Impossible de créer la référence dans la base d'entreprise: ${refError.message}`);
+    }
+
+    try {
+      await ensureContactForEntityUserByEntrepriseId(entityId, {
+        email: user.email,
+        userId: userId,
+        name: user.name || user.username || '',
+        prenom: user.prenom || user.firstName || '',
+        nom: user.nom || user.lastName || ''
+      });
+    } catch (contactErr) {
+      console.warn('⚠️  Sync contact Annuaire (entité/users):', contactErr.message);
     }
 
     res.json({

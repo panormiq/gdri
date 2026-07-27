@@ -3,7 +3,7 @@ require_once '../../../config/config.php';
 require_once '../../../auth/session.php';
 require_once '../../../includes/functions.php';
 
-if (!hasRole(ROLE_ADMIN_GDRI) && !hasRole(ROLE_ADMIN_ENTITY)) {
+if (!hasRole(ROLE_ADMIN_GDRI) && !hasRole(ROLE_ADMIN_ENTITY) && !hasRole(ROLE_USER_ENTITY)) {
     redirect(url('pages/dashboard.php'));
 }
 

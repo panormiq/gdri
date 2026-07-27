@@ -113,7 +113,22 @@
     if (layer.title) return layer.title;
     if (layer.type === 'text') return (layer.content || 'Texte').slice(0, 40);
     if (layer.type === 'character') return 'Personnage';
+    if (layer.type === 'shape') return 'Cadre';
     return layer.id || 'Calque';
+  }
+
+  function normalizeShapeStyle(style = {}) {
+    const shape = ['rect', 'roundedRect', 'ellipse'].includes(style.shape) ? style.shape : 'roundedRect';
+    const effect = ['none', 'shadow', 'glow'].includes(style.effect) ? style.effect : 'none';
+    return {
+      shape,
+      fill: style.fill != null ? String(style.fill) : 'transparent',
+      stroke: style.stroke || '#1a1a1a',
+      strokeWidth: Math.max(0, Number(style.strokeWidth != null ? style.strokeWidth : 4) || 0),
+      rx: Math.max(0, Number(style.rx != null ? style.rx : 16) || 0),
+      opacity: Math.min(1, Math.max(0, Number(style.opacity != null ? style.opacity : 1) || 1)),
+      effect,
+    };
   }
 
   function normalizeLayer(layer, index) {
@@ -121,9 +136,11 @@
     let type = 'image';
     if (layer.type === 'text') type = 'text';
     else if (layer.type === 'character') type = 'character';
+    else if (layer.type === 'shape') type = 'shape';
 
+    const idPrefix = type === 'text' ? 'text' : (type === 'character' ? 'char' : (type === 'shape' ? 'shape' : 'img'));
     const normalized = {
-      id: layer.id || uid(type === 'text' ? 'text' : (type === 'character' ? 'char' : 'img')),
+      id: layer.id || uid(idPrefix),
       type,
       title: layer.title || '',
       description: layer.description || '',
@@ -153,13 +170,14 @@
       role: null,
       status: 'brouillon',
       chromaColor: layer.chromaColor || null,
+      groupId: layer.groupId ? String(layer.groupId) : null,
     };
     normalized.role = inferRole({ ...normalized, role: layer.role });
     normalized.status = inferStatus({ ...normalized, status: layer.status });
     if (!normalized.title) {
       normalized.title = type === 'text'
         ? (normalized.content || 'Texte').slice(0, 48)
-        : (type === 'character' ? 'Personnage' : normalized.id.replace(/-/g, ' '));
+        : (type === 'character' ? 'Personnage' : (type === 'shape' ? 'Cadre' : normalized.id.replace(/-/g, ' ')));
     }
     if (type === 'text') {
       const Text = global.MediaStudioText;
@@ -167,6 +185,12 @@
         normalized.style = Text.normalizeTextStyle(normalized.style);
         normalized.textPath = Text.normalizeTextPath(layer.textPath);
       }
+    }
+    if (type === 'shape') {
+      normalized.style = normalizeShapeStyle(layer.style || layer);
+      normalized.role = 'object';
+      normalized.status = 'generated';
+      normalized.prompt = '';
     }
     if (type === 'character') {
       const Rig = global.MediaStudioRig;
@@ -217,6 +241,7 @@
       this.onLayerSelect = options.onLayerSelect || (() => {});
       this.onManifestChange = options.onManifestChange || (() => {});
       this.onUploadReference = options.onUploadReference || null;
+      this.onAskLayerAi = options.onAskLayerAi || null;
 
       this.manifest = emptyManifest();
       this.selectedLayerId = null;
@@ -368,15 +393,145 @@
       if (patch.style && layer.type === 'text' && global.MediaStudioText) {
         layer.style = global.MediaStudioText.normalizeTextStyle({ ...layer.style, ...patch.style });
       }
+      if (patch.style && layer.type === 'shape') {
+        layer.style = normalizeShapeStyle({ ...layer.style, ...patch.style });
+      }
+      if (patch.groupId !== undefined) {
+        layer.groupId = patch.groupId ? String(patch.groupId) : null;
+      }
       if (patch.asset) layer.asset = patch.asset;
       if (patch.referenceImage !== undefined) layer.referenceImage = patch.referenceImage;
       if (patch.generation) layer.generation = patch.generation;
-      layer.status = inferStatus(layer);
+      if (layer.type !== 'shape') layer.status = inferStatus(layer);
       const assetOnly = Object.keys(patch).every((k) => k === 'asset' || k === 'generation');
       if (assetOnly) this.renderCanvas();
       else this.render();
       this.persist();
       return true;
+    }
+
+    addLayers(layers) {
+      if (!Array.isArray(layers) || !layers.length) return 0;
+      let n = 0;
+      layers.forEach((raw, i) => {
+        const layer = normalizeLayer(raw, this.manifest.layers.length + i);
+        if (this.manifest.layers.some((l) => l.id === layer.id)) {
+          layer.id = uid(layer.type === 'shape' ? 'shape' : (layer.type === 'text' ? 'text' : 'img'));
+        }
+        this.manifest.layers.push(layer);
+        n += 1;
+      });
+      if (n) {
+        this.render();
+        this.persist();
+      }
+      return n;
+    }
+
+    /** Cadre SVG autour d'un calque (texte/image), regroupé pour bouger ensemble. */
+    addFrameAroundLayer(targetLayer, options = {}) {
+      if (!targetLayer || !targetLayer.bbox) return null;
+      const pad = Math.max(8, Number(options.padding) || 18);
+      const groupId = targetLayer.groupId || uid('grp');
+      targetLayer.groupId = groupId;
+      const frame = normalizeLayer({
+        id: uid('shape'),
+        type: 'shape',
+        title: options.title || `Cadre — ${getLayerTitle(targetLayer)}`,
+        groupId,
+        zIndex: Math.max(0, (targetLayer.zIndex || 0) - 1),
+        bbox: {
+          x: Math.round(targetLayer.bbox.x - pad),
+          y: Math.round(targetLayer.bbox.y - pad),
+          width: Math.round(targetLayer.bbox.width + pad * 2),
+          height: Math.round(targetLayer.bbox.height + pad * 2),
+        },
+        style: normalizeShapeStyle({
+          shape: options.shape || 'roundedRect',
+          fill: options.fill != null ? options.fill : 'rgba(255,255,255,0.08)',
+          stroke: options.stroke || '#1a1a1a',
+          strokeWidth: options.strokeWidth != null ? options.strokeWidth : 4,
+          rx: options.rx != null ? options.rx : 16,
+          effect: options.effect || 'shadow',
+        }),
+      }, this.manifest.layers.length);
+      this.manifest.layers.push(frame);
+      this.render();
+      this.persist();
+      return frame;
+    }
+
+    appendShapeLayer(g, layer) {
+      const st = normalizeShapeStyle(layer.style);
+      const { x, y, width: w, height: h } = layer.bbox;
+      const filterId = `ms-fx-${String(layer.id).replace(/[^a-zA-Z0-9_-]/g, '')}`;
+      if (st.effect === 'shadow' || st.effect === 'glow') {
+        let defs = this.svgEl.querySelector('defs');
+        if (!defs) {
+          defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
+          this.svgEl.insertBefore(defs, this.svgEl.firstChild);
+        }
+        let filter = defs.querySelector(`[id="${filterId}"]`);
+        if (!filter) {
+          filter = document.createElementNS('http://www.w3.org/2000/svg', 'filter');
+          filter.setAttribute('id', filterId);
+          filter.setAttribute('x', '-30%');
+          filter.setAttribute('y', '-30%');
+          filter.setAttribute('width', '160%');
+          filter.setAttribute('height', '160%');
+          if (st.effect === 'shadow') {
+            const shadow = document.createElementNS('http://www.w3.org/2000/svg', 'feDropShadow');
+            shadow.setAttribute('dx', '0');
+            shadow.setAttribute('dy', '4');
+            shadow.setAttribute('stdDeviation', '4');
+            shadow.setAttribute('flood-color', '#000000');
+            shadow.setAttribute('flood-opacity', '0.35');
+            filter.appendChild(shadow);
+          } else {
+            const blur = document.createElementNS('http://www.w3.org/2000/svg', 'feGaussianBlur');
+            blur.setAttribute('stdDeviation', '3.5');
+            blur.setAttribute('result', 'blur');
+            const merge = document.createElementNS('http://www.w3.org/2000/svg', 'feMerge');
+            const n1 = document.createElementNS('http://www.w3.org/2000/svg', 'feMergeNode');
+            n1.setAttribute('in', 'blur');
+            const n2 = document.createElementNS('http://www.w3.org/2000/svg', 'feMergeNode');
+            n2.setAttribute('in', 'SourceGraphic');
+            merge.appendChild(n1);
+            merge.appendChild(n2);
+            filter.appendChild(blur);
+            filter.appendChild(merge);
+          }
+          defs.appendChild(filter);
+        }
+      }
+
+      const el = document.createElementNS(
+        'http://www.w3.org/2000/svg',
+        st.shape === 'ellipse' ? 'ellipse' : 'rect'
+      );
+      if (st.shape === 'ellipse') {
+        el.setAttribute('cx', String(x + w / 2));
+        el.setAttribute('cy', String(y + h / 2));
+        el.setAttribute('rx', String(w / 2));
+        el.setAttribute('ry', String(h / 2));
+      } else {
+        el.setAttribute('x', String(x));
+        el.setAttribute('y', String(y));
+        el.setAttribute('width', String(w));
+        el.setAttribute('height', String(h));
+        if (st.shape === 'roundedRect' || st.rx > 0) {
+          el.setAttribute('rx', String(st.rx));
+          el.setAttribute('ry', String(st.rx));
+        }
+      }
+      el.setAttribute('fill', st.fill === 'transparent' ? 'none' : st.fill);
+      el.setAttribute('stroke', st.stroke);
+      el.setAttribute('stroke-width', String(st.strokeWidth));
+      el.setAttribute('opacity', String(st.opacity));
+      if (st.effect === 'shadow' || st.effect === 'glow') {
+        el.setAttribute('filter', `url(#${filterId})`);
+      }
+      g.appendChild(el);
     }
 
     /** Lit les champs Propriétés dans le DOM → manifest (avant régénération). */
@@ -523,6 +678,18 @@
               `<text x="${tx}" y="${ty}" font-family="${layer.style.fontFamily}" font-size="${fs}" font-weight="${layer.style.fontWeight}" fill="${layer.style.color}" text-anchor="${anchor}">${escapeXml(layer.content)}</text>`
             );
           }
+        } else if (layer.type === 'shape') {
+          const st = normalizeShapeStyle(layer.style);
+          if (st.shape === 'ellipse') {
+            parts.push(
+              `<ellipse cx="${x + w / 2}" cy="${y + h / 2}" rx="${w / 2}" ry="${h / 2}" fill="${st.fill === 'transparent' ? 'none' : escapeXml(st.fill)}" stroke="${escapeXml(st.stroke)}" stroke-width="${st.strokeWidth}" opacity="${st.opacity}"/>`
+            );
+          } else {
+            const rx = st.shape === 'roundedRect' ? st.rx : 0;
+            parts.push(
+              `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="${rx}" ry="${rx}" fill="${st.fill === 'transparent' ? 'none' : escapeXml(st.fill)}" stroke="${escapeXml(st.stroke)}" stroke-width="${st.strokeWidth}" opacity="${st.opacity}"/>`
+            );
+          }
         } else if (layer.type === 'character') {
           parts.push(exportCharacterSvg(layer));
         } else if (layer.asset && layer.asset.url) {
@@ -597,6 +764,8 @@
             showPathHandle: layer.id === this.selectedLayerId && !layer.locked,
           });
         }
+      } else if (layer.type === 'shape') {
+        this.appendShapeLayer(g, layer);
       } else if (layer.type === 'character') {
         const Rig = global.MediaStudioRig;
         const inner = document.createElementNS('http://www.w3.org/2000/svg', 'g');
@@ -649,8 +818,8 @@
         sub.setAttribute('fill', '#9aa3b5');
         sub.setAttribute('font-size', '11');
         const subLabel = layer.status === 'prompt_ready'
-          ? 'Prompt Flux prêt'
-          : (layer.description || (layer.role === 'background' ? 'Fond' : 'Objet')).slice(0, 50);
+          ? 'Prêt à générer'
+          : (layer.description || (layer.role === 'background' ? 'Fond' : 'Élément')).slice(0, 50);
         sub.textContent = subLabel;
         g.appendChild(sub);
       }
@@ -824,7 +993,7 @@
       if (!this.manifest.layers.length) {
         const li = document.createElement('li');
         li.className = 'ms-layer-empty';
-        li.textContent = 'Aucun calque — étape 1 : Planifier le brouillon.';
+        li.textContent = 'Aucun élément — décrivez une scène ci-dessous.';
         this.layerListEl.appendChild(li);
         return;
       }
@@ -837,20 +1006,36 @@
 
         const icon = layer.type === 'text'
           ? 'T'
-          : (layer.type === 'character' ? '⌖' : (layer.role === 'background' ? '▤' : '▣'));
+          : (layer.type === 'shape'
+            ? '▭'
+            : (layer.type === 'character' ? '⌖' : (layer.role === 'background' ? '▤' : '▣')));
         const label = getLayerTitle(layer);
-        const badge = layer.type === 'text'
-          ? 'texte'
-          : (layer.type === 'character'
-            ? (layer.status === 'generated' ? 'généré' : (layer.status === 'prompt_ready' ? 'prompt' : 'mesh'))
-            : (layer.status === 'generated' ? 'généré' : (layer.status === 'prompt_ready' ? 'prompt' : 'brouillon')));
+        // Badges UI simplifiés (classes CSS historiques conservées)
+        let badgeClass = 'brouillon';
+        let badgeLabel = 'à créer';
+        if (layer.type === 'text') {
+          badgeClass = 'texte';
+          badgeLabel = layer.textPath && layer.textPath.preset !== 'straight' ? 'courbe' : 'texte';
+        } else if (layer.type === 'shape') {
+          badgeClass = 'généré';
+          badgeLabel = 'cadre';
+        } else if (layer.status === 'generated') {
+          badgeClass = 'généré';
+          badgeLabel = 'ok';
+        } else if (layer.status === 'prompt_ready') {
+          badgeClass = 'prompt';
+          badgeLabel = 'prêt';
+        } else if (layer.type === 'character') {
+          badgeClass = 'mesh';
+          badgeLabel = 'perso';
+        }
 
         li.innerHTML = `
           <button type="button" class="ms-layer-select" data-action="select">
             <span class="ms-layer-icon">${icon}</span>
             <span class="ms-layer-name-wrap">
               <span class="ms-layer-name">${escapeHtml(label)}</span>
-              <span class="ms-layer-badge ms-layer-badge--${badge}">${badge}</span>
+              <span class="ms-layer-badge ms-layer-badge--${badgeClass}">${badgeLabel}</span>
             </span>
           </button>
           <div class="ms-layer-item-actions">
@@ -862,14 +1047,127 @@
       });
     }
 
+    editSelectedChrome(layer) {
+      const title = getLayerTitle(layer);
+      const kind = layer.type === 'text'
+        ? 'Texte'
+        : (layer.type === 'shape'
+          ? 'Cadre'
+          : (layer.type === 'character' ? 'Personnage' : (layer.role === 'background' ? 'Fond' : 'Image')));
+      const tip = layer.type === 'text'
+        ? 'Glissez pour déplacer · courbez ou encadrez via l\'IA ci-dessous'
+        : (layer.type === 'shape'
+          ? 'Cadre regroupé avec le texte — ils bougent ensemble'
+          : 'Glissez sur le canevas pour déplacer · changez l\'apparence ici ou via l\'IA');
+      const groupNote = layer.groupId
+        ? `<p class="ms-edit-tip">Groupe lié · déplacer un élément déplace le groupe</p>`
+        : '';
+      return `
+        <div class="ms-edit-selected">
+          <span class="ms-edit-selected-kicker">Élément sélectionné · ${kind}</span>
+          <p class="ms-edit-selected-name">${escapeHtml(title)}</p>
+          <p class="ms-edit-tip">${tip}</p>
+          ${groupNote}
+        </div>`;
+    }
+
+    editAiSuggestions(layer) {
+      if (layer.type === 'text') {
+        return [
+          { label: 'Courber', prompt: 'Fais suivre une courbe (arc vers le haut)' },
+          { label: 'Vague', prompt: 'Texte en vague' },
+          { label: '+ Cadre', prompt: 'Ajoute un cadre autour du texte avec une ombre' },
+          { label: 'Plus grand', prompt: 'Augmente la taille du texte' },
+        ];
+      }
+      if (layer.type === 'shape') {
+        return [
+          { label: 'Coins ronds', prompt: 'Coins plus arrondis' },
+          { label: 'Lueur', prompt: 'Ajoute un effet de lueur' },
+          { label: 'Trait épais', prompt: 'Bordure plus épaisse' },
+        ];
+      }
+      if (layer.type === 'image' || layer.type === 'character') {
+        return [
+          { label: 'Plus net', prompt: 'Rends le rendu plus net et détaillé' },
+          { label: 'Style cartoon', prompt: 'Passe en style cartoon' },
+        ];
+      }
+      return [];
+    }
+
+    editAiBoxHtml(layer) {
+      const aiPlaceholder = layer.type === 'text'
+        ? 'Ex. : courber le texte, ajouter un cadre…'
+        : (layer.type === 'shape'
+          ? 'Ex. : bordure dorée, coins plus ronds…'
+          : 'Ex. : style cartoon, plus lumineux…');
+      const chips = this.editAiSuggestions(layer).map((s) => (
+        `<button type="button" class="ms-edit-ai-chip" data-ai-prompt="${escapeHtml(s.prompt)}">${escapeHtml(s.label)}</button>`
+      )).join('');
+      return `
+        <div class="ms-edit-ai">
+          <label class="ms-prop-label" for="propAiAsk">Demander un changement (IA)</label>
+          ${chips ? `<div class="ms-edit-ai-chips">${chips}</div>` : ''}
+          <div class="ms-edit-ai-row">
+            <input type="text" id="propAiAsk" class="ms-prop-input" placeholder="${aiPlaceholder}" autocomplete="off">
+            <button type="button" id="propAiAskBtn" class="ms-btn ms-btn-secondary">OK</button>
+          </div>
+          <p class="ms-prop-hint">${layer.type === 'text'
+    ? 'Courbe, cadre, taille, couleur… Un cadre crée un calque regroupé.'
+    : 'Modifie cet élément seulement — pas toute la scène.'}</p>
+        </div>`;
+    }
+
+    bindEditAiBox(layer) {
+      const input = document.getElementById('propAiAsk');
+      const btn = document.getElementById('propAiAskBtn');
+      if (!input || !btn) return;
+      const run = (text) => {
+        const value = String(text || input.value).trim();
+        if (!value || !this.onAskLayerAi) return;
+        input.value = '';
+        this.onAskLayerAi(layer, value);
+      };
+      btn.addEventListener('click', () => run());
+      input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && !e.shiftKey) {
+          e.preventDefault();
+          run();
+        }
+      });
+      this.propsBodyEl.querySelectorAll('.ms-edit-ai-chip').forEach((chip) => {
+        chip.addEventListener('click', () => run(chip.dataset.aiPrompt || chip.textContent));
+      });
+    }
+
     renderProps() {
       const layer = this.getSelectedLayer();
       if (!layer) {
-        this.propsBodyEl.innerHTML = '<p class="ms-scene-props-empty">Sélectionnez un calque pour modifier ses propriétés ou discuter avec l\'IA.</p>';
+        this.propsBodyEl.innerHTML = `
+          <div class="ms-edit-guide">
+            <p class="ms-edit-guide-title">Où modifier ?</p>
+            <ol class="ms-edit-guide-list">
+              <li><strong>Canevas</strong> — cliquer + glisser pour déplacer</li>
+              <li><strong>Ici (droite)</strong> — texte, taille, apparence, IA</li>
+              <li><strong>Bas</strong> — créer une nouvelle scène</li>
+            </ol>
+            <p class="ms-scene-props-empty">Sélectionnez un élément sur le canevas ou dans la liste à gauche.</p>
+          </div>`;
+        if (this.regenBtn) this.regenBtn.disabled = true;
         return;
       }
 
+      if (this.regenBtn) {
+        this.regenBtn.disabled = !(layer.type === 'image' || layer.type === 'character');
+        this.regenBtn.textContent = layer.type === 'text'
+          ? 'Régénérer l\'image'
+          : 'Régénérer l\'image';
+      }
+
       const { x, y, width, height } = layer.bbox;
+      const chrome = this.editSelectedChrome(layer);
+      const aiBox = this.editAiBoxHtml(layer);
       if (layer.type === 'character') {
         const Rig = global.MediaStudioRig;
         const rig = Rig ? Rig.normalizeRig(layer.rig) : null;
@@ -882,35 +1180,35 @@
           `<option value="${o.id}" ${o.id === orient.view ? 'selected' : ''}>${o.label}</option>`
         )).join('') : '';
         this.propsBodyEl.innerHTML = `
+          ${chrome}
           <label class="ms-prop-label">Titre</label>
           <input type="text" id="propTitle" class="ms-prop-input" value="${escapeHtml(layer.title || '')}">
-          <p class="ms-prop-hint">Type : <strong>Personnage (mesh)</strong> · ${template ? template.label : 'humanoid'}</p>
-          <label class="ms-prop-label">Description (brouillon)</label>
+          <p class="ms-prop-hint">Personnage · ${template ? template.label : 'humain'}</p>
+          <label class="ms-prop-label">Description</label>
           <textarea id="propDescription" class="ms-prop-input" rows="2">${escapeHtml(layer.description || '')}</textarea>
-          <label class="ms-prop-label">Prompt Flux — apparence du personnage</label>
-          <textarea id="propCharPrompt" class="ms-prop-input" rows="3" placeholder="Ex. : femme en tailleur bleu, cheveux courts, style réaliste…">${escapeHtml(layer.prompt || '')}</textarea>
-          <p class="ms-prop-hint">Orientation (face/dos/vue) ajoutée automatiquement au prompt. Détourage chroma après génération.</p>
+          <label class="ms-prop-label">Apparence</label>
+          <textarea id="propCharPrompt" class="ms-prop-input" rows="3" placeholder="Ex. : femme en tailleur bleu, cheveux courts…">${escapeHtml(layer.prompt || '')}</textarea>
+          <p class="ms-prop-hint">L'orientation (face / dos) est ajoutée automatiquement.</p>
           <label class="ms-prop-label">Photo de référence (optionnel)</label>
           <div class="ms-prop-ref">
             ${layer.referenceImage && layer.referenceImage.filename
     ? `<div class="ms-prop-ref-preview"><img src="${escapeHtml(layer.referenceImage.url)}" alt="Référence"><button type="button" id="propRefClear" class="ms-btn ms-btn-ghost">Retirer</button></div>`
     : '<p class="ms-prop-hint">Aucune photo — génération depuis le texte seul.</p>'}
             <input type="file" id="propRefFile" class="ms-prop-ref-file" accept="image/png,image/jpeg,image/webp">
-            <p class="ms-prop-hint">Photo guide pour Flux (img2img). Même pose/orientation recommandée.</p>
+            <p class="ms-prop-hint">Photo guide (même pose recommandée).</p>
           </div>
-          <div id="propChromaWrap" class="ms-prop-chroma">
-            <label class="ms-prop-label">Fond chroma (détourage)</label>
+          <details class="ms-prop-advanced" id="propChromaWrap">
+            <summary>Options de détourage</summary>
             <label class="ms-prop-chroma-auto">
               <input type="checkbox" id="propChromaAuto" ${!layer.chromaColor ? 'checked' : ''}>
-              Auto — couleur hors palette du sujet
+              Couleur de détourage automatique
             </label>
             <div class="ms-prop-chroma-row">
               <input type="color" id="propChromaColor" class="ms-prop-color" value="${layer.chromaColor || '#FF00FF'}" ${!layer.chromaColor ? 'disabled' : ''}>
               <span class="ms-prop-chroma-swatch" style="background:${layer.chromaColor || 'transparent'}"></span>
               <span class="ms-prop-chroma-label">${layer.chromaColor ? layer.chromaColor : 'auto'}</span>
             </div>
-            <p class="ms-prop-hint">Cette couleur est envoyée à Flux puis retirée par le serveur. Ne doit pas être dans le personnage.</p>
-          </div>
+          </details>
           <label class="ms-prop-label">Orientation du corps</label>
           <select id="propFacing" class="ms-prop-input">${facingOpts}</select>
           <p class="ms-prop-hint">Face, dos, profil ou 3/4 — le personnage tourne sur lui-même.</p>
@@ -938,13 +1236,15 @@
             Afficher le squelette
           </label>
           <button type="button" id="propResetPose" class="ms-btn ms-btn-secondary ms-prop-reset-pose">Réinitialiser pose + orientation</button>
-          <p class="ms-prop-hint ms-prop-size">${Rig ? Rig.orientationLabel(orient) : ''} · longueurs des os conservées · poignée bleue = rotation scène.</p>`;
+          <p class="ms-prop-hint ms-prop-size">${Rig ? Rig.orientationLabel(orient) : ''} · longueurs des os conservées · poignée bleue = rotation scène.</p>
+          ${aiBox}`;
         this.bindProp('propTitle', 'input', (v) => { layer.title = v; }, { refresh: 'listOnBlur' });
         this.bindProp('propDescription', 'input', (v) => { layer.description = v; });
         this.bindProp('propCharPrompt', 'input', (v) => {
           layer.prompt = v;
           layer.status = v.trim().length > 8 ? 'prompt_ready' : 'brouillon';
         }, { refresh: 'listOnBlur' });
+        this.bindEditAiBox(layer);
         const refFile = document.getElementById('propRefFile');
         const refClear = document.getElementById('propRefClear');
         if (refFile) {
@@ -1048,7 +1348,8 @@
         )).join('') : '';
         const curved = Text && Text.isCurved(tp);
         this.propsBodyEl.innerHTML = `
-          <label class="ms-prop-label">Titre calque</label>
+          ${chrome}
+          <label class="ms-prop-label">Titre</label>
           <input type="text" id="propTitle" class="ms-prop-input" value="${escapeHtml(layer.title || '')}">
           <label class="ms-prop-label">Contenu</label>
           <textarea id="propContent" class="ms-prop-input" rows="2">${escapeHtml(layer.content)}</textarea>
@@ -1092,9 +1393,11 @@
           <div class="ms-prop-grid">
             <input type="number" id="propX" value="${x}"><input type="number" id="propY" value="${y}">
             <input type="number" id="propW" value="${width}"><input type="number" id="propH" value="${height}">
-          </div>`;
+          </div>
+          ${aiBox}`;
         this.bindProp('propTitle', 'input', (v) => { layer.title = v; }, { refresh: 'listOnBlur' });
         this.bindProp('propContent', 'input', (v) => { layer.content = v; }, { refresh: 'canvas' });
+        this.bindEditAiBox(layer);
         this.bindProp('propFontSize', 'change', (v) => { layer.style.fontSize = Number(v) || 32; }, { refresh: 'canvas' });
         this.bindProp('propColor', 'input', (v) => { layer.style.color = v; }, { refresh: 'canvas' });
         const syncTextStyle = () => {
@@ -1151,40 +1454,108 @@
             layer.bbox[keys[i]] = Math.max(i < 2 ? 0 : 20, Number(v) || 0);
           }, { refresh: 'canvas' });
         });
-      } else {
-        const roleLabel = layer.role === 'background' ? 'Fond (image pleine)' : 'Objet (détourage auto)';
+      } else if (layer.type === 'shape') {
+        const st = normalizeShapeStyle(layer.style);
         this.propsBodyEl.innerHTML = `
+          ${chrome}
           <label class="ms-prop-label">Titre</label>
           <input type="text" id="propTitle" class="ms-prop-input" value="${escapeHtml(layer.title || '')}">
-          <p class="ms-prop-hint">État : <strong>${layer.status}</strong> · ${roleLabel}</p>
-          <label class="ms-prop-label">Description (brouillon)</label>
-          <textarea id="propDescription" class="ms-prop-input" rows="2">${escapeHtml(layer.description || '')}</textarea>
-          <label class="ms-prop-label">Prompt Flux (étape 2)</label>
-          <textarea id="propPrompt" class="ms-prop-input" rows="3" placeholder="Généré à l'étape « Prompts Flux »…">${escapeHtml(layer.prompt)}</textarea>
-          <label class="ms-prop-label">Rôle</label>
-          <select id="propRole" class="ms-prop-input">
-            <option value="object" ${layer.role === 'object' ? 'selected' : ''}>Objet superposable</option>
-            <option value="background" ${layer.role === 'background' ? 'selected' : ''}>Fond / décor</option>
+          <label class="ms-prop-label">Forme</label>
+          <select id="propShapeKind" class="ms-prop-input">
+            <option value="roundedRect" ${st.shape === 'roundedRect' ? 'selected' : ''}>Rectangle arrondi</option>
+            <option value="rect" ${st.shape === 'rect' ? 'selected' : ''}>Rectangle</option>
+            <option value="ellipse" ${st.shape === 'ellipse' ? 'selected' : ''}>Ellipse</option>
           </select>
-          <div id="propChromaWrap" class="ms-prop-chroma" ${layer.role === 'background' ? 'hidden' : ''}>
-            <label class="ms-prop-label">Fond chroma (détourage)</label>
-            <label class="ms-prop-chroma-auto">
-              <input type="checkbox" id="propChromaAuto" ${!layer.chromaColor ? 'checked' : ''}>
-              Auto — couleur hors palette du sujet
-            </label>
-            <div class="ms-prop-chroma-row">
-              <input type="color" id="propChromaColor" class="ms-prop-color" value="${layer.chromaColor || '#FF00FF'}" ${!layer.chromaColor ? 'disabled' : ''}>
-              <span class="ms-prop-chroma-swatch" style="background:${layer.chromaColor || 'transparent'}"></span>
-            </div>
-            <p class="ms-prop-hint">Flux dessine le sujet sur ce fond uni ; le serveur retire ensuite cette couleur. Ne doit pas apparaître dans l'objet.</p>
+          <label class="ms-prop-label">Contour</label>
+          <div class="ms-prop-grid ms-prop-grid--2">
+            <input type="color" id="propShapeStroke" class="ms-prop-color" value="${/^#/.test(st.stroke) ? st.stroke : '#1a1a1a'}">
+            <input type="number" id="propShapeStrokeW" class="ms-prop-input" min="0" max="40" value="${st.strokeWidth}" title="Épaisseur">
+          </div>
+          <label class="ms-prop-label">Fond</label>
+          <input type="text" id="propShapeFill" class="ms-prop-input" value="${escapeHtml(st.fill)}" placeholder="transparent ou #fff">
+          <label class="ms-prop-label">Arrondi / effet</label>
+          <div class="ms-prop-grid ms-prop-grid--2">
+            <input type="number" id="propShapeRx" class="ms-prop-input" min="0" max="200" value="${st.rx}" title="Rayon">
+            <select id="propShapeEffect" class="ms-prop-input">
+              <option value="none" ${st.effect === 'none' ? 'selected' : ''}>Sans effet</option>
+              <option value="shadow" ${st.effect === 'shadow' ? 'selected' : ''}>Ombre</option>
+              <option value="glow" ${st.effect === 'glow' ? 'selected' : ''}>Lueur</option>
+            </select>
           </div>
           <label class="ms-prop-label">Position (x, y, w, h)</label>
           <div class="ms-prop-grid">
             <input type="number" id="propX" value="${x}"><input type="number" id="propY" value="${y}">
             <input type="number" id="propW" value="${width}"><input type="number" id="propH" value="${height}">
           </div>
-          <p class="ms-prop-hint">${layer.asset ? 'Image générée.' : 'Étape 3 : Générer Flux pour produire l\'image.'}</p>
-          <p class="ms-prop-hint ms-prop-size">${formatLayerSizeHint(layer)}</p>`;
+          ${aiBox}`;
+        this.bindProp('propTitle', 'input', (v) => { layer.title = v; }, { refresh: 'listOnBlur' });
+        const syncShape = () => {
+          layer.style = normalizeShapeStyle({
+            shape: document.getElementById('propShapeKind')?.value,
+            stroke: document.getElementById('propShapeStroke')?.value,
+            strokeWidth: document.getElementById('propShapeStrokeW')?.value,
+            fill: document.getElementById('propShapeFill')?.value,
+            rx: document.getElementById('propShapeRx')?.value,
+            effect: document.getElementById('propShapeEffect')?.value,
+            opacity: layer.style.opacity,
+          });
+          this.persist();
+          this.renderCanvas();
+        };
+        ['propShapeKind', 'propShapeStroke', 'propShapeStrokeW', 'propShapeFill', 'propShapeRx', 'propShapeEffect']
+          .forEach((id) => {
+            const el = document.getElementById(id);
+            if (el) el.addEventListener(id === 'propShapeFill' ? 'change' : 'input', syncShape);
+            if (el && (id === 'propShapeKind' || id === 'propShapeEffect')) {
+              el.addEventListener('change', syncShape);
+            }
+          });
+        this.bindEditAiBox(layer);
+        ['propX', 'propY', 'propW', 'propH'].forEach((id, i) => {
+          const keys = ['x', 'y', 'width', 'height'];
+          this.bindProp(id, 'change', (v) => {
+            layer.bbox[keys[i]] = Math.max(i < 2 ? 0 : 20, Number(v) || 0);
+          }, { refresh: 'canvas' });
+        });
+      } else {
+        const roleLabel = layer.role === 'background' ? 'Fond' : 'Élément détouré';
+        const stateLabel = layer.status === 'generated'
+          ? 'image prête'
+          : (layer.status === 'prompt_ready' ? 'prêt à générer' : 'à créer');
+        this.propsBodyEl.innerHTML = `
+          ${chrome}
+          <label class="ms-prop-label">Titre</label>
+          <input type="text" id="propTitle" class="ms-prop-input" value="${escapeHtml(layer.title || '')}">
+          <p class="ms-prop-hint">${stateLabel} · ${roleLabel}</p>
+          <label class="ms-prop-label">Description</label>
+          <textarea id="propDescription" class="ms-prop-input" rows="2">${escapeHtml(layer.description || '')}</textarea>
+          <label class="ms-prop-label">Description image</label>
+          <textarea id="propPrompt" class="ms-prop-input" rows="3" placeholder="Remplie automatiquement à la création…">${escapeHtml(layer.prompt)}</textarea>
+          <label class="ms-prop-label">Type</label>
+          <select id="propRole" class="ms-prop-input">
+            <option value="object" ${layer.role === 'object' ? 'selected' : ''}>Élément (détourage auto)</option>
+            <option value="background" ${layer.role === 'background' ? 'selected' : ''}>Fond / décor</option>
+          </select>
+          <details class="ms-prop-advanced" id="propChromaWrap" ${layer.role === 'background' ? 'hidden' : ''}>
+            <summary>Options de détourage</summary>
+            <label class="ms-prop-chroma-auto">
+              <input type="checkbox" id="propChromaAuto" ${!layer.chromaColor ? 'checked' : ''}>
+              Couleur de détourage automatique
+            </label>
+            <div class="ms-prop-chroma-row">
+              <input type="color" id="propChromaColor" class="ms-prop-color" value="${layer.chromaColor || '#FF00FF'}" ${!layer.chromaColor ? 'disabled' : ''}>
+              <span class="ms-prop-chroma-swatch" style="background:${layer.chromaColor || 'transparent'}"></span>
+            </div>
+            <p class="ms-prop-hint">Couleur absente du sujet, retirée après génération.</p>
+          </details>
+          <label class="ms-prop-label">Position (x, y, w, h)</label>
+          <div class="ms-prop-grid">
+            <input type="number" id="propX" value="${x}"><input type="number" id="propY" value="${y}">
+            <input type="number" id="propW" value="${width}"><input type="number" id="propH" value="${height}">
+          </div>
+          <p class="ms-prop-hint">${layer.asset ? 'Image générée — déplacez-la sur le canevas.' : 'Cliquez « Régénérer l\'image » en bas du panneau.'}</p>
+          <p class="ms-prop-hint ms-prop-size">${formatLayerSizeHint(layer)}</p>
+          ${aiBox}`;
         this.bindProp('propTitle', 'input', (v) => { layer.title = v; }, { refresh: 'listOnBlur' });
         this.bindProp('propDescription', 'input', (v) => { layer.description = v; });
         this.bindProp('propPrompt', 'input', (v) => {
@@ -1195,6 +1566,7 @@
           layer.role = v;
           if (v === 'background') layer.chromaColor = null;
         }, { refresh: 'full' });
+        this.bindEditAiBox(layer);
         const chromaAuto = document.getElementById('propChromaAuto');
         const chromaColor = document.getElementById('propChromaColor');
         if (chromaAuto && chromaColor) {
@@ -1328,6 +1700,11 @@
       if (!layer || layer.locked) return;
       this.selectLayer(layer.id);
       if (layer.locked) return;
+      const groupPeers = layer.groupId
+        ? this.manifest.layers
+          .filter((l) => l.groupId === layer.groupId && l.id !== layer.id && !l.locked)
+          .map((l) => ({ id: l.id, origX: l.bbox.x, origY: l.bbox.y }))
+        : [];
       this.drag = {
         mode: 'layer',
         layerId: layer.id,
@@ -1335,6 +1712,7 @@
         startY: e.clientY,
         origX: layer.bbox.x,
         origY: layer.bbox.y,
+        groupPeers,
         pointerId: e.pointerId,
       };
       g.setPointerCapture(e.pointerId);
@@ -1394,6 +1772,12 @@
       const dy = (e.clientY - this.drag.startY) * scaleY;
       layer.bbox.x = Math.round(this.drag.origX + dx);
       layer.bbox.y = Math.round(this.drag.origY + dy);
+      (this.drag.groupPeers || []).forEach((peer) => {
+        const other = this.manifest.layers.find((l) => l.id === peer.id);
+        if (!other) return;
+        other.bbox.x = Math.round(peer.origX + dx);
+        other.bbox.y = Math.round(peer.origY + dy);
+      });
       this.render();
     }
 

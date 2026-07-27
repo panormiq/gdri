@@ -42,8 +42,18 @@
   border: 1px solid #bfdbfe;
   border-radius: 8px;
   background: linear-gradient(180deg, #eff6ff 0%, #fff 100%);
-  cursor: default;
+  cursor: pointer;
   user-select: none;
+}
+
+.annuaire-entity-bar__inner:hover {
+  border-color: #93c5fd;
+}
+
+.annuaire-entity-bar__inner--active {
+  border-color: #0d6efd;
+  box-shadow: inset 0 0 0 1px #0d6efd;
+  background: linear-gradient(180deg, #eff6ff 0%, #fff 100%);
 }
 
 .annuaire-entity-bar__label {
@@ -201,6 +211,36 @@
   margin-top: 0.35rem;
 }
 
+.annuaire-contact-card__boutiques {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  margin: 0.35rem 0 0.15rem;
+}
+
+.annuaire-contact-boutiques-edit {
+  margin: 0.45rem 0 0;
+  font-size: 0.82rem;
+}
+
+.annuaire-contact-boutiques-edit summary {
+  cursor: pointer;
+  color: #475569;
+  font-weight: 600;
+}
+
+.annuaire-contact-boutiques-edit .annuaire-boutique-checks {
+  margin: 0.45rem 0;
+}
+
+.annuaire-contact-boutiques-edit .btn {
+  margin-top: 0.25rem;
+}
+
+.annuaire-contact-boutiques-field {
+  grid-column: 1 / -1;
+}
+
 .annuaire-boutique-check {
   display: inline-flex;
   align-items: center;
@@ -214,7 +254,7 @@
   box-sizing: border-box;
   background: #fff;
   border-bottom: 1px solid #e2e8f0;
-  padding: 0.75rem 1rem 0.65rem;
+  padding: 0.65rem 1rem;
 }
 
 .annuaire-search-bar {
@@ -246,6 +286,27 @@
   padding: 0;
   border-bottom: none;
   width: 100%;
+}
+
+.annuaire-contacts-search {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.65rem 1rem 0.5rem;
+  border-top: 1px solid #e2e8f0;
+  background: #fff;
+}
+
+.annuaire-contacts-search .annuaire-search-input {
+  flex: 1;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+.annuaire-contacts-search .annuaire-filter-btn--mine {
+  flex-shrink: 0;
+  margin-left: 0;
 }
 
 .annuaire-layout {
@@ -375,6 +436,108 @@
   height: 100%;
   min-height: 0;
   margin: 0;
+}
+
+.annuaire-connectors {
+  flex-shrink: 0;
+  padding: 0.65rem 1.25rem 0.75rem;
+  border-bottom: 1px solid #e2e8f0;
+  background: #f8fafc;
+}
+
+.annuaire-connectors__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.45rem;
+}
+
+.annuaire-connectors__title {
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #64748b;
+}
+
+.annuaire-connectors__hub {
+  font-size: 0.78rem;
+  color: #2563eb;
+  text-decoration: none;
+}
+
+.annuaire-connectors__hub:hover {
+  text-decoration: underline;
+}
+
+.annuaire-connectors__list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.annuaire-connector-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.28rem 0.55rem;
+  border-radius: 999px;
+  border: 1px solid #e2e8f0;
+  background: #fff;
+  font-size: 0.78rem;
+  line-height: 1.2;
+}
+
+.annuaire-connector-chip__name {
+  font-weight: 600;
+  color: #0f172a;
+}
+
+.annuaire-connector-chip__status {
+  color: #64748b;
+}
+
+.annuaire-connector-chip__link {
+  color: #2563eb;
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.annuaire-connector-chip__link:hover {
+  text-decoration: underline;
+}
+
+.annuaire-connector-chip--ok {
+  border-color: #bbf7d0;
+  background: #f0fdf4;
+}
+
+.annuaire-connector-chip--ok .annuaire-connector-chip__status {
+  color: #166534;
+}
+
+.annuaire-connector-chip--warn {
+  border-color: #fde68a;
+  background: #fffbeb;
+}
+
+.annuaire-connector-chip--warn .annuaire-connector-chip__status {
+  color: #92400e;
+}
+
+.annuaire-connector-chip--off {
+  border-color: #e2e8f0;
+  background: #f8fafc;
+}
+
+.annuaire-connector-chip--missing {
+  border-color: #fecaca;
+  background: #fef2f2;
+}
+
+.annuaire-connector-chip--missing .annuaire-connector-chip__status {
+  color: #991b1b;
 }
 
 .annuaire-org-brief {

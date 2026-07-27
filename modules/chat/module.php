@@ -12,6 +12,8 @@ return [
     'name' => 'Module Chat IA',
     'description' => 'Chat IA avec contexte, mémoire de conversation et defaults serveur/modèle.',
     'icon' => '💬',
+    'view_url' => 'pages/modules/chat.php',
+    'view_label' => 'Ouvrir le chat IA',
     'admin_entity' => [
         'config_url' => 'pages/modules/chat-config-entity.php',
         'config_label' => 'Configurer le chat (entité)'
@@ -21,4 +23,3 @@ return [
         'config_label' => 'Configurer le chat (profil)'
     ]
 ];
-

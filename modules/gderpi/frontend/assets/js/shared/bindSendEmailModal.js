@@ -189,6 +189,9 @@
     const directLabel = String(opts.toLabel || '').trim();
     const ctx = opts.recipientContext;
 
+    // Si l'UI a déjà l'e-mail (contact du devis), ne pas bloquer sur /mail/send-recipient.
+    if (directTo) return { to: directTo, label: directLabel };
+
     if (ctx?.type && ctx?.id) {
       try {
         const fromApi = await fetchRecipientFromApi(ctx);
@@ -200,7 +203,6 @@
       } catch (_) { /* fallback */ }
     }
 
-    if (directTo) return { to: directTo, label: directLabel };
     return { to: '', label: '' };
   }
 

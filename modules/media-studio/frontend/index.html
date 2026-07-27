@@ -5,22 +5,23 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
   <title>Studio Média</title>
-  <link rel="stylesheet" href="/modules/media-studio/frontend/assets/css/studio.css?v=20260704k">
+  <link rel="stylesheet" href="/modules/media-studio/frontend/assets/css/studio.css?v=20260726k">
 </head>
 <body>
   <header class="ms-topbar">
     <div>
       <h1>Studio Média</h1>
-      <p>Chat IA + génération Flux · éditeur multi-calques SVG</p>
+      <p>Chat IA · scène · extraction · animation objets · clip hybride</p>
     </div>
     <a href="/frontend/pages/modules.php" class="ms-btn ms-btn-secondary">Retour modules</a>
   </header>
 
   <nav class="ms-tabs" role="tablist">
     <button type="button" class="ms-tab active" data-tab="simple" role="tab" aria-selected="true">Chat simple</button>
-    <button type="button" class="ms-tab" data-tab="scene" role="tab" aria-selected="false">Multi-calques</button>
+    <button type="button" class="ms-tab" data-tab="scene" role="tab" aria-selected="false">Scène</button>
     <button type="button" class="ms-tab" data-tab="extract" role="tab" aria-selected="false">Extraction</button>
-    <button type="button" class="ms-tab" data-tab="animate" role="tab" aria-selected="false">Animation</button>
+    <button type="button" class="ms-tab" data-tab="animate" role="tab" aria-selected="false">Animation objets</button>
+    <button type="button" class="ms-tab" data-tab="clip" role="tab" aria-selected="false">Clip hybride</button>
   </nav>
 
   <div class="ms-status" id="status">Initialisation…</div>
@@ -32,7 +33,7 @@
         <div class="ms-messages" id="messages">
           <div class="ms-msg bot">Bonjour ! Discutez avec l'IA ou décrivez une image à créer.
 
-Astuce : demandez une image dans le chat (ex. <strong>un coloriage de licornes</strong>), tapez <strong>/image un chat astronaute</strong>, ou utilisez le bouton Générer.</div>
+Astuce : demandez une image dans le chat (ex. <strong>un space marine Warhammer</strong>), tapez <strong>/image …</strong>, ou utilisez Générer. Un écran de validation du prompt s’affiche avant Flux.</div>
         </div>
         <div class="typing" id="typing">En cours…</div>
         <div class="ms-input-area">
@@ -46,7 +47,14 @@ Astuce : demandez une image dans le chat (ex. <strong>un coloriage de licornes</
       </section>
 
       <aside class="ms-gallery-panel">
-        <div class="ms-gallery-header">Galerie</div>
+        <div class="ms-gallery-header">
+          <span>Galerie</span>
+          <div class="ms-gallery-actions">
+            <button type="button" id="gallerySelectAllBtn" class="ms-btn ms-btn-ghost" title="Tout sélectionner">Tout</button>
+            <button type="button" id="galleryDeleteSelectedBtn" class="ms-btn ms-btn-ghost ms-gallery-delete-btn" disabled title="Supprimer la sélection">Supprimer</button>
+          </div>
+        </div>
+        <div class="ms-gallery-selection" id="gallerySelectionInfo" hidden>0 sélectionnée(s)</div>
         <div class="ms-gallery" id="gallery">
           <div class="ms-empty">Vos images apparaîtront ici</div>
         </div>
@@ -54,74 +62,97 @@ Astuce : demandez une image dans le chat (ex. <strong>un coloriage de licornes</
     </div>
   </div>
 
-  <!-- Onglet Multi-calques -->
+  <!-- Onglet Scène (composition éditable) -->
   <div class="ms-tab-panel" id="panel-scene" data-panel="scene">
     <div class="ms-scene-layout">
       <aside class="ms-scene-sidebar">
         <div class="ms-scene-sidebar-head">
-          <span>Calques</span>
+          <span>Mes scènes</span>
+          <div class="ms-scene-sidebar-btns">
+            <button type="button" id="sceneNewBtn" class="ms-btn ms-btn-ghost" title="Nouvelle scène">+ Nouveau</button>
+          </div>
+        </div>
+        <ul class="ms-project-list" id="sceneProjectList">
+          <li class="ms-project-empty">Aucune scène sauvegardée.</li>
+        </ul>
+        <div class="ms-scene-actions">
+          <button type="button" id="sceneSaveBtn" class="ms-btn ms-btn-primary">Sauvegarder</button>
+          <button type="button" id="sceneExportSvg" class="ms-btn ms-btn-secondary">Export SVG</button>
+        </div>
+
+        <div class="ms-scene-sidebar-head">
+          <span>Éléments</span>
           <div class="ms-scene-sidebar-btns">
             <button type="button" id="sceneAddText" class="ms-btn ms-btn-ghost" title="Ajouter texte">+ Texte</button>
-            <button type="button" id="sceneAddCharacter" class="ms-btn ms-btn-ghost" title="Ajouter personnage (mesh)">+ Perso</button>
+            <button type="button" id="sceneAddCharacter" class="ms-btn ms-btn-ghost" title="Ajouter personnage">+ Perso</button>
           </div>
         </div>
         <ul class="ms-layer-list" id="layerList"></ul>
         <div class="ms-scene-actions">
-          <button type="button" id="sceneRefineBtnSide" class="ms-btn ms-btn-secondary">2. Prompts</button>
-          <button type="button" id="sceneGenAllBtnSide" class="ms-btn ms-btn-primary">3. Générer</button>
-        </div>
-        <div class="ms-scene-actions">
-          <button type="button" id="sceneNewBtn" class="ms-btn ms-btn-secondary">Nouveau</button>
-          <button type="button" id="sceneExportSvg" class="ms-btn ms-btn-secondary">Export SVG</button>
+          <button type="button" id="sceneGenAllBtnSide" class="ms-btn ms-btn-secondary">Régénérer images</button>
         </div>
       </aside>
 
       <main class="ms-scene-canvas-wrap">
         <div class="ms-scene-toolbar">
-          <input type="text" id="sceneTitle" class="ms-scene-title" placeholder="Titre du projet">
+          <input type="text" id="sceneTitle" class="ms-scene-title" placeholder="Titre de la scène">
+          <span class="ms-scene-save-state" id="sceneSaveState">Brouillon local</span>
           <span class="ms-scene-canvas-size" id="canvasSizeLabel">1200 × 630</span>
         </div>
+        <div class="ms-scene-coach" id="sceneCoach">Cliquez un élément pour le modifier à droite · glissez pour le déplacer</div>
         <div class="ms-scene-viewport" id="sceneViewport">
           <svg id="sceneSvg" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" class="ms-scene-svg"></svg>
         </div>
       </main>
 
       <aside class="ms-scene-props" id="sceneProps">
-        <div class="ms-scene-props-head">Propriétés</div>
-        <div class="ms-scene-props-body" id="scenePropsBody">
-          <p class="ms-scene-props-empty">Sélectionnez un calque pour modifier ses propriétés ou discuter avec l'IA.</p>
+        <div class="ms-scene-props-head">
+          <span>Modifier</span>
+          <span class="ms-scene-props-zone">à droite</span>
         </div>
-        <button type="button" id="sceneRegenBtn" class="ms-btn ms-btn-primary ms-scene-regen" disabled>Générer ce calque (Flux)</button>
+        <div class="ms-scene-props-body" id="scenePropsBody">
+          <div class="ms-edit-guide">
+            <p class="ms-edit-guide-title">3 façons d'agir</p>
+            <ol class="ms-edit-guide-list">
+              <li><strong>Canevas</strong> — cliquer + glisser pour déplacer</li>
+              <li><strong>Ici (droite)</strong> — texte, taille, apparence</li>
+              <li><strong>Bas</strong> — créer une nouvelle scène avec l'IA</li>
+            </ol>
+            <p class="ms-scene-props-empty">Sélectionnez un élément sur le canevas ou dans la liste.</p>
+          </div>
+        </div>
+        <div class="ms-scene-props-footer">
+          <button type="button" id="sceneRegenBtn" class="ms-btn ms-btn-primary ms-scene-regen" disabled>Régénérer l'image</button>
+        </div>
       </aside>
     </div>
 
     <section class="ms-scene-chat">
+      <div class="ms-scene-chat-head">
+        <span>Créer avec l'IA</span>
+        <span class="ms-scene-props-zone">en bas</span>
+      </div>
       <div class="ms-scene-messages" id="sceneMessages">
-        <div class="ms-msg bot">Workflow en 3 étapes :
+        <div class="ms-msg bot">Décrivez le visuel, puis Créer la scène. Ensuite : déplacez, modifiez à droite, et Sauvegarder.
 
-1. **Brouillon** — l'IA découpe les calques (titres + emplacements), sans générer d'images.
-2. **Prompts Flux** — prompts précis par calque image (objet ou fond).
-3. **Générer** — Flux produit les images (détourage auto pour les objets).
-
-Le texte reste en calques SVG instantanés. Ajustez les positions à la souris entre chaque étape.</div>
+À gauche : ouvrir, créer (+ Nouveau) ou supprimer vos scènes sauvegardées.</div>
       </div>
       <div class="typing" id="sceneTyping">En cours…</div>
       <div class="ms-input-area ms-scene-input-area">
-        <div class="ms-layer-context" id="layerContext" hidden>
-          <span class="ms-layer-context-label">Calque actif</span>
-          <span class="ms-layer-chip" id="layerChip"></span>
-          <button type="button" id="layerContextClear" class="ms-btn ms-btn-ghost" title="Détacher le calque">×</button>
-        </div>
-        <div class="ms-scene-workflow-bar">
-          <button type="button" id="scenePlanBtn" class="ms-btn ms-btn-secondary">1. Brouillon</button>
-          <button type="button" id="sceneRefineBtn" class="ms-btn ms-btn-secondary">2. Prompts Flux</button>
-          <button type="button" id="sceneGenAllBtn" class="ms-btn ms-btn-primary">3. Générer images</button>
-        </div>
+        <!-- Conservés pour le pipeline interne (masqués) -->
+        <div id="layerContext" hidden></div>
+        <span id="layerChip" hidden></span>
+        <button type="button" id="layerContextClear" hidden aria-hidden="true"></button>
+        <button type="button" id="scenePlanBtn" hidden aria-hidden="true">Plan</button>
+        <button type="button" id="sceneRefineBtn" hidden aria-hidden="true">Refine</button>
+        <button type="button" id="sceneRefineBtnSide" hidden aria-hidden="true">Refine side</button>
+        <button type="button" id="sceneGenAllBtn" hidden aria-hidden="true">Regen</button>
         <div class="ms-input-row">
-          <input type="text" id="sceneInput" placeholder="Décrivez le visuel (étape 1) ou modifiez un calque…" autocomplete="off">
-          <button type="button" id="sceneSendBtn" class="ms-btn ms-btn-primary">Envoyer</button>
+          <input type="text" id="sceneInput" placeholder="Décrivez la scène à créer…" autocomplete="off">
+          <button type="button" id="sceneCreateBtn" class="ms-btn ms-btn-primary">Créer la scène</button>
+          <button type="button" id="sceneSendBtn" class="ms-btn ms-btn-primary" hidden aria-hidden="true">Envoyer</button>
         </div>
-        <div class="ms-hints">Étapes 1 → 2 → 3 ci-dessus · calque sélectionné = contexte du dialogue</div>
+        <div class="ms-hints">Cette zone sert uniquement à créer / recréer une scène · la modification se fait à droite</div>
       </div>
     </section>
   </div>
@@ -149,7 +180,13 @@ Le texte reste en calques SVG instantanés. Ajustez les positions à la souris e
           <input type="number" id="extractCropH" min="20" step="1" placeholder="h">
         </div>
         <p class="ms-extract-hint">Déplacez le cadre à la souris ou ajustez les valeurs. Coins = redimensionner.</p>
-        <div class="ms-extract-saved-head">Objets enregistrés</div>
+        <div class="ms-extract-saved-head">
+          <span>Objets enregistrés</span>
+          <div class="ms-list-actions">
+            <button type="button" id="extractSelectAllBtn" class="ms-btn ms-btn-ghost" title="Tout sélectionner">Tout</button>
+            <button type="button" id="extractDeleteSelectedBtn" class="ms-btn ms-btn-ghost ms-gallery-delete-btn" disabled title="Supprimer la sélection">Supprimer</button>
+          </div>
+        </div>
         <ul class="ms-extract-saved-list" id="extractSavedList">
           <li class="ms-extract-empty">Aucun objet extrait pour l'instant.</li>
         </ul>
@@ -172,12 +209,12 @@ Le texte reste en calques SVG instantanés. Ajustez les positions à la souris e
     </div>
   </div>
 
-  <!-- Onglet Animation -->
+  <!-- Onglet Animation objets (flux existant : extract / import / zones / LTX cadre) -->
   <div class="ms-tab-panel" id="panel-animate" data-panel="animate">
     <div class="ms-animate-layout">
       <aside class="ms-animate-sidebar">
-        <div class="ms-extract-sidebar-head">Scène animation</div>
-        <p class="ms-extract-hint">Importez des objets, décrivez le <strong>mouvement en texte</strong> (LTX-Video, fond gris uni — détourage plus tard).</p>
+        <div class="ms-extract-sidebar-head">Animation objets</div>
+        <p class="ms-extract-hint">Importez des objets extraits, décrivez le <strong>mouvement</strong> (zones mécaniques ou LTX sur le cadre).</p>
 
         <label class="ms-prop-label">Durée totale (s)</label>
         <input type="number" id="animateDuration" class="ms-prop-input" min="3" max="120" step="1" value="20">
@@ -224,7 +261,7 @@ Le texte reste en calques SVG instantanés. Ajustez les positions à la souris e
 
         <div class="ms-animate-prompt-panel" id="animatePromptPanel" hidden>
           <div class="ms-extract-saved-head">Mouvement (prompt)</div>
-          <p class="ms-extract-hint">1 calque + 1 cadre actif. <strong>Tir / chargeur / boutons</strong> → bouton « Zones depuis prompt ». <strong>LTX</strong> = mouvement global (runes, flottement…) — pas de mécanique précise.</p>
+          <p class="ms-extract-hint">1 calque + 1 cadre actif. <strong>Tir / chargeur / boutons</strong> → « Zones depuis prompt ». <strong>LTX</strong> = mouvement global (runes…) — pas de mécanique précise.</p>
           <textarea id="animatePromptInput" class="ms-animate-prompt-input" rows="3" placeholder="Tir + chargeur qui se vide → Zones. Runes qui brillent → LTX."></textarea>
           <button type="button" id="animateI2vGenerateBtn" class="ms-btn ms-btn-primary">Générer clip IA (LTX)</button>
           <details class="ms-animate-advanced">
@@ -247,7 +284,13 @@ Le texte reste en calques SVG instantanés. Ajustez les positions à la souris e
           <button type="button" id="animateExportBtn" class="ms-btn ms-btn-primary">Exporter</button>
         </div>
         <p class="ms-extract-hint ms-obs-hint"><strong>OBS :</strong> Sources → Média → fichier WebM → cocher <em>Boucle</em>. Chrome/Edge recommandé pour l'alpha.</p>
-        <div class="ms-extract-saved-head">Objets disponibles</div>
+        <div class="ms-extract-saved-head">
+          <span>Objets disponibles</span>
+          <div class="ms-list-actions">
+            <button type="button" id="animateSelectAllBtn" class="ms-btn ms-btn-ghost" title="Tout sélectionner">Tout</button>
+            <button type="button" id="animateDeleteSelectedBtn" class="ms-btn ms-btn-ghost ms-gallery-delete-btn" disabled title="Supprimer la sélection">Supprimer</button>
+          </div>
+        </div>
         <input type="file" id="animateFileInput" accept="image/png" hidden>
         <button type="button" id="animateImportBtn" class="ms-btn ms-btn-secondary">Importer PNG</button>
         <ul class="ms-animate-asset-list" id="animateAssetList">
@@ -260,11 +303,108 @@ Le texte reste en calques SVG instantanés. Ajustez les positions à la souris e
     </div>
   </div>
 
+  <!-- Onglet Clip hybride (NOUVEAU flux : générer → keyframes → LTX effet) -->
+  <div class="ms-tab-panel" id="panel-clip" data-panel="clip">
+    <div class="ms-animate-layout">
+      <aside class="ms-animate-sidebar">
+        <div class="ms-extract-sidebar-head">Clip hybride</div>
+        <p class="ms-extract-hint"><strong>Nouveau flux</strong> : générer le sujet → keyframes (durée longue) → effet LTX ponctuel sur le playhead. Indépendant de l’animation objets.</p>
+
+        <div class="ms-animate-create-panel" id="clipCreatePanel">
+          <label class="ms-prop-label">1. Décrire le sujet</label>
+          <textarea id="clipCreatePrompt" class="ms-animate-prompt-input" rows="3" placeholder="Ex. knight face entière, bolter isolé…"></textarea>
+          <label class="ms-prop-label">Type</label>
+          <select id="clipCreateType" class="ms-prop-input">
+            <option value="character" selected>Personnage (détouré)</option>
+            <option value="object">Objet (détouré)</option>
+          </select>
+          <button type="button" id="clipCreateBtn" class="ms-btn ms-btn-primary">Générer le sujet</button>
+          <p class="ms-extract-hint" id="clipCreateHint">Flux → PNG transparent → timeline clip.</p>
+        </div>
+
+        <div class="ms-extract-saved-head">2. Timeline keyframes</div>
+        <label class="ms-prop-label">Durée totale (s)</label>
+        <input type="number" id="clipDuration" class="ms-prop-input" min="3" max="120" step="1" value="30">
+
+        <label class="ms-prop-label">Playhead</label>
+        <div class="ms-animate-playhead-row">
+          <input type="range" id="clipPlayhead" class="ms-animate-playhead" min="0" max="30" step="0.1" value="0">
+          <span id="clipPlayheadLabel" class="ms-animate-playhead-label">0.0 s / 30 s</span>
+        </div>
+        <button type="button" id="clipAddKeyframeBtn" class="ms-btn ms-btn-primary">+ Keyframe @ playhead</button>
+        <ul class="ms-animate-keyframe-list" id="clipKeyframeList">
+          <li class="ms-animate-empty">Scrub → déplacer → keyframe.</li>
+        </ul>
+
+        <label class="ms-prop-label">Plan de travail (px)</label>
+        <div class="ms-prop-grid">
+          <input type="number" id="clipWorkspaceW" min="400" max="5000" step="10" value="2400">
+          <input type="number" id="clipWorkspaceH" min="300" max="5000" step="10" value="1350">
+        </div>
+        <label class="ms-prop-label">Zone de sortie (x, y, w, h)</label>
+        <div class="ms-prop-grid ms-prop-grid-4">
+          <input type="number" id="clipOutputX" min="0" step="10" value="240">
+          <input type="number" id="clipOutputY" min="0" step="10" value="135">
+          <input type="number" id="clipOutputW" min="160" max="3840" step="10" value="1920">
+          <input type="number" id="clipOutputH" min="120" max="2160" step="10" value="1080">
+        </div>
+
+        <div class="ms-extract-saved-head">Cadres</div>
+        <ul class="ms-animate-cadre-list" id="clipCadreList"></ul>
+        <div class="ms-animate-cadre-actions">
+          <button type="button" id="clipAddCadreBtn" class="ms-btn ms-btn-ghost">+ Cadre</button>
+          <button type="button" id="clipSplitCadresBtn" class="ms-btn ms-btn-ghost">Répartir</button>
+          <button type="button" id="clipAssignCadresBtn" class="ms-btn ms-btn-ghost">1 calque / cadre</button>
+        </div>
+
+        <div class="ms-extract-saved-head">Calques</div>
+        <ul class="ms-animate-layer-list" id="clipLayerList">
+          <li class="ms-animate-empty">Générez un sujet ci-dessus.</li>
+        </ul>
+
+        <div class="ms-animate-tools" hidden>
+          <button type="button" id="clipToolMove" class="ms-btn ms-btn-secondary active">Déplacer</button>
+          <button type="button" id="clipToolGlow" class="ms-btn ms-btn-secondary">Rune</button>
+          <button type="button" id="clipToolButton" class="ms-btn ms-btn-secondary">Bouton</button>
+          <button type="button" id="clipToolDelete" class="ms-btn ms-btn-ghost">Suppr. zone</button>
+        </div>
+        <ul class="ms-animate-zone-list" id="clipZoneList" hidden></ul>
+
+        <div class="ms-animate-prompt-panel" id="clipPromptPanel" hidden>
+          <div class="ms-extract-saved-head">3. Effet LTX @ playhead</div>
+          <p class="ms-extract-hint">Effet court (~2 s) depuis la frame courante — les keyframes restent autour.</p>
+          <textarea id="clipPromptInput" class="ms-animate-prompt-input" rows="3" placeholder="Runes qui s'illuminent, lueur…"></textarea>
+          <button type="button" id="clipI2vGenerateBtn" class="ms-btn ms-btn-primary">Effet LTX @ playhead</button>
+          <button type="button" id="clipPromptGenerateBtn" class="ms-btn ms-btn-secondary" hidden>Zones</button>
+          <label class="ms-animate-llm-check" hidden>
+            <input type="checkbox" id="clipPromptLlm">
+          </label>
+        </div>
+
+        <div class="ms-animate-actions">
+          <button type="button" id="clipPlayBtn" class="ms-btn ms-btn-secondary">▶ Aperçu</button>
+          <label class="ms-prop-label">Export</label>
+          <select id="clipExportFormat" class="ms-prop-input">
+            <option value="webm-bg" selected>WebM avec fond</option>
+            <option value="obs-webm">WebM transparent (OBS)</option>
+            <option value="obs-pngzip">PNG séquence ZIP</option>
+          </select>
+          <button type="button" id="clipExportBtn" class="ms-btn ms-btn-primary">Exporter le clip</button>
+        </div>
+        <ul class="ms-animate-asset-list" id="clipAssetList" hidden></ul>
+      </aside>
+      <main class="ms-animate-main" id="clipStage">
+        <p class="ms-extract-empty ms-extract-drop-hint">Nouveau flux clip<br><span>« Générer le sujet » à gauche</span></p>
+      </main>
+    </div>
+  </div>
+
   <script src="/modules/media-studio/frontend/assets/js/studio-text.js?v=20260704k"></script>
   <script src="/modules/media-studio/frontend/assets/js/studio-rig.js?v=20260704k"></script>
-  <script src="/modules/media-studio/frontend/assets/js/studio-scene.js?v=20260704k"></script>
-  <script src="/modules/media-studio/frontend/assets/js/studio-extract.js?v=20260704k"></script>
-  <script src="/modules/media-studio/frontend/assets/js/studio-animate.js?v=20260704r"></script>
-  <script src="/modules/media-studio/frontend/assets/js/studio-app.js?v=20260704m"></script>
+  <script src="/modules/media-studio/frontend/assets/js/studio-scene.js?v=20260726j"></script>
+  <script src="/modules/media-studio/frontend/assets/js/studio-extract.js?v=20260726c"></script>
+  <script src="/modules/media-studio/frontend/assets/js/studio-keyframes.js?v=20260726a"></script>
+  <script src="/modules/media-studio/frontend/assets/js/studio-animate.js?v=20260726k"></script>
+  <script src="/modules/media-studio/frontend/assets/js/studio-app.js?v=20260726k"></script>
 </body>
 </html>

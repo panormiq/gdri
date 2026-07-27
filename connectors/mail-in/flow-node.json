@@ -1,0 +1,51 @@
+{
+  "id": "mail-in",
+  "name": "Mail entrant",
+  "version": "1.1.0",
+  "category": "connector",
+  "kind": "trigger",
+  "visibility": "orchestrator-only",
+  "description": "Déclenche le flow à chaque email récupéré par le connecteur mail-in (IMAP).",
+  "canvas": {
+    "icon": "flow-node.svg",
+    "iconEmoji": "📥",
+    "color": "#2563eb",
+    "borderRadius": 12,
+    "width": 220,
+    "inputs": [],
+    "outputs": [
+      { "id": "main", "label": "Message", "type": "main" }
+    ]
+  },
+  "trigger": {
+    "type": "connector",
+    "connectorId": "mail-in",
+    "configSchema": {
+      "type": "object",
+      "properties": {
+        "accountRef": {
+          "type": "string",
+          "title": "Compte mail (optionnel)",
+          "description": "Filtrer sur un compte ; vide = tous les comptes mail-in de l'entité"
+        }
+      }
+    },
+    "outputContext": {
+      "type": "mail-message",
+      "fields": [
+        { "key": "from", "label": "Expéditeur" },
+        { "key": "subject", "label": "Sujet" },
+        { "key": "text", "label": "Corps du mail" },
+        { "key": "messageId", "label": "Message-ID" },
+        { "key": "sourceRef", "label": "UID IMAP" },
+        { "key": "attachments", "label": "Pièces jointes" },
+        { "key": "author.email", "label": "Email expéditeur" },
+        { "key": "author.name", "label": "Nom expéditeur" },
+        { "key": "metadata.accountRef", "label": "Compte mail (ref)" },
+        { "key": "metadata.mailbox", "label": "Dossier IMAP" }
+      ]
+    }
+  },
+  "permissions": ["network", "secrets"],
+  "serviceRef": "connectors/mail-in"
+}

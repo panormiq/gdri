@@ -2,7 +2,7 @@
  * FICHIER : modules/ugap/backend/services/devis/renderDevisTableHtml.js
  * RÔLE : Génère le HTML du tableau des lignes de devis.
  *
- * ENTRÉES : lignes [{ refUgap, libelle, libelleApp, categorie, prix }]
+ * ENTRÉES : lignes [{ refUgap, libelle, libelleApp, categorie, prix, prixPublic }]
  * SORTIES : fragment HTML <table>
  *
  * DÉPEND DE : aucun
@@ -33,7 +33,8 @@ const COLUMN_DEFS = [
   { key: 'libelle', label: 'Libellé UGAP' },
   { key: 'libelleApp', label: 'Libellé' },
   { key: 'categorie', label: 'Catégorie' },
-  { key: 'prix', label: 'Prix UGAP HT' }
+  { key: 'prix', label: 'Prix UGAP HT' },
+  { key: 'prixPublic', label: 'Prix public HT' }
 ];
 
 /** Colonnes par défaut si le modèle canvas n'a pas encore fieldOrder (aligné éditeur V2). */
@@ -55,7 +56,24 @@ function escapeHtml(value) {
 function formatMoney(value) {
   const n = Number(value);
   if (!Number.isFinite(n)) return '';
-  return n.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  // Évite l'espace fine insécable (U+202F) de toLocaleString fr-FR — mal rendu en PDF.
+  const sign = n < 0 ? '-' : '';
+  const abs = Math.abs(n);
+  const [intRaw, dec = '00'] = abs.toFixed(2).split('.');
+  const intGrouped = intRaw.replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
+  return `${sign}${intGrouped},${dec}`;
+}
+
+function coerceMoneyAmount(value) {
+  if (value == null || value === '') return null;
+  if (typeof value === 'number') return Number.isFinite(value) ? value : null;
+  const normalized = String(value)
+    .trim()
+    .replace(/[€\s\u00a0\u202f]/g, '')
+    .replace(',', '.');
+  if (!normalized) return null;
+  const n = Number(normalized);
+  return Number.isFinite(n) ? n : null;
 }
 
 function isIncludedDevisOption(option) {
@@ -84,6 +102,36 @@ function resolveIncludedDevisDisplayPrice(option, modelId = '') {
   return Number.isFinite(client) && client > 0 ? client : 0;
 }
 
+/**
+ * Montant prix public catalogue.
+ * priceClient: 0 est traité comme absent (sinon on masque basePrice).
+ */
+function resolvePublicPriceAmount(option, modelId = '') {
+  const opt = option && typeof option === 'object' ? option : {};
+  const mid = String(modelId || '').trim();
+  const byModel = mid && opt.importBaseProductPricesByModelId && typeof opt.importBaseProductPricesByModelId === 'object'
+    ? opt.importBaseProductPricesByModelId[mid]
+    : null;
+  const candidates = [
+    opt.priceClient,
+    opt.pricePublic,
+    opt.clientPrice,
+    opt.basePrice,
+    opt.baseIncludedPrice,
+    byModel,
+    opt.price
+  ];
+  for (const candidate of candidates) {
+    const amount = coerceMoneyAmount(candidate);
+    if (amount != null && amount !== 0) return amount;
+  }
+  for (const candidate of candidates) {
+    const amount = coerceMoneyAmount(candidate);
+    if (amount != null) return amount;
+  }
+  return 0;
+}
+
 function formatDevisLinePrice(option, modelId = '') {
   const opt = option && typeof option === 'object' ? option : {};
   if (opt.isModelBaseLine === true) {
@@ -100,6 +148,25 @@ function formatDevisLinePrice(option, modelId = '') {
     ? billable
     : (Number.isFinite(Number(opt.priceUgap)) ? Number(opt.priceUgap) : Number(opt.priceClient ?? opt.price ?? 0));
   return formatMoney(rawPrice);
+}
+
+function formatDevisLinePublicPrice(option, modelId = '') {
+  const opt = option && typeof option === 'object' ? option : {};
+  const mid = String(modelId || '').trim();
+  if (opt.isModelBaseLine === true) {
+    const amount = resolvePublicPriceAmount(opt, mid);
+    return Number.isFinite(amount) ? formatMoney(amount) : '—';
+  }
+  if (isIncludedDevisOption(opt)) {
+    const amount = resolvePublicPriceAmount(opt, mid);
+    if (amount > 0) return `${formatMoney(amount)} (inclus)`;
+    return 'Inclus';
+  }
+  let raw = resolvePublicPriceAmount(opt, mid);
+  if (UgapDataService.resolveEffectiveImportLineKind(opt) === 'minoration') {
+    raw = -Math.abs(raw);
+  }
+  return formatMoney(raw);
 }
 
 function findCatalogOptionInData(categories, optionId) {
@@ -126,13 +193,15 @@ function optionToLine(option, categoryName, modelId = '') {
     libelle: resolveDevisUgapLabel(opt),
     libelleApp: resolveDevisAppLabel(opt),
     categorie: String(categoryName || opt.category || opt.familyLabel || '').trim(),
-    prix: formatDevisLinePrice(opt, mid)
+    prix: formatDevisLinePrice(opt, mid),
+    prixPublic: formatDevisLinePublicPrice(opt, mid)
   };
 }
 
 function buildModelBaseLine(model, _configName, modelCategory = '') {
   const m = model && typeof model === 'object' ? model : {};
   const basePrice = resolveModelUgapPrice(m);
+  const publicPrice = resolvePublicPriceAmount(m);
   const poste = m.posteNumber;
   const refUgap = String(m.refUgap || m.ref || '').trim()
     || (poste != null && poste !== '' && Number.isFinite(Number(poste)) ? `P${poste}` : '');
@@ -147,6 +216,8 @@ function buildModelBaseLine(model, _configName, modelCategory = '') {
     libelle: excelDesignation || modelName,
     libelleApp: modelName,
     category: categorie,
+    priceClient: Number.isFinite(publicPrice) ? publicPrice : 0,
+    basePrice: Number.isFinite(Number(m.basePrice)) ? Number(m.basePrice) : (Number.isFinite(publicPrice) ? publicPrice : 0),
     billablePrice: basePrice,
     isModelBaseLine: true
   };
@@ -291,7 +362,11 @@ function renderDevisTableHtml(lines, columns = DEFAULT_COLUMNS, tableConfig = nu
       html += '<tr>';
       cols.forEach((col) => {
         const raw = line?.[col.key];
-        const display = col.key === 'prix' && raw && !String(raw).includes('€') ? `${raw} €` : raw;
+        const display = (col.key === 'prix' || col.key === 'prixPublic')
+          && raw != null && raw !== ''
+          && !String(raw).includes('€')
+          ? `${raw} €`
+          : (raw ?? '');
         html += `<td style="border:1px solid #ccc;padding:6px 8px;vertical-align:top;">${escapeHtml(display)}</td>`;
       });
       html += '</tr>';

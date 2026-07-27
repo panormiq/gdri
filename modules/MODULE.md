@@ -3,32 +3,44 @@
 Ce document décrit la structure et les conventions des modules hébergés à la racine du dossier `modules/`.  
 Ces modules sont découverts et chargés par le backend via `backend/core/module-registry.js` et `backend/core/module-loader.js`.
 
-**Structure type réutilisable** (backend, front, backoffice, scoping entité) : voir **`modules/STRUCTURE.md`**. Le module **IA** est la référence.
+**Structure type réutilisable** (backend, front, backoffice, scoping entité) : voir **`modules/STRUCTURE.md`**. Le module **annuaire** est la référence de l'architecture cible (une fonction par fichier, controllers/services/middleware, frontend en assets).
 
 ---
 
 ## 1. Convention d’arborescence
 
-Chaque module est un dossier à la racine de `modules/` avec au minimum un **backend** et optionnellement un **frontend** :
+Chaque module est un dossier à la racine de `modules/` avec au minimum un **backend** et optionnellement un **frontend**. Le modèle cible (celui appliqué lors des migrations, ex. **annuaire**) est :
 
 ```
 modules/
 ├── MODULE.md                    # Ce fichier
 ├── <nom-module>/
+│   ├── module.php               # Manifest PHP (id, name, icon, view_url) — pour le catalogue d'apps du front
 │   ├── backend/                 # Obligatoire : API et logique métier
-│   │   ├── index.js             # Point d’entrée (init, getRoutes)
+│   │   ├── index.js             # Point d'entrée (init, getRoutes)
 │   │   ├── routes.js            # Routes Express (montées sous /api/<nom>)
-│   │   ├── package.json         # name, displayName, routes[], enabled
-│   │   ├── config.json          # Optionnel
-│   │   ├── services/            # Optionnel
-│   │   └── README.md            # Optionnel
-│   └── frontend/                # Optionnel : assets ou doc du module
-│       └── README.md            # Lie la config UI au frontend principal si besoin
+│   │   ├── package.json         # name, displayName, routes[], enabled, bloc app{} optionnel
+│   │   ├── controllers/         # 1 contrôleur par ressource (req/res uniquement)
+│   │   │   └── <ressource>Controller.js
+│   │   ├── services/            # Logique métier — 1 sous-dossier par domaine, 1 fonction par fichier
+│   │   │   └── <domaine>/
+│   │   │       ├── <uneFonction>.js   # ex. listContacts.js exporte listContacts
+│   │   │       └── ...
+│   │   └── middleware/
+│   │       ├── use<Module>EntrepriseDb.js   # Multitenant
+│   │       └── require<Module>Role.js       # Contrôle d'accès
+│   └── frontend/                # Assets du module (chargés par la page PHP du front principal)
+│       └── assets/
+│           ├── css/<module>.css
+│           └── js/<module>-app.js
 ```
 
 - **Backend** : doit contenir `backend/package.json` et `backend/index.js`.  
   Les routes déclarées dans `package.json` (`routes`) sont montées sur l’app Express (ex. `/api/analyse`, `/api/mail`).
-- **Frontend** : les pages PHP/JS du front principal peuvent rester dans `frontend/pages/modules/` ; le dossier `frontend/` du module peut ne contenir qu’un README qui indique où se trouve l’UI (ex. `frontend/pages/modules/analyse-intention-config.php`).
+- **Une fonction = un fichier** dans `services/` : chaque fonction exportée vit dans son propre fichier, nommé comme la fonction (`listContacts.js` → `listContacts`), avec un en-tête `/** FICHIER : ... */`. Voir `modules/gderpi/CONVENTIONS.md` pour le détail de la convention.
+- **Frontend** : la **page PHP** vit dans le front principal (`frontend/pages/modules/<nom>.php`) et charge les assets du module depuis `modules/<nom>/frontend/assets/` (CSS + JS). Les pages de config backoffice restent aussi dans `frontend/pages/modules/` (ex. `<nom>-config.php`).
+- **`module.php`** (racine du module) : manifest lu par le front PHP pour référencer l'app (id, nom, icône, `view_url` vers la page du front principal).
+- Les modules plus anciens (ia, mail, workflow…) ne suivent pas encore tous ce modèle ; toute **migration** d'un module doit le ramener vers cette structure.
 
 ---
 
@@ -94,11 +106,20 @@ Un module peut utiliser un autre module situé sous `modules/` :
 |---------------------|------------------------|------------------|--------------------------------------|
 | **Serveur IA**      | `ia/`                  | `/api/ia`        | Client IA (backendIA puis Ollama)     |
 | Agent Analyse d’intention | `analyse-intention/` | `/api/analyse`   | Détection d’intentions (utilise `ia`) |
+| **Annuaire**        | `annuaire/`            | `/api/annuaire`  | Organisations, services, contacts (réf. architecture) |
+| Banque              | `banque/`              | `/api/banque`    | Relevé PDF → CSV (import Oxygène)     |
 | Chat IA             | `chat/`                | `/api/chat`      | Chat (utilise `ia`)                  |
+| Data-Backup         | `data-backup/`         | `/api/backup`    | Export / restauration MongoDB par entité |
+| **Doc-Hub**         | `doc-hub/`             | `/api/doc-hub`   | GED par projet, diffusion par liens   |
+| **GDERPI**          | `gderpi/`              | `/api/gderpi`    | Mini ERP (boutiques, tiers, devis, commandes) |
 | Service Mail        | `mail/`                | `/api/mail`      | Envoi / réception d’emails           |
+| Media Studio        | `media-studio/`        | `/api/media-studio` | Images / vidéos IA (ComfyUI)      |
+| PM                  | `pm/`                  | `/api/pm`        | Gestion de projet (inbox, Kanban)     |
+| Prompt              | `prompt/`              | `/api/prompt`    | Service partagé d’envoi de prompts IA |
 | UGAP                | `ugap/`                | `/api/ugap`      | Configurateur bateaux (devis, fiche) |
 | Workflow Builder    | `workflow/`            | `/api/workflow`  | Gestion des workflows                |
-| **Doc-Hub**         | `doc-hub/`             | `/api/doc-hub`   | GED par projet, diffusion par liens   |
+
+(`card/` existe mais n’a pas encore de `backend/package.json` — non chargé par le registre.)
 
 **Architecture IA** : voir `modules/ARCHITECTURE-IA-INTENTION.md` (module `ia` = point d’accès unique ; priorité backendIA, fallback Ollama).
 

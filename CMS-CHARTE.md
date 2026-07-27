@@ -187,20 +187,20 @@ Pas visibles comme apps dans la grille Applications (`catalog.type: extension`, 
 
 ---
 
-## 6. Connecteurs (agents — entrées / sorties)
+## 6. Connecteurs (entrées / sorties)
 
-Les **connecteurs** sont des packages installables (webhook, poll IMAP, HTTP générique…) branchés sur les agents IA.
+Les **connecteurs** sont des packages installables (webhook, poll IMAP, HTTP…) : **I/O uniquement**.
 
 - Spec développeur : [`CONNECTOR-SDK.md`](CONNECTOR-SDK.md)
+- Orchestration agents (multi-canal, pipeline, briques) : [`AGENT-AUTOMATION.md`](AGENT-AUTOMATION.md)
 - Core : `backend/core/connectors/`
-- Packages : `connectors/<id>/` (externes) et `backend/connectors/<id>/` (core)
+- Packages : `connectors/<id>/`
 
 ## 7. Prochaine étape documentaire
 
-1. Valider cette découpe **CMS / gestion modules / gestion infra**.
-2. Rédiger si besoin deux fiches courtes : `GESTION-MODULES.md` et `GESTION-INFRA.md` (détail opérationnel).
-3. Ensuite seulement : alignement code (`package.json`, UI, dépendances).
-4. Connecteurs : brancher Facebook/Mail legacy sur le runtime + UI instances + `agent_flows`.
+1. Valider CMS / modules / infra (cette charte).
+2. Suivre [`AGENT-AUTOMATION.md`](AGENT-AUTOMATION.md) pour l’outil agent (phases B→E).
+3. Alignement code progressif ; **ne pas couper** legacy FB/Mail avant bascule volontaire.
 
 ---
 
