@@ -1602,6 +1602,7 @@ function isGdriPlatformShellPage() {
         'platform-applications.php',
         'platform-agents.php',
         'platform-roles.php',
+        'platform-deploy.php',
         'admin-modules.php',
         'admin-modules-mail.php',
         'admin-modules-backup.php',

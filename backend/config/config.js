@@ -8,14 +8,19 @@ module.exports = {
   port: process.env.PORT || 3000,
   host: process.env.HOST || '0.0.0.0', // 0.0.0.0 pour être accessible depuis Apache
   
-  // Configuration MongoDB
-  mongo: {
-    host: 'localhost',
-    port: 27017,
-    database: 'GDR-INNOVATION',
-    user: 'gdri_admin',
-    password: 'gdri2024'
-  },
+  // Configuration MongoDB (surchargeable via MONGODB_* / MONGODB_URI)
+  mongo: (() => {
+    const { resolveMongoConfig } = require('./mongo-env');
+    const m = resolveMongoConfig();
+    return {
+      host: m.host,
+      port: Number(m.port) || 27017,
+      database: m.database,
+      user: m.user,
+      password: m.password,
+      uri: m.uri
+    };
+  })(),
   
   // Configuration des modules
   modules: {
@@ -42,24 +47,36 @@ module.exports = {
         'https://www.gdr-innovation.fr',
         'https://www.gdri.fr',
         'https://gdr-innovation.fr',
-        'https://gdri.fr'
+        'https://gdri.fr',
+        // Environnement test
+        'https://test.gdri.fr',
+        'http://test.gdri.fr',
+        'https://test.gdr-innovation.fr',
+        'http://test.gdr-innovation.fr'
       ];
+
+      const isTestOrigin = origin && (
+        origin.includes('://test.gdri.fr') ||
+        origin.includes('://test.gdr-innovation.fr')
+      );
       
-      // En développement, autoriser toutes les origines locales
-      if (process.env.NODE_ENV === 'development' || !process.env.NODE_ENV) {
-        // Autoriser les requêtes sans origine (Postman, curl, etc.)
+      // En développement / test, autoriser les origines locales et test.*
+      if (
+        process.env.NODE_ENV === 'development' ||
+        process.env.ENVIRONMENT === 'test' ||
+        process.env.ENVIRONMENT === 'development' ||
+        !process.env.NODE_ENV
+      ) {
         if (!origin) {
           return callback(null, true);
         }
         
-        // Vérifier si l'origine est locale (localhost ou 127.0.0.1)
-        if (origin.includes('localhost') || origin.includes('127.0.0.1')) {
+        if (origin.includes('localhost') || origin.includes('127.0.0.1') || isTestOrigin) {
           return callback(null, true);
         }
       }
       
-      // En production, vérifier strictement les origines autorisées
-      if (allowedOrigins.includes(origin)) {
+      if (allowedOrigins.includes(origin) || isTestOrigin) {
         callback(null, true);
       } else {
         callback(new Error('Not allowed by CORS'));
@@ -70,7 +87,7 @@ module.exports = {
     allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
   },
   
-  // Environnement
-  environment: process.env.NODE_ENV || 'development'
+  // Environnement (ENVIRONMENT=test|development|production prioritaire)
+  environment: process.env.ENVIRONMENT || process.env.NODE_ENV || 'development'
 };
 

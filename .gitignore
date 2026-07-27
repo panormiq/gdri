@@ -6,8 +6,12 @@ frontend/vendor/
 # Fichiers de configuration locaux
 .env
 .env.local
+.env.test
 *.env.local
 frontend/config/config.local.php
+
+# État runtime moniteur sécurité (ne pas committer)
+backend/.security-monitor-state.json
 
 # Fichiers de cache
 __pycache__/

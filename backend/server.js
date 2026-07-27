@@ -5,7 +5,9 @@
 
 // ⚠️ IMPORTANT : Charger dotenv EN PREMIER pour que les variables d'environnement soient disponibles
 const path = require('path');
-require('dotenv').config({ path: path.join(__dirname, '.env') });
+const envFile = process.env.GDRI_ENV_FILE || '.env';
+require('dotenv').config({ path: path.join(__dirname, envFile) });
+console.log(`🔧 Env file: ${envFile}`);
 
 const express = require('express');
 const cors = require('cors');

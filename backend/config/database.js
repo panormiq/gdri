@@ -6,11 +6,13 @@
  */
 
 const { MongoClient } = require('mongodb');
+const { resolveMongoConfig } = require('./mongo-env');
 
 class Database {
   constructor() {
     this.client = null;
     this.db = null;
+    this.mongoConfig = resolveMongoConfig();
     // Cache des connexions par entreprise (une connexion par base)
     this.entrepriseConnections = new Map();
     // Cache des clients MongoDB par entreprise (pour pouvoir les fermer)
@@ -24,14 +26,14 @@ class Database {
   async connect() {
     if (!this.client) {
       try {
-        // Configuration MongoDB (identique à PHP)
-        const uri = 'mongodb://gdri_admin:gdri2024@localhost:27017/GDR-INNOVATION?authSource=GDR-INNOVATION';
-        
+        this.mongoConfig = resolveMongoConfig();
+        const { uri, database } = this.mongoConfig;
+
         this.client = new MongoClient(uri);
         await this.client.connect();
-        this.db = this.client.db('GDR-INNOVATION');
-        
-        console.log('✅ MongoDB connecté avec succès');
+        this.db = this.client.db(database);
+
+        console.log(`✅ MongoDB connecté avec succès (${database})`);
       } catch (error) {
         console.error('❌ Erreur de connexion MongoDB :', error.message);
         throw error;
@@ -71,7 +73,8 @@ class Database {
    * @returns {Promise<MongoDB.Database>} La base de données de l'entreprise
    */
   async getEntrepriseDb(entrepriseId) {
-    const dbName = `GDR-ENTREPRISE-${entrepriseId}`;
+    const prefix = (this.mongoConfig && this.mongoConfig.entreprisePrefix) || 'GDR-ENTREPRISE-';
+    const dbName = `${prefix}${entrepriseId}`;
     const username = `entreprise_${entrepriseId}`;
     
     // Vérifier si on a déjà une connexion pour cette entreprise

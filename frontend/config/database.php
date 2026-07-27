@@ -17,15 +17,33 @@ function getDatabase() {
     
     if ($db === null) {
         try {
-            // Configuration MongoDB
-            $mongoHost = 'localhost';
-            $mongoPort = '27017';
-            $mongoDatabase = 'GDR-INNOVATION';
-            $mongoUser = 'gdri_admin';
-            $mongoPassword = 'gdri2024';
+            $isTest = (defined('ENVIRONMENT') && ENVIRONMENT === 'test')
+                || (function_exists('isTestHost') && isTestHost());
+
+            // Configuration MongoDB (surchargeable via env / environnement test)
+            $mongoHost = getenv('MONGODB_HOST') ?: 'localhost';
+            $mongoPort = getenv('MONGODB_PORT') ?: '27017';
+            $mongoUser = getenv('MONGODB_USER') ?: 'gdri_admin';
+            $mongoPassword = getenv('MONGODB_PASSWORD') ?: 'gdri2024';
+
+            // Sur test.gdri.fr : toujours la base TEST (jamais GDR-INNOVATION prod)
+            if ($isTest) {
+                $mongoDatabase = getenv('MONGODB_DB') ?: 'GDR-INNOVATION-TEST';
+                if ($mongoDatabase === 'GDR-INNOVATION') {
+                    $mongoDatabase = 'GDR-INNOVATION-TEST';
+                }
+            } else {
+                $mongoDatabase = getenv('MONGODB_DB') ?: 'GDR-INNOVATION';
+            }
+
+            $authSource = getenv('MONGODB_AUTH_SOURCE') ?: 'GDR-INNOVATION';
             
             // URI de connexion MongoDB avec authentification
-            $uri = "mongodb://{$mongoUser}:{$mongoPassword}@{$mongoHost}:{$mongoPort}/{$mongoDatabase}?authSource={$mongoDatabase}";
+            $uri = getenv('MONGODB_URI') ?: "mongodb://{$mongoUser}:{$mongoPassword}@{$mongoHost}:{$mongoPort}/{$mongoDatabase}?authSource={$authSource}";
+            // Si URI forcée pointe encore vers la prod alors qu'on est en test, forcer le nom de DB
+            if ($isTest && strpos($uri, 'GDR-INNOVATION-TEST') === false) {
+                $uri = "mongodb://{$mongoUser}:{$mongoPassword}@{$mongoHost}:{$mongoPort}/{$mongoDatabase}?authSource={$authSource}";
+            }
             
             // Créer le client MongoDB
             $client = new MongoDB\Client($uri);

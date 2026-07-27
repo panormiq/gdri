@@ -253,6 +253,12 @@ function getPlatformConsoleNavItems() {
             'path' => '/pages/platform-structurel.php',
             'icon' => '⚙️',
         ],
+        [
+            'label' => 'Déploiement',
+            'url' => url('pages/platform-deploy.php'),
+            'path' => '/pages/platform-deploy.php',
+            'icon' => '🚀',
+        ],
     ];
 }
 

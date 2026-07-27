@@ -8,17 +8,25 @@
 date_default_timezone_set('Europe/Paris');
 
 /**
- * Charge les variables d'environnement backend/.env dans le process PHP.
- * Necessaire pour les pages PHP qui doivent lire CREDENTIALS_ENCRYPTION_KEY.
+ * Hôte dédié à l'environnement de test (ex. test.gdri.fr).
  */
-function loadBackendEnvForPhp() {
-    static $loaded = false;
-    if ($loaded) {
-        return;
-    }
-    $loaded = true;
+function isTestHost($host = null) {
+    $host = strtolower($host ?? ($_SERVER['HTTP_HOST'] ?? ''));
+    $host = preg_replace('/:\d+$/', '', $host);
+    return (
+        $host === 'test.gdri.fr' ||
+        $host === 'test.gdr-innovation.fr' ||
+        strpos($host, 'test.gdri.') === 0 ||
+        strpos($host, 'test.gdr-innovation.') === 0
+    );
+}
 
-    $envPath = realpath(__DIR__ . '/../../backend/.env');
+/**
+ * Charge un fichier .env dans le process PHP.
+ * @param string $envPath
+ * @param bool $override écraser les variables déjà présentes
+ */
+function loadEnvFileIntoPhp($envPath, $override = false) {
     if (!$envPath || !file_exists($envPath)) {
         return;
     }
@@ -45,15 +53,13 @@ function loadBackendEnvForPhp() {
             continue;
         }
 
-        // Supprimer les guillemets éventuels autour de la valeur.
         if ((substr($value, 0, 1) === '"' && substr($value, -1) === '"') ||
             (substr($value, 0, 1) === "'" && substr($value, -1) === "'")) {
             $value = substr($value, 1, -1);
         }
 
-        // Ne pas écraser une variable déjà fournie par l'environnement système.
         $current = getenv($name);
-        if ($current !== false && $current !== '') {
+        if (!$override && $current !== false && $current !== '') {
             continue;
         }
 
@@ -63,21 +69,58 @@ function loadBackendEnvForPhp() {
     }
 }
 
+/**
+ * Charge backend/.env, puis backend/.env.test si on est sur test.gdri.fr
+ * (pour ne jamais hériter de MONGODB_DB prod sur l'environnement test).
+ */
+function loadBackendEnvForPhp() {
+    static $loaded = false;
+    if ($loaded) {
+        return;
+    }
+    $loaded = true;
+
+    $backendDir = realpath(__DIR__ . '/../../backend');
+    if (!$backendDir) {
+        return;
+    }
+
+    loadEnvFileIntoPhp($backendDir . DIRECTORY_SEPARATOR . '.env', false);
+
+    if (isTestHost()) {
+        loadEnvFileIntoPhp($backendDir . DIRECTORY_SEPARATOR . '.env.test', true);
+        // Garantir les valeurs critiques même si .env.test est incomplet
+        putenv('ENVIRONMENT=test');
+        $_ENV['ENVIRONMENT'] = 'test';
+        $_SERVER['ENVIRONMENT'] = 'test';
+        if (!getenv('MONGODB_DB') || getenv('MONGODB_DB') === 'GDR-INNOVATION') {
+            putenv('MONGODB_DB=GDR-INNOVATION-TEST');
+            $_ENV['MONGODB_DB'] = 'GDR-INNOVATION-TEST';
+            $_SERVER['MONGODB_DB'] = 'GDR-INNOVATION-TEST';
+        }
+    }
+}
+
 loadBackendEnvForPhp();
 
 // Détecter l'environnement :
-// 1. Variable ENVIRONMENT dans backend/.env (prioritaire)
-// 2. Sinon HTTP_HOST (domaines prod vs localhost)
-// 3. Sinon branche Git (master = production)
+// 1. Hôte test.* (test.gdri.fr) → test
+// 2. Variable ENVIRONMENT dans backend/.env
+// 3. Sinon HTTP_HOST (domaines prod vs localhost)
+// 4. Sinon branche Git (master = production)
 function detectEnvironment() {
+    if (isTestHost()) {
+        return 'test';
+    }
+
     $fromEnv = getenv('ENVIRONMENT');
-    if ($fromEnv === 'development' || $fromEnv === 'production') {
+    if ($fromEnv === 'test' || $fromEnv === 'development' || $fromEnv === 'production') {
         return $fromEnv;
     }
 
     $host = $_SERVER['HTTP_HOST'] ?? '';
     
-    // Si on est sur un domaine de production
+    // Si on est sur un domaine de production (hors test.*)
     if (strpos($host, 'www.gdri.fr') !== false || 
         strpos($host, 'gdr-innovation.fr') !== false ||
         strpos($host, 'gdri.fr') !== false) {
@@ -197,6 +240,17 @@ function getBaseUrl() {
  */
 if (!function_exists('getApiBaseUrl')) {
     function getApiBaseUrl() {
+        // Environnement test (test.gdri.fr) → même host /api (Apache proxy vers :3001)
+        // Ne pas laisser config.local.php (BACKEND_API_URL prod) écraser le mode test
+        if (ENVIRONMENT === 'test' || (function_exists('isTestHost') && isTestHost())) {
+            if (defined('BACKEND_API_URL_TEST') && BACKEND_API_URL_TEST !== '') {
+                return rtrim(BACKEND_API_URL_TEST, '/');
+            }
+            $protocol = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
+            $host = $_SERVER['HTTP_HOST'] ?? 'test.gdri.fr';
+            return $protocol . '://' . $host . '/api';
+        }
+
         // Override explicite (ex. config.local.php avec define('BACKEND_API_URL', 'http://localhost:3000/api');)
         if (defined('BACKEND_API_URL') && BACKEND_API_URL !== '') {
             return rtrim(BACKEND_API_URL, '/');
