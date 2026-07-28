@@ -33,10 +33,15 @@ $entityNavItems = getEntityConsoleNavItems();
         <?php renderAdminSidebarNavSections(getUserWorkspaceNavSections(), 'Mon espace'); ?>
     <?php elseif ($isPlatformMode): ?>
         <?php
-        $platformNavItems = array_merge(getPlatformConsoleNavItems(), [
-            ['label' => 'Suivi', 'url' => url('pages/user-activity.php'), 'path' => '/pages/user-activity.php', 'icon' => '📊'],
-        ]);
-        renderAdminSidebarNav('Plateforme GDRI', $platformNavItems, 'Navigation plateforme');
+        $platformNavItems = getPlatformConsoleNavItems();
+        // Suivi activité : ADMIN_GDRI uniquement (pas le rôle DEV)
+        if (!canAccessDeployConsoleOnly()) {
+            $platformNavItems = array_merge($platformNavItems, [
+                ['label' => 'Suivi', 'url' => url('pages/user-activity.php'), 'path' => '/pages/user-activity.php', 'icon' => '📊'],
+            ]);
+        }
+        $platformNavLabel = canAccessDeployConsoleOnly() ? 'Déploiement' : 'Plateforme GDRI';
+        renderAdminSidebarNav($platformNavLabel, $platformNavItems, 'Navigation plateforme');
         ?>
     <?php else: ?>
         <?php if (hasRole(ROLE_ADMIN_GDRI) && empty($currentEntreprise)): ?>

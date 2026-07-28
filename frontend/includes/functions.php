@@ -1374,10 +1374,24 @@ function isGdriAppPage() {
 }
 
 /**
- * Peut ouvrir la console plateforme GDRI.
+ * Peut ouvrir la console plateforme GDRI (plein accès).
  */
 function canAccessPlatformConsole() {
-    return hasRole(ROLE_ADMIN_GDRI);
+    return hasRole(ROLE_ADMIN_GDRI) || hasRole(ROLE_DEV);
+}
+
+/**
+ * Accès limité à la page Déploiement (rôle DEV).
+ */
+function canAccessDeployConsoleOnly() {
+    return hasRole(ROLE_DEV) && !hasRole(ROLE_ADMIN_GDRI);
+}
+
+/**
+ * Peut utiliser la console de déploiement TEST.
+ */
+function canAccessDeployConsole() {
+    return hasRole(ROLE_ADMIN_GDRI) || hasRole(ROLE_DEV);
 }
 
 /**
@@ -1466,6 +1480,11 @@ function isGdriUserSpacePage() {
 function getGdriWorkspaceMode($hasCurrentEntreprise = null) {
     if (!isLoggedIn()) {
         return 'user';
+    }
+
+    // Rôle DEV : toujours la console déploiement
+    if (function_exists('canAccessDeployConsoleOnly') && canAccessDeployConsoleOnly()) {
+        return 'platform';
     }
 
     if ($hasCurrentEntreprise === null) {

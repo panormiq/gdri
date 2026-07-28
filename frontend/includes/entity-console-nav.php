@@ -216,6 +216,18 @@ function renderAdminSidebarNavSections(array $sections, $ariaLabelPrefix = 'Navi
 }
 
 function getPlatformConsoleNavItems() {
+    $deployItem = [
+        'label' => 'Déploiement',
+        'url' => url('pages/platform-deploy.php'),
+        'path' => '/pages/platform-deploy.php',
+        'icon' => '🚀',
+    ];
+
+    // Rôle DEV : uniquement la console de déploiement TEST
+    if (function_exists('canAccessDeployConsoleOnly') && canAccessDeployConsoleOnly()) {
+        return [$deployItem];
+    }
+
     return [
         [
             'label' => 'Entités',
@@ -253,12 +265,7 @@ function getPlatformConsoleNavItems() {
             'path' => '/pages/platform-structurel.php',
             'icon' => '⚙️',
         ],
-        [
-            'label' => 'Déploiement',
-            'url' => url('pages/platform-deploy.php'),
-            'path' => '/pages/platform-deploy.php',
-            'icon' => '🚀',
-        ],
+        $deployItem,
     ];
 }
 
@@ -404,6 +411,16 @@ function requireEntityConsoleAccess() {
 
 function requirePlatformConsoleAccess() {
     if (!hasRole(ROLE_ADMIN_GDRI)) {
+        // DEV : uniquement la page déploiement
+        if (hasRole(ROLE_DEV)) {
+            redirect(url('pages/platform-deploy.php'));
+        }
+        redirect(url('pages/dashboard.php'));
+    }
+}
+
+function requireDeployConsoleAccess() {
+    if (!canAccessDeployConsole()) {
         redirect(url('pages/dashboard.php'));
     }
 }

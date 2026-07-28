@@ -2,15 +2,15 @@
 
 <#
 .SYNOPSIS
-  Met a jour le code GDRI depuis Git (branche test ou prod).
+  Met a jour le code GDRI depuis Git (TEST = gdri-dev / develop, PROD = gdri / master).
 
 .DESCRIPTION
-  ATTENTION : test.gdri.fr et www partagent le MEME dossier code (htdocs/gdri).
-  Changer de branche change le code servi par LES DEUX URLs.
-  Seules les bases Mongo restent separees (GDR-INNOVATION vs GDR-INNOVATION-TEST).
+  Deux dossiers separes :
+    - Test  → C:\xampp\htdocs\gdri-dev  (branche develop, backend :3001)
+    - Prod  → C:\xampp\htdocs\gdri      (branche master, backend :3000)
 
-  -Target Test  = branche develop (defaut), git pull
-  -Target Prod  = branche master, git pull (apres merge)
+  La console web ne lance que -Target Test.
+  La prod reste manuelle (-Target Prod ou git pull dans gdri).
 
 .PARAMETER Target
   Test ou Prod
@@ -22,13 +22,10 @@
   Continue meme s'il y a des modifications locales non committees (stash puis pull)
 
 .PARAMETER RestartBackend
-  Relance le backend correspondant dans une nouvelle fenetre apres le pull
+  Relance le backend correspondant apres le pull
 
 .EXAMPLE
-  .\Update-From-Git.ps1 -Target Test
-
-.EXAMPLE
-  .\Update-From-Git.ps1 -Target Prod -RestartBackend
+  .\Update-From-Git.ps1 -Target Test -RestartBackend
 #>
 
 [CmdletBinding()]
@@ -44,7 +41,32 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$ProjectRoot = Split-Path -Parent $PSScriptRoot
+$ScriptDir = $PSScriptRoot
+$ThisCheckout = Split-Path -Parent $ScriptDir
+$Htdocs = Split-Path -Parent $ThisCheckout
+$DevRoot = Join-Path $Htdocs 'gdri-dev'
+$ProdRoot = Join-Path $Htdocs 'gdri'
+
+if ($Target -eq 'Test') {
+    if (Test-Path (Join-Path $DevRoot '.git')) {
+        $ProjectRoot = $DevRoot
+    } else {
+        $ProjectRoot = $ThisCheckout
+    }
+    if (-not $Branch) { $Branch = 'develop' }
+    $port = 3001
+    $backendBat = Join-Path $ProjectRoot 'demarrage\02-backend-test.bat'
+} else {
+    if (Test-Path (Join-Path $ProdRoot '.git')) {
+        $ProjectRoot = $ProdRoot
+    } else {
+        $ProjectRoot = $ThisCheckout
+    }
+    if (-not $Branch) { $Branch = 'master' }
+    $port = 3000
+    $backendBat = Join-Path $ProjectRoot 'demarrage\01-backend-prod.bat'
+}
+
 Set-Location $ProjectRoot
 
 function Write-Msg {
@@ -55,30 +77,11 @@ function Write-Msg {
     Write-Host $Message -ForegroundColor $Color
 }
 
-if (-not $Branch) {
-    if ($Target -eq 'Test') {
-        $Branch = 'develop'
-    } else {
-        $Branch = 'master'
-    }
-}
-
-if ($Target -eq 'Test') {
-    $port = 3001
-    $backendBat = Join-Path $PSScriptRoot '02-backend-test.bat'
-} else {
-    $port = 3000
-    $backendBat = Join-Path $PSScriptRoot '01-backend-prod.bat'
-}
-
 Write-Host ''
 Write-Msg ("=== Update Git GDRI - {0} ===" -f $Target) 'Magenta'
 Write-Msg ("Dossier  : {0}" -f $ProjectRoot)
 Write-Msg ("Branche  : {0}" -f $Branch)
 Write-Msg ("Backend  : port {0}" -f $port)
-Write-Host ''
-Write-Msg 'Rappel: un seul dossier code pour test + prod.' 'Yellow'
-Write-Msg ("Apres ce pull, www ET test.gdri.fr servent la branche {0}." -f $Branch) 'Yellow'
 Write-Host ''
 
 $git = Get-Command git -ErrorAction SilentlyContinue
@@ -92,7 +95,7 @@ if ($status) {
     git status -sb
     Write-Host ''
     if (-not $Force) {
-        throw 'Annule: fichiers locaux non commités. Commit sur develop, OU coche Force dans la console (stash auto). Attention: Force stash aussi demarrage/ et pages non commités.'
+        throw 'Annule: fichiers locaux non commités. Committez, OU passez -Force (stash auto).'
     }
     Write-Msg 'Force: git stash push -u ...' 'Yellow'
     $stashMsg = "auto-stash Update-From-Git $Target $(Get-Date -Format 'yyyy-MM-dd HH:mm')"
@@ -105,7 +108,7 @@ git fetch origin
 $remoteBranch = "origin/$Branch"
 $remoteExists = git rev-parse --verify $remoteBranch 2>$null
 if (-not $remoteExists) {
-    throw ("Branche distante introuvable: {0} (cree-la sur GitHub ou passe -Branch xxx)" -f $remoteBranch)
+    throw ("Branche distante introuvable: {0}" -f $remoteBranch)
 }
 
 $current = (git rev-parse --abbrev-ref HEAD).Trim()
@@ -121,7 +124,7 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 Write-Host ''
-Write-Msg ("OK - code a jour sur {0}" -f $Branch) 'Green'
+Write-Msg ("OK - code a jour sur {0} ({1})" -f $Branch, $ProjectRoot) 'Green'
 git log -1 --oneline
 Write-Host ''
 
@@ -146,17 +149,22 @@ if ($RestartBackend) {
 
     if (Test-Path $backendBat) {
         Write-Msg ("Relance: {0}" -f $backendBat) 'Green'
-        Start-Process -FilePath $backendBat -WorkingDirectory $PSScriptRoot
+        Start-Process -FilePath $backendBat -WorkingDirectory (Split-Path $backendBat)
     } else {
-        Write-Msg ("Script backend introuvable: {0} - relance manuellement." -f $backendBat) 'Yellow'
+        Write-Msg ("Script backend introuvable: {0}" -f $backendBat) 'Yellow'
+        if ($Target -eq 'Test') {
+            $ps1 = Join-Path $ProjectRoot 'backend\Start-Backend.ps1'
+            if (Test-Path $ps1) {
+                Write-Msg 'Relance via Start-Backend.ps1 -Mode Test' 'Green'
+                Start-Process powershell.exe -ArgumentList @(
+                    '-NoProfile', '-ExecutionPolicy', 'Bypass',
+                    '-File', $ps1, '-Mode', 'Test'
+                ) -WorkingDirectory (Join-Path $ProjectRoot 'backend')
+            }
+        }
     }
 } else {
-    Write-Msg ("Pense a relancer le backend {0} si besoin:" -f $Target) 'Cyan'
-    if ($Target -eq 'Test') {
-        Write-Msg '  demarrage\02-backend-test.bat'
-    } else {
-        Write-Msg '  demarrage\01-backend-prod.bat'
-    }
+    Write-Msg ("Pense a relancer le backend {0} si besoin." -f $Target) 'Cyan'
 }
 
 Write-Host ''

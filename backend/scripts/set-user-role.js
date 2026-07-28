@@ -1,14 +1,19 @@
 /**
- * Script one-shot : passer un utilisateur en admin (ADMIN_ENTITY ou ADMIN_GDRI).
+ * Script one-shot : changer le rôle d'un utilisateur.
  * Usage :
- *   node set-user-role.js <email> [ADMIN_ENTITY|ADMIN_GDRI]   → met à jour le rôle
- *   node set-user-role.js <email> --check                     → affiche le rôle actuel (vérif en base)
+ *   node set-user-role.js <email> [ADMIN_ENTITY|ADMIN_GDRI|DEV|USER_ENTITY]
+ *   node set-user-role.js <email> --check
  *
- * Exemple : node set-user-role.js user@example.com ADMIN_ENTITY
- * Puis déconnexion + reconnexion sur le site pour que la session prenne le nouveau rôle.
+ * Exemple prod stagiaire : node set-user-role.js stagiaire@example.com DEV
+ * Exemple test (admin)   : node set-user-role.js stagiaire@example.com ADMIN_GDRI
+ *   (sur la base TEST : charger .env.test avant d'exécuter)
+ *
+ * Puis déconnexion + reconnexion pour prendre le nouveau rôle en session.
  */
 
 const path = require('path');
+const envFile = process.env.GDRI_ENV_FILE || '.env';
+require('dotenv').config({ path: path.join(__dirname, '..', envFile) });
 const database = require(path.join(__dirname, '../config/database'));
 
 const email = (process.argv[2] || '').trim();
@@ -16,16 +21,16 @@ const arg2 = (process.argv[3] || '').trim();
 const roleArg = arg2.toUpperCase();
 const isCheck = arg2.toLowerCase() === '--check';
 
-const VALID_ROLES = ['ADMIN_ENTITY', 'ADMIN_GDRI'];
+const VALID_ROLES = ['ADMIN_ENTITY', 'ADMIN_GDRI', 'DEV', 'USER_ENTITY'];
 
 if (!email) {
-  console.error('Usage: node set-user-role.js <email> [ADMIN_ENTITY|ADMIN_GDRI]');
+  console.error('Usage: node set-user-role.js <email> [ADMIN_ENTITY|ADMIN_GDRI|DEV|USER_ENTITY]');
   console.error('       node set-user-role.js <email> --check');
   process.exit(1);
 }
 
 if (!isCheck && roleArg && !VALID_ROLES.includes(roleArg)) {
-  console.error('Rôle invalide. Utiliser ADMIN_ENTITY ou ADMIN_GDRI.');
+  console.error('Rôle invalide. Utiliser ADMIN_ENTITY, ADMIN_GDRI, DEV ou USER_ENTITY.');
   process.exit(1);
 }
 

@@ -20,6 +20,11 @@ $page_title = 'Accueil';
 $userRole = getUserRole();
 $workspaceMode = getGdriWorkspaceMode();
 
+// Rôle DEV (prod) : console déploiement uniquement
+if ($userRole === ROLE_DEV || $userRole === 'DEV') {
+    redirect(url('pages/platform-deploy.php'));
+}
+
 if ($workspaceMode === 'user') {
     require_once '../includes/entity-console-nav.php';
     require_once '../includes/header.php';

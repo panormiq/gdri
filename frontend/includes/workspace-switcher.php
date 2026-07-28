@@ -8,9 +8,13 @@ function getGdriWorkspaceModeOptions() {
     if (canAccessPlatformConsole()) {
         $modes[] = [
             'id' => 'platform',
-            'label' => 'Console GDRI',
-            'icon' => '⚡',
+            'label' => canAccessDeployConsoleOnly() ? 'Déploiement' : 'Console GDRI',
+            'icon' => canAccessDeployConsoleOnly() ? '🚀' : '⚡',
         ];
+    }
+    // DEV : pas de console entité / mon espace — uniquement déploiement
+    if (canAccessDeployConsoleOnly()) {
+        return $modes;
     }
     if (canAccessEntityConsole()) {
         $modes[] = [

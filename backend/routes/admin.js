@@ -1,11 +1,14 @@
 /**
- * Routes admin : rechargement modules, sync services, deploiement TEST console.
- * Réservé aux ADMIN_GDRI. PROD = scripts locaux uniquement.
+ * Routes admin : modules, sync services, deploiement TEST + sync données.
+ * Déploiement / sync : ADMIN_GDRI ou DEV.
+ * Reload modules : ADMIN_GDRI uniquement.
+ * Pas de mise à jour PROD depuis la console (manuel).
  * Fichier : backend/routes/admin.js
  */
 
 const express = require('express');
 const path = require('path');
+const fs = require('fs');
 const { spawn, execFile } = require('child_process');
 const moduleRegistry = require('../core/module-registry');
 const { loadNewModules } = require('../core/module-loader');
@@ -13,7 +16,39 @@ const { syncServicesCatalogFromModules } = require('../core/services-catalog-syn
 const { authenticateJWT } = require('../config/jwt');
 
 const projectRoot = path.resolve(__dirname, '../..');
-const updateScriptPath = path.join(projectRoot, 'demarrage', 'Update-From-Git.ps1');
+const htdocsRoot = path.resolve(projectRoot, '..');
+const gdriDevRoot = path.join(htdocsRoot, 'gdri-dev');
+const gdriProdRoot = path.join(htdocsRoot, 'gdri');
+
+function resolveTestRoot() {
+  if (fs.existsSync(path.join(gdriDevRoot, '.git'))) return gdriDevRoot;
+  if (path.basename(projectRoot).toLowerCase() === 'gdri-dev') return projectRoot;
+  return projectRoot;
+}
+
+function resolveUpdateScript() {
+  const candidates = [
+    path.join(resolveTestRoot(), 'demarrage', 'Update-From-Git.ps1'),
+    path.join(projectRoot, 'demarrage', 'Update-From-Git.ps1'),
+    path.join(gdriProdRoot, 'demarrage', 'Update-From-Git.ps1')
+  ];
+  for (const p of candidates) {
+    if (fs.existsSync(p)) return p;
+  }
+  return candidates[0];
+}
+
+function resolveCloneScript() {
+  const candidates = [
+    path.join(resolveTestRoot(), 'backend', 'scripts', 'clone-mongo-to-test.js'),
+    path.join(projectRoot, 'backend', 'scripts', 'clone-mongo-to-test.js'),
+    path.join(gdriProdRoot, 'backend', 'scripts', 'clone-mongo-to-test.js')
+  ];
+  for (const p of candidates) {
+    if (fs.existsSync(p)) return p;
+  }
+  return candidates[0];
+}
 
 let deployState = {
   running: false,
@@ -30,9 +65,9 @@ function getDeployState() {
   return { ...deployState };
 }
 
-function runGit(args) {
+function runGit(args, cwd) {
   return new Promise((resolve) => {
-    execFile('git', args, { cwd: projectRoot, windowsHide: true }, (err, stdout, stderr) => {
+    execFile('git', args, { cwd: cwd || projectRoot, windowsHide: true }, (err, stdout, stderr) => {
       resolve({
         ok: !err,
         stdout: (stdout || '').trim(),
@@ -43,26 +78,56 @@ function runGit(args) {
   });
 }
 
-async function readGitStatus() {
+async function readGitStatus(cwd) {
+  const root = cwd || resolveTestRoot();
   const [branch, head, status, remote] = await Promise.all([
-    runGit(['rev-parse', '--abbrev-ref', 'HEAD']),
-    runGit(['log', '-1', '--oneline']),
-    runGit(['status', '-sb']),
-    runGit(['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{u}'])
+    runGit(['rev-parse', '--abbrev-ref', 'HEAD'], root),
+    runGit(['log', '-1', '--oneline'], root),
+    runGit(['status', '-sb'], root),
+    runGit(['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{u}'], root)
   ]);
   return {
     branch: branch.stdout || null,
     head: head.stdout || null,
     status: status.stdout || null,
     upstream: remote.ok ? remote.stdout : null,
-    projectRoot
+    projectRoot: root
   };
+}
+
+function beginDeployState(action, triggeredBy) {
+  deployState = {
+    running: true,
+    action,
+    startedAt: new Date().toISOString(),
+    finishedAt: null,
+    exitCode: null,
+    log: '',
+    triggeredBy: triggeredBy || null,
+    error: null
+  };
+}
+
+function appendDeployLog(chunk) {
+  deployState.log = (deployState.log + chunk.toString()).slice(-30000);
+}
+
+function finishDeployState(code, errorMessage) {
+  deployState.running = false;
+  deployState.finishedAt = new Date().toISOString();
+  deployState.exitCode = code == null ? 1 : code;
+  if (errorMessage) deployState.error = errorMessage;
 }
 
 function runUpdateScript({ target, restartBackend, force, triggeredBy }) {
   return new Promise((resolve, reject) => {
     if (deployState.running) {
-      return reject(new Error('Un deploiement est deja en cours'));
+      return reject(new Error('Une operation est deja en cours'));
+    }
+
+    const updateScriptPath = resolveUpdateScript();
+    if (!fs.existsSync(updateScriptPath)) {
+      return reject(new Error('Script introuvable: ' + updateScriptPath));
     }
 
     const args = [
@@ -74,42 +139,69 @@ function runUpdateScript({ target, restartBackend, force, triggeredBy }) {
     if (restartBackend) args.push('-RestartBackend');
     if (force) args.push('-Force');
 
-    deployState = {
-      running: true,
-      action: `update-${String(target).toLowerCase()}`,
-      startedAt: new Date().toISOString(),
-      finishedAt: null,
-      exitCode: null,
-      log: '',
-      triggeredBy: triggeredBy || null,
-      error: null
-    };
+    beginDeployState(`update-${String(target).toLowerCase()}`, triggeredBy);
+    appendDeployLog('powershell ' + args.join(' ') + '\n');
 
-    console.log('Deploy console: powershell ' + args.join(' '));
     const child = spawn('powershell.exe', args, {
-      cwd: projectRoot,
+      cwd: path.dirname(updateScriptPath),
       windowsHide: true,
       env: process.env
     });
 
-    const append = (chunk) => {
-      deployState.log = (deployState.log + chunk.toString()).slice(-20000);
-    };
-    child.stdout.on('data', append);
-    child.stderr.on('data', append);
+    child.stdout.on('data', appendDeployLog);
+    child.stderr.on('data', appendDeployLog);
 
     child.on('error', (err) => {
-      deployState.running = false;
-      deployState.finishedAt = new Date().toISOString();
-      deployState.error = err.message;
-      deployState.exitCode = 1;
+      finishDeployState(1, err.message);
       reject(err);
     });
 
     child.on('close', (code) => {
-      deployState.running = false;
-      deployState.finishedAt = new Date().toISOString();
-      deployState.exitCode = code == null ? 1 : code;
+      finishDeployState(code);
+      resolve(getDeployState());
+    });
+  });
+}
+
+function runCloneMongoScript({ drop, triggeredBy }) {
+  return new Promise((resolve, reject) => {
+    if (deployState.running) {
+      return reject(new Error('Une operation est deja en cours'));
+    }
+
+    const scriptPath = resolveCloneScript();
+    if (!fs.existsSync(scriptPath)) {
+      return reject(new Error('Script introuvable: ' + scriptPath));
+    }
+
+    const backendDir = path.dirname(path.dirname(scriptPath));
+    const args = [scriptPath];
+    if (drop) args.push('--drop');
+
+    beginDeployState('sync-test-data', triggeredBy);
+    appendDeployLog('node ' + args.join(' ') + '\n');
+    appendDeployLog('cwd: ' + backendDir + '\n');
+
+    const child = spawn(process.execPath, args, {
+      cwd: backendDir,
+      windowsHide: true,
+      env: {
+        ...process.env,
+        // Force lecture du .env prod (source) depuis le backend qui lance le script
+        GDRI_ENV_FILE: process.env.GDRI_ENV_FILE || '.env'
+      }
+    });
+
+    child.stdout.on('data', appendDeployLog);
+    child.stderr.on('data', appendDeployLog);
+
+    child.on('error', (err) => {
+      finishDeployState(1, err.message);
+      reject(err);
+    });
+
+    child.on('close', (code) => {
+      finishDeployState(code);
       resolve(getDeployState());
     });
   });
@@ -123,6 +215,25 @@ function requireAdminGdri(req, res, next) {
     success: false,
     message: 'Accès refusé. Réservé aux administrateurs GDRI.'
   });
+}
+
+function requireDeployAccess(req, res, next) {
+  const role = req.user && req.user.role;
+  if (role === 'ADMIN_GDRI' || role === 'DEV') {
+    return next();
+  }
+  return res.status(403).json({
+    success: false,
+    message: 'Accès refusé. Réservé aux rôles ADMIN_GDRI ou DEV.'
+  });
+}
+
+function triggeredByFromReq(req) {
+  return {
+    userId: req.user.id || req.user._id || null,
+    email: req.user.email || null,
+    role: req.user.role
+  };
 }
 
 function createAdminRouter(app, db) {
@@ -179,9 +290,9 @@ function createAdminRouter(app, db) {
     res.json({ success: true, modules });
   });
 
-  router.get('/deploy/status', authenticateJWT, requireAdminGdri, async (req, res) => {
+  router.get('/deploy/status', authenticateJWT, requireDeployAccess, async (req, res) => {
     try {
-      const git = await readGitStatus();
+      const git = await readGitStatus(resolveTestRoot());
       res.json({
         success: true,
         data: {
@@ -191,14 +302,14 @@ function createAdminRouter(app, db) {
             {
               id: 'update-test',
               label: 'Mettre a jour TEST (develop)',
-              description: 'git pull branche develop + restart backend :3001',
+              description: 'git pull develop dans gdri-dev + restart backend :3001',
               allowedFromConsole: true
             },
             {
-              id: 'update-prod',
-              label: 'Mettre a jour PROD (master)',
-              description: 'Reserve au lancement local (demarrage\\11-update-prod.bat)',
-              allowedFromConsole: false
+              id: 'sync-test-data',
+              label: 'Sync donnees prod → test',
+              description: 'Clone GDR-INNOVATION vers GDR-INNOVATION-TEST',
+              allowedFromConsole: true
             }
           ]
         }
@@ -208,29 +319,24 @@ function createAdminRouter(app, db) {
     }
   });
 
-  router.post('/deploy/update-test', authenticateJWT, requireAdminGdri, async (req, res) => {
+  router.post('/deploy/update-test', authenticateJWT, requireDeployAccess, async (req, res) => {
     if (getDeployState().running) {
       return res.status(409).json({
         success: false,
-        message: 'Un deploiement est deja en cours.',
+        message: 'Une operation est deja en cours.',
         data: getDeployState()
       });
     }
 
     const restartBackend = req.body?.restartBackend !== false;
     const force = req.body?.force === true;
-    const triggeredBy = {
-      userId: req.user.id || req.user._id || null,
-      email: req.user.email || null,
-      role: req.user.role
-    };
 
     try {
       const result = await runUpdateScript({
         target: 'Test',
         restartBackend,
         force,
-        triggeredBy
+        triggeredBy: triggeredByFromReq(req)
       });
       res.json({
         success: result.exitCode === 0,
@@ -247,10 +353,42 @@ function createAdminRouter(app, db) {
     }
   });
 
-  router.post('/deploy/update-prod', authenticateJWT, requireAdminGdri, (req, res) => {
+  router.post('/deploy/sync-test-data', authenticateJWT, requireDeployAccess, async (req, res) => {
+    if (getDeployState().running) {
+      return res.status(409).json({
+        success: false,
+        message: 'Une operation est deja en cours.',
+        data: getDeployState()
+      });
+    }
+
+    const drop = req.body?.drop !== false;
+
+    try {
+      const result = await runCloneMongoScript({
+        drop,
+        triggeredBy: triggeredByFromReq(req)
+      });
+      res.json({
+        success: result.exitCode === 0,
+        message: result.exitCode === 0
+          ? 'Synchronisation donnees TEST terminee.'
+          : 'Synchronisation terminee avec erreur (code ' + result.exitCode + ').',
+        data: result
+      });
+    } catch (error) {
+      res.status(500).json({
+        success: false,
+        message: error.message || 'Echec sync donnees TEST'
+      });
+    }
+  });
+
+  // PROD : volontairement absent de la console (manuel uniquement)
+  router.post('/deploy/update-prod', authenticateJWT, requireDeployAccess, (req, res) => {
     return res.status(403).json({
       success: false,
-      message: 'La mise a jour PROD est desactivee depuis la console. Utilisez demarrage\\11-update-prod.bat en local sur le serveur.'
+      message: 'Mise a jour PROD desactivee. Faites un merge develop→master puis git pull manuel dans htdocs/gdri.'
     });
   });
 

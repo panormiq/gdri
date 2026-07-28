@@ -301,6 +301,8 @@ if (!defined('API_BASE_URL')) {
 define('ROLE_ADMIN_GDRI', 'ADMIN_GDRI');
 define('ROLE_ADMIN_ENTITY', 'ADMIN_ENTITY');
 define('ROLE_USER_ENTITY', 'USER_ENTITY');
+/** Développeur / stagiaire : console déploiement TEST uniquement (prod). */
+define('ROLE_DEV', 'DEV');
 
 // Statuts
 define('STATUS_ACTIVE', 'active');
