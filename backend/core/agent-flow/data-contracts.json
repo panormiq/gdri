@@ -299,6 +299,7 @@
           "id": "payload",
           "label": "Texte ou JSON",
           "ingest": ["poll", "push"],
+          "schemaExclusive": true,
           "example": {
             "channel": "json",
             "type": "payload",

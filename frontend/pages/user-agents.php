@@ -101,6 +101,8 @@ window.AGENTS_LIST_APP = <?= json_encode([
     'reviewPageUrl' => url('pages/agent-human-review.php'),
     'runPageUrl' => url('pages/agent-run.php'),
     'space' => 'user',
+    'scope' => 'entity',
+    'isGdriAdmin' => hasRole(ROLE_ADMIN_GDRI),
 ], JSON_UNESCAPED_SLASHES) ?>;
 </script>
 

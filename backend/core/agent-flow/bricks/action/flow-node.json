@@ -1,12 +1,25 @@
 {
   "id": "action",
   "name": "Action",
-  "version": "4.0.0",
+  "version": "4.1.0",
   "family": "action",
   "category": "action",
   "kind": "action",
   "visibility": "orchestrator-only",
-  "description": "Champs à préparer pour la suite (IA, mail…).",
+  "description": "Champs à préparer pour la suite (IA, mail…), ou accrocher une page déjà dessinée dans le flux.",
+  "palette": {
+    "children": [
+      {
+        "id": "hook",
+        "name": "Hook",
+        "iconEmoji": "🪝",
+        "description": "Chaîne éditeur (choix du hook) reliée à la chaîne exécution (ajouter le hook au flux).",
+        "place": "insertable",
+        "templateId": "agent-hook",
+        "hookSurface": "palette"
+      }
+    ]
+  },
   "canvas": {
     "iconEmoji": "⚙",
     "color": "#7c3aed",
@@ -34,6 +47,18 @@
               "replace": "Écraser le texte"
             },
             "default": "merge"
+          },
+          "fieldsFrom": {
+            "type": "string",
+            "title": "Champs depuis",
+            "description": "Slug du bloc Entrées (ex. collection_design) : le tableau nom / type devient les champs de l’action.",
+            "default": ""
+          },
+          "copyFrom": {
+            "type": "string",
+            "title": "Copier un objet du flux",
+            "description": "Objet amont (ex. mail.item). Tous les champs sont préremplis ; tu peux en surcharger n’importe lequel.",
+            "default": ""
           }
         }
       },

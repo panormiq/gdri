@@ -21,11 +21,14 @@ const {
   allOutgoingIds,
   resolveNextIds,
   parentsReadyToJoin,
-  ancestorSlugs
+  ancestorSlugs,
+  descendantBranchNodes,
+  remainingConsumerNodes
 } = require('./flowGraph');
 const { findStartTriggerNodes, launchOptsFromPayload } = require('./triggerMatch');
 const { ensureAllSlugs, namespaceBag, nsOrder, scopePreviousToSlugs, readFromNamespaces, readFromBag, normalizeNsPath } = require('./nodeNamespace');
 const { getMapping, resolveSlot, resolveSlotString, resolveSlotNonEmpty } = require('./inputMapping');
+const { applyFlowConsume, neededPathsForNodes, projectPrevious } = require('./flowConsume');
 const { renderBound } = require('./blockTemplate');
 const {
   getProductionTemplate,
@@ -169,13 +172,15 @@ class FlowExecutor {
     const pendingOut = (Array.isArray(run.steps) ? run.steps : [])
       .find((s) => s && (s.status === 'waiting_human')) || {};
     const atelierOut = (pendingOut && pendingOut.output) || run.output || {};
-    if (atelierOut.atelier && Object.keys(formValues).length && flow.entrepriseId && atelierOut.collectionId) {
+    if (atelierOut.atelier && Object.keys(formValues).length && flow.entrepriseId
+      && (atelierOut.collectionId || atelierOut.schemaSlug)) {
       try {
         const { writeAtelierRecord } = require('./atelierPresets');
         await writeAtelierRecord(flow.entrepriseId, atelierOut.collectionId, formValues, {
           flowId: flow._id || flow.id,
           runId,
-          nodeId: run.pendingStepId
+          nodeId: run.pendingStepId,
+          schemaSlug: atelierOut.schemaSlug || atelierOut.collectionPreset || ''
         });
       } catch (err) {
         console.warn('atelier write:', err.message);
@@ -198,7 +203,20 @@ class FlowExecutor {
     const canvasNodes = this.getCanvasNodes(flow);
     ensureAllSlugs(canvasNodes);
     const pendingNode = canvasNodes.find((n) => n && (n.id === run.pendingStepId || n.id === run.pendingNodeId)) || null;
-    context.previous = this.mergeStepOutput(context.previous, humanResult, pendingNode);
+    const completedAfterResume = {};
+    (Array.isArray(run.steps) ? run.steps : []).forEach((s) => {
+      const id = s && (s.stepId || s.id);
+      if (id && (s.status === 'completed' || s.status === 'rejected')) completedAfterResume[id] = true;
+    });
+    if (pendingNode && pendingNode.id) completedAfterResume[pendingNode.id] = true;
+    const resumeNexts = pendingNode ? nodeNextIds(pendingNode) : [];
+    const resumeQueue = Array.isArray(run.pendingNodeIds) ? run.pendingNodeIds : [];
+    context.previous = this.mergeStepOutput(
+      context.previous,
+      humanResult,
+      pendingNode,
+      remainingConsumerNodes(canvasNodes, resumeQueue, resumeNexts, completedAfterResume, pendingNode && pendingNode.id)
+    );
 
     const stepResults = Array.isArray(run.steps) ? [...run.steps] : [];
     const pendingIdx = Number(run.pendingStepIndex);
@@ -336,9 +354,13 @@ class FlowExecutor {
       messages: Array.isArray(payload.messages) ? payload.messages : (message && message.items) || null,
       previous: null
     };
+    if (payload.previous && typeof payload.previous === 'object') {
+      context.previous = { ...payload.previous };
+    }
     if (context.message && typeof context.message === 'object') {
       context.previous = {
         type: 'trigger-message',
+        ...(context.previous || {}),
         ...context.message
       };
     }
@@ -563,7 +585,23 @@ class FlowExecutor {
           const startedAt = item.startedAt;
           const stepError = extractOutputError(output);
           this.rememberLoopIaOutput(context, node, output);
-          context.previous = this.mergeStepOutput(context.previous, output, node);
+          const nexts = node.kind === 'trigger' || node.brickId === 'trigger'
+            ? nodeNextIds(node)
+            : resolveNextIds(node, output);
+          if (output && output.__clearLoopBody) {
+            this.clearLoopBodySeen(node, seen, byId, completed);
+          }
+          const stillOpen = waiting.map((w) => w.node && w.node.id)
+            .concat(ok.slice(i + 1).map((x) => x.node && x.node.id))
+            .filter(Boolean);
+          const remaining = remainingConsumerNodes(
+            nodes,
+            queue.concat(stillOpen),
+            nexts,
+            completed,
+            node.id
+          );
+          context.previous = this.mergeStepOutput(context.previous, output, node, remaining);
           if (output && output.loopDone) this.applyLoopCollectedIa(context, node);
           completed[node.id] = true;
           stepResults.push({
@@ -584,12 +622,6 @@ class FlowExecutor {
             });
             await this.markFlowTriggered(flowService, flow, context);
             return flowService.runsCol().findOne({ _id: run._id });
-          }
-          const nexts = node.kind === 'trigger' || node.brickId === 'trigger'
-            ? nodeNextIds(node)
-            : resolveNextIds(node, output);
-          if (output && output.__clearLoopBody) {
-            this.clearLoopBodySeen(node, seen, byId, completed);
           }
           this.enqueueUnique(queue, seen, nexts, byId, completed);
         }
@@ -754,11 +786,12 @@ class FlowExecutor {
           return paused;
         }
 
-        context.previous = this.mergeStepOutput(context.previous, output, {
-          id: stepId,
-          slug: step.slug || stepId,
-          name: step.name || stepId
-        });
+        context.previous = this.mergeStepOutput(
+          context.previous,
+          output,
+          step,
+          steps.slice(i + 1)
+        );
         const stepError = extractOutputError(output);
         stepResults.push({
           stepId,
@@ -802,15 +835,6 @@ class FlowExecutor {
       });
       throw error;
     }
-  }
-
-  scopeContextToNode(context, node, nodes) {
-    if (!context || !node || !Array.isArray(nodes) || !nodes.length) return context;
-    const slugs = ancestorSlugs(node.id, nodes);
-    return {
-      ...context,
-      previous: scopePreviousToSlugs(context.previous, slugs)
-    };
   }
 
   snapshotMappedInputs(node, context) {
@@ -867,7 +891,7 @@ class FlowExecutor {
    * Les flags de contrôle (__nextNodeId…) ne polluent pas previous.
    * Les champs du bloc sont aussi rangés sous previous.__ns[slug].
    */
-  mergeStepOutput(previous, output, node) {
+  mergeStepOutput(previous, output, node, remainingNodes) {
     if (!output || typeof output !== 'object') return previous;
     const writeMode = String(output.__writeMode || 'merge').toLowerCase();
     const data = {};
@@ -891,7 +915,20 @@ class FlowExecutor {
       order = order.filter((s) => s !== slug);
       order.push(slug);
     }
-    return { ...base, ...data, __ns: nextNs, __nsOrder: order };
+    const merged = { ...base, ...data, __ns: nextNs, __nsOrder: order };
+    return applyFlowConsume(merged, output, node, data, remainingNodes);
+  }
+
+  scopeContextToNode(context, node, nodes) {
+    if (!context || !node || !Array.isArray(nodes) || !nodes.length) return context;
+    const slugs = ancestorSlugs(node.id, nodes);
+    let previous = scopePreviousToSlugs(context.previous, slugs);
+    const branch = descendantBranchNodes(node.id, nodes);
+    previous = projectPrevious(previous, neededPathsForNodes(branch));
+    return {
+      ...context,
+      previous
+    };
   }
 
   async executeStep(step, context, flow, extras = {}) {
@@ -1390,7 +1427,7 @@ Le champ "resume" résume CE message (expéditeur, sujet, contenu) en une phrase
   }
 
   async runAtelierPause(flow, config, context, extras = {}) {
-    const presetId = String((config && config.collectionPreset) || '').trim();
+    const presetId = String((config && (config.collectionPreset || config.schemaSlug)) || '').trim();
     const collectionId = String((config && config.collectionId) || '').trim();
     if (!presetId && !collectionId) return null;
 
@@ -1402,15 +1439,26 @@ Le champ "resume" résume CE message (expéditeur, sujet, contenu) en une phrase
     } = require('./atelierPresets');
     const { renderAtelierPage } = require('./atelierPage');
 
-    let pack = await loadAtelierCollection(flow.entrepriseId, { collectionId, presetId });
+    let pack = await loadAtelierCollection(flow.entrepriseId, {
+      collectionId,
+      presetId,
+      schemaSlug: config.schemaSlug || presetId,
+      flowId: flow._id || flow.id
+    });
     if (!pack && presetId) {
       pack = await ensureAtelierCollection(flow.entrepriseId, presetId);
     }
     if (!pack || !pack.fields || !pack.fields.length) {
-      throw new Error('Atelier : collection introuvable ou sans champs.');
+      throw new Error('Atelier : schéma introuvable ou sans champs.');
     }
 
-    const record = await latestAtelierRecord(flow.entrepriseId, pack.collectionId, flow._id || flow.id);
+    const record = pack.record
+      || await latestAtelierRecord(
+        flow.entrepriseId,
+        pack.collectionId,
+        flow._id || flow.id,
+        pack.schemaSlug || presetId
+      );
     const values = { ...defaultsFromFields(pack.fields) };
     pack.fields.forEach((field) => {
       const fromCtx = this.readContextField(context, field.key);
@@ -1443,7 +1491,9 @@ Le champ "resume" résume CE message (expéditeur, sujet, contenu) en une phrase
       title,
       instructions,
       collectionId: pack.collectionId,
+      catalogId: pack.catalogId || null,
       collectionPreset: presetId || null,
+      schemaSlug: pack.schemaSlug || null,
       fields: pack.fields,
       values,
       draftHtml: htmlBody,
@@ -1885,12 +1935,15 @@ Le champ "resume" résume CE message (expéditeur, sujet, contenu) en une phrase
 
   prepareCompose(config, context) {
     const { migrateComposeConfig } = require('./zoneContracts');
-    const cfg = migrateComposeConfig(config || {});
+    const { mergeComposeFromSchema } = require('./atelierPresets');
+    const cfg = mergeComposeFromSchema(migrateComposeConfig(config || {}), context);
     const variables = Array.isArray(cfg.variables) ? cfg.variables : [];
     const values = cfg.values && typeof cfg.values === 'object' ? cfg.values : {};
 
     const templates = {};
     const rendered = {};
+    const { copyFromPath, readCopySource, valueFromCopySource, applyCopyFrom, isCopyFieldToken } = require('./copyFrom');
+    const copySource = readCopySource(this, context, copyFromPath(cfg));
 
     const renderField = (v, locals) => {
       const key = String((v && v.key) || '').trim();
@@ -1899,6 +1952,13 @@ Le champ "resume" résume CE message (expéditeur, sujet, contenu) en une phrase
         ? String(values[key])
         : (key === 'prompt' ? String(cfg.prompt || '') : '');
       templates[key] = raw;
+      if (copySource && (!String(raw || '').trim() || isCopyFieldToken(raw, copyFromPath(cfg), key))) {
+        const copied = valueFromCopySource(copySource, key);
+        if (copied !== undefined) {
+          rendered[key] = copied;
+          return;
+        }
+      }
       const text = this.interpolateCompose(raw, context, locals);
       const isNum = this.isNumberFieldType(v && v.type);
       const numeric = this.tryEvaluateArithmetic(text);
@@ -1915,7 +1975,16 @@ Le champ "resume" résume CE message (expéditeur, sujet, contenu) en une phrase
     variables.forEach((v) => renderField(v, rendered));
     variables.forEach((v) => renderField(v, rendered));
 
-    const filled = Object.keys(templates).filter((key) => String(templates[key] || '').trim());
+    const zones = applyCopyFrom(this, cfg, context, rendered);
+    Object.keys(zones).forEach((k) => { rendered[k] = zones[k]; });
+
+    const durable = variables.filter((v) => v && v.durable && v.key).map((v) => String(v.key));
+    const filled = Object.keys(rendered).filter((key) => {
+      const val = rendered[key];
+      if (val == null || val === '') return false;
+      if (Array.isArray(val)) return val.length > 0;
+      return String(val).trim() !== '';
+    });
     if (!filled.length) {
       return {
         type: 'compose-result',
@@ -1926,6 +1995,7 @@ Le champ "resume" résume CE message (expéditeur, sujet, contenu) en une phrase
         prompt: '',
         rendered: '',
         zones: {},
+        __durable: durable,
         channel: detectChannel(context),
         debug: {
           request: { templates },
@@ -1956,6 +2026,7 @@ Le champ "resume" résume CE message (expéditeur, sujet, contenu) en une phrase
       rendered: promptRendered || '',
       zones: rendered,
       ...rendered,
+      __durable: durable,
       channel: detectChannel(context),
       debug: {
         request: { templates },

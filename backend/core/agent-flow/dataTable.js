@@ -26,7 +26,8 @@ const ENVELOPE_KEYS = new Set([
   'note',
   'intentions',
   'source',
-  'presetId'
+  'presetId',
+  'schemaSlug'
 ]);
 
 function asRow(raw) {

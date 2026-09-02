@@ -1,12 +1,12 @@
 {
   "id": "output",
   "name": "Sortie",
-  "version": "2.3.0",
+  "version": "2.5.0",
   "family": "output",
   "category": "output",
   "kind": "action",
   "visibility": "orchestrator-only",
-  "description": "Émettre une sortie : flux nommé (HTML + CSS du run), collection client, ou connecteur sortant (mail, Facebook, HTTP).",
+  "description": "Émettre une sortie : flux nommé (données choisies dans le run), collection client, ou connecteur sortant (mail, Facebook, HTTP).",
   "inputContract": {
     "version": "1.0.0",
     "fields": [
@@ -110,8 +110,21 @@
           "exportName": {
             "type": "string",
             "title": "Nom de la sortie flux",
-            "description": "Nom du résultat (ex. chrome). Données = html + css du run, pas la collection.",
+            "description": "Nom sous lequel publier les champs cochés (ex. chrome).",
             "default": "chrome"
+          },
+          "exportFields": {
+            "type": "array",
+            "title": "Données du flux",
+            "description": "Champs namespacés déjà présents dans le run à publier sous ce nom.",
+            "items": { "type": "string" },
+            "default": []
+          },
+          "copyFrom": {
+            "type": "string",
+            "title": "Copier un objet du flux",
+            "description": "Objet amont recopié champ pour champ. Réécris ensuite seulement le destinataire.",
+            "default": ""
           }
         }
       },

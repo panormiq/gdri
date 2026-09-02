@@ -100,24 +100,43 @@ function resolveAppPublished(flow) {
   return hasAppSurface(flow);
 }
 
+const PALETTE_FAMILIES = new Set(['action', 'data', 'ia', 'output']);
+
+function normalizePaletteConfig(palette) {
+  const raw = palette && typeof palette === 'object' ? palette : {};
+  const family = String(raw.parentFamily || 'action').trim();
+  return {
+    publish: raw.publish === true || raw.publish === 'yes',
+    iconEmoji: String(raw.iconEmoji != null ? raw.iconEmoji : '🪝').trim() || '🪝',
+    parentFamily: PALETTE_FAMILIES.has(family) ? family : 'action',
+    hookSurface: String(raw.hookSurface || 'palette').trim() || 'palette',
+    rowId: String(raw.rowId || '').trim(),
+    description: String(raw.description || '').trim()
+  };
+}
+
 function enrichFlowApp(flow) {
   if (!flow) return flow;
   const app = normalizeAppConfig(flow.app);
+  const palette = normalizePaletteConfig(flow.palette);
   return {
     ...flow,
     app,
+    palette,
     hasUserSurface: hasUserSurface(flow),
     hasAppSurface: hasAppSurface(flow),
     appPageCount: countAppPages({ ...flow, app }),
     hasButtonTrigger: flowHasButtonTrigger(flow),
     hasValidation: flowHasValidation(flow),
-    appPublished: resolveAppPublished({ ...flow, app })
+    appPublished: resolveAppPublished({ ...flow, app }),
+    palettePublished: !!palette.publish
   };
 }
 
 module.exports = {
   normalizeAppConfig,
   normalizeAppPage,
+  normalizePaletteConfig,
   flowHasButtonTrigger,
   flowHasValidation,
   hasUserSurface,

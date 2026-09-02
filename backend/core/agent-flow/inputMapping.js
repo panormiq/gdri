@@ -5,6 +5,7 @@
 
 const { normalizeNsPath } = require('./nodeNamespace');
 const { formatScalar, looksLikeIntentionCatalogPath, looksLikeIntentionList, looksLikeMessageList } = require('./dataTable');
+const { copyFromPath, readCopySource, valueFromCopySource } = require('./copyFrom');
 
 function getMapping(config) {
   return config && config.mapping && typeof config.mapping === 'object' ? config.mapping : {};
@@ -54,6 +55,8 @@ function resolveSlot(executor, config, slot, context) {
       : executor.interpolateTemplate(text, context);
     return { mapped: true, value: rendered };
   }
+  const copied = valueFromCopySource(readCopySource(executor, context, copyFromPath(config)), slot);
+  if (copied !== undefined) return { mapped: true, value: copied };
   return { mapped: false, value: undefined };
 }
 

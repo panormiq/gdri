@@ -610,36 +610,199 @@ const DESIGN_CHROME_PROMPT = 'Tu produis le CADRE d’une page web (header, nav,
   + 'Zones : {{zones}}\nTon : {{tone}}\n'
   + 'JSON uniquement : { "html": "...", "css": "..." }. html = structure avec les zones ; css = feuilles de style. Placeholders {{zone}} dans le HTML.';
 
+function hookListConfig() {
+  return {
+    provider: 'json',
+    presetId: 'hook',
+    collectionId: '',
+    collectionNamespace: 'atelier-hook',
+    modelName: 'Hook',
+    modelFields: [
+      { key: 'surface', label: 'Surface', type: 'text', required: true },
+      { key: 'label', label: 'Libellé', type: 'text', required: true },
+      { key: 'description', label: 'Description', type: 'textarea' }
+    ]
+  };
+}
+
+function hookVizConfig() {
+  return {
+    vizType: 'select',
+    vizRole: 'choose',
+    valueField: 'liste_hooks.surface',
+    labelField: 'liste_hooks.label',
+    surface: '',
+    collectionPreset: 'hook'
+  };
+}
+
+function hookApplyConfig() {
+  return {
+    vizType: 'select',
+    vizRole: 'apply',
+    valueField: 'choix_hook.surface',
+    labelField: 'choix_hook.label',
+    surface: '',
+    collectionPreset: 'hook'
+  };
+}
+
+function hookOutputConfig() {
+  return {
+    provider: 'flow',
+    connectorId: 'flow',
+    exportName: 'hook',
+    exportFields: ['hook.html', 'hook.css', 'hook.surface', 'hook.label'],
+    mapping: {},
+    literals: {}
+  };
+}
+
 function designFieldsConfig() {
   return {
     actionId: 'ia.compose',
     operation: 'ia.compose',
     writeMode: 'merge',
+    fieldsFrom: 'collection_design',
     activeZone: 'prompt',
     variables: [
-      { key: 'brand', label: 'Marque / titre', type: 'text', required: true },
-      { key: 'logoUrl', label: 'Logo (URL)', type: 'text' },
-      { key: 'primary', label: 'Couleur principale', type: 'text' },
-      { key: 'background', label: 'Fond', type: 'text' },
-      { key: 'surface', label: 'Cartes', type: 'text' },
-      { key: 'text', label: 'Texte', type: 'text' },
-      { key: 'muted', label: 'Texte secondaire', type: 'text' },
-      { key: 'zones', label: 'Zones', type: 'text' },
-      { key: 'tone', label: 'Ton / style', type: 'textarea' },
       { key: 'prompt', label: 'Prompt chrome', type: 'textarea', required: true }
     ],
     values: {
-      brand: 'Mon entreprise',
-      primary: '#1d4ed8',
-      background: '#f1f5f9',
-      surface: '#ffffff',
-      text: '#0f172a',
-      muted: '#64748b',
-      zones: 'header, nav, main, footer',
-      tone: 'Page web claire, admin SaaS',
       prompt: DESIGN_CHROME_PROMPT
     },
     prompt: DESIGN_CHROME_PROMPT
+  };
+}
+
+function hookAgentTemplate(entrepriseId) {
+  const runTriggerId = 'node-trigger';
+  const inId = 'node-flow-in';
+  const applyId = 'node-hook';
+  const outId = 'node-output';
+  const edTriggerId = 'ed-trigger';
+  const edListId = 'ed-hook-list';
+  const edChoiceId = 'ed-hook-choice';
+  return {
+    name: 'Hook',
+    description: 'Un canvas, deux chaînes : éditeur (choix du hook) relié à l’exécution (ajouter le hook au flux).',
+    enabled: true,
+    templateId: 'agent-hook',
+    official: true,
+    importable: true,
+    agentContext: 'Chaîne éditeur : sélection de bloc → liste → choix. Chaîne exécution : flux parent → ajouter le hook → sortie. Le lien transmet l’état choisi.',
+    trigger: { brickId: 'trigger', config: { mode: 'button' } },
+    steps: [
+      { id: inId, brickId: 'data', operation: 'data.read', config: { provider: 'flow', importName: 'parent' } },
+      { id: applyId, brickId: 'visualization', operation: 'visualization.run', config: hookApplyConfig() },
+      { id: outId, brickId: 'output', operation: 'output.emit', config: hookOutputConfig() }
+    ],
+    canvas: {
+      nodes: [
+        {
+          id: edTriggerId,
+          brickId: 'trigger',
+          kind: 'trigger',
+          name: 'Sélection de bloc',
+          slug: 'declencher_editeur',
+          config: { mode: 'block', blockOnSelect: true, blockOnImport: true },
+          x: 80,
+          y: 60,
+          nextId: edListId,
+          nextIds: [edListId]
+        },
+        {
+          id: edListId,
+          brickId: 'data',
+          kind: 'action',
+          operation: 'data.read',
+          name: 'Liste hooks',
+          slug: 'liste_hooks',
+          config: hookListConfig(),
+          x: 80,
+          y: 200,
+          nextId: edChoiceId,
+          nextIds: [edChoiceId]
+        },
+        {
+          id: edChoiceId,
+          brickId: 'visualization',
+          kind: 'action',
+          operation: 'visualization.run',
+          name: 'Choix du hook',
+          slug: 'choix_hook',
+          config: hookVizConfig(),
+          x: 80,
+          y: 340,
+          nextId: applyId,
+          nextIds: [applyId]
+        },
+        {
+          id: runTriggerId,
+          brickId: 'trigger',
+          kind: 'trigger',
+          name: 'Déclencher',
+          slug: 'declencher',
+          config: { mode: 'button' },
+          x: 420,
+          y: 60,
+          nextId: inId,
+          nextIds: [inId]
+        },
+        {
+          id: inId,
+          brickId: 'data',
+          kind: 'action',
+          operation: 'data.read',
+          name: 'Entrées flux',
+          slug: 'flux_parent',
+          config: { provider: 'flow', importName: 'parent' },
+          x: 420,
+          y: 200,
+          nextId: applyId,
+          nextIds: [applyId]
+        },
+        {
+          id: applyId,
+          brickId: 'visualization',
+          kind: 'action',
+          operation: 'visualization.run',
+          name: 'Ajouter le hook',
+          slug: 'hook',
+          config: hookApplyConfig(),
+          x: 420,
+          y: 340,
+          nextId: outId,
+          nextIds: [outId]
+        },
+        {
+          id: outId,
+          brickId: 'output',
+          kind: 'action',
+          operation: 'output.emit',
+          name: 'Sortie flux',
+          slug: 'sortie_hook',
+          config: hookOutputConfig(),
+          x: 420,
+          y: 480,
+          nextId: null,
+          nextIds: []
+        }
+      ]
+    },
+    entrepriseId
+  };
+}
+
+function insertableHookConfig() {
+  return {
+    insertable: true,
+    subTemplateId: 'agent-hook',
+    subFlowId: '',
+    paletteId: 'hook',
+    exportName: 'hook',
+    actionId: 'ia.compose',
+    operation: 'ia.compose'
   };
 }
 
@@ -648,8 +811,8 @@ function designPageWebAgentTemplate(entrepriseId) {
   const dataId = 'node-collection';
   const fieldsId = 'node-fields';
   const iaId = 'node-ia';
-  const outId = 'node-output';
   const hookId = 'node-hook';
+  const outId = 'node-output';
   return {
     name: 'Design page web',
     description: 'Agent GDRI : couleurs, logo, zones. Importable comme sous-agent. Aucun champ métier.',
@@ -667,9 +830,10 @@ function designPageWebAgentTemplate(entrepriseId) {
         config: {
           provider: 'json',
           presetId: '',
+          schemaSlug: 'design',
           collectionId: '',
-          collectionNamespace: 'atelier-design-page-web',
-          modelName: 'Design page web'
+          collectionNamespace: 'atelier-schemas',
+          modelName: 'Collection design'
         }
       },
       { id: fieldsId, brickId: 'action', operation: 'action.run', config: designFieldsConfig() },
@@ -678,6 +842,7 @@ function designPageWebAgentTemplate(entrepriseId) {
         context: 'champs.tone',
         rag: 'collection_design.items'
       }) },
+      { id: hookId, brickId: 'action', operation: 'action.run', config: insertableHookConfig() },
       {
         id: outId,
         brickId: 'output',
@@ -685,14 +850,11 @@ function designPageWebAgentTemplate(entrepriseId) {
         config: {
           provider: 'flow',
           connectorId: 'flow',
-          exportName: 'chrome'
+          exportName: 'chrome',
+          exportFields: ['ia.html', 'ia.css', 'hook.surface', 'hook.label'],
+          mapping: {},
+          literals: {}
         }
-      },
-      {
-        id: hookId,
-        brickId: 'action',
-        operation: 'action.run',
-        config: { kind: 'function', actionId: 'surface.hook', operation: 'surface.hook', surface: 'tab' }
       }
     ],
     canvas: {
@@ -718,9 +880,10 @@ function designPageWebAgentTemplate(entrepriseId) {
           slug: 'collection_design',
           config: {
             provider: 'json',
+            schemaSlug: 'design',
             collectionId: '',
-            collectionNamespace: 'atelier-design-page-web',
-            modelName: 'Design page web'
+            collectionNamespace: 'atelier-schemas',
+            modelName: 'Collection design'
           },
           x: 80,
           y: 200,
@@ -754,23 +917,6 @@ function designPageWebAgentTemplate(entrepriseId) {
           }),
           x: 80,
           y: 480,
-          nextId: outId,
-          nextIds: [outId]
-        },
-        {
-          id: outId,
-          brickId: 'output',
-          kind: 'action',
-          operation: 'output.emit',
-          name: 'Sortie flux',
-          slug: 'sortie_chrome',
-          config: {
-            provider: 'flow',
-            connectorId: 'flow',
-            exportName: 'chrome'
-          },
-          x: 80,
-          y: 620,
           nextId: hookId,
           nextIds: [hookId]
         },
@@ -779,11 +925,31 @@ function designPageWebAgentTemplate(entrepriseId) {
           brickId: 'action',
           kind: 'action',
           operation: 'action.run',
-          name: 'Accrocher (onglet)',
+          name: 'Hook',
           slug: 'hook',
-          config: { kind: 'function', actionId: 'surface.hook', operation: 'surface.hook', surface: 'tab' },
+          config: insertableHookConfig(),
           x: 80,
-          y: 760,
+          y: 620,
+          nextId: outId,
+          nextIds: [outId]
+        },
+        {
+          id: outId,
+          brickId: 'output',
+          kind: 'action',
+          operation: 'output.emit',
+          name: 'Sauvegarde',
+          slug: 'sortie_chrome',
+          config: {
+            provider: 'flow',
+            connectorId: 'flow',
+            exportName: 'chrome',
+            exportFields: ['ia.html', 'ia.css', 'hook.surface', 'hook.label'],
+            mapping: {},
+            literals: {}
+          },
+          x: 80,
+          y: 900,
           nextId: null,
           nextIds: []
         }
@@ -800,6 +966,7 @@ const TEMPLATES = {
   'agent-facebook': facebookAgentTemplate,
   'agent-assisted-doc': assistedDocAgentTemplate,
   'agent-mail-invoices': invoiceMailAgentTemplate,
+  'agent-hook': hookAgentTemplate,
   'agent-design-page-web': designPageWebAgentTemplate,
   [VIZ_CONCEPTION_ID]: vizConceptionFlow
 };
@@ -814,6 +981,13 @@ const TEMPLATE_CATALOG = [
     description: 'Mail → conditions → PJ → validation → suppression IMAP'
   },
   {
+    id: 'agent-hook',
+    name: 'Hook',
+    description: 'Sous-action : flux parent → liste hooks → visualisation (liste) → Sortie flux.',
+    official: true,
+    importable: true
+  },
+  {
     id: 'agent-design-page-web',
     name: 'Design page web',
     description: 'Agent GDRI : couleurs, logo, zones. Importable comme sous-agent.',
@@ -822,13 +996,28 @@ const TEMPLATE_CATALOG = [
   }
 ];
 
+function isSystemTemplateId(templateId) {
+  const id = String(templateId || '').trim();
+  if (!id) return false;
+  return TEMPLATE_CATALOG.some((t) => t.id === id && t.official === true);
+}
+
+function isSystemAgentFlow(flow) {
+  if (!flow) return false;
+  if (flow.official === true) return true;
+  return isSystemTemplateId(flow.templateId);
+}
+
 module.exports = {
   mailAgentTemplate,
   facebookAgentTemplate,
   assistedDocAgentTemplate,
   invoiceMailAgentTemplate,
+  hookAgentTemplate,
   designPageWebAgentTemplate,
   vizConceptionFlow,
   TEMPLATES,
-  TEMPLATE_CATALOG
+  TEMPLATE_CATALOG,
+  isSystemTemplateId,
+  isSystemAgentFlow
 };

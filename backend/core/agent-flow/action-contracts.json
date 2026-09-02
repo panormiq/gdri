@@ -17,13 +17,20 @@
     {
       "id": "surface.hook",
       "label": "Accrocher la page",
-      "description": "Lit la collection Hook et écrit le champ surface (onglet, modal, app…). Sans ce bloc, la page reste portable.",
+      "description": "Accroche la page du flux (HTML + CSS) sur une surface. Surface, libellé et page se branchent depuis le flux ou une valeur fixe — pas une liste.",
+      "reads": [
+        { "key": "surface", "label": "Surface", "required": true, "type": "text" },
+        { "key": "label", "label": "Libellé", "required": false, "type": "text" },
+        { "key": "html", "label": "HTML", "required": false, "type": "textarea" },
+        { "key": "css", "label": "CSS", "required": false, "type": "textarea" }
+      ],
       "writes": [
         { "key": "surface", "label": "Surface" },
         { "key": "label", "label": "Libellé" },
-        { "key": "hookMounted", "label": "Accroché" }
-      ],
-      "params": ["surface"]
+        { "key": "hookMounted", "label": "Accroché" },
+        { "key": "html", "label": "HTML" },
+        { "key": "css", "label": "CSS" }
+      ]
     }
   ],
   "ia": [

@@ -11,7 +11,7 @@ const {
   resolveEffectiveInteractionMode,
   enrichFlowModes
 } = require('./interactionMode');
-const { normalizeAppConfig, enrichFlowApp } = require('./appSurface');
+const { normalizeAppConfig, normalizePaletteConfig, enrichFlowApp } = require('./appSurface');
 const { providerFromConnectorId } = require('./channelFromConnector');
 const { canvasTriggerNodes } = require('./triggerMatch');
 
@@ -60,6 +60,7 @@ class AgentFlowService {
     }
     doc.derivedInteractionMode = deriveInteractionMode(doc);
     doc.app = normalizeAppConfig(payload.app !== undefined ? payload.app : doc.app);
+    doc.palette = normalizePaletteConfig(payload.palette !== undefined ? payload.palette : doc.palette);
     return doc;
   }
 
@@ -258,6 +259,7 @@ class AgentFlowService {
       'agentContext',
       'vizDesign',
       'app',
+      'palette',
       'exports'
     ];
     const update = { updatedAt: new Date() };
@@ -281,6 +283,9 @@ class AgentFlowService {
     }
     if (update.app !== undefined) {
       update.app = normalizeAppConfig(update.app);
+    }
+    if (update.palette !== undefined) {
+      update.palette = normalizePaletteConfig(update.palette);
     }
     if (Array.isArray(update.triggers) && update.triggers.length && !update.trigger) {
       update.trigger = update.triggers[0];

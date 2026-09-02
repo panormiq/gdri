@@ -6,7 +6,7 @@
   "category": "trigger",
   "kind": "trigger",
   "visibility": "orchestrator-only",
-  "description": "Quand démarrer l'agent : bouton, cron, ou un webhook déjà posé sur un connecteur. Plusieurs flèches possibles (ex. mails et liste d’intentions en parallèle).",
+  "description": "Quand démarrer l'agent : bouton, cron, webhook, ou à la sélection / import d’un bloc (mise à jour des hooks).",
   "canvas": {
     "iconEmoji": "▶",
     "color": "#16a34a",
@@ -25,11 +25,12 @@
         "mode": {
           "type": "string",
           "title": "Mode",
-          "enum": ["button", "cron", "webhook"],
+          "enum": ["button", "cron", "webhook", "block"],
           "enumLabels": {
             "button": "Bouton (manuel)",
             "cron": "Planifié (cron)",
-            "webhook": "Webhook connecteur"
+            "webhook": "Webhook connecteur",
+            "block": "Bloc (sélection / import)"
           },
           "default": "button"
         },
@@ -38,6 +39,18 @@
           "title": "Webhook",
           "description": "Instance connecteur déjà configurée (Facebook, HTTP…).",
           "default": ""
+        },
+        "blockOnSelect": {
+          "type": "boolean",
+          "title": "À la sélection d’un bloc",
+          "description": "Met à jour la liste de hooks quand on clique un bloc sur le canvas.",
+          "default": true
+        },
+        "blockOnImport": {
+          "type": "boolean",
+          "title": "À l’import / pose d’un bloc",
+          "description": "Met à jour la liste de hooks quand on pose un bloc depuis la palette.",
+          "default": true
         },
         "preset": {
           "type": "string",
@@ -60,7 +73,7 @@
     },
     "outputContext": {
       "type": "trigger-event",
-      "fields": ["triggeredAt", "entrepriseId", "flowId", "mode", "webhookInstanceId"]
+      "fields": ["triggeredAt", "entrepriseId", "flowId", "mode", "webhookInstanceId", "blockEvent", "blockId"]
     }
   },
   "permissions": [],

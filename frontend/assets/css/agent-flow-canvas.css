@@ -130,6 +130,17 @@ body:has(.agent-editor-app) > .footer {
   color: #64748b;
 }
 
+.agent-palette-head .btn-agent-ghost {
+  width: 100%;
+  margin-top: 8px;
+  font-size: 0.72rem;
+  padding: 5px 8px;
+}
+
+.agent-node--visualization {
+  border-color: #c2410c;
+}
+
 .agent-brick-item {
   display: flex;
   align-items: center;
@@ -180,6 +191,21 @@ body:has(.agent-editor-app) > .footer {
 }
 .agent-brick-item .agent-node-badge {
   margin-left: 6px;
+}
+
+.agent-palette-group {
+  margin-bottom: 2px;
+}
+
+.agent-brick-item.is-child {
+  margin-left: 14px;
+  padding-left: 8px;
+  border-style: dashed;
+  background: #111827;
+}
+
+.agent-brick-item.is-child .meta strong {
+  font-weight: 600;
 }
 
 .agent-palette-tip {
@@ -1100,6 +1126,142 @@ body:not(.agent-expert-view) .agent-compose-source-badge,
   font-size: 0.75rem;
 }
 
+.agent-copy-from {
+  margin: 0 0 12px;
+}
+
+.agent-copy-from label {
+  display: block;
+  font-size: 0.8rem;
+  font-weight: 600;
+  margin-bottom: 0.25rem;
+  color: #cbd5e1;
+}
+
+.agent-copy-from select {
+  width: 100%;
+  box-sizing: border-box;
+  background: #111827;
+  color: #e2e8f0;
+  border: 1px solid #334155;
+  border-radius: 8px;
+  padding: 7px 10px;
+  font-size: 0.85rem;
+  color-scheme: dark;
+}
+
+.agent-copy-from select:focus {
+  outline: none;
+  border-color: #7c3aed;
+}
+
+.agent-copy-from select option {
+  background: #111827;
+  color: #e2e8f0;
+}
+
+.agent-compose-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0 0 12px;
+}
+
+.agent-compose-tab {
+  border: 1px solid #334155;
+  background: #0f172a;
+  color: #cbd5e1;
+  border-radius: 8px 8px 0 0;
+  padding: 6px 12px;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.agent-compose-tab:hover {
+  border-color: #7c3aed;
+  color: #ddd6fe;
+}
+
+.agent-compose-tab.is-active {
+  background: #1e293b;
+  border-color: #7c3aed;
+  color: #f8fafc;
+  font-weight: 600;
+}
+
+.agent-output-picker {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 12px;
+  padding: 10px;
+  background: #0f172a;
+  border: 1px dashed #475569;
+  border-radius: 8px;
+}
+
+.agent-output-map-modes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0 0 12px;
+}
+
+.agent-compose-chip.is-active {
+  border-color: #7c3aed;
+  background: #3b0764;
+  color: #f5f3ff;
+}
+
+.agent-output-map-badge {
+  margin-left: auto;
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: #94a3b8;
+}
+
+.agent-output-map-badge.is-override {
+  color: #c4b5fd;
+}
+
+.agent-export-fields__actions {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.agent-export-fields__actions .btn-agent-ghost {
+  padding: 4px 10px;
+  font-size: 0.78rem;
+}
+
+.agent-export-fields__group {
+  margin: 8px 0 0;
+}
+
+.agent-export-fields__group strong {
+  display: block;
+  font-size: 0.75rem;
+  color: #93c5fd;
+  margin-bottom: 4px;
+}
+
+.agent-export-fields__group .agent-check {
+  display: flex;
+  width: 100%;
+  margin: 4px 0 0;
+  font-weight: 400;
+  font-size: 0.82rem;
+}
+
+.agent-export-fields__group .agent-check code {
+  font-size: 0.7rem;
+  color: #7dd3fc;
+}
+
 .agent-template-bind {
   margin: 0 0 14px;
   padding: 10px;
@@ -1199,6 +1361,18 @@ body:not(.agent-expert-view) .agent-compose-source-badge,
   color: #cbd5e1;
 }
 
+.agent-config label.agent-check,
+.agent-editor-app label.agent-check,
+.agent-contract-modal label.agent-check {
+  display: inline-flex;
+  width: auto;
+  max-width: 100%;
+  margin: 0;
+  padding: 0;
+  justify-content: flex-start;
+  align-items: center;
+}
+
 .agent-config input,
 .agent-config select,
 .agent-config textarea {
@@ -1209,6 +1383,64 @@ body:not(.agent-expert-view) .agent-compose-source-badge,
   border-radius: 8px;
   padding: 7px 10px;
   font-size: 0.85rem;
+}
+
+.agent-editor-app input[type="checkbox"],
+.agent-editor-app input[type="radio"],
+.agent-contract-modal input[type="checkbox"],
+.agent-contract-modal input[type="radio"],
+.agent-config input[type="checkbox"],
+.agent-config input[type="radio"],
+.form-group input[type="checkbox"],
+.form-group input[type="radio"] {
+  width: 1rem;
+  height: 1rem;
+  min-width: 1rem;
+  max-width: 1rem;
+  padding: 0;
+  margin: 0;
+  flex: 0 0 1rem;
+  border-radius: 3px;
+  accent-color: #7c3aed;
+  background: #111827;
+}
+
+.agent-check {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+  width: max-content;
+  max-width: 100%;
+  margin: 0;
+  padding: 0;
+  font-weight: 500;
+  font-size: 0.8rem;
+  line-height: 1.2;
+  white-space: nowrap;
+  cursor: pointer;
+  color: #cbd5e1;
+}
+
+.agent-check input[type="checkbox"] {
+  width: 1rem;
+  height: 1rem;
+  min-width: 1rem;
+  max-width: 1rem;
+  margin: 0;
+  padding: 0;
+  flex: 0 0 1rem;
+  accent-color: #7c3aed;
+}
+
+.agent-mapping-row .agent-check {
+  display: inline-flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  justify-content: flex-start;
+  width: auto;
+  margin: 8px 0 0;
+  font-weight: 400;
 }
 
 .agent-editor-app .btn-agent {
@@ -1260,6 +1492,36 @@ body:not(.agent-expert-view) .agent-compose-source-badge,
 
 .agent-app-preview-wrap .agent-card {
   max-width: 280px;
+}
+
+.agent-config-section h3 {
+  font-weight: 650;
+}
+
+.agent-block-preview {
+  min-height: 72px;
+}
+
+.agent-block-preview .agent-node {
+  position: relative;
+  left: auto;
+  top: auto;
+  pointer-events: none;
+  width: 220px;
+  cursor: default;
+}
+
+.agent-block-preview .agent-node-badge {
+  margin-left: 6px;
+  font-size: 0.68rem;
+}
+
+#agentHookExportPreview iframe {
+  width: 100%;
+  height: 140px;
+  border: 1px solid #1f2937;
+  border-radius: 8px;
+  background: #fff;
 }
 
 .agent-app-page {
@@ -1527,12 +1789,26 @@ body:not(.agent-expert-view) .agent-compose-source-badge,
 .agent-compose-field-head {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 8px;
   margin: 0 0 6px;
 }
 
+.agent-compose-field-head > code {
+  flex: 0 0 auto;
+}
+
+.agent-compose-flags {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  flex: 0 0 auto;
+  width: auto;
+  margin: 0;
+}
+
 .agent-compose-field-head label {
-  flex: 1;
+  flex: 0 0 auto;
   min-width: 0;
   color: #e2e8f0;
   font-size: 0.82rem;
@@ -1540,8 +1816,9 @@ body:not(.agent-expert-view) .agent-compose-source-badge,
 }
 
 .agent-compose-field-head .agent-compose-name {
-  flex: 1;
+  flex: 1 1 160px;
   min-width: 0;
+  max-width: 280px;
   background: #111827;
   color: #e2e8f0;
   border: 1px solid #334155;
@@ -1554,8 +1831,9 @@ body:not(.agent-expert-view) .agent-compose-source-badge,
 .agent-compose-req {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: 6px;
   flex: 0 0 auto;
+  width: auto;
   margin: 0;
   color: #fdba74;
   font-size: 0.72rem;
@@ -1564,9 +1842,15 @@ body:not(.agent-expert-view) .agent-compose-source-badge,
   cursor: pointer;
 }
 
-.agent-compose-req input {
-  width: auto;
+.agent-compose-req input[type="checkbox"] {
+  width: 1rem;
+  height: 1rem;
+  min-width: 1rem;
+  max-width: 1rem;
   margin: 0;
+  padding: 0;
+  flex: 0 0 1rem;
+  accent-color: #f97316;
 }
 .agent-compose-req.is-locked {
   cursor: default;
@@ -1767,6 +2051,7 @@ input.agent-compose-editor--field {
   margin: 0 0 6px;
   font-size: 0.8rem;
   color: #93c5fd;
+  cursor: pointer;
 }
 .agent-compose-source-name {
   flex: 1;
@@ -1801,9 +2086,13 @@ input.agent-compose-editor--field {
   border-color: #7c3aed;
   color: #ddd6fe;
 }
+.agent-compose-source:not(.is-open) > :not(.agent-compose-source-toggle):not(.agent-compose-source-head) {
+  display: none;
+}
 .agent-compose-source:not(.is-open) .agent-compose-submenu,
 .agent-compose-source:not(.is-open) .agent-compose-loop,
 .agent-compose-source:not(.is-open) .agent-compose-field,
+.agent-compose-source:not(.is-open) .agent-compose-field-row,
 .agent-compose-source:not(.is-open) .agent-compose-ns-fields,
 .agent-compose-source:not(.is-open) [data-toggle-item-fields],
 .agent-compose-source:not(.is-open) [data-toggle-ns-fields],
@@ -1837,6 +2126,54 @@ input.agent-compose-editor--field {
 .agent-compose-field:hover {
   border-color: #7c3aed;
   color: #ddd6fe;
+}
+.agent-compose-field-row {
+  display: flex;
+  align-items: stretch;
+  gap: 4px;
+  margin: 0 0 6px;
+}
+.agent-compose-field-row .agent-compose-field {
+  margin: 0;
+  flex: 1;
+  min-width: 0;
+}
+.agent-compose-field-row.is-dropped .agent-compose-field {
+  opacity: 0.45;
+  text-decoration: line-through;
+}
+.agent-compose-source.is-dropped > .agent-compose-source-toggle .agent-compose-source-name,
+.agent-compose-source.is-dropped > .agent-compose-source-head .agent-compose-source-name {
+  text-decoration: line-through;
+  opacity: 0.7;
+}
+.agent-compose-field-drop {
+  flex: 0 0 auto;
+  width: 28px;
+  border: 1px solid #1f2937;
+  background: #111827;
+  color: #94a3b8;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 1rem;
+  line-height: 1;
+  padding: 0;
+}
+.agent-compose-field-drop:hover {
+  border-color: #ef4444;
+  color: #fecaca;
+  background: #450a0a;
+}
+.agent-compose-field-drop.is-on {
+  border-color: #ef4444;
+  color: #fecaca;
+  background: #7f1d1d;
+}
+.agent-compose-source-toggle .agent-compose-field-drop,
+.agent-compose-source-head .agent-compose-field-drop {
+  width: 26px;
+  height: 26px;
+  margin-left: auto;
 }
 .agent-compose-field-text {
   display: flex;

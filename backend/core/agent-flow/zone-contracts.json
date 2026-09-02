@@ -43,7 +43,7 @@
       "id": "output.mail",
       "label": "Sortie mail",
       "target": { "brickId": "output", "provider": "mail" },
-      "description": "La sortie mail lit destinataire, sujet, réponse, pièces jointes.",
+      "description": "Contrat mail de la sortie. Le contenu se prépare dans l’action (onglet de cette sortie) : objet repris + overrides, ou formulaire écrit.",
       "variables": [
         {
           "key": "to",
@@ -128,6 +128,53 @@
           "required": true,
           "placeholder": "{{response}}",
           "description": "Texte publié ou répondu"
+        }
+      ]
+    },
+    "hook": {
+      "id": "hook",
+      "label": "Surface hook",
+      "description": "Ajouter ou changer la surface après lecture de la collection Hook.",
+      "variables": [
+        {
+          "key": "surface",
+          "label": "Surface",
+          "type": "text",
+          "required": true,
+          "placeholder": "{{liste_hooks.surface}}",
+          "description": "Où accrocher la page : tab, modal, app, ou une nouvelle valeur."
+        },
+        {
+          "key": "label",
+          "label": "Libellé",
+          "type": "text",
+          "placeholder": "{{liste_hooks.label}}",
+          "description": "Nom affiché de la surface."
+        },
+        {
+          "key": "name",
+          "label": "Nom du bouton",
+          "type": "text",
+          "placeholder": "{{liste_hooks.label}}",
+          "description": "Pour le template Bouton palette."
+        },
+        {
+          "key": "iconEmoji",
+          "label": "Icône",
+          "type": "text",
+          "placeholder": "🪝"
+        },
+        {
+          "key": "logoUrl",
+          "label": "Logo (URL)",
+          "type": "text",
+          "placeholder": "https://…"
+        },
+        {
+          "key": "color",
+          "label": "Couleur",
+          "type": "text",
+          "placeholder": "#7c3aed"
         }
       ]
     }

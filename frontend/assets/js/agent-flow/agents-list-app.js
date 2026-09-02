@@ -77,11 +77,22 @@
     return '<span class="agent-card-badge is-stale">Liste à actualiser</span>';
   }
 
+  function templateBadge(flow) {
+    var tid = String((flow && flow.templateId) || '');
+    if (tid === 'agent-hook') return '<span class="agent-card-badge">Hook · sous-action</span>';
+    if (tid === 'agent-design-page-web') return '<span class="agent-card-badge">Design · sous-agent</span>';
+    if (tid === 'agent-mail') return '<span class="agent-card-badge">Mail</span>';
+    if (tid === 'agent-facebook') return '<span class="agent-card-badge">Facebook</span>';
+    if (tid === 'agent-assisted-doc') return '<span class="agent-card-badge">Validation</span>';
+    if (tid === 'agent-mail-invoices') return '<span class="agent-card-badge">Factures</span>';
+    return '';
+  }
+
   function coverHtml(flow) {
     if (flow.imageUrl) {
-      return '<div class="agent-card-cover"><img src="' + esc(flow.imageUrl) + '" alt="">' + modeBadge(flow) + staleBadge(flow) + '</div>';
+      return '<div class="agent-card-cover"><img src="' + esc(flow.imageUrl) + '" alt="">' + modeBadge(flow) + templateBadge(flow) + staleBadge(flow) + '</div>';
     }
-    return '<div class="agent-card-cover">' + modeBadge(flow) + staleBadge(flow) + '</div>';
+    return '<div class="agent-card-cover">' + modeBadge(flow) + templateBadge(flow) + staleBadge(flow) + '</div>';
   }
 
   function editorHref(flowId) {
@@ -94,6 +105,7 @@
     var id = flow._id || '';
     var enabled = flow.enabled !== false;
     var manageThis = canManage && (flow.canManage !== false);
+    if (flow.system && !cfg.isGdriAdmin) manageThis = false;
     var runLabel = (flow.app && flow.app.buttonLabel) ? flow.app.buttonLabel : 'Lancer';
     var actions = '<button type="button" class="btn btn-success btn-sm agent-run" data-id="' + esc(id) + '">' + esc(runLabel) + '</button>';
     if (manageThis) {
@@ -152,8 +164,11 @@
     var cards = document.getElementById('agentsCards');
     if (!cards) return;
     if (status) status.textContent = 'Chargement…';
-    var q = mode ? ('?interactionMode=' + encodeURIComponent(mode)) : '';
-    fetch(API + '/flows' + q, { headers: headers() })
+    var q = [];
+    if (mode) q.push('interactionMode=' + encodeURIComponent(mode));
+    if (cfg.scope) q.push('scope=' + encodeURIComponent(cfg.scope));
+    var qs = q.length ? ('?' + q.join('&')) : '';
+    fetch(API + '/flows' + qs, { headers: headers() })
       .then(parseJson)
       .then(function(data) {
         if (!data.success) throw new Error(data.message || 'Erreur');

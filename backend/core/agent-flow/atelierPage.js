@@ -1,6 +1,5 @@
 /**
- * Page web complète générée depuis les champs d’une collection Atelier.
- * Aucun champ métier (from / subject…) — uniquement le contrat de la collection.
+ * Page web générée depuis les champs d’un schéma atelier (catalogue nom / type).
  */
 
 function escapeHtml(value) {

@@ -52,6 +52,12 @@ const getAllCollections = async (req, res) => {
     } catch (migrateErr) {
       console.warn('Migration V1 → V3:', migrateErr.message);
     }
+    try {
+      const { ensureSchemaCatalog } = require('../../../core/agent-flow/atelierPresets');
+      await ensureSchemaCatalog(req.entrepriseId || req.user.entrepriseId);
+    } catch (schemaErr) {
+      console.warn('Catalogue schémas atelier:', schemaErr.message);
+    }
     const collections = await req.entrepriseDb
       .collection('collections')
       .find({})

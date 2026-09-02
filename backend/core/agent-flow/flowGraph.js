@@ -222,6 +222,65 @@ function resolveNextIds(node, output) {
   return nodeNextIds(node);
 }
 
+function nodesById(nodes) {
+  const byId = {};
+  (Array.isArray(nodes) ? nodes : []).forEach((n) => {
+    if (n && n.id) byId[n.id] = n;
+  });
+  return byId;
+}
+
+/** Nœuds exclusifs d’une branche : on s’arrête à un join (plusieurs parents). */
+function descendantBranchNodes(startId, nodes) {
+  const list = Array.isArray(nodes) ? nodes : [];
+  const byId = nodesById(list);
+  const start = String(startId || '').trim();
+  const out = [];
+  const seen = {};
+  const q = start ? [start] : [];
+  while (q.length) {
+    const id = q.shift();
+    if (!id || seen[id]) continue;
+    seen[id] = true;
+    const n = byId[id];
+    if (!n) continue;
+    if (id !== start && incomingNodes(list, id).length > 1) continue;
+    out.push(n);
+    allOutgoingIds(n).forEach((next) => q.push(next));
+  }
+  return out;
+}
+
+function reachableNodes(seedIds, nodes) {
+  const list = Array.isArray(nodes) ? nodes : [];
+  const byId = nodesById(list);
+  const out = [];
+  const seen = {};
+  const q = asIdList(seedIds, null);
+  while (q.length) {
+    const id = q.shift();
+    if (!id || seen[id]) continue;
+    seen[id] = true;
+    const n = byId[id];
+    if (!n) continue;
+    out.push(n);
+    allOutgoingIds(n).forEach((next) => q.push(next));
+  }
+  return out;
+}
+
+function remainingConsumerNodes(nodes, queue, nextIds, completed, currentId) {
+  const done = completed && typeof completed === 'object' ? completed : {};
+  const current = String(currentId || '').trim();
+  const seeds = asIdList(queue, null).concat(asIdList(nextIds, null));
+  return reachableNodes(seeds, nodes).filter((n) => {
+    if (!n || !n.id) return false;
+    if (current && String(n.id) === current) return false;
+    if (done[n.id]) return false;
+    return true;
+  });
+}
+
 module.exports = {
   asIdList,
   isConditionNode,
@@ -243,5 +302,8 @@ module.exports = {
   ancestorSlugs,
   nodeMightStillRun,
   parentsReadyToJoin,
-  resolveNextIds
+  resolveNextIds,
+  descendantBranchNodes,
+  reachableNodes,
+  remainingConsumerNodes
 };

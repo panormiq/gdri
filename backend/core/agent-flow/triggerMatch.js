@@ -18,6 +18,7 @@ function triggerModeOf(node) {
   if (id === 'cron-trigger') return 'cron';
   const mode = String((node.config && node.config.mode) || 'button').toLowerCase();
   if (mode === 'http') return 'webhook';
+  if (mode === 'block' || mode === 'select' || mode === 'import') return 'block';
   if (mode === 'webhook' || mode === 'cron') return mode;
   return 'button';
 }
@@ -153,6 +154,9 @@ function findStartTriggerNodes(flow, opts = {}) {
 
   const buttons = triggers.filter((t) => triggerModeOf(t) === 'button');
   if (buttons.length) return [buttons[0]];
+  const runnable = triggers.filter((t) => triggerModeOf(t) !== 'block');
+  if (runnable.length === 1) return runnable;
+  if (runnable.length) return [runnable[0]];
   if (triggers.length === 1) return triggers;
   return triggers[0] ? [triggers[0]] : [];
 }

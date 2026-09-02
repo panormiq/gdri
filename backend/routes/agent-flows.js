@@ -12,7 +12,7 @@ const { AgentFlowService } = require('../core/agent-flow/AgentFlowService');
 const { FlowExecutor } = require('../core/agent-flow/FlowExecutor');
 const { AgentBrickConfigService } = require('../core/agent-flow/AgentBrickConfigService');
 const { describeSchedule } = require('../core/agent-flow/CronEvaluator');
-const { TEMPLATES, TEMPLATE_CATALOG } = require('../core/agent-flow/flowTemplates');
+const { TEMPLATES, TEMPLATE_CATALOG, isSystemAgentFlow, isSystemTemplateId } = require('../core/agent-flow/flowTemplates');
 const { buildRunProgress, flowSnapshot } = require('../core/agent-flow/runProgress');
 const { runData } = require('../core/agent-flow/families/FamilyDispatch');
 const {
@@ -137,9 +137,45 @@ function createAgentFlowsRouter(database) {
     return role === 'ADMIN_GDRI' || role === 'ADMIN_ENTITY';
   }
 
+  function isGdriAdmin(req) {
+    return !!(req.user && req.user.role === 'ADMIN_GDRI');
+  }
+
+  function redactSystemFlow(flow) {
+    if (!flow) return null;
+    return {
+      _id: flow._id,
+      name: flow.name,
+      description: flow.description,
+      templateId: flow.templateId || null,
+      official: true,
+      importable: flow.importable === true,
+      enabled: flow.enabled !== false,
+      entrepriseId: flow.entrepriseId,
+      exports: flow.exports && typeof flow.exports === 'object' ? flow.exports : {},
+      imageUrl: flow.imageUrl || ''
+    };
+  }
+
+  function systemAgentDenied(res) {
+    return res.status(403).json({
+      success: false,
+      systemLocked: true,
+      message: 'Agent système GDRI : seuls les administrateurs GDRI peuvent l’ouvrir ou le modifier.'
+    });
+  }
+
+  function flowPayloadForClient(req, flow) {
+    if (isSystemAgentFlow(flow) && !isGdriAdmin(req)) {
+      return redactSystemFlow(flow);
+    }
+    return flow;
+  }
+
   /** Admin : tout flow de l'entité. User : ses flows (+ legacy sans createdBy). */
   function canManageFlow(req, flow) {
     if (!flow) return false;
+    if (isSystemAgentFlow(flow) && !isGdriAdmin(req)) return false;
     if (isEntityAdmin(req)) return true;
     const uid = resolveUserId(req);
     if (!uid) return false;
@@ -466,6 +502,14 @@ function createAgentFlowsRouter(database) {
         return res.status(400).json({ success: false, message: 'Entité non définie' });
       }
       const mode = req.query.interactionMode || req.query.mode || null;
+      const scope = String(req.query.scope || 'entity').toLowerCase();
+      if ((scope === 'gdri' || scope === 'system') && !isGdriAdmin(req)) {
+        return res.status(403).json({
+          success: false,
+          systemLocked: true,
+          message: 'La liste des agents système est réservée aux administrateurs GDRI.'
+        });
+      }
       const flows = await flowService.listFlows(entrepriseId, {
         interactionMode: mode === 'automatic' || mode === 'assisted' ? mode : null
       });
@@ -475,9 +519,18 @@ function createAgentFlowsRouter(database) {
       const enriched = flows.map((f) => ({
         ...f,
         canManage: canManageFlow(req, f),
-        staleCollections: flowConditionCollectionStale(f, collectionsById)
+        staleCollections: flowConditionCollectionStale(f, collectionsById),
+        system: isSystemAgentFlow(f)
       }));
-      res.json({ success: true, flows: enriched });
+      let listed = enriched;
+      if (scope === 'gdri' || scope === 'system') {
+        listed = enriched.filter((f) => isSystemAgentFlow(f));
+      } else if (scope === 'all' && isGdriAdmin(req)) {
+        listed = enriched;
+      } else {
+        listed = enriched.filter((f) => !isSystemAgentFlow(f));
+      }
+      res.json({ success: true, flows: listed });
     } catch (error) {
       res.status(500).json({ success: false, message: error.message });
     }
@@ -492,6 +545,14 @@ function createAgentFlowsRouter(database) {
       const entrepriseId = resolveEntrepriseId(req);
       if (req.user.role !== 'ADMIN_GDRI' && String(flow.entrepriseId) !== String(entrepriseId)) {
         return res.status(403).json({ success: false, message: 'Accès refusé' });
+      }
+      if (isSystemAgentFlow(flow) && !isGdriAdmin(req)) {
+        return res.json({
+          success: true,
+          systemLocked: true,
+          canManage: false,
+          flow: redactSystemFlow(flow)
+        });
       }
       res.json({ success: true, flow, canManage: canManageFlow(req, flow) });
     } catch (error) {
@@ -540,6 +601,10 @@ function createAgentFlowsRouter(database) {
         return res.status(400).json({ success: false, message: 'Entité non définie' });
       }
       const body = { ...(req.body || {}), createdBy: resolveUserId(req) };
+      if (!isGdriAdmin(req)) {
+        delete body.official;
+        if (isSystemTemplateId(body.templateId)) delete body.templateId;
+      }
       const flow = await flowService.createFlow(entrepriseId, body);
       let facebookSync = null;
       let mailSync = null;
@@ -569,10 +634,18 @@ function createAgentFlowsRouter(database) {
       if (req.user.role !== 'ADMIN_GDRI' && String(flow.entrepriseId) !== String(entrepriseId)) {
         return res.status(403).json({ success: false, message: 'Accès refusé' });
       }
+      if (isSystemAgentFlow(flow) && !isGdriAdmin(req)) {
+        return systemAgentDenied(res);
+      }
       if (!canManageFlow(req, flow)) {
         return res.status(403).json({ success: false, message: 'Vous ne pouvez modifier que vos propres agents' });
       }
-      const updated = await flowService.updateFlow(req.params.id, req.body || {});
+      const patch = { ...(req.body || {}) };
+      if (!isGdriAdmin(req)) {
+        delete patch.official;
+        if (isSystemTemplateId(patch.templateId)) delete patch.templateId;
+      }
+      const updated = await flowService.updateFlow(req.params.id, patch);
       let facebookSync = null;
       let mailSync = null;
       try {
@@ -600,6 +673,9 @@ function createAgentFlowsRouter(database) {
       const entrepriseId = resolveEntrepriseId(req);
       if (req.user.role !== 'ADMIN_GDRI' && String(flow.entrepriseId) !== String(entrepriseId)) {
         return res.status(403).json({ success: false, message: 'Accès refusé' });
+      }
+      if (isSystemAgentFlow(flow) && !isGdriAdmin(req)) {
+        return systemAgentDenied(res);
       }
       if (!canManageFlow(req, flow)) {
         return res.status(403).json({ success: false, message: 'Vous ne pouvez supprimer que vos propres agents' });
@@ -836,6 +912,9 @@ function createAgentFlowsRouter(database) {
       if (req.user.role !== 'ADMIN_GDRI' && String(flow.entrepriseId) !== String(entrepriseId)) {
         return res.status(403).json({ success: false, message: 'Accès refusé' });
       }
+      if (isSystemAgentFlow(flow) && !isGdriAdmin(req)) {
+        return systemAgentDenied(res);
+      }
       if (!canManageFlow(req, flow)) {
         return res.status(403).json({ success: false, message: 'Vous ne pouvez configurer que vos propres agents' });
       }
@@ -861,6 +940,9 @@ function createAgentFlowsRouter(database) {
       const entrepriseId = resolveEntrepriseId(req);
       if (req.user.role !== 'ADMIN_GDRI' && String(flow.entrepriseId) !== String(entrepriseId)) {
         return res.status(403).json({ success: false, message: 'Accès refusé' });
+      }
+      if (isSystemAgentFlow(flow) && !isGdriAdmin(req)) {
+        return systemAgentDenied(res);
       }
       if (!canManageFlow(req, flow)) {
         return res.status(403).json({ success: false, message: 'Vous ne pouvez configurer que vos propres agents' });
@@ -963,6 +1045,27 @@ function createAgentFlowsRouter(database) {
     }
   });
 
+  router.get('/atelier/schemas', authenticateJWT, requireEntityMember, async (req, res) => {
+    try {
+      const entrepriseId = resolveEntrepriseId(req);
+      if (!entrepriseId) {
+        return res.status(400).json({ success: false, message: 'Entité non définie' });
+      }
+      const { ensureSchemaCatalog, SCHEMA_CATALOG_SLUG } = require('../core/agent-flow/atelierPresets');
+      const catalog = await ensureSchemaCatalog(entrepriseId);
+      if (!catalog) {
+        return res.status(400).json({ success: false, message: 'Catalogue de schémas indisponible' });
+      }
+      res.json({
+        success: true,
+        slug: SCHEMA_CATALOG_SLUG,
+        ...catalog
+      });
+    } catch (error) {
+      res.status(500).json({ success: false, message: error.message });
+    }
+  });
+
   router.post('/atelier/collections/ensure', authenticateJWT, requireEntityMember, async (req, res) => {
     try {
       const entrepriseId = resolveEntrepriseId(req);
@@ -970,15 +1073,59 @@ function createAgentFlowsRouter(database) {
         return res.status(400).json({ success: false, message: 'Entité non définie' });
       }
       const { ensureAtelierCollection, latestAtelierRecord, listAtelierRows } = require('../core/agent-flow/atelierPresets');
-      const presetId = (req.body && req.body.presetId) || 'design-page-web';
+      const presetId = (req.body && (req.body.presetId || req.body.schemaSlug)) || 'design';
       const pack = await ensureAtelierCollection(entrepriseId, presetId);
-      if (!pack) return res.status(400).json({ success: false, message: 'Preset atelier inconnu' });
+      if (!pack) return res.status(400).json({ success: false, message: 'Schéma atelier inconnu' });
       const flowId = (req.body && req.body.flowId) || '';
-      const record = await latestAtelierRecord(entrepriseId, pack.collectionId, flowId);
-      const rows = await listAtelierRows(entrepriseId, pack.collectionId);
+      const record = pack.record
+        || await latestAtelierRecord(entrepriseId, pack.collectionId, flowId, pack.schemaSlug);
+      let rows = Array.isArray(pack.rows) ? pack.rows : [];
+      const listSlug = String(pack.slug || '');
+      const isListPack = listSlug.indexOf('atelier-hook') === 0 || listSlug.indexOf('atelier-palette') === 0;
+      if (pack.collectionId && (isListPack || !pack.schemaSlug || !rows.length)) {
+        rows = await listAtelierRows(entrepriseId, pack.collectionId);
+      }
       res.json({ success: true, ...pack, record: record || null, rows });
     } catch (error) {
       res.status(500).json({ success: false, message: error.message });
+    }
+  });
+
+  router.post('/atelier/palette', authenticateJWT, requireEntityMember, async (req, res) => {
+    try {
+      const entrepriseId = resolveEntrepriseId(req);
+      if (!entrepriseId) {
+        return res.status(400).json({ success: false, message: 'Entité non définie' });
+      }
+      const {
+        ensureAtelierCollection,
+        writeAtelierListRow,
+        listAtelierRows
+      } = require('../core/agent-flow/atelierPresets');
+      const pack = await ensureAtelierCollection(entrepriseId, 'palette');
+      if (!pack) return res.status(400).json({ success: false, message: 'Catalogue palette introuvable' });
+      const body = req.body || {};
+      const name = String(body.name || '').trim();
+      if (!name) return res.status(400).json({ success: false, message: 'Nom du bouton palette obligatoire' });
+      const values = {
+        name,
+        iconEmoji: String(body.iconEmoji || '').trim() || '🪝',
+        logoUrl: String(body.logoUrl || '').trim(),
+        parentFamily: String(body.parentFamily || 'action').trim() || 'action',
+        flowId: String(body.flowId || '').trim(),
+        templateId: String(body.templateId || '').trim(),
+        description: String(body.description || '').trim(),
+        color: String(body.color || '').trim() || '#7c3aed',
+        hookSurface: String(body.hookSurface || 'palette').trim() || 'palette'
+      };
+      const written = await writeAtelierListRow(entrepriseId, pack.collectionId, values, {
+        rowId: body.rowId || '',
+        flowId: values.flowId
+      });
+      const rows = await listAtelierRows(entrepriseId, pack.collectionId);
+      res.json({ success: true, ...pack, ...written, rows });
+    } catch (error) {
+      res.status(400).json({ success: false, message: error.message });
     }
   });
 
@@ -994,7 +1141,11 @@ function createAgentFlowsRouter(database) {
         entrepriseId,
         body.collectionId,
         body.values || {},
-        { flowId: body.flowId, nodeId: body.nodeId }
+        {
+          flowId: body.flowId,
+          nodeId: body.nodeId,
+          schemaSlug: body.schemaSlug || body.presetId || ''
+        }
       );
       res.json({ success: true, ...written });
     } catch (error) {
@@ -1102,7 +1253,7 @@ function createAgentFlowsRouter(database) {
       if (!force) {
         const existing = await flowService.findByTemplateId(entrepriseId, templateId, ownerKey);
         if (existing) {
-          return res.json({ success: true, flow: existing, created: false });
+          return res.json({ success: true, flow: flowPayloadForClient(req, existing), created: false });
         }
       }
       const payload = factory(entrepriseId);
@@ -1111,21 +1262,49 @@ function createAgentFlowsRouter(database) {
       });
 
       if (templateId === 'agent-design-page-web') {
-        const { ensureAtelierCollection } = require('../core/agent-flow/atelierPresets');
-        const pack = await ensureAtelierCollection(entrepriseId, 'design-page-web');
-        if (pack && flow.canvas && Array.isArray(flow.canvas.nodes)) {
+        const { ensureSchemaCatalog, loadSchemaFieldsAsCollection } = require('../core/agent-flow/atelierPresets');
+        const catalog = await ensureSchemaCatalog(entrepriseId);
+        const mapped = await loadSchemaFieldsAsCollection(entrepriseId, 'design');
+        if (catalog && flow.canvas && Array.isArray(flow.canvas.nodes)) {
           flow.canvas.nodes.forEach((n) => {
             if (!n || !n.config) return;
             const wantsDesign = n.slug === 'collection_design'
-              || n.config.collectionNamespace === 'atelier-design-page-web';
+              || n.config.schemaSlug === 'design'
+              || n.config.collectionNamespace === 'atelier-design-page-web'
+              || n.config.collectionNamespace === 'atelier-schemas';
             if (!wantsDesign) return;
-            n.config.collectionId = pack.collectionId;
-            n.config.collectionNamespace = pack.slug;
+            n.config.schemaSlug = 'design';
+            n.config.collectionId = catalog.collectionId;
+            n.config.collectionNamespace = catalog.slug;
+            n.config.modelName = (mapped && mapped.modelName) || 'Collection design';
+            if (mapped) {
+              n.config.modelFields = mapped.modelFields;
+              n.config.modelRows = mapped.modelRows;
+            }
           });
           await flowService.updateFlow(flow._id, { canvas: flow.canvas });
         }
         const fresh = await flowService.getFlowById(flow._id);
-        return res.status(201).json({ success: true, flow: fresh || flow, created: true });
+        return res.status(201).json({ success: true, flow: flowPayloadForClient(req, fresh || flow), created: true });
+      }
+
+      if (templateId === 'agent-hook') {
+        const { ensureAtelierCollection } = require('../core/agent-flow/atelierPresets');
+        const hookPack = await ensureAtelierCollection(entrepriseId, 'hook');
+        if (hookPack && flow.canvas && Array.isArray(flow.canvas.nodes)) {
+          flow.canvas.nodes.forEach((n) => {
+            if (!n || !n.config) return;
+            const wantsHook = n.config.presetId === 'hook'
+              || n.config.collectionNamespace === 'atelier-hook'
+              || n.slug === 'liste_hooks';
+            if (!wantsHook) return;
+            n.config.collectionId = hookPack.collectionId;
+            n.config.collectionNamespace = hookPack.slug;
+          });
+          await flowService.updateFlow(flow._id, { canvas: flow.canvas });
+        }
+        const freshHook = await flowService.getFlowById(flow._id);
+        return res.status(201).json({ success: true, flow: flowPayloadForClient(req, freshHook || flow), created: true });
       }
 
       // Seed configs briques (preset selon le type d'agent)

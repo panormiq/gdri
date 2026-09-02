@@ -9,7 +9,8 @@ const { resolveSlot, resolveSlotString } = require('./inputMapping');
 const USAGE_KINDS = {
   ia: ['prompt'],
   output: ['html', 'word', 'canvas'],
-  validation: ['html', 'word', 'canvas']
+  validation: ['html', 'word', 'canvas'],
+  hook: ['html']
 };
 
 function normalizeKind(raw) {
@@ -52,7 +53,7 @@ function kindsForUsage(usage, provider) {
   const u = String(usage || '').toLowerCase();
   const p = String(provider || '').toLowerCase();
   if (u === 'ia') return ['prompt'];
-  if (u === 'page') return ['html'];
+  if (u === 'page' || u === 'hook') return ['html'];
   if (u === 'output' && (p === 'mail' || p === 'email')) return ['html'];
   if (u === 'output' || u === 'validation') return ['html', 'word', 'canvas'];
   return null;

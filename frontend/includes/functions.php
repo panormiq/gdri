@@ -589,7 +589,7 @@ function buildPlatformAgentHubItems() {
         [
             'id' => 'platform-gdri-agents',
             'title' => 'Agents GDRI',
-            'description' => 'Agents officiels importables (Design page web…). Création dans la console entité.',
+            'description' => 'Agents système (Hook, Design page web…). Création et édition ici, pas dans la console entité.',
             'icon' => '▣',
             'url' => url('pages/platform-gdri-agents.php'),
         ],

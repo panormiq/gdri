@@ -13,6 +13,7 @@ require_once __DIR__ . '/../includes/entity-console-nav.php';
 requireUserWorkspaceEntityAccess();
 
 $currentEntrepriseId = $_SESSION['currentEntrepriseId'] ?? ($_SESSION['entrepriseId'] ?? null);
+$isGdriAdmin = hasRole(ROLE_ADMIN_GDRI);
 
 $flowId = preg_replace('/[^a-f0-9]/i', '', (string) ($_GET['flowId'] ?? ''));
 $page_title = $flowId ? 'Éditer un agent' : 'Créer un agent';
@@ -20,7 +21,15 @@ $page_title = $flowId ? 'Éditer un agent' : 'Créer un agent';
 $editorSpace = strtolower(trim((string) ($_GET['space'] ?? '')));
 $editorReturn = strtolower(trim((string) ($_GET['return'] ?? '')));
 $fromUserSpace = ($editorSpace === 'user' || in_array($editorReturn, ['auto', 'automatic', 'assisted', 'agents'], true));
-if ($fromUserSpace) {
+$fromGdri = ($editorSpace === 'gdri' || $editorReturn === 'gdri');
+if ($fromGdri && !$isGdriAdmin) {
+    redirect(url('pages/dashboard.php'));
+}
+if ($fromGdri) {
+    $backUrl = url('pages/platform-gdri-agents.php');
+    $backLabel = '← Agents GDRI';
+    $defaultInteractionMode = 'auto';
+} elseif ($fromUserSpace) {
     $backUrl = url('pages/user-agents.php');
     $backLabel = '← Agents';
     $defaultInteractionMode = 'auto';
@@ -84,7 +93,7 @@ require_once __DIR__ . '/../includes/header.php';
     <div class="agent-editor-tabs" id="agentEditorTabs" style="display:flex; gap:8px; padding:0 16px 12px; flex-wrap:wrap;">
         <button type="button" class="btn-agent agent-tab is-active" data-tab="canvas">Canvas</button>
         <button type="button" class="btn-agent-ghost agent-tab" data-tab="design" id="tabDesign" style="display:none;">Design</button>
-        <button type="button" class="btn-agent-ghost agent-tab" data-tab="app" id="tabApp">App</button>
+        <button type="button" class="btn-agent-ghost agent-tab" data-tab="app" id="tabApp">Configuration</button>
         <span id="agentChannelTabs" style="display:contents;"></span>
         <button type="button" class="btn-agent-ghost agent-tab" data-tab="facebook" id="tabFacebook" style="display:none;">Facebook</button>
         <button type="button" class="btn-agent-ghost agent-tab" data-tab="intentions" id="tabIntentions" style="display:none;">Intentions</button>
@@ -96,6 +105,7 @@ require_once __DIR__ . '/../includes/header.php';
             <div class="agent-palette-head">
                 <h3>Palette</h3>
                 <p class="agent-palette-type-hint">Clic ou glisser pour ajouter. Survol pour le détail.</p>
+                <button type="button" class="btn-agent-ghost" id="btnHookPalette" title="Configurer le bloc sous-agent (nom, image, hook)">Apparence du bloc</button>
             </div>
             <div id="agentPalette" class="agent-palette-list">Chargement…</div>
         </aside>
@@ -120,73 +130,140 @@ require_once __DIR__ . '/../includes/header.php';
     </div>
 
     <div id="panelApp" class="agent-brick-config-panel" style="display:none; padding:16px; max-width:960px;">
-        <h2 style="margin:0 0 8px; color:#e2e8f0;">Fiche App</h2>
-        <p class="text-muted small" style="color:#94a3b8; margin:0 0 16px;">
-            Nom, image et texte de la carte. Play + validation = run (sablier, flux, modal), pas une App.
-            Une App n’apparaît que si tu ajoutes plusieurs pages user.
+        <h2 style="margin:0 0 8px; color:#e2e8f0;">Configuration</h2>
+        <p class="text-muted small" style="color:#94a3b8; margin:0 0 20px;">
+            Identité de l’agent : le <strong style="color:#cbd5e1;">bloc</strong> (sous-agent dans un autre flux)
+            et, à part, l’<strong style="color:#cbd5e1;">App</strong> utilisateur.
         </p>
 
-        <div class="agent-app-layout">
-            <div class="agent-app-form">
-                <label for="appName" style="display:block; margin:0 0 4px; color:#cbd5e1; font-weight:600;">Nom</label>
-                <input type="text" id="appName" class="form-control" maxlength="80"
-                    style="background:#111827; color:#e2e8f0; border-color:#1f2937;"
-                    placeholder="Ex. Revue des données">
+        <section id="agentBlockSection" class="agent-config-section">
+            <h3 style="margin:0 0 6px; color:#e2e8f0; font-size:1.05rem;">Agent — bloc sous-agent</h3>
+            <p class="text-muted small" style="margin:0 0 16px; color:#94a3b8;">
+                Nom, image et hook du bloc quand cet agent est posé ailleurs.
+                Le hook n’est pas un bloc sur ce canvas : c’est l’accroche (palette, onglet, modal, app) et le design du bloc.
+            </p>
 
-                <label for="appDescription" style="display:block; margin:14px 0 4px; color:#cbd5e1; font-weight:600;">Description (carte)</label>
-                <textarea id="appDescription" rows="3" class="form-control" maxlength="240"
-                    style="background:#111827; color:#e2e8f0; border-color:#1f2937; width:100%;"
-                    placeholder="Ce que l’utilisateur voit sur la carte."></textarea>
+            <div class="agent-app-layout">
+                <div class="agent-app-form">
+                    <label for="appName" style="display:block; margin:0 0 4px; color:#cbd5e1; font-weight:600;">Nom du bloc</label>
+                    <input type="text" id="appName" class="form-control" maxlength="80"
+                        style="background:#111827; color:#e2e8f0; border-color:#1f2937;"
+                        placeholder="Ex. Revue des données">
 
-                <label for="appImageUrl" style="display:block; margin:14px 0 4px; color:#cbd5e1; font-weight:600;">Image (URL)</label>
-                <input type="url" id="appImageUrl" class="form-control"
-                    style="background:#111827; color:#e2e8f0; border-color:#1f2937;"
-                    placeholder="https://…">
+                    <label for="appDescription" style="display:block; margin:14px 0 4px; color:#cbd5e1; font-weight:600;">Description</label>
+                    <textarea id="appDescription" rows="2" class="form-control" maxlength="240"
+                        style="background:#111827; color:#e2e8f0; border-color:#1f2937; width:100%;"
+                        placeholder="Ce que fait ce sous-agent."></textarea>
 
-                <label for="appPublish" style="display:block; margin:14px 0 4px; color:#cbd5e1; font-weight:600;">Publier dans Applications</label>
-                <select id="appPublish" class="form-control" style="background:#111827; color:#e2e8f0; border-color:#1f2937; max-width:360px;">
-                    <option value="auto">Auto — seulement si plusieurs pages</option>
-                    <option value="yes">Toujours (forcer une App)</option>
-                    <option value="no">Jamais</option>
-                </select>
-                <p id="appPublishHint" class="text-muted small" style="margin:6px 0 0; color:#64748b;"></p>
+                    <label for="appImageUrl" style="display:block; margin:14px 0 4px; color:#cbd5e1; font-weight:600;">Image du bloc (URL)</label>
+                    <input type="url" id="appImageUrl" class="form-control"
+                        style="background:#111827; color:#e2e8f0; border-color:#1f2937;"
+                        placeholder="https://…">
 
-                <div id="appButtonRow" style="margin-top:14px;">
-                    <label for="appButtonLabel" style="display:block; margin:0 0 4px; color:#cbd5e1; font-weight:600;">Libellé du bouton</label>
-                    <input type="text" id="appButtonLabel" class="form-control" maxlength="40"
-                        style="background:#111827; color:#e2e8f0; border-color:#1f2937; max-width:280px;"
-                        placeholder="Lancer">
-                    <p class="text-muted small" style="margin:6px 0 0; color:#64748b;">
-                        Visible quand le déclencheur est en mode bouton. Enregistré avec l’agent.
+                    <label for="paletteIconEmoji" style="display:block; margin:14px 0 4px; color:#cbd5e1; font-weight:600;">Icône (emoji)</label>
+                    <input type="text" id="paletteIconEmoji" class="form-control" maxlength="8"
+                        style="background:#111827; color:#e2e8f0; border-color:#1f2937; max-width:120px;"
+                        placeholder="🪝" value="🪝">
+
+                    <label for="paletteFamily" style="display:block; margin:14px 0 4px; color:#cbd5e1; font-weight:600;">Famille palette</label>
+                    <select id="paletteFamily" class="form-control" style="background:#111827; color:#e2e8f0; border-color:#1f2937; max-width:280px;">
+                        <option value="action">Action</option>
+                        <option value="data">Entrées</option>
+                        <option value="ia">IA</option>
+                        <option value="output">Sortie</option>
+                    </select>
+
+                    <label for="paletteHookSurface" style="display:block; margin:14px 0 4px; color:#cbd5e1; font-weight:600;">Hook</label>
+                    <select id="paletteHookSurface" class="form-control" style="background:#111827; color:#e2e8f0; border-color:#1f2937; max-width:360px;">
+                        <option value="palette">Palette — bouton (nom + image)</option>
+                    </select>
+                    <p id="paletteHookHint" class="text-muted small" style="margin:6px 0 0; color:#64748b;">
+                        Tu ne le vois pas dans ce flux : il s’applique au bloc une fois l’agent posé dans un autre canvas.
                     </p>
-                </div>
-            </div>
 
-            <aside class="agent-app-preview-wrap">
-                <p style="margin:0 0 8px; color:#94a3b8; font-size:0.8rem; text-transform:uppercase; letter-spacing:0.04em;">Aperçu carte</p>
-                <article class="agent-card agent-app-preview" id="appPreviewCard">
-                    <div class="agent-card-cover" id="appPreviewCover"></div>
-                    <div class="agent-card-body">
-                        <h3 id="appPreviewName">Nouvel agent</h3>
-                        <p class="agent-card-desc" id="appPreviewDesc">Pas de description</p>
-                        <div class="agent-card-meta" id="appPreviewMeta">Manuel · Actif</div>
-                        <div class="agent-card-actions">
-                            <button type="button" class="btn btn-success btn-sm" id="appPreviewBtn" disabled>Lancer</button>
+                    <div style="margin-top:16px; display:flex; flex-wrap:wrap; gap:8px; align-items:center;">
+                        <button type="button" class="btn-agent" id="btnPublishPalette">Publier comme sous-agent</button>
+                        <p id="palettePublishStatus" class="text-muted small" style="margin:0; color:#64748b;"></p>
+                    </div>
+                </div>
+
+                <aside class="agent-app-preview-wrap">
+                    <p style="margin:0 0 8px; color:#94a3b8; font-size:0.8rem; text-transform:uppercase; letter-spacing:0.04em;">Aperçu bloc</p>
+                    <div class="agent-block-preview" id="agentBlockPreview">
+                        <div class="agent-node agent-node--insertable kind-action" id="agentBlockPreviewNode">
+                            <div class="agent-node-head">
+                                <span class="emoji" id="agentBlockPreviewEmoji">🪝</span>
+                                <div class="agent-node-identity-mini">
+                                    <div class="agent-node-title-row">
+                                        <div class="agent-node-title" id="agentBlockPreviewName">Nouvel agent</div>
+                                        <span class="agent-node-badge" id="agentBlockPreviewHook">hook · palette</span>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
                     </div>
-                </article>
-                <p id="appSurfaceHint" class="text-muted small" style="margin:10px 0 0; color:#64748b;"></p>
-            </aside>
-        </div>
+                    <p id="agentBlockPreviewHint" class="text-muted small" style="margin:10px 0 0; color:#64748b;">
+                        Entrées et sorties du bloc viennent des blocs Flux de cet agent. Ici : le design.
+                    </p>
+                    <div id="agentHookExportPreview" style="margin-top:14px;"></div>
+                </aside>
+            </div>
+        </section>
 
-        <section id="appPagesSection" style="margin-top:28px; padding-top:20px; border-top:1px solid #1f2937;">
-            <h3 style="margin:0 0 6px; color:#e2e8f0; font-size:1.05rem;">Pages de l’App</h3>
-            <p class="text-muted small" style="margin:0 0 14px; color:#94a3b8;">
-                Crée des pages, édite-les, et insère la vue d’un bloc (Play, validation, données, run).
-                Deux pages ou plus = une App.
+        <section id="agentAppSection" class="agent-config-section" style="margin-top:32px; padding-top:24px; border-top:1px solid #1f2937;">
+            <h3 style="margin:0 0 6px; color:#e2e8f0; font-size:1.05rem;">Application</h3>
+            <p class="text-muted small" style="margin:0 0 16px; color:#94a3b8;">
+                Play + validation = run (sablier, flux, modal), pas une App.
+                Une App n’apparaît que si tu ajoutes plusieurs pages user.
             </p>
-            <div id="appPagesList"></div>
-            <button type="button" class="btn-agent" id="btnAppAddPage" style="margin-top:10px;">+ Page</button>
+
+            <div class="agent-app-layout">
+                <div class="agent-app-form">
+                    <label for="appPublish" style="display:block; margin:0 0 4px; color:#cbd5e1; font-weight:600;">Publier dans Applications</label>
+                    <select id="appPublish" class="form-control" style="background:#111827; color:#e2e8f0; border-color:#1f2937; max-width:360px;">
+                        <option value="auto">Auto — seulement si plusieurs pages</option>
+                        <option value="yes">Toujours (forcer une App)</option>
+                        <option value="no">Jamais</option>
+                    </select>
+                    <p id="appPublishHint" class="text-muted small" style="margin:6px 0 0; color:#64748b;"></p>
+
+                    <div id="appButtonRow" style="margin-top:14px;">
+                        <label for="appButtonLabel" style="display:block; margin:0 0 4px; color:#cbd5e1; font-weight:600;">Libellé du bouton</label>
+                        <input type="text" id="appButtonLabel" class="form-control" maxlength="40"
+                            style="background:#111827; color:#e2e8f0; border-color:#1f2937; max-width:280px;"
+                            placeholder="Lancer">
+                        <p class="text-muted small" style="margin:6px 0 0; color:#64748b;">
+                            Visible quand le déclencheur est en mode bouton. Enregistré avec l’agent.
+                        </p>
+                    </div>
+                </div>
+
+                <aside class="agent-app-preview-wrap">
+                    <p style="margin:0 0 8px; color:#94a3b8; font-size:0.8rem; text-transform:uppercase; letter-spacing:0.04em;">Aperçu carte</p>
+                    <article class="agent-card agent-app-preview" id="appPreviewCard">
+                        <div class="agent-card-cover" id="appPreviewCover"></div>
+                        <div class="agent-card-body">
+                            <h3 id="appPreviewName">Nouvel agent</h3>
+                            <p class="agent-card-desc" id="appPreviewDesc">Pas de description</p>
+                            <div class="agent-card-meta" id="appPreviewMeta">Manuel · Actif</div>
+                            <div class="agent-card-actions">
+                                <button type="button" class="btn btn-success btn-sm" id="appPreviewBtn" disabled>Lancer</button>
+                            </div>
+                        </div>
+                    </article>
+                    <p id="appSurfaceHint" class="text-muted small" style="margin:10px 0 0; color:#64748b;"></p>
+                </aside>
+            </div>
+
+            <section id="appPagesSection" style="margin-top:28px; padding-top:20px; border-top:1px solid #1f2937;">
+                <h3 style="margin:0 0 6px; color:#e2e8f0; font-size:1.05rem;">Pages de l’App</h3>
+                <p class="text-muted small" style="margin:0 0 14px; color:#94a3b8;">
+                    Crée des pages, édite-les, et insère la vue d’un bloc (Play, validation, données, run).
+                    Deux pages ou plus = une App.
+                </p>
+                <div id="appPagesList"></div>
+                <button type="button" class="btn-agent" id="btnAppAddPage" style="margin-top:10px;">+ Page</button>
+            </section>
         </section>
     </div>
 
@@ -559,8 +636,9 @@ window.AGENT_FLOW_EDITOR = <?= json_encode([
     'jwt' => getJWTToken(),
     'flowId' => $flowId ?: null,
     'entrepriseId' => $currentEntrepriseId ? (string) $currentEntrepriseId : null,
+    'isGdriAdmin' => (bool) $isGdriAdmin,
     'backUrl' => $backUrl,
-    'space' => $fromUserSpace ? 'user' : 'entity',
+    'space' => $fromGdri ? 'gdri' : ($fromUserSpace ? 'user' : 'entity'),
     'return' => $editorReturn ?: null,
     'reviewPageUrl' => url('pages/agent-human-review.php'),
     'runPageUrl' => url('pages/agent-run.php'),

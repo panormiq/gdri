@@ -10,8 +10,9 @@ const { normalizeIntentions } = require('../resolveIntentionInputs');
 const { ensurePresetCollection } = require('../presetCollections');
 const { asDataTable, emptyDataTable, looksLikeIntentionList } = require('../dataTable');
 const { writeCollectionOutput } = require('../collectionWrite');
+const { allOutgoingIds } = require('../flowGraph');
 
-const FAMILIES = new Set(['trigger', 'data', 'condition', 'loop', 'action', 'ia', 'validation', 'output']);
+const FAMILIES = new Set(['trigger', 'data', 'condition', 'loop', 'action', 'ia', 'visualization', 'validation', 'output']);
 
 function isFamilyBrick(brickId) {
   return FAMILIES.has(String(brickId || ''));
@@ -38,9 +39,14 @@ async function dispatchFamily(executor, step, context, flow, extras = {}) {
     case 'loop':
       return executor.runLoop(config, context, extras.canvasNode || null);
     case 'action':
+      if (config.insertable || config.subFlowId || config.subTemplateId) {
+        return runSubAgent(executor, flow, config, context, extras);
+      }
       return runAction(executor, flow, config, context, extras);
     case 'ia':
       return runIa(executor, flow, config, context);
+    case 'visualization':
+      return runVisualization(executor, flow, config, context, extras);
     case 'validation':
       if (config.subFlowId || config.subTemplateId) {
         return runSubAgent(executor, flow, config, context, extras);
@@ -55,12 +61,137 @@ async function dispatchFamily(executor, step, context, flow, extras = {}) {
 
 function runTrigger(context, config) {
   const mode = String(config.mode || 'button');
+  const payload = (context && context.trigger && context.trigger.payload) || {};
   return {
     ok: true,
     type: 'trigger-event',
     mode,
     trigger: context.trigger,
-    message: context.message
+    message: context.message,
+    blockEvent: payload.blockEvent || null,
+    blockId: payload.blockId || '',
+    hookSurface: payload.hookSurface || ''
+  };
+}
+
+const VIZ_SELECT_LABELS = {
+  modal: 'Modal (run)',
+  panel: 'Panneau droit',
+  tab: 'Onglet dédié',
+  config: 'Onglet Configuration'
+};
+
+function readContextPath(previous, path) {
+  const p = String(path || '').trim();
+  if (!p || !previous || typeof previous !== 'object') return '';
+  const ns = previous.__ns && typeof previous.__ns === 'object' ? previous.__ns : {};
+  const dot = p.indexOf('.');
+  if (dot > 0) {
+    const slug = p.slice(0, dot);
+    const key = p.slice(dot + 1);
+    const bag = ns[slug];
+    if (bag && typeof bag === 'object' && bag[key] != null && bag[key] !== '') {
+      return String(bag[key]);
+    }
+  }
+  if (previous[p] != null && previous[p] !== '') return String(previous[p]);
+  const last = p.split('.').pop();
+  if (last && previous[last] != null && previous[last] !== '') return String(previous[last]);
+  return '';
+}
+
+function triggerModeOfNode(node) {
+  if (!node) return 'button';
+  const mode = String((node.config && node.config.mode) || 'button').toLowerCase();
+  if (mode === 'http') return 'webhook';
+  if (mode === 'block' || mode === 'select' || mode === 'import') return 'block';
+  if (mode === 'webhook' || mode === 'cron') return mode;
+  return 'button';
+}
+
+function isTriggerLike(node) {
+  if (!node) return false;
+  const id = String(node.brickId || '');
+  return node.kind === 'trigger' || id === 'trigger' || id === 'manual-trigger' || id === 'cron-trigger';
+}
+
+function ancestorTriggers(flow, nodeId) {
+  const nodes = flow && flow.canvas && Array.isArray(flow.canvas.nodes) ? flow.canvas.nodes : [];
+  const want = String(nodeId || '');
+  const found = [];
+  const seen = {};
+  function walk(id) {
+    const key = String(id || '');
+    if (!key || seen[key]) return;
+    seen[key] = true;
+    nodes.forEach((n) => {
+      if (!n || !n.id) return;
+      const outs = allOutgoingIds(n).map(String);
+      if (outs.indexOf(key) === -1) return;
+      if (isTriggerLike(n)) found.push(n);
+      walk(n.id);
+    });
+  }
+  walk(want);
+  return found;
+}
+
+function vizRoleFromGraph(flow, node, config) {
+  const triggers = ancestorTriggers(flow, node && node.id);
+  if (triggers.some((t) => triggerModeOfNode(t) !== 'block')) return 'apply';
+  if (triggers.some((t) => triggerModeOfNode(t) === 'block')) return 'choose';
+  return String((config && config.vizRole) || 'apply').trim() || 'apply';
+}
+
+function chooseVizNode(flow) {
+  const nodes = flow && flow.canvas && Array.isArray(flow.canvas.nodes) ? flow.canvas.nodes : [];
+  return nodes.find((n) => {
+    if (!n || n.brickId !== 'visualization') return false;
+    return vizRoleFromGraph(flow, n, n.config) === 'choose';
+  }) || null;
+}
+
+function runVisualization(executor, flow, config, context, extras = {}) {
+  const vizType = String((config && config.vizType) || 'select').trim() || 'select';
+  if (vizType === 'page') {
+    return {
+      type: 'visualization-page',
+      vizType: 'page',
+      success: false,
+      message: 'Page complexe : utiliser le sous-agent Design, pas ce bloc.'
+    };
+  }
+  const node = (extras && extras.canvasNode) || null;
+  const role = vizRoleFromGraph(flow, node, config);
+  const payload = (context && context.trigger && context.trigger.payload) || {};
+  const prev = (context && context.previous) || {};
+  const choose = chooseVizNode(flow);
+  const fromParent = String(
+    payload.hookSurface
+    || prev.hookSurface
+    || ''
+  ).trim();
+  const fromBound = readContextPath(prev, config && config.valueField);
+  const fromChoose = String((choose && choose.config && choose.config.surface) || '').trim();
+  const fromConfig = String((config && config.surface) || '').trim();
+  const surface = fromParent || fromBound || fromChoose || fromConfig;
+  const fromLabelBound = readContextPath(prev, config && config.labelField);
+  const label = fromLabelBound
+    || String((config && config.label) || '').trim()
+    || String((choose && choose.config && choose.config.label) || '').trim()
+    || (VIZ_SELECT_LABELS[surface] || surface);
+  const hooked = !!surface;
+  return {
+    type: 'visualization-select',
+    vizType: 'select',
+    vizRole: role,
+    surface,
+    label,
+    hookMounted: hooked,
+    success: hooked,
+    html: String(prev.html || prev.HTML || ''),
+    css: String(prev.css || prev.CSS || ''),
+    __writeMode: (config && config.writeMode) || 'merge'
   };
 }
 
@@ -163,6 +294,7 @@ function tableFromCompose(prepared) {
     response: src.response,
     zones,
     channel: src.channel,
+    __durable: Array.isArray(src.__durable) ? src.__durable : [],
     debug: src.debug || {
       request: { templates: src.prompt ? { prompt: src.prompt } : {} },
       response: { mode: src.mode || null, rendered }
@@ -468,8 +600,37 @@ function emitJsonModel(config) {
     modelName: String(config.modelName || ''),
     collectionId: String(config.collectionId || ''),
     collectionNamespace: String(config.collectionNamespace || ''),
+    schemaSlug: String(config.schemaSlug || ''),
     payload: JSON.stringify(items, null, 2)
   });
+}
+
+async function loadAtelierListCollection(entrepriseId, config) {
+  const {
+    getAtelierPreset,
+    ensureAtelierCollection,
+    listAtelierRows
+  } = require('../atelierPresets');
+  const presetId = String((config && config.presetId) || '').trim();
+  const slug = String((config && config.collectionNamespace) || '').trim();
+  let id = '';
+  const fromPreset = getAtelierPreset(presetId);
+  if (fromPreset && fromPreset.kind === 'list') id = fromPreset.id;
+  else if (slug === 'atelier-hook' || slug === 'hook') id = 'hook';
+  else if (slug.indexOf('atelier-') === 0) {
+    const raw = getAtelierPreset(slug.slice('atelier-'.length));
+    if (raw && raw.kind === 'list') id = raw.id;
+  }
+  if (!id || !entrepriseId) return null;
+  const pack = await ensureAtelierCollection(entrepriseId, id);
+  if (!pack) return null;
+  const rows = await listAtelierRows(entrepriseId, pack.collectionId);
+  return mapCollectionModel({
+    _id: pack.collectionId,
+    slug: pack.slug,
+    name: pack.name,
+    fields: pack.fields
+  }, rows);
 }
 
 async function loadPresetAsCollection(entrepriseId, presetId) {
@@ -481,8 +642,26 @@ async function loadPresetAsCollection(entrepriseId, presetId) {
 async function runJsonData(config, flow) {
   const entrepriseId = flow && flow.entrepriseId;
   const presetId = String((config && config.presetId) || '').trim();
-  let mapped = (entrepriseId && (await loadV3Collection(entrepriseId, config)))
-    || (await loadV1Collection(config.collectionNamespace));
+  let schemaSlug = String((config && config.schemaSlug) || '').trim();
+  if (!schemaSlug && String((config && config.collectionNamespace) || '') === 'atelier-design-page-web') {
+    schemaSlug = 'design';
+  }
+  let mapped = null;
+  if (entrepriseId && schemaSlug) {
+    try {
+      const { loadSchemaFieldsAsCollection } = require('../atelierPresets');
+      mapped = await loadSchemaFieldsAsCollection(entrepriseId, schemaSlug);
+    } catch (err) {
+      console.warn('Schéma atelier:', err.message);
+    }
+  }
+  if (!mapped) {
+    mapped = (entrepriseId && (await loadV3Collection(entrepriseId, config)))
+      || (await loadV1Collection(config.collectionNamespace));
+  }
+  if (!mapped && entrepriseId) {
+    mapped = await loadAtelierListCollection(entrepriseId, config);
+  }
   if (!mapped && entrepriseId && presetId) {
     mapped = await loadPresetAsCollection(entrepriseId, presetId);
   }
@@ -566,6 +745,10 @@ async function runData(executor, context, config, flow) {
 
   if (provider === 'json') {
     return runJsonData(config, flow);
+  }
+  if (provider === 'flow' || provider === 'flux') {
+    const { readFlowInput } = require('../flowImport');
+    return readFlowInput(context, config);
   }
   if (provider === 'database') {
     return runDatabaseData(executor, config, flow);
@@ -663,18 +846,28 @@ async function runSubAgent(executor, flow, config, context, extras = {}) {
     triggerPayload: {
       parentFlowId: String(flow._id || ''),
       parentRunId: extras.runId || '',
+      hookSurface: String((config && config.hookSurface) || '').trim(),
+      blockEvent: 'run',
+      blockId: extras.nodeId || '',
       message: context.message,
       previous: context.previous
     }
   });
   const fresh = await flowService.getFlowById(sub._id);
   const exportsMap = (fresh && fresh.exports) || (sub.exports) || {};
-  const preferred = String((config && (config.exportName || config.name)) || 'chrome').trim();
+  const preferred = String((config && (config.exportName || config.name)) || '').trim();
   const names = Object.keys(exportsMap);
   const firstName = (preferred && exportsMap[preferred])
     ? preferred
-    : (exportsMap.chrome ? 'chrome' : (names[0] || ''));
+    : (exportsMap.hook ? 'hook' : (exportsMap.chrome ? 'chrome' : (names[0] || '')));
   const first = firstName ? exportsMap[firstName] : null;
+  const extraExport = {};
+  if (first && typeof first === 'object') {
+    Object.keys(first).forEach((k) => {
+      if (['html', 'css', 'surface', 'label', 'updatedAt', 'type', 'success', 'provider', 'preview'].indexOf(k) >= 0) return;
+      extraExport[k] = first[k];
+    });
+  }
   if (child && child.status === 'waiting_human') {
     const paused = (Array.isArray(child.steps) ? child.steps : [])
       .find((s) => s && s.status === 'waiting_human');
@@ -690,6 +883,7 @@ async function runSubAgent(executor, flow, config, context, extras = {}) {
       html: first && first.html,
       css: first && first.css,
       exports: exportsMap,
+      ...extraExport,
       ...output
     };
   }
@@ -699,12 +893,16 @@ async function runSubAgent(executor, flow, config, context, extras = {}) {
     subFlowId: String(sub._id),
     subRunId: child && child._id ? String(child._id) : '',
     status: child && child.status,
-    exportName: firstName || null,
-    html: first && first.html,
-    css: first && first.css,
-    exports: exportsMap
-  };
-}
+      exportName: firstName || null,
+      html: first && first.html,
+      css: first && first.css,
+      surface: first && first.surface,
+      label: first && first.label,
+      hookMounted: !!(first && first.surface),
+      exports: exportsMap,
+      ...extraExport
+    };
+  }
 
 async function runAction(executor, flow, config, context, extras) {
   const cfg = normalizeActionConfig(config);
@@ -715,6 +913,30 @@ async function runAction(executor, flow, config, context, extras) {
   let result;
   if (op === 'ia.compose' || op === 'ia.generate' || op === 'ia.intention' || op === 'analyse-intention' || op === 'analyse.run') {
     result = tableFromCompose(executor.prepareCompose(cfg, context));
+    const vizId = String((cfg && (cfg.visualizationId || cfg.productionTemplateId)) || '').trim();
+    if (vizId && result) {
+      const { renderProductionTemplate, getProductionTemplate } = require('../productionTemplates');
+      const zones = (result.zones && typeof result.zones === 'object') ? result.zones : {};
+      const html = renderProductionTemplate(vizId, { ...result, ...zones });
+      if (html) {
+        result.html = html;
+        result.visualizationId = vizId;
+        const prod = getProductionTemplate(vizId);
+        if (prod && prod.title) result.visualizationTitle = prod.title;
+      }
+    }
+    if (result && (result.html == null || result.html === '')) {
+      const prev = (context && context.previous) || {};
+      result.html = String(prev.html || prev.HTML || '');
+      if (!result.css) result.css = String(prev.css || prev.CSS || '');
+    }
+    if (cfg.templateId) {
+      const bound = await executor.boundTemplate(flow, cfg, context);
+      if (bound && (bound.html || bound.text)) {
+        result.html = bound.html || bound.text;
+        result.templateId = bound.templateId || cfg.templateId;
+      }
+    }
   } else if (op === 'route-intention' || op === 'route.resolve') {
     result = await executor.runRouteIntention(flow, cfg, context);
   } else if (op === 'http' || op === 'emit.http') {
@@ -732,28 +954,23 @@ async function runAction(executor, flow, config, context, extras) {
   } else if (op === 'facebook.hide-comment' || op === 'facebook.like' || op === 'facebook.delete') {
     result = await executor.runFacebookAction(entrepriseId, cfg, context, op);
   } else if (op === 'surface.hook') {
-    const { ensureAtelierCollection, listAtelierRows } = require('../atelierPresets');
-    let pack = null;
-    let rows = [];
-    try {
-      pack = await ensureAtelierCollection(entrepriseId, 'hook');
-      if (pack) rows = await listAtelierRows(entrepriseId, pack.collectionId);
-    } catch {
-      rows = [];
-    }
-    const allowed = rows.map((r) => r && r.surface).filter(Boolean);
-    let surface = String(cfg.surface || '').trim();
-    if (!surface || (allowed.length && allowed.indexOf(surface) < 0)) {
-      surface = allowed[0] || 'tab';
-    }
-    const hit = rows.find((r) => r && r.surface === surface) || null;
+    const { resolveSlot, resolveSlotNonEmpty } = require('../inputMapping');
+    const surface = resolveSlotNonEmpty(executor, cfg, 'surface', context)
+      || String(cfg.surface || '').trim()
+      || 'tab';
+    const label = resolveSlotNonEmpty(executor, cfg, 'label', context) || surface;
+    const htmlSlot = resolveSlot(executor, cfg, 'html', context);
+    const cssSlot = resolveSlot(executor, cfg, 'css', context);
+    const html = htmlSlot.mapped ? String(htmlSlot.value == null ? '' : htmlSlot.value) : '';
+    const css = cssSlot.mapped ? String(cssSlot.value == null ? '' : cssSlot.value) : '';
     result = {
       type: 'surface-hook',
       surface,
-      label: hit && hit.label ? hit.label : surface,
+      label,
       hookMounted: true,
       success: true,
-      collectionId: pack && pack.collectionId ? pack.collectionId : (cfg.hookCollectionId || null)
+      html,
+      css
     };
   } else {
     throw new Error(`Opération action inconnue : ${op}`);

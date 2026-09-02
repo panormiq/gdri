@@ -67,6 +67,29 @@ function wrapPage(inner) {
   return `<article class="agent-prod-page"><style>${PAGE_CSS}</style>${inner}</article>`;
 }
 
+const PALETTE_BTN_CSS = `
+.agent-prod-palette{font-family:Inter,Segoe UI,system-ui,sans-serif;padding:8px;}
+.agent-prod-palette *{box-sizing:border-box;}
+.agent-prod-palette .pb-btn{
+  display:flex;align-items:center;gap:8px;padding:6px 10px;
+  background:#0f172a;border:1px dashed #334155;border-radius:10px;
+  color:#e2e8f0;max-width:240px;
+}
+.agent-prod-palette .pb-btn img{width:22px;height:22px;border-radius:6px;object-fit:cover;}
+.agent-prod-palette .pb-emoji{font-size:1.15rem;line-height:1;width:22px;text-align:center;}
+.agent-prod-palette .pb-meta{display:flex;flex-direction:column;gap:2px;min-width:0;}
+.agent-prod-palette .pb-meta strong{font-size:.8rem;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.agent-prod-palette .pb-badge{
+  display:inline-block;font-size:.62rem;letter-spacing:.04em;text-transform:uppercase;
+  color:#c4b5fd;background:#1e1b4b;border-radius:999px;padding:1px 6px;width:fit-content;
+}
+.agent-prod-palette .pb-dot{width:8px;height:8px;border-radius:99px;flex-shrink:0;background:var(--pb-color,#7c3aed);}
+`;
+
+function wrapPaletteButton(inner) {
+  return `<article class="agent-prod-palette"><style>${PALETTE_BTN_CSS}</style>${inner}</article>`;
+}
+
 /** Profils LLM : calés sur le catalogue Ollama / serveurs GDRI (plus capable d’abord). */
 const MODEL_PROFILES = {
   fast: {
@@ -543,10 +566,33 @@ const CATALOG = [
     outputHint: '{\n  "title": "",\n  "kicker": "",\n  "lead": "",\n  "stats": [{ "label": "", "value": "" }],\n  "sections": [{ "title": "", "body": "" }],\n  "aside": "",\n  "cta": "Continuer"\n}'
   },
   {
+    id: 'palette-button',
+    usage: 'hook',
+    kind: 'html',
+    title: 'Bouton palette',
+    description: 'Gabarit du bouton accroché dans la palette (logo, nom, couleur). Surface palette.',
+    channels: [],
+    keywords: ['palette', 'bouton', 'hook', 'sous-action', 'logo', 'icône', 'icone'],
+    distinctive: ['bouton palette', 'palette'],
+    fields: ['name', 'label', 'iconEmoji', 'logoUrl', 'color', 'description'],
+    pairsWith: '',
+    model: { profile: 'fast' },
+    html: wrapPaletteButton(`
+      <div class="pb-btn" style="--pb-color:{{color}}">
+        <span class="pb-dot" aria-hidden="true"></span>
+        {{icon_html}}
+        <span class="pb-meta">
+          <strong>{{name}}</strong>
+          <span class="pb-badge">ss-action</span>
+        </span>
+      </div>
+    `)
+  },
+  {
     id: 'page-web',
     usage: 'page',
     kind: 'html',
-    alsoFor: ['validation', 'output'],
+    alsoFor: ['validation', 'output', 'hook'],
     title: 'Page web agent',
     description: 'Mise en page web (nav, hero, indicateurs, sections, CTA). À remplir par le prompt « Création de page web ».',
     channels: ['mail', 'facebook', 'http'],
@@ -847,14 +893,32 @@ function buildProductionLocals(base = {}) {
     attachments_html: src.attachments_html || '<p><em>Aucune pièce jointe</em></p>',
     items_html: src.items_html || '<p><em>Aucun élément</em></p>',
     data_html: src.data_html || '',
-    response_html: src.response_html || formatResponseHtml(src.response, extra)
+    response_html: src.response_html || formatResponseHtml(src.response, extra),
+    icon_html: src.logoUrl
+      ? `<img src="${escapeHtml(src.logoUrl)}" alt="">`
+      : `<span class="pb-emoji">${escapeHtml(src.iconEmoji || '⚙')}</span>`,
+    name: emptyToDash(src.name || src.label || src.page_title),
+    color: String(src.color || '#7c3aed').trim() || '#7c3aed',
+    iconEmoji: emptyToDash(src.iconEmoji || '⚙'),
+    logoUrl: String(src.logoUrl || '').trim(),
+    description: emptyToDash(src.description),
+    surface: emptyToDash(src.surface),
+    label: emptyToDash(src.label || src.name)
   };
+}
+
+function fillProductionHtml(html, locals) {
+  const bag = locals && typeof locals === 'object' ? locals : {};
+  return String(html || '').replace(/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g, (_, key) => {
+    if (!Object.prototype.hasOwnProperty.call(bag, key) || bag[key] == null) return '';
+    return String(bag[key]);
+  });
 }
 
 function renderProductionTemplate(idOrDoc, locals) {
   const doc = typeof idOrDoc === 'string' ? getProductionTemplate(idOrDoc) : idOrDoc;
   if (!doc || doc.kind !== 'html' || !doc.html) return '';
-  return String(doc.html || '');
+  return fillProductionHtml(doc.html, buildProductionLocals(locals || {}));
 }
 
 module.exports = {
@@ -870,5 +934,7 @@ module.exports = {
   buildProductionLocals,
   renderProductionTemplate,
   wrapDoc,
-  wrapPage
+  wrapPage,
+  wrapPaletteButton,
+  fillProductionHtml
 };

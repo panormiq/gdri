@@ -37,8 +37,7 @@ renderConsoleLayoutStart(
         <button type="button" class="btn btn-outline" id="btnTplFacebook">Créer Agent Facebook</button>
         <button type="button" class="btn btn-outline" id="btnTplAssisted">Créer Agent avec validation</button>
         <button type="button" class="btn btn-outline" id="btnTplInvoices">Créer Agent factures mail</button>
-        <button type="button" class="btn btn-primary" id="btnTplDesign">Créer Agent Design page web</button>
-        <span class="text-muted small" style="align-self:center;">« Design page web » est un agent GDRI importable (sous-agent). Le badge validation apparaît si un flux attend un humain.</span>
+        <span class="text-muted small" style="align-self:center;">Hook et Design page web sont des agents système : console GDRI → Agents GDRI.</span>
     </div>
 </div>
 
@@ -87,9 +86,11 @@ renderConsoleLayoutStart(
     if (btnTplAs) btnTplAs.addEventListener('click', function() { createFromTemplate('agent-assisted-doc'); });
     var btnTplInv = document.getElementById('btnTplInvoices');
     if (btnTplInv) btnTplInv.addEventListener('click', function() { createFromTemplate('agent-mail-invoices'); });
-    var btnTplDesign = document.getElementById('btnTplDesign');
-    if (btnTplDesign) btnTplDesign.addEventListener('click', function() { createFromTemplate('agent-design-page-web'); });
     var bootCreate = new URLSearchParams(window.location.search).get('create');
+    if (bootCreate === 'agent-hook' || bootCreate === 'agent-design-page-web') {
+      window.location.replace(<?= json_encode(url('pages/platform-gdri-agents.php')) ?> + '?create=' + encodeURIComponent(bootCreate));
+      return;
+    }
     if (bootCreate) createFromTemplate(bootCreate);
 })();
 
@@ -103,6 +104,8 @@ window.AGENTS_LIST_APP = <?= json_encode([
     'reviewPageUrl' => url('pages/agent-human-review.php'),
     'runPageUrl' => url('pages/agent-run.php'),
     'space' => 'entity',
+    'scope' => 'entity',
+    'isGdriAdmin' => hasRole(ROLE_ADMIN_GDRI),
 ], JSON_UNESCAPED_SLASHES) ?>;
 </script>
 

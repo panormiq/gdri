@@ -10,6 +10,7 @@
   var flowId = cfg.flowId || null;
   var ENTREPRISE_ID = cfg.entrepriseId || null;
   var backUrl = cfg.backUrl || '#';
+  var isGdriAdmin = !!cfg.isGdriAdmin;
   var reviewPageUrl = cfg.reviewPageUrl || '';
   var runPageUrl = cfg.runPageUrl || '';
 
@@ -21,10 +22,11 @@
     action: 'action.run',
     ia: 'ia.run',
     validation: 'validation.pause',
+    visualization: 'visualization.run',
     output: 'output.emit'
   };
 
-  var FAMILY_ORDER = ['trigger', 'data', 'condition', 'loop', 'action', 'ia', 'validation', 'output'];
+  var FAMILY_ORDER = ['trigger', 'data', 'condition', 'loop', 'action', 'ia', 'visualization', 'validation', 'output'];
 
   var NODE_WIDTH = 180;
   var PORT_STEM = 18;
@@ -47,6 +49,8 @@
       zones: ['nav', 'data']
     },
     app: { publish: 'auto', buttonLabel: 'Lancer', pages: [] },
+    palette: { publish: false, iconEmoji: '🪝', parentFamily: 'action', hookSurface: 'palette', rowId: '', description: '' },
+    exports: {},
     bricks: [],
     bricksById: {},
     nodes: [],
@@ -82,6 +86,8 @@
     blockTemplateDetails: {},
     subAgentById: {},
     hookCatalog: null,
+    paletteCatalog: [],
+    paletteHookForm: false,
     entityLlms: [],
     entityLlmsLoaded: false,
     entityLlmsPromise: null,
@@ -759,13 +765,15 @@
     return base + brick.canvas.iconUrl;
   }
 
-  function addNodeFromBrick(brick, x, y) {
+  function addNodeFromBrick(brick, x, y, opts) {
+    opts = opts || {};
+    var prevSelected = state.selectedNodeId;
     var node = {
       id: createId(),
       brickId: brick.id,
       kind: brick.kind || 'action',
       operation: brick.kind === 'action' ? (DEFAULT_OPS[brick.id] || null) : null,
-      name: uniqueNodeName(defaultNodeName(brick)),
+      name: uniqueNodeName(opts.name || defaultNodeName(brick)),
       slug: '',
       config: defaultConfigForBrick(brick),
       x: x || (120 + state.nodes.length * 24),
@@ -776,18 +784,150 @@
       nextFalseIds: [],
       nextPortIds: {}
     };
+    if (opts.config && typeof opts.config === 'object') {
+      Object.keys(opts.config).forEach(function(key) {
+        node.config[key] = opts.config[key];
+      });
+    }
     if (brick.id === 'validation' || brick.id === 'human-doc-review') {
       if (!node.config.subTemplateId) node.config.subTemplateId = 'agent-design-page-web';
     }
     state.nodes.push(node);
+    if (opts.slug) node.slug = uniqueNodeSlug(opts.slug, node.id);
     ensureNodeSlug(node);
-    if (!state.selectedNodeId) state.selectedNodeId = node.id;
-    if (brick.id === 'data') applyWebhookPresetToData({ nodeId: node.id });
+    if (!opts.silent && !state.selectedNodeId) state.selectedNodeId = node.id;
+    var dataProv = String((node.config && node.config.provider) || '').toLowerCase();
+    if (brick.id === 'data' && dataProv !== 'flow' && dataProv !== 'flux'
+        && !String((node.config && (node.config.collectionNamespace || node.config.presetId)) || '').trim()) {
+      applyWebhookPresetToData({ nodeId: node.id });
+    }
     if (brick.id === 'loop') syncLoopDefaults(node);
+    if (!opts.silent) {
+      if (brick.id === 'visualization') {
+        if (prevSelected && prevSelected !== node.id) {
+          var srcViz = state.nodes.find(function(n) { return n.id === prevSelected; });
+          if (srcViz && vizCanAttachFrom(srcViz)) connectNodes(prevSelected, node.id);
+        }
+        suggestVizFields(node);
+        syncVizRole(node);
+        state.selectedNodeId = node.id;
+      }
+      render();
+      if (brick.id === 'validation' || brick.id === 'human-doc-review') {
+        importOfficialSubAgent(node);
+      }
+      if (brick.id === 'visualization') {
+        refreshHookListForBlock(node, 'import');
+      }
+    }
+    return node;
+  }
+
+  function paletteChildKey(child) {
+    if (!child) return '';
+    return String(child.templateId || child.flowId || child.place || child.id || child.name || '')
+      .trim()
+      .toLowerCase();
+  }
+
+  function catalogRowToShortcut(row, brick) {
+    if (!row) return null;
+    var name = String(row.name || row.label || '').trim();
+    if (!name && !row.templateId && !row.flowId) return null;
+    var id = String(row.id || row.templateId || row.flowId || name).trim();
+    return {
+      id: id,
+      name: name || id,
+      iconEmoji: String(row.iconEmoji || '').trim() || '⚙',
+      logoUrl: String(row.logoUrl || '').trim(),
+      description: String(row.description || '').trim()
+        || ('Sous-action « ' + (name || id) + ' » — boîte noire, flux interne à part.'),
+      place: 'insertable',
+      templateId: String(row.templateId || '').trim(),
+      flowId: String(row.flowId || '').trim(),
+      parentFamily: String(row.parentFamily || (brick && (brick.family || brick.id)) || 'action').trim(),
+      color: String(row.color || '').trim(),
+      hookSurface: String(row.hookSurface || 'palette').trim() || 'palette'
+    };
+  }
+
+  function paletteChildrenOf(brick) {
+    var family = String((brick && (brick.family || brick.id)) || '').trim();
+    var byKey = {};
+    var fromBrick = brick && brick.palette && Array.isArray(brick.palette.children)
+      ? brick.palette.children
+      : [];
+    if (!fromBrick.length && brick && brick.id === 'action') {
+      fromBrick = [{
+        id: 'hook',
+        name: 'Hook',
+        iconEmoji: '🪝',
+        description: 'Chaîne éditeur (choix du hook) reliée à la chaîne exécution (ajouter le hook au flux).',
+        place: 'insertable',
+        templateId: 'agent-hook',
+        hookSurface: 'palette'
+      }];
+    }
+    fromBrick.forEach(function(child) {
+      var key = paletteChildKey(child);
+      if (key) byKey[key] = child;
+    });
+    (state.paletteCatalog || []).forEach(function(row) {
+      var parent = String((row && row.parentFamily) || 'action').trim();
+      if (parent !== family && parent !== (brick && brick.id)) return;
+      var shortcut = catalogRowToShortcut(row, brick);
+      if (!shortcut) return;
+      var key = paletteChildKey(shortcut);
+      if (key) byKey[key] = shortcut;
+    });
+    return Object.keys(byKey).map(function(k) { return byKey[k]; });
+  }
+
+  function placePaletteShortcut(shortcut, x, y) {
+    var place = String((shortcut && (shortcut.place || shortcut.id)) || '');
+    if (place === 'hook' || place === 'insertable' || (shortcut && (shortcut.templateId || shortcut.flowId))) {
+      return placeInsertableBlock(shortcut, x, y);
+    }
+    var brick = getBrick((shortcut && shortcut.brickId) || 'action');
+    return brick ? addNodeFromBrick(brick, x, y) : null;
+  }
+
+  function isHookShortcut(shortcut) {
+    if (!shortcut) return false;
+    var tid = String(shortcut.templateId || '').trim().toLowerCase();
+    var name = String(shortcut.name || '').trim().toLowerCase();
+    var id = String(shortcut.id || shortcut.place || '').trim().toLowerCase();
+    return tid === 'agent-hook' || name === 'hook' || id === 'hook';
+  }
+
+  function placeInsertableBlock(shortcut, x, y) {
+    var family = String((shortcut && (shortcut.brickId || shortcut.parentFamily)) || 'action');
+    var brick = getBrick(family) || getBrick('action');
+    if (!brick) return null;
+    var name = String((shortcut && shortcut.name) || 'Sous-action').trim() || 'Sous-action';
+    var slugHint = name.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '') || 'sous_action';
+    var hookBlock = isHookShortcut(shortcut);
+    var node = addNodeFromBrick(brick, x, y, {
+      silent: true,
+      name: name,
+      slug: slugHint,
+      config: {
+        insertable: true,
+        subTemplateId: String((shortcut && shortcut.templateId) || '').trim(),
+        subFlowId: String((shortcut && shortcut.flowId) || '').trim(),
+        paletteId: String((shortcut && shortcut.id) || '').trim(),
+        hookSurface: '',
+        exportName: hookBlock ? 'hook' : '',
+        actionId: 'ia.compose',
+        operation: 'ia.compose'
+      }
+    });
+    state.selectedNodeId = node.id;
     render();
-    if (brick.id === 'validation' || brick.id === 'human-doc-review') {
+    if (node.config.subTemplateId && !node.config.subFlowId) {
       importOfficialSubAgent(node);
     }
+    refreshHookListForBlock(node, 'import');
     return node;
   }
 
@@ -800,6 +940,7 @@
     if (brick.id === 'condition') return 'Condition';
     if (brick.id === 'loop') return 'Boucle';
     if (brick.id === 'validation') return 'Sous-agent';
+    if (brick.id === 'visualization') return 'Visualisation';
     if (brick.id === 'trigger') return 'Déclencher';
     return brick.name || brick.id || 'Bloc';
   }
@@ -957,7 +1098,7 @@
 
   function defaultConfigForBrick(brick) {
     if (brick.id === 'trigger') {
-      return { mode: 'button', preset: 'daily', hour: 8, minute: 0, webhookInstanceId: '' };
+      return { mode: 'button', preset: 'daily', hour: 8, minute: 0, webhookInstanceId: '', blockOnSelect: true, blockOnImport: true };
     }
     if (brick.id === 'data') {
       return {
@@ -989,7 +1130,11 @@
         writeMode: 'merge',
         variables: [],
         values: {},
-        activeZone: ''
+        activeZone: '',
+        copyFrom: '',
+        mappedOutputIds: [],
+        outputMaps: {},
+        activeComposeTab: 'fields'
       };
     }
     if (brick.id === 'ia') {
@@ -1000,6 +1145,15 @@
         title: 'Sous-agent',
         subTemplateId: 'agent-design-page-web',
         subFlowId: ''
+      };
+    }
+    if (brick.id === 'visualization') {
+      return {
+        vizType: 'select',
+        valueField: '',
+        labelField: '',
+        surface: '',
+        collectionPreset: 'hook'
       };
     }
     if (brick.id === 'output') {
@@ -1022,7 +1176,9 @@
         modelFields: [],
         modelRows: [],
         writeMode: 'insert',
-        exportName: 'chrome'
+        exportName: 'chrome',
+        exportFields: [],
+        copyFrom: ''
       };
     }
     if (brick.id === 'facebook') {
@@ -1277,6 +1433,7 @@
     if (id === 'cron-trigger') return 'cron';
     var mode = String((node.config && node.config.mode) || 'button').toLowerCase();
     if (mode === 'http') return 'webhook';
+    if (mode === 'select' || mode === 'import') return 'block';
     return mode || 'button';
   }
 
@@ -1303,10 +1460,14 @@
 
   function canvasRunTriggerNodeId() {
     var selected = state.nodes.find(function(n) { return n.id === state.selectedNodeId; });
-    if (!selected) return null;
-    if (isTriggerNode(selected)) return selected.id;
-    var anc = ancestorTrigger(selected.id);
-    return anc ? anc.id : null;
+    if (selected) {
+      var fromSel = isTriggerNode(selected) ? selected : ancestorTrigger(selected.id);
+      if (fromSel && triggerModeOf(fromSel) !== 'block') return fromSel.id;
+    }
+    var button = state.nodes.find(function(n) {
+      return isTriggerNode(n) && triggerModeOf(n) === 'button';
+    });
+    return button ? button.id : null;
   }
 
   function nodeLocalFields(n) {
@@ -1322,11 +1483,19 @@
         { key: 'provider', label: 'Destination', hint: describeContextField('provider') }
       ];
       if (isFlowOutput(n)) {
+        ensureFlowExportFields(n);
         outFields.push(
-          { key: 'exportName', label: 'Nom de sortie', hint: describeContextField('exportName') },
-          { key: 'html', label: 'HTML', hint: describeContextField('html') },
-          { key: 'css', label: 'CSS', hint: describeContextField('css') }
+          { key: 'exportName', label: 'Nom de sortie', hint: describeContextField('exportName') }
         );
+        uniqueExportFields(n).forEach(function(path) {
+          var local = String(path || '').split('.').pop();
+          if (!local || outFields.some(function(f) { return f.key === local; })) return;
+          outFields.push({
+            key: local,
+            label: humanizeFieldKey(local),
+            hint: describeContextField(local)
+          });
+        });
       } else if (isCollectionOutput(n)) {
         outFields.push(
           { key: 'collectionId', label: 'Collection', hint: describeContextField('collectionId') },
@@ -1357,6 +1526,14 @@
       return [
         { key: 'loopIteration', label: 'Itération', hint: describeContextField('loopIteration') },
         { key: 'loopDone', label: 'Boucle terminée', hint: describeContextField('loopDone') }
+      ];
+    }
+    if (n.brickId === 'visualization') {
+      return [
+        { key: 'surface', label: 'Valeur choisie', hint: describeContextField('surface') },
+        { key: 'label', label: 'Libellé', hint: describeContextField('label') },
+        { key: 'vizType', label: 'Type', hint: describeContextField('vizType') },
+        { key: 'hookMounted', label: 'Accroché', hint: describeContextField('hookMounted') }
       ];
     }
     if (n.kind === 'trigger' || n.brickId === 'trigger') {
@@ -1596,8 +1773,18 @@
     syncNextAliases(source);
     if (isConditionNode(target)) syncLogicIfDefaults(target);
     if (isLoopNode(target)) syncLoopDefaults(target);
-    if (isComposeAction(source) && (target.brickId === 'output' || target.brickId === 'ia')) {
+    if (target.brickId === 'visualization') {
+      syncVizRole(target);
+      suggestVizFields(target);
+    }
+    if (isComposeAction(source) && (target.brickId === 'output' || target.brickId === 'ia' || isHookAction(target))) {
       wireNodeMappingFromAction(source, target);
+    }
+    if ((isFlowOutput(source) || source.brickId === 'ia') && isHookAction(target)) {
+      wireNodeMappingFromAction(source, target);
+    }
+    if (source.brickId === 'data' && target.brickId === 'output') {
+      wireMailOutputFromInput(target);
     }
     return true;
   }
@@ -1731,6 +1918,7 @@
         buttonLabel: (state.app && state.app.buttonLabel) || 'Lancer',
         pages: (state.app && Array.isArray(state.app.pages)) ? state.app.pages : []
       },
+      palette: currentPalettePayload(),
       trigger: trigger,
       triggers: triggers,
       steps: steps,
@@ -1833,6 +2021,7 @@
     if (imgEl) imgEl.value = state.imageUrl || '';
     if (pubEl) pubEl.value = (state.app && state.app.publish) || 'auto';
     if (btnEl) btnEl.value = (state.app && state.app.buttonLabel) || 'Lancer';
+    syncPaletteFields();
     updateAppPreview();
     renderAppPages();
   }
@@ -1845,6 +2034,7 @@
     if (!state.app) state.app = { publish: 'auto', buttonLabel: 'Lancer' };
     if (pubEl) state.app.publish = pubEl.value || 'auto';
     if (btnEl) state.app.buttonLabel = btnEl.value.trim() || 'Lancer';
+    readPaletteFromDom();
   }
 
   function updateAppPreview() {
@@ -1909,6 +2099,7 @@
         surfaceHint.textContent = 'Rien à cliquer (cron / connecteur). Pas d’App.';
       }
     }
+    updateAgentBlockPreview();
   }
 
   function ensureAppState() {
@@ -1917,6 +2108,231 @@
     }
     if (!Array.isArray(state.app.pages)) state.app.pages = [];
     return state.app;
+  }
+
+  function normalizePaletteState(raw) {
+    var src = raw && typeof raw === 'object' ? raw : {};
+    var family = String(src.parentFamily || 'action').trim();
+    if (['action', 'data', 'ia', 'output'].indexOf(family) < 0) family = 'action';
+    return {
+      publish: src.publish === true || src.publish === 'yes',
+      iconEmoji: String(src.iconEmoji != null ? src.iconEmoji : '🪝').trim() || '🪝',
+      parentFamily: family,
+      hookSurface: String(src.hookSurface || 'palette').trim() || 'palette',
+      rowId: String(src.rowId || '').trim(),
+      description: String(src.description || '').trim()
+    };
+  }
+
+  function ensurePaletteState() {
+    state.palette = normalizePaletteState(state.palette);
+    return state.palette;
+  }
+
+  function currentPalettePayload() {
+    var pal = ensurePaletteState();
+    return {
+      publish: !!pal.publish,
+      iconEmoji: pal.iconEmoji || '🪝',
+      parentFamily: pal.parentFamily || 'action',
+      hookSurface: pal.hookSurface || 'palette',
+      rowId: pal.rowId || '',
+      description: pal.description || state.description || ''
+    };
+  }
+
+  function currentPaletteRow() {
+    var fid = String(state.flowId || '').trim();
+    var rid = String((state.palette && state.palette.rowId) || '').trim();
+    return (state.paletteCatalog || []).filter(function(r) {
+      if (!r) return false;
+      if (rid && String(r.id || '') === rid) return true;
+      if (fid && String(r.flowId || '') === fid) return true;
+      return false;
+    })[0] || null;
+  }
+
+  function applyPaletteRowToState(row) {
+    var pal = ensurePaletteState();
+    if (!row) return pal;
+    pal.publish = true;
+    pal.rowId = String(row.id || pal.rowId || '').trim();
+    if (row.iconEmoji) pal.iconEmoji = String(row.iconEmoji).trim() || pal.iconEmoji;
+    if (row.parentFamily) pal.parentFamily = String(row.parentFamily).trim() || pal.parentFamily;
+    if (row.hookSurface) pal.hookSurface = String(row.hookSurface).trim() || pal.hookSurface;
+    if (row.description) pal.description = String(row.description).trim();
+    if (row.logoUrl && !state.imageUrl) state.imageUrl = String(row.logoUrl).trim();
+    return pal;
+  }
+
+  function hookSurfaceLabel(surface) {
+    var want = String(surface || '').trim();
+    var row = (state.hookCatalog || []).filter(function(r) {
+      return r && String(r.surface || '') === want;
+    })[0];
+    if (row && row.label) return String(row.label);
+    if (want === 'palette') return 'Palette — bouton (nom + image)';
+    if (want === 'panel') return 'Panneau droit';
+    if (want === 'tab') return 'Onglet dédié';
+    if (want === 'modal') return 'Modal (run)';
+    if (want === 'config') return 'Onglet Configuration';
+    if (want === 'app') return 'App (page user)';
+    return want || 'palette';
+  }
+
+  function fillHookSurfaceSelect() {
+    var sel = document.getElementById('paletteHookSurface');
+    if (!sel) return;
+    var current = String((state.palette && state.palette.hookSurface) || 'palette');
+    var rows = Array.isArray(state.hookCatalog) ? state.hookCatalog.slice() : [];
+    var seen = {};
+    var html = '';
+    rows.forEach(function(row) {
+      var surface = String((row && row.surface) || '').trim();
+      if (!surface || seen[surface]) return;
+      seen[surface] = true;
+      html += '<option value="' + escapeHtml(surface) + '">'
+        + escapeHtml(row.label || surface)
+        + (row.description ? ' — ' + escapeHtml(String(row.description).slice(0, 80)) : '')
+        + '</option>';
+    });
+    if (!seen.palette) {
+      html = '<option value="palette">Palette — bouton (nom + image)</option>' + html;
+    }
+    if (!html) {
+      html = '<option value="palette">Palette — bouton (nom + image)</option>'
+        + '<option value="panel">Panneau droit</option>'
+        + '<option value="modal">Modal (run)</option>'
+        + '<option value="tab">Onglet (éditeur)</option>'
+        + '<option value="config">Onglet Configuration</option>'
+        + '<option value="app">App (page user)</option>';
+    }
+    sel.innerHTML = html;
+    if (!sel.querySelector('option[value="' + current.replace(/"/g, '') + '"]')) {
+      sel.insertAdjacentHTML('beforeend', '<option value="' + escapeHtml(current) + '">' + escapeHtml(current) + '</option>');
+    }
+    sel.value = current;
+  }
+
+  function syncPaletteFields() {
+    var pal = ensurePaletteState();
+    var emoji = document.getElementById('paletteIconEmoji');
+    var family = document.getElementById('paletteFamily');
+    var hook = document.getElementById('paletteHookSurface');
+    var btn = document.getElementById('btnPublishPalette');
+    var status = document.getElementById('palettePublishStatus');
+    if (emoji && document.activeElement !== emoji) emoji.value = pal.iconEmoji || '🪝';
+    if (family && document.activeElement !== family) family.value = pal.parentFamily || 'action';
+    fillHookSurfaceSelect();
+    if (hook && document.activeElement !== hook) hook.value = pal.hookSurface || 'palette';
+    if (btn) btn.textContent = pal.publish ? 'Mettre à jour le bloc palette' : 'Publier comme sous-agent';
+    if (status) {
+      if (pal.publish) {
+        status.textContent = 'Accroché dans la palette · ' + hookSurfaceLabel(pal.hookSurface);
+      } else {
+        status.textContent = 'Pas encore publié comme sous-agent.';
+      }
+    }
+    var hint = document.getElementById('paletteHookHint');
+    if (hint) {
+      hint.textContent = pal.hookSurface === 'palette'
+        ? 'Tu ne le vois pas dans ce flux : nom + image deviennent le bouton palette, puis le bloc dans l’autre canvas.'
+        : 'Tu ne le vois pas dans ce flux : le hook « ' + hookSurfaceLabel(pal.hookSurface)
+          + ' » s’applique au bloc une fois l’agent posé ailleurs.';
+    }
+  }
+
+  function readPaletteFromDom() {
+    var pal = ensurePaletteState();
+    var emoji = document.getElementById('paletteIconEmoji');
+    var family = document.getElementById('paletteFamily');
+    var hook = document.getElementById('paletteHookSurface');
+    if (emoji) pal.iconEmoji = String(emoji.value || '').trim() || '🪝';
+    if (family) pal.parentFamily = String(family.value || 'action').trim() || 'action';
+    if (hook) pal.hookSurface = String(hook.value || 'palette').trim() || 'palette';
+    pal.description = state.description || pal.description;
+    return pal;
+  }
+
+  function updateAgentBlockPreview() {
+    var pal = ensurePaletteState();
+    var nodeEl = document.getElementById('agentBlockPreviewNode');
+    var nameEl = document.getElementById('agentBlockPreviewName');
+    var hookEl = document.getElementById('agentBlockPreviewHook');
+    if (nameEl) nameEl.textContent = state.name || 'Nouvel agent';
+    if (hookEl) hookEl.textContent = 'hook · ' + (pal.hookSurface || 'palette');
+    if (nodeEl) {
+      var head = nodeEl.querySelector('.agent-node-head');
+      if (head) {
+        var ident = head.querySelector('.agent-node-identity-mini');
+        var identHtml = ident ? ident.outerHTML : '';
+        var iconHtml = state.imageUrl
+          ? '<img src="' + escapeHtml(state.imageUrl) + '" alt="" id="agentBlockPreviewEmoji">'
+          : '<span class="emoji" id="agentBlockPreviewEmoji">' + escapeHtml(pal.iconEmoji || '🪝') + '</span>';
+        head.innerHTML = iconHtml + identHtml;
+      }
+    }
+    renderHookExportPreview();
+  }
+
+  function renderHookExportPreview() {
+    var host = document.getElementById('agentHookExportPreview');
+    if (!host) return;
+    var exp = state.exports && state.exports.hook;
+    if (exp && (exp.html || exp.css)) {
+      host.innerHTML = '<p style="margin:0 0 6px;color:#94a3b8;font-size:0.8rem;text-transform:uppercase;letter-spacing:0.04em;">Sortie hook</p>'
+        + '<iframe sandbox="" title="Aperçu hook"></iframe>';
+      var frame = host.querySelector('iframe');
+      if (frame) frame.srcdoc = combineFlowPreview(exp);
+      return;
+    }
+    host.innerHTML = '<p class="text-muted small" style="margin:0;color:#64748b;">Pas encore de HTML hook. Lance l’agent Hook une fois, ou pose-le comme sous-action dans ce flux, pour générer le design.</p>';
+  }
+
+  function refreshCurrentFlowExports() {
+    var id = String(state.flowId || '').trim();
+    if (!id) return;
+    fetch(API + '/flows/' + encodeURIComponent(id), { headers: headers() })
+      .then(parseJson)
+      .then(function(data) {
+        if (!data || !data.flow) return;
+        state.exports = (data.flow.exports && typeof data.flow.exports === 'object') ? data.flow.exports : {};
+        if (state.activeTab === 'app') renderHookExportPreview();
+      })
+      .catch(function() {});
+  }
+
+  function flattenHookRow(row) {
+    if (!row || typeof row !== 'object') return null;
+    var src = row.values && typeof row.values === 'object'
+      ? Object.assign({}, row, row.values)
+      : row;
+    var surface = String(src.surface || src.value || '').trim();
+    if (!surface) return null;
+    return {
+      surface: surface,
+      label: String(src.label || src.name || surface).trim() || surface,
+      description: String(src.description || '').trim()
+    };
+  }
+
+  function loadHookCatalog() {
+    return fetch(API + '/atelier/collections/ensure', {
+      method: 'POST',
+      headers: headers(),
+      body: JSON.stringify({ presetId: 'hook', schemaSlug: 'hook', flowId: state.flowId || '' })
+    })
+      .then(parseJson)
+      .then(function(data) {
+        state.hookCatalog = ((data && Array.isArray(data.rows)) ? data.rows : [])
+          .map(flattenHookRow)
+          .filter(Boolean);
+        return state.hookCatalog;
+      })
+      .catch(function() {
+        if (!Array.isArray(state.hookCatalog)) state.hookCatalog = [];
+        return state.hookCatalog;
+      });
   }
 
   function viewForNode(node) {
@@ -2134,6 +2550,44 @@
     });
   }
 
+  function isOfficialSystemTemplateId(templateId) {
+    var tid = String(templateId || '').trim();
+    return tid === 'agent-hook' || tid === 'agent-design-page-web';
+  }
+
+  function isSystemFlowPayload(flow) {
+    if (!flow) return false;
+    if (flow.official === true || flow.systemLocked === true) return true;
+    return isOfficialSystemTemplateId(flow.templateId);
+  }
+
+  function canOpenSystemAgentEditor(node, packed) {
+    if (isGdriAdmin) return true;
+    if (packed && isSystemFlowPayload(packed)) return false;
+    return !isOfficialSystemTemplateId(node && node.config && node.config.subTemplateId);
+  }
+
+  function systemAgentLockedCopy() {
+    return 'Agent système GDRI : seuls les administrateurs GDRI peuvent l’ouvrir ou le modifier. Vous pouvez l’utiliser ici comme boîte noire.';
+  }
+
+  function showSystemAgentLocked(message) {
+    var app = document.querySelector('.agent-editor-app');
+    if (!app) return;
+    var msg = message || 'Agent système GDRI : seuls les administrateurs GDRI peuvent l’ouvrir ou le modifier.';
+    app.innerHTML =
+      '<div class="agent-editor-toolbar">' +
+      '<div>' +
+      '<a href="' + escapeHtml(backUrl) + '" class="btn-agent-ghost" style="text-decoration:none;display:inline-block;margin-bottom:6px;">← Retour</a>' +
+      '<h1>Agent système</h1>' +
+      '<div class="sub">Réservé à un administrateur GDRI</div>' +
+      '</div></div>' +
+      '<div style="max-width:640px;padding:24px 16px;">' +
+      '<p style="color:#e2e8f0;line-height:1.5;margin:0 0 12px;">' + escapeHtml(msg) + '</p>' +
+      '<p class="empty" style="margin:0;">Un utilisateur classique ou un administrateur d’entité peut poser Hook / Design comme boîte noire, mais ne peut pas ouvrir le canvas interne.</p>' +
+      '</div>';
+  }
+
   function loadFromFlow(flow) {
     state.flowId = String(flow._id || '');
     state.imageUrl = flow.imageUrl || '';
@@ -2148,6 +2602,8 @@
       buttonLabel: (flow.app && flow.app.buttonLabel) || 'Lancer',
       pages: (flow.app && Array.isArray(flow.app.pages)) ? flow.app.pages : []
     };
+    state.palette = normalizePaletteState(flow.palette);
+    state.exports = (flow.exports && typeof flow.exports === 'object') ? flow.exports : {};
     syncIdentityFields();
 
     if (flow.canvas && Array.isArray(flow.canvas.nodes) && flow.canvas.nodes.length) {
@@ -2364,17 +2820,45 @@
         + '</div>';
     }
 
+    function shortcutHtml(parent, child) {
+      var tip = String(child.description || '').trim()
+        || ('Sous-élément de ' + (parent.name || parent.id) + '. Clic ou glisser pour placer.');
+      var logo = String(child.logoUrl || '').trim();
+      var icon = logo
+        ? '<img src="' + escapeHtml(logo) + '" alt="">'
+        : '<span class="emoji">' + escapeHtml(child.iconEmoji || '⚙') + '</span>';
+      return '<div class="agent-brick-item is-child" draggable="true" data-brick-id="'
+        + escapeHtml(parent.id) + '" data-shortcut-id="' + escapeHtml(child.id) + '" data-tip="'
+        + escapeHtml(tip) + '">'
+        + icon
+        + '<div class="meta"><strong>' + escapeHtml(child.name || child.id) + '</strong>'
+        + '<span class="agent-node-badge">ss-action</span>'
+        + (child.hookSurface && child.hookSurface !== 'palette'
+          ? '<span class="agent-node-badge">hook · ' + escapeHtml(child.hookSurface) + '</span>'
+          : '')
+        + '</div>'
+        + '</div>';
+    }
+
+    function familyHtml(brick) {
+      var html = brickHtml(brick);
+      paletteChildrenOf(brick).forEach(function(child) {
+        html += shortcutHtml(brick, child);
+      });
+      return html;
+    }
+
     var html = '';
     FAMILY_ORDER.forEach(function(fam) {
       (byFamily[fam] || []).forEach(function(brick) {
-        html += brickHtml(brick);
+        html += familyHtml(brick);
       });
     });
     var known = {};
     FAMILY_ORDER.forEach(function(f) { known[f] = true; });
     state.bricks.forEach(function(b) {
       if (known[b.family || b.id]) return;
-      html += brickHtml(b);
+      html += familyHtml(b);
     });
 
     host.innerHTML = html || '<p class="empty">Aucune brique disponible.</p>';
@@ -2394,7 +2878,11 @@
           state.paletteClickTimer = null;
         }
         cancelLinkDrag();
-        e.dataTransfer.setData('text/brick-id', el.getAttribute('data-brick-id'));
+        var brickId = el.getAttribute('data-brick-id');
+        var shortcutId = el.getAttribute('data-shortcut-id') || '';
+        e.dataTransfer.setData('text/brick-id', brickId);
+        e.dataTransfer.setData('text/plain', shortcutId ? ('shortcut:' + shortcutId) : brickId);
+        if (shortcutId) e.dataTransfer.setData('text/palette-shortcut', shortcutId);
       });
       el.addEventListener('dragend', function() {
         state.paletteDragActive = false;
@@ -2404,9 +2892,16 @@
         if (state.paletteDragActive) return;
         e.stopPropagation();
         var brickId = el.getAttribute('data-brick-id');
+        var shortcutId = el.getAttribute('data-shortcut-id');
         if (state.paletteClickTimer) clearTimeout(state.paletteClickTimer);
         state.paletteClickTimer = setTimeout(function() {
           state.paletteClickTimer = null;
+          if (shortcutId) {
+            var parent = getBrick(brickId);
+            var child = paletteChildrenOf(parent).filter(function(c) { return c.id === shortcutId; })[0];
+            if (child) placePaletteShortcut(child);
+            return;
+          }
           var brick = getBrick(brickId);
           if (brick) addNodeFromBrick(brick);
         }, 220);
@@ -2418,7 +2913,16 @@
           clearTimeout(state.paletteClickTimer);
           state.paletteClickTimer = null;
         }
-        var brick = getBrick(el.getAttribute('data-brick-id'));
+        var brickId = el.getAttribute('data-brick-id');
+        var shortcutId = el.getAttribute('data-shortcut-id');
+        if (shortcutId) {
+          var parent = getBrick(brickId);
+          var child = paletteChildrenOf(parent).filter(function(c) { return c.id === shortcutId; })[0];
+          var placed = child ? placePaletteShortcut(child) : null;
+          if (placed) openNodeConfig(placed);
+          return;
+        }
+        var brick = getBrick(brickId);
         if (!brick) return;
         var node = addNodeFromBrick(brick);
         openNodeConfig(node);
@@ -2824,9 +3328,13 @@
       el.dataset.id = node.id;
 
       var url = iconUrl(brick);
+      var insertableLook = insertablePaletteLook(node);
+      if (insertableLook && insertableLook.logoUrl) url = insertableLook.logoUrl;
       var icon = url
         ? '<img src="' + url + '" alt="">'
-        : '<span class="emoji">' + ((brick.canvas && brick.canvas.iconEmoji) || '🔧') + '</span>';
+        : '<span class="emoji">' + (insertableLook && insertableLook.iconEmoji
+          ? insertableLook.iconEmoji
+          : ((brick.canvas && brick.canvas.iconEmoji) || '🔧')) + '</span>';
 
       var namedPorts = namedOutputPorts(node);
       var namedIns = namedInputPorts(node);
@@ -2836,8 +3344,10 @@
       if (isCaseNode) el.classList.add('agent-node--case');
       if (isLoopNode(node)) el.classList.add('agent-node--loop');
       if (node.brickId === 'ia') el.classList.add('agent-node--ia');
-      if (isComposeAction(node)) el.classList.add('agent-node--compose');
+      if (isInsertableAction(node)) el.classList.add('agent-node--insertable');
+      else if (isComposeAction(node)) el.classList.add('agent-node--compose');
       if (node.brickId === 'data') el.classList.add('agent-node--data');
+      if (node.brickId === 'visualization') el.classList.add('agent-node--visualization');
 
       var inPorts = isTrigger
         ? ''
@@ -2863,7 +3373,12 @@
           && String(node.config.provider || '') !== 'facebook') {
         extraBits.push(dataNodeSummary(node.config));
       }
-      if (node.brickId === 'action' && node.config && !isComposeAction(node)) {
+      if (isInsertableAction(node)) {
+        extraBits.push('boîte noire');
+        if (insertableLook && insertableLook.hookSurface && insertableLook.hookSurface !== 'palette') {
+          extraBits.push('hook · ' + hookSurfaceLabel(insertableLook.hookSurface));
+        }
+      } else if (node.brickId === 'action' && node.config && !isComposeAction(node)) {
         extraBits.push(actionNodeSummary(node.config));
       }
       if (isComposeAction(node) && ((node.config && node.config.variables) || []).length) {
@@ -2880,6 +3395,9 @@
       }
       if (isLoopNode(node)) {
         extraBits.push(loopSummary(node.config || {}));
+      }
+      if (node.brickId === 'visualization') {
+        extraBits.push(visualizationNodeSummary(node));
       }
       var familyCaption = nodeFamilyCaption(node, brick);
       var tipParts = [familyCaption].concat(extraBits.filter(Boolean));
@@ -2923,7 +3441,12 @@
         + '<div class="agent-node-identity-mini">'
         + '<div class="agent-node-title-row">'
         + '<div class="agent-node-title">' + escapeHtml(nodeTitle)
-        + runNodeBadgeHtml(node.id) + '</div>'
+        + runNodeBadgeHtml(node.id)
+        + (isInsertableAction(node) && insertableLook && insertableLook.hookSurface
+          && insertableLook.hookSurface !== 'palette'
+          ? ' <span class="agent-node-badge">hook · ' + escapeHtml(hookSurfaceLabel(insertableLook.hookSurface)) + '</span>'
+          : '')
+        + '</div>'
         + (setupWarns.length
           ? '<span class="agent-node-warn-mark" aria-hidden="true">!</span>'
           : '')
@@ -2967,6 +3490,7 @@
         state.selectedLink = null;
         renderConfig();
         renderCanvas();
+        refreshHookListForBlock(node, 'select');
       });
 
       el.addEventListener('dblclick', function(e) {
@@ -3479,7 +4003,7 @@
 
   function isLocalDataProvider(provider) {
     var p = String(provider || '').toLowerCase();
-    return p === 'json' || p === 'database';
+    return p === 'json' || p === 'database' || p === 'flow' || p === 'flux';
   }
 
   function listCreatedDataProviders() {
@@ -3489,7 +4013,7 @@
       if (p) seen[p] = true;
     });
     var connectors = ['mail', 'facebook', 'http'].filter(function(p) { return seen[p]; });
-    return ['json'].concat(connectors);
+    return ['json', 'flow'].concat(connectors);
   }
 
   function dataProviderLabel(provider) {
@@ -3500,6 +4024,7 @@
     if (provider === 'http') return 'HTTP';
     if (provider === 'json') return 'Collection / liste';
     if (provider === 'database') return 'Base (agent)';
+    if (provider === 'flow' || provider === 'flux') return 'Flux (parent)';
     return provider || 'Canal';
   }
 
@@ -3512,7 +4037,7 @@
     if (p === 'webhook' || p === 'http') return 'HTTP générique';
     if (p === 'disk') return 'Fichier (disque)';
     if (p === 'collection') return 'Collection';
-    if (p === 'flow' || p === 'flux') return 'Flux (nom + résultat)';
+    if (p === 'flow' || p === 'flux') return 'Flux nommé';
     return provider || 'Destination';
   }
 
@@ -3589,7 +4114,7 @@
       list.unshift({ id: 'collection', name: 'Collection' });
     }
     if (!list.some(function(t) { return String(t.id) === 'flow'; })) {
-      list.unshift({ id: 'flow', name: 'Flux (nom + résultat)' });
+      list.unshift({ id: 'flow', name: 'Flux nommé' });
     }
     return list;
   }
@@ -3634,6 +4159,56 @@
     return p === 'flow' || p === 'flux' || cid === 'flow' || cid === 'flux';
   }
 
+  function uniqueExportFields(node) {
+    var seen = {};
+    var out = [];
+    (node && node.config && Array.isArray(node.config.exportFields) ? node.config.exportFields : []).forEach(function(raw) {
+      var k = String(raw || '').trim();
+      if (!k || seen[k]) return;
+      seen[k] = true;
+      out.push(k);
+    });
+    return out;
+  }
+
+  function mappingExportFieldSources(node) {
+    var mapping = node && node.config && node.config.mapping && typeof node.config.mapping === 'object'
+      ? node.config.mapping
+      : {};
+    var out = [];
+    Object.keys(mapping).forEach(function(slot) {
+      var from = String(mapping[slot] || '').trim();
+      if (!from || from === '__literal__' || from.indexOf('__llm__:') === 0) return;
+      out.push(from);
+    });
+    return out;
+  }
+
+  function ensureFlowExportFields(node) {
+    if (!node || !isFlowOutput(node)) return;
+    if (!node.config || typeof node.config !== 'object') node.config = {};
+    if (Array.isArray(node.config.exportFields)) return;
+    var fromMap = mappingExportFieldSources(node);
+    if (fromMap.length) {
+      node.config.exportFields = fromMap;
+      return;
+    }
+    node.config.exportFields = collectContextFieldsForNode(node.id).filter(function(f) {
+      if (!f || f.own) return false;
+      var local = String(f.localKey || f.key || '').split('.').pop();
+      return local === 'html' || local === 'css' || local === 'surface' || local === 'label';
+    }).map(function(f) { return f.key; });
+  }
+
+  function setFlowExportField(node, key, on) {
+    ensureFlowExportFields(node);
+    var want = String(key || '').trim();
+    if (!want) return;
+    var next = uniqueExportFields(node).filter(function(k) { return k !== want; });
+    if (on) next.push(want);
+    node.config.exportFields = next;
+  }
+
   function applyOutputConnectorType(node, connectorId) {
     if (!node) return;
     if (!node.config) node.config = {};
@@ -3648,6 +4223,7 @@
       node.config.accountRef = '';
       node.config.templateId = '';
       if (!String(node.config.exportName || '').trim()) node.config.exportName = 'chrome';
+      if (!Array.isArray(node.config.exportFields)) node.config.exportFields = [];
       return;
     }
     if (cid === 'collection') {
@@ -3920,6 +4496,45 @@
     return out;
   }
 
+  function isCollectionListDataNode(node) {
+    if (!node || node.brickId !== 'data') return false;
+    var cfg = node.config || {};
+    var p = String(cfg.provider || '').toLowerCase();
+    if (p !== 'json' && p !== 'database') return false;
+    if (isHookCollectionNode(node)) return true;
+    if (String(cfg.presetId || '').trim()) return true;
+    if (String(cfg.collectionNamespace || '').trim()) return true;
+    if (String(cfg.collectionId || '').trim()) return true;
+    return Array.isArray(cfg.modelFields) && cfg.modelFields.length > 0;
+  }
+
+  function collectionListFields(node) {
+    var fields = [];
+    var seen = {};
+    ((node && node.config && node.config.modelFields) || []).forEach(function(f) {
+      var key = f && (f.key || f.name);
+      if (!key || seen[key]) return;
+      seen[key] = true;
+      fields.push({
+        key: key,
+        label: f.label || key,
+        type: f.type || 'text',
+        required: !!f.required,
+        enum: Array.isArray(f.enum) && f.enum.length ? f.enum : null
+      });
+    });
+    if (!fields.length && (isHookCollectionNode(node) || String((node && node.config && node.config.presetId) || '') === 'hook')) {
+      [
+        { key: 'surface', label: 'Surface' },
+        { key: 'label', label: 'Libellé' },
+        { key: 'description', label: 'Description' }
+      ].forEach(function(f) {
+        fields.push({ key: f.key, label: f.label, type: 'text' });
+      });
+    }
+    return fields;
+  }
+
   function contractFieldsForDataNode(node) {
     var out = [];
     var seen = {};
@@ -3936,6 +4551,14 @@
     pushAlias('item', 'Item (ligne courante)', 'object');
     pushAlias('items', 'Tableau (toutes les lignes)', 'array');
     pushAlias('itemsCount', 'Nombre de lignes', 'number');
+    if (isCollectionListDataNode(node)) {
+      collectionListFields(node).forEach(function(f) {
+        if (!f || !f.key || seen[f.key]) return;
+        seen[f.key] = true;
+        out.push(f);
+      });
+      return out;
+    }
     selectedKindsForNode(node).forEach(function(kind) {
       fieldsForKind(node, kind).forEach(function(f) {
         if (!f || !f.key || seen[f.key]) return;
@@ -3948,17 +4571,10 @@
     });
     if (String((node.config && node.config.provider) || '') === 'json'
         || String((node.config && node.config.provider) || '') === 'database') {
-      ((node.config && node.config.modelFields) || []).forEach(function(f) {
-        var key = f && (f.key || f.name);
-        if (!key || seen[key]) return;
-        seen[key] = true;
-        out.push({
-          key: key,
-          label: f.label || key,
-          type: f.type || 'text',
-          required: !!f.required,
-          enum: Array.isArray(f.enum) && f.enum.length ? f.enum : null
-        });
+      collectionListFields(node).forEach(function(f) {
+        if (!f || !f.key || seen[f.key]) return;
+        seen[f.key] = true;
+        out.push(f);
       });
     }
     return out;
@@ -4027,66 +4643,129 @@
       list.unshift({
         id: 'surface.hook',
         label: 'Accrocher la page',
-        description: 'Lit la collection Hook et écrit le champ surface.'
+        description: 'Accroche la page du flux (HTML + CSS) sur une surface.'
       });
     }
     return list;
   }
 
-  function defaultHookSurfaces() {
+  function isInsertableAction(node) {
+    if (!node || node.brickId !== 'action') return false;
+    var cfg = node.config || {};
+    return !!(cfg.insertable || cfg.subFlowId || cfg.subTemplateId);
+  }
+
+  function insertablePaletteLook(node) {
+    if (!isInsertableAction(node)) return null;
+    var pid = String((node.config && node.config.paletteId) || '').trim();
+    var tid = String((node.config && node.config.subTemplateId) || '').trim();
+    var fid = String((node.config && node.config.subFlowId) || '').trim();
+    var cfgHook = String((node.config && node.config.hookSurface) || '').trim();
+    var isHook = tid === 'agent-hook' || String(node.name || '').toLowerCase() === 'hook';
+    var row = (state.paletteCatalog || []).filter(function(r) {
+      if (!r) return false;
+      if (pid && String(r.id || '') === pid) return true;
+      if (fid && String(r.flowId || '') === fid) return true;
+      if (tid && String(r.templateId || '') === tid) return true;
+      return false;
+    })[0];
+    if (row) {
+      return {
+        iconEmoji: String(row.iconEmoji || '').trim() || '📦',
+        logoUrl: String(row.logoUrl || '').trim(),
+        hookSurface: cfgHook || (isHook ? '' : (String(row.hookSurface || 'palette').trim() || 'palette'))
+      };
+    }
+    if (isHook) {
+      return { iconEmoji: '🪝', logoUrl: '', hookSurface: cfgHook };
+    }
+    return { iconEmoji: '📦', logoUrl: '', hookSurface: cfgHook || 'palette' };
+  }
+
+  function isInsertableHookNode(node) {
+    if (!isInsertableAction(node)) return false;
+    var tid = String((node.config && node.config.subTemplateId) || '').toLowerCase();
+    var name = String(node.name || '').toLowerCase();
+    var pid = String((node.config && node.config.paletteId) || '').toLowerCase();
+    return tid === 'agent-hook' || name === 'hook' || pid === 'hook';
+  }
+
+  function isHookAction(node) {
+    if (!node || node.brickId !== 'action') return false;
+    var id = normalizeClientActionId((node.config && (node.config.actionId || node.config.operation)) || '');
+    return id === 'surface.hook';
+  }
+
+  function isHookCollectionNode(node) {
+    if (!node || node.brickId !== 'data') return false;
+    var cfg = node.config || {};
+    var ns = String(cfg.collectionNamespace || cfg.presetId || cfg.collectionPreset || '').toLowerCase();
+    var name = String(cfg.modelName || node.name || '').toLowerCase();
+    return ns === 'atelier-hook' || ns === 'hook' || name === 'hook' || name === 'liste hooks';
+  }
+
+  function isHookComposeAction(node) {
+    if (!isComposeAction(node)) return false;
+    var preset = String((node.config && node.config.preset) || '').toLowerCase();
+    if (preset === 'hook') return true;
+    var slug = String(node.slug || '').toLowerCase();
+    if (slug === 'hook' || slug.indexOf('hook') >= 0) return true;
+    var keys = ((node.config && node.config.variables) || []).map(function(v) { return v && v.key; });
+    var hasSurface = keys.indexOf('surface') >= 0;
+    var designColor = keys.indexOf('primary') >= 0 || keys.indexOf('brand') >= 0;
+    return hasSurface && !designColor;
+  }
+
+  function hookInputContractFields() {
+    var def = getActionDef('surface.hook');
+    var reads = def && Array.isArray(def.reads) ? def.reads : [];
+    if (reads.length) {
+      return reads.filter(function(f) { return f && f.key; }).map(function(f) {
+        return {
+          key: f.key,
+          label: f.label || humanizeFieldKey(f.key),
+          required: !!f.required,
+          advanced: !!f.advanced,
+          type: f.type || (f.key === 'html' || f.key === 'css' ? 'textarea' : 'text'),
+          overlay: f.overlay !== false
+        };
+      });
+    }
     return [
-      { surface: 'tab', label: 'Onglet (éditeur)' },
-      { surface: 'modal', label: 'Modal (run)' },
-      { surface: 'app', label: 'App (page user)' }
+      { key: 'surface', label: 'Surface', required: true, advanced: false, type: 'text', overlay: true },
+      { key: 'label', label: 'Libellé', required: false, advanced: false, type: 'text', overlay: true },
+      { key: 'html', label: 'HTML', required: false, advanced: false, type: 'textarea', overlay: true },
+      { key: 'css', label: 'CSS', required: false, advanced: false, type: 'textarea', overlay: true }
     ];
   }
 
-  function hookSurfaceOptions() {
-    var rows = (state.hookCatalog && Array.isArray(state.hookCatalog.rows)) ? state.hookCatalog.rows : [];
-    var out = rows.filter(function(r) { return r && String(r.surface || '').trim(); }).map(function(r) {
-      return {
-        surface: String(r.surface).trim(),
-        label: String(r.label || r.surface).trim() || String(r.surface).trim()
-      };
-    });
-    return out.length ? out : defaultHookSurfaces();
+  function hookConfiguredSurface(node) {
+    var cfg = (node && node.config) || {};
+    var mapped = String((cfg.mapping && cfg.mapping.surface) || '').trim();
+    if (mapped === '__literal__') {
+      return String((cfg.literals && cfg.literals.surface) || cfg.surface || '').trim();
+    }
+    if (mapped) return '';
+    return String(cfg.surface || '').trim();
   }
 
-  function loadHookCatalog(force) {
-    if (state.hookCatalog && state.hookCatalog.loaded && !force) {
-      return Promise.resolve(state.hookCatalog);
+  function ensureHookMappingDefaults(node) {
+    if (!isHookAction(node)) return;
+    if (!node.config || typeof node.config !== 'object') node.config = {};
+    ensureMappingConfig(node);
+    var mapped = String((node.config.mapping && node.config.mapping.surface) || '').trim();
+    var literal = String((node.config.literals && node.config.literals.surface) || '').trim();
+    var legacy = String(node.config.surface || '').trim();
+    if (!mapped && !literal) {
+      node.config.mapping.surface = '__literal__';
+      node.config.literals.surface = legacy || 'tab';
+    } else if (mapped === '__literal__' && !literal && legacy) {
+      node.config.literals.surface = legacy;
     }
-    if (state._hookCatalogLoading && !force) return state._hookCatalogLoading;
-    state._hookCatalogLoading = fetch(API + '/atelier/collections/ensure', {
-      method: 'POST',
-      headers: headers(),
-      body: JSON.stringify({ presetId: 'hook', flowId: state.flowId || '' })
-    })
-      .then(parseJson)
-      .then(function(data) {
-        var rows = Array.isArray(data && data.rows) ? data.rows : [];
-        state.hookCatalog = {
-          loaded: true,
-          collectionId: (data && data.collectionId) || '',
-          slug: (data && data.slug) || 'atelier-hook',
-          name: (data && data.name) || 'Hook',
-          rows: rows
-        };
-        state._hookCatalogLoading = null;
-        return state.hookCatalog;
-      })
-      .catch(function() {
-        state.hookCatalog = {
-          loaded: true,
-          collectionId: '',
-          slug: 'atelier-hook',
-          name: 'Hook',
-          rows: defaultHookSurfaces()
-        };
-        state._hookCatalogLoading = null;
-        return state.hookCatalog;
-      });
-    return state._hookCatalogLoading;
+    if (!String(node.config.surface || '').trim()) {
+      node.config.surface = hookConfiguredSurface(node) || 'tab';
+    }
+    suggestDefaultMapping(node);
   }
 
   function actionKindSelectHtml(node) {
@@ -4100,12 +4779,14 @@
     html += '<optgroup label="Champs">';
     html += '<option value="ia.compose"' + (currentId === 'ia.compose' ? ' selected' : '') + '>Champs</option>';
     html += '</optgroup>';
-    html += '<optgroup label="Accrocher">';
-    surfaces.forEach(function(a) {
-      html += '<option value="' + escapeHtml(a.id) + '"' + (currentId === a.id ? ' selected' : '') + '>'
-        + escapeHtml(a.label || a.id) + '</option>';
-    });
-    html += '</optgroup>';
+    if (currentId && currentId.indexOf('surface.') === 0) {
+      html += '<optgroup label="Accrocher">';
+      surfaces.forEach(function(a) {
+        html += '<option value="' + escapeHtml(a.id) + '"' + (currentId === a.id ? ' selected' : '') + '>'
+          + escapeHtml(a.label || a.id) + '</option>';
+      });
+      html += '</optgroup>';
+    }
     if (fnActions.length) {
       var groupLabel = provider === 'mail' ? 'Mail' : (provider === 'facebook' ? 'Facebook' : 'Connecteur');
       html += '<optgroup label="' + escapeHtml(groupLabel) + '">';
@@ -4125,55 +4806,21 @@
     return html;
   }
 
-  function surfaceHookFieldsHtml(node) {
-    if (!state.hookCatalog || !state.hookCatalog.loaded) {
-      loadHookCatalog().then(function(pack) {
-        if (pack && node && node.config && pack.collectionId) {
-          node.config.hookCollectionId = pack.collectionId;
-          node.config.hookCollectionPreset = 'hook';
-          if (!String(node.config.surface || '').trim()) {
-            var first = hookSurfaceOptions()[0];
-            if (first) node.config.surface = first.surface;
-          }
-        }
-        renderConfig();
-      });
-    } else if (node && node.config && state.hookCatalog.collectionId) {
-      node.config.hookCollectionId = state.hookCatalog.collectionId;
-      node.config.hookCollectionPreset = 'hook';
-    }
-    var surf = String((node.config && node.config.surface) || '');
-    var opts = hookSurfaceOptions();
-    if (!surf && opts[0]) surf = opts[0].surface;
-    var html = '<div class="form-group"><label>Surface</label>';
-    html += '<select data-key="surface">';
-    opts.forEach(function(opt) {
-      html += '<option value="' + escapeHtml(opt.surface) + '"' + (surf === opt.surface ? ' selected' : '') + '>'
-        + escapeHtml(opt.label || opt.surface) + '</option>';
-    });
-    if (surf && !opts.some(function(o) { return o.surface === surf; })) {
-      html += '<option value="' + escapeHtml(surf) + '" selected>' + escapeHtml(surf) + ' — hors collection</option>';
-    }
-    html += '</select>';
-    html += '<p class="empty" style="margin-top:6px;">Valeurs lues dans la collection <strong>Hook</strong>. Une ligne = une surface.</p></div>';
-    var colId = (state.hookCatalog && state.hookCatalog.collectionId) || (node.config && node.config.hookCollectionId) || '';
-    var editor = collectionEditorUrl(colId, 'elements');
-    html += '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;">';
-    html += '<button type="button" class="btn-agent-ghost" id="btnRefreshHookCollection">Actualiser Hook</button>';
-    if (editor) {
-      html += '<a class="btn-agent-ghost" href="' + escapeHtml(editor) + '" target="_blank" rel="noopener">Ouvrir la collection</a>';
-    }
-    html += '</div>';
-    return html;
-  }
-
   function actionFieldsHtml(node) {
     ensureActionConfig(node);
+    if (isInsertableAction(node)) {
+      return insertableActionFieldsHtml(node);
+    }
     var html = actionKindSelectHtml(node);
     var currentId = normalizeClientActionId((node.config && (node.config.actionId || node.config.operation)) || '') || 'ia.compose';
 
     if (currentId === 'surface.hook') {
-      html += surfaceHookFieldsHtml(node);
+      ensureHookMappingDefaults(node);
+      var hookDef = getActionDef('surface.hook');
+      if (hookDef && hookDef.description) {
+        html += '<p class="empty">' + escapeHtml(hookDef.description) + '</p>';
+      }
+      html += mappingPanelHtml(node);
       return html;
     }
 
@@ -4192,8 +4839,9 @@
       }
       if (currentId === 'mail.delete') {
         var only = node.config.onlyOnApprove !== false;
-        html += '<div class="form-group"><label style="display:flex; gap:8px; align-items:center; font-weight:400;">';
-        html += '<input type="checkbox" data-key="onlyOnApprove" data-type="boolean"' + (only ? ' checked' : '') + '> Supprimer seulement si validé</label></div>';
+        html += '<div class="form-group"><label class="agent-check">';
+        html += '<input type="checkbox" data-key="onlyOnApprove" data-type="boolean"' + (only ? ' checked' : '') + '>';
+        html += '<span>Supprimer seulement si validé</span></label></div>';
       }
       if (currentId === 'mail.pick') {
         var picked = Array.isArray(node.config.pickFields) && node.config.pickFields.length
@@ -4201,9 +4849,9 @@
           : ['subject', 'text'];
         html += '<div class="form-group"><label>Champs à récupérer</label>';
         ['subject', 'text', 'from'].forEach(function(key) {
-          html += '<label style="display:flex; gap:8px; align-items:center; margin:6px 0; font-weight:400;">';
-          html += '<input type="checkbox" data-pick-field="' + key + '"' + (picked.indexOf(key) !== -1 ? ' checked' : '') + '> '
-            + escapeHtml(humanizeFieldKey(key)) + '</label>';
+          html += '<label class="agent-check" style="margin:6px 0;">';
+          html += '<input type="checkbox" data-pick-field="' + key + '"' + (picked.indexOf(key) !== -1 ? ' checked' : '') + '>';
+          html += '<span>' + escapeHtml(humanizeFieldKey(key)) + '</span></label>';
         });
         html += '</div>';
       }
@@ -4213,15 +4861,40 @@
     node.config.actionId = 'ia.compose';
     node.config.operation = 'ia.compose';
     ensureComposeZones(node);
+    pruneOutputMaps(node);
     var vars = node.config.variables || [];
-    html += '<h4 class="agent-config-section">Champs</h4>';
+    var mappedIds = node.config.mappedOutputIds || [];
+    html += '<h4 class="agent-config-section">Sorties mappées</h4>';
+    if (!mappedIds.length) {
+      html += '<p class="empty" style="margin:0 0 10px;">Aucun onglet sortie. Cliquez « Mapper une sortie » pour préparer le contenu d’un bloc Sortie branché derrière.</p>';
+    } else {
+      html += '<div class="agent-zone-list">';
+      mappedIds.forEach(function(oid) {
+        var target = state.nodes.find(function(n) { return n.id === oid; });
+        var map = getOutputMap(node, oid);
+        var mode = outputMapUsesObject(map) ? 'Objet repris' : outputMapNewLabel(target);
+        html += '<button type="button" class="agent-zone-preview" data-open-output-map="'
+          + escapeHtml(oid) + '">'
+          + '<span class="agent-zone-preview-name">' + escapeHtml(outputMapTabLabel(target)) + '</span>'
+          + '<span class="agent-zone-preview-value">' + escapeHtml(mode) + '</span>'
+          + '</button>';
+      });
+      html += '</div>';
+    }
+    html += '<h4 class="agent-config-section">Champs libres</h4>';
+    if (node.config.fieldsFrom) {
+      html += '<p class="empty" style="margin:0 0 10px;">Tableau <code>'
+        + escapeHtml(node.config.fieldsFrom)
+        + '</code> (nom / type) → champs de cette action.</p>';
+    }
     if (!vars.length) {
-      html += '<p class="empty" style="margin:0 0 10px;">Aucun champ pour l’instant.</p>';
+      html += '<p class="empty" style="margin:0 0 10px;">Hors sorties : aucun champ libre.</p>';
     } else {
       html += '<div class="agent-zone-list">';
       vars.forEach(function(v) {
         var preview = zoneValuePreview(zoneValue(node, v.key));
-        var missing = !!v.required && !preview;
+        var inherited = !preview && copyFromInherits(node, v.key);
+        var missing = !!v.required && !preview && !inherited;
         html += '<button type="button" class="agent-zone-preview' + (missing ? ' is-warn' : '') + '" data-open-zone="'
           + escapeHtml(v.key) + '">'
           + '<span class="agent-zone-preview-name">' + escapeHtml(v.label || v.key);
@@ -4230,13 +4903,85 @@
           html += ' <code>{{' + escapeHtml(ensureNodeSlug(node) + '.' + v.key) + '}}</code>';
         }
         html += '</span>'
-          + '<span class="agent-zone-preview-value' + (preview ? '' : ' is-empty') + '">'
-          + (preview ? escapeHtml(preview) : (v.required ? 'Obligatoire — vide' : 'Vide')) + '</span>'
+          + '<span class="agent-zone-preview-value' + (preview || inherited ? '' : ' is-empty') + '">'
+          + (preview ? escapeHtml(preview) : (inherited ? 'Repris de l’objet' : (v.required ? 'Obligatoire — vide' : 'Vide'))) + '</span>'
           + '</button>';
       });
       html += '</div>';
     }
-    html += '<button type="button" class="btn-agent" id="btnOpenActionCompose" data-open-action-compose="1">Éditer les champs</button>';
+    html += '<button type="button" class="btn-agent" id="btnOpenActionCompose" data-open-action-compose="1">Éditer</button>';
+    html += '<button type="button" class="btn-agent" data-map-an-output="1" style="margin-left:8px;">Mapper une sortie</button>';
+    if (isHookComposeAction(node)) {
+      html += hookVisualizationHtml(node);
+    }
+    return html;
+  }
+
+  function ensureHookVizFields(node) {
+    if (!node || !node.config) return;
+    var vars = Array.isArray(node.config.variables) ? node.config.variables.slice() : [];
+    var have = {};
+    vars.forEach(function(v) { if (v && v.key) have[v.key] = true; });
+    [
+      { key: 'name', label: 'Nom du bouton', type: 'text', placeholder: '{{liste_hooks.label}}' },
+      { key: 'iconEmoji', label: 'Icône', type: 'text', placeholder: '🪝' },
+      { key: 'logoUrl', label: 'Logo (URL)', type: 'text', placeholder: 'https://…' },
+      { key: 'color', label: 'Couleur', type: 'text', placeholder: '#7c3aed' }
+    ].forEach(function(v) {
+      if (!have[v.key]) vars.push(v);
+    });
+    node.config.variables = vars;
+    if (node.config.visualizationId == null) {
+      node.config.visualizationId = 'palette-button';
+    }
+  }
+
+  function hookPaletteButtonPreviewHtml(node) {
+    var name = String(zoneValue(node, 'name') || zoneValue(node, 'label') || 'Hook').trim();
+    if (name.indexOf('{{') >= 0) name = 'Hook';
+    var emoji = String(zoneValue(node, 'iconEmoji') || '🪝').trim();
+    if (emoji.indexOf('{{') >= 0) emoji = '🪝';
+    var logo = String(zoneValue(node, 'logoUrl') || '').trim();
+    var color = String(zoneValue(node, 'color') || '#7c3aed').trim() || '#7c3aed';
+    var icon = (logo && logo.indexOf('{{') < 0)
+      ? '<img src="' + escapeHtml(logo) + '" alt="" style="width:22px;height:22px;border-radius:6px;object-fit:cover;">'
+      : '<span style="font-size:1.15rem;line-height:1;">' + escapeHtml(emoji) + '</span>';
+    return '<div style="margin-top:8px;padding:8px;background:#020617;border-radius:8px;">'
+      + '<div style="display:flex;align-items:center;gap:8px;padding:6px 10px;background:#0f172a;border:1px dashed #334155;border-radius:10px;max-width:240px;color:#e2e8f0;">'
+      + '<span style="width:8px;height:8px;border-radius:99px;flex-shrink:0;background:' + escapeHtml(color) + ';"></span>'
+      + icon
+      + '<span style="display:flex;flex-direction:column;gap:2px;min-width:0;"><strong style="font-size:.8rem;">'
+      + escapeHtml(name) + '</strong>'
+      + '<span style="font-size:.62rem;letter-spacing:.04em;text-transform:uppercase;color:#c4b5fd;">ss-action</span></span>'
+      + '</div></div>';
+  }
+
+  function hookVisualizationHtml(node) {
+    ensureHookVizFields(node);
+    if (!Array.isArray(state.productionTemplatesByUsage.hook)) {
+      loadProductionTemplates('hook').then(function() { renderConfig(); });
+    }
+    var list = state.productionTemplatesByUsage.hook || [];
+    var current = String((node.config && node.config.visualizationId) || '').trim();
+    var html = '<div class="agent-hook-viz" style="margin-top:14px;padding:10px;border:1px dashed #334155;border-radius:8px;background:#0f172a;">';
+    html += '<h4 style="margin:0 0 6px;color:#e2e8f0;">Visualisation</h4>';
+    html += '<p class="empty" style="margin:0 0 8px;">Gabarit de ce que le hook accroche. <strong style="color:#cbd5e1;">Bouton palette</strong> = logo, nom, couleur. <strong style="color:#cbd5e1;">Page web</strong> = chrome tab / modal / app.</p>';
+    html += '<div class="form-group"><label>Template</label>';
+    html += '<select data-key="visualizationId">';
+    html += '<option value="">— Aucun —</option>';
+    list.forEach(function(t) {
+      html += '<option value="' + escapeHtml(t.id) + '"' + (current === t.id ? ' selected' : '') + '>'
+        + escapeHtml(t.title || t.id) + '</option>';
+    });
+    html += '</select></div>';
+    if (current === 'palette-button') {
+      html += hookPaletteButtonPreviewHtml(node);
+    } else if (current) {
+      var picked = list.filter(function(t) { return t.id === current; })[0];
+      html += '<p class="empty" style="margin:8px 0 0;">'
+        + escapeHtml((picked && picked.description) || current) + '</p>';
+    }
+    html += '</div>';
     return html;
   }
 
@@ -4291,7 +5036,587 @@
 
   function isComposeAction(node) {
     if (!node || node.brickId !== 'action') return false;
+    if (isInsertableAction(node)) return false;
     return !isFunctionAction(node);
+  }
+
+  function nodeCopyFrom(node) {
+    return String((node && node.config && node.config.copyFrom) || '').trim();
+  }
+
+  function copyFromInherits(node, key) {
+    return !!nodeCopyFrom(node);
+  }
+
+  function copySourceSlug(path) {
+    return String(path || '').trim().replace(/\.item$/, '');
+  }
+
+  function copySourceFieldPath(node, path, key) {
+    var p = String(path || '').trim();
+    var k = String(key || '').trim();
+    if (!p || !k) return '';
+    var fields = node
+      ? collectContextFieldsForNode(node.id).filter(function(f) { return f && !f.own; })
+      : [];
+    var aliases = { body: ['body', 'text', 'html'], text: ['text', 'body'], to: ['to', 'destinataire'] };
+    var tries = aliases[k] || [k];
+    function findKey(want) {
+      var nested = p + '.' + want;
+      if (fields.some(function(f) { return f.key === nested; })) return nested;
+      var flat = copySourceSlug(p) + '.' + want;
+      if (flat !== nested && fields.some(function(f) { return f.key === flat; })) return flat;
+      var byLocal = fields.filter(function(f) { return f.localKey === want; })[0];
+      return (byLocal && byLocal.key) || '';
+    }
+    for (var i = 0; i < tries.length; i++) {
+      var hit = findKey(tries[i]);
+      if (hit) return hit;
+    }
+    return p + '.' + k;
+  }
+
+  function copyFieldToken(path, key, node) {
+    var ref = copySourceFieldPath(node, path, key);
+    return ref ? ('{{' + ref + '}}') : '';
+  }
+
+  function looksLikeCopyPath(value, path) {
+    var m = String(value || '').trim();
+    var p = String(path || '').trim();
+    if (!m || !p) return false;
+    if (m === p || m.indexOf(p + '.') === 0) return true;
+    var slug = copySourceSlug(p);
+    return !!slug && slug !== p && (m === slug || m.indexOf(slug + '.') === 0);
+  }
+
+  function looksLikeCopyToken(value, path) {
+    var t = String(value || '').trim();
+    if (!t || !/^\{\{\s*[a-zA-Z0-9_.]+\s*\}\}$/.test(t)) return false;
+    if (!path) return true;
+    return looksLikeCopyPath(t.replace(/^\{\{\s*/, '').replace(/\s*\}\}$/, '').trim(), path);
+  }
+
+  function copySourceDataNode(path) {
+    var slug = String(path || '').split('.')[0];
+    if (!slug) return null;
+    return state.nodes.filter(function(n) {
+      return n && n.brickId === 'data' && ensureNodeSlug(n) === slug;
+    })[0] || null;
+  }
+
+  function copySourceFieldDefs(path) {
+    var src = copySourceDataNode(path);
+    if (!src) return [];
+    return contractFieldsForDataNode(src).filter(function(f) {
+      return f && f.key && f.key !== 'item' && f.key !== 'items' && f.key !== 'itemsCount' && f.key !== 'itemIndex';
+    });
+  }
+
+  function composeTypeForCopiedField(f) {
+    var t = String((f && f.type) || '').toLowerCase();
+    if (t === 'file' || t === 'array') return t === 'file' ? 'file' : 'array';
+    if (t === 'number' || t === 'integer') return 'number';
+    return 'textarea';
+  }
+
+  function ensureCopiedComposeFields(node, path) {
+    if (!isComposeAction(node)) return;
+    ensureComposeZones(node);
+    var have = {};
+    (node.config.variables || []).forEach(function(v) { if (v && v.key) have[v.key] = true; });
+    copySourceFieldDefs(path).forEach(function(f) {
+      if (!f || !f.key || have[f.key]) return;
+      node.config.variables.push({
+        key: f.key,
+        label: f.label || humanizeFieldKey(f.key),
+        type: composeTypeForCopiedField(f),
+        required: false,
+        description: '',
+        placeholder: ''
+      });
+      have[f.key] = true;
+    });
+  }
+
+  function prefillCopyFromFields(node, path, prevPath) {
+    if (!node || !path) return;
+    if (isComposeAction(node)) {
+      ensureCopiedComposeFields(node, path);
+      (node.config.variables || []).forEach(function(v) {
+        if (!v || !v.key) return;
+        var cur = zoneValue(node, v.key);
+        var overwrite = !String(cur || '').trim()
+          || looksLikeCopyToken(cur, prevPath)
+          || looksLikeCopyToken(cur, path)
+          || !prevPath;
+        if (overwrite) setZoneValue(node, v.key, copyFieldToken(path, v.key, node));
+      });
+      wireDownstreamFromAction(node);
+    }
+    if (node.brickId === 'output') {
+      ensureMappingConfig(node);
+      mappingSlotsForNode(node).forEach(function(slot) {
+        if (!slot || !slot.key) return;
+        var mapped = String((node.config.mapping && node.config.mapping[slot.key]) || '').trim();
+        var literal = String((node.config.literals && node.config.literals[slot.key]) || '').trim();
+        if (mapped === '__literal__' && literal) return;
+        var overwrite = !mapped
+          || looksLikeCopyPath(mapped, prevPath)
+          || looksLikeCopyToken(mapped, prevPath)
+          || !prevPath;
+        if (!overwrite) return;
+        node.config.mapping[slot.key] = copySourceFieldPath(node, path, slot.key);
+        if (node.config.literals) delete node.config.literals[slot.key];
+      });
+    }
+  }
+
+  function copyFromOptions(node) {
+    var out = [];
+    var seen = {};
+    function push(key, label) {
+      var k = String(key || '').trim();
+      if (!k || seen[k]) return;
+      seen[k] = true;
+      out.push({ key: k, label: label || k });
+    }
+    getUpstreamNodes(node && node.id).forEach(function(n) {
+      if (!n || n.brickId !== 'data') return;
+      var slug = ensureNodeSlug(n);
+      var name = n.name || slug || 'Entrées';
+      push(slug + '.item', name + ' — ligne courante');
+      push(slug, name);
+    });
+    collectContextFieldsForNode(node && node.id).forEach(function(f) {
+      if (!f || f.own) return;
+      if (f.localKey === 'item' || f.type === 'object') {
+        push(f.key, (f.source ? (f.source + ' · ') : '') + contextFieldLabel(f));
+      }
+    });
+    return out;
+  }
+
+  function copyFromSelectHtml(node) {
+    var opts = copyFromOptions(node);
+    if (!opts.length) return '';
+    var cur = nodeCopyFrom(node);
+    var html = '<div class="form-group agent-copy-from"><label>Copier un objet du flux</label>';
+    html += '<select data-key="copyFrom">';
+    html += '<option value="">— Ne rien recopier —</option>';
+    opts.forEach(function(o) {
+      html += '<option value="' + escapeHtml(o.key) + '"' + (cur === o.key ? ' selected' : '') + '>'
+        + escapeHtml(o.label) + '</option>';
+    });
+    if (cur && !opts.some(function(o) { return o.key === cur; })) {
+      html += '<option value="' + escapeHtml(cur) + '" selected>' + escapeHtml(cur) + '</option>';
+    }
+    html += '</select>';
+    html += '<p class="empty" style="margin-top:6px;">Chaque champ de l’entrée est branché sur la sortie. Réécrivez ensuite seulement le destinataire (valeur fixe).</p></div>';
+    return html;
+  }
+
+  function setCopyFrom(node, path) {
+    if (!node) return;
+    if (!node.config || typeof node.config !== 'object') node.config = {};
+    var next = String(path || '').trim();
+    var prev = String(node.config.copyFrom || '').trim();
+    node.config.copyFrom = next;
+    if (next) delete node.config.copyFromOff;
+    else node.config.copyFromOff = true;
+    if (next && next !== prev) prefillCopyFromFields(node, next, prev);
+  }
+
+  function upstreamMailData(node) {
+    if (!node) return null;
+    return getUpstreamNodes(node.id).filter(function(n) {
+      return n && n.brickId === 'data' && resolveDataProvider(n) === 'mail';
+    })[0] || null;
+  }
+
+  function suggestMailCopyFrom(node) {
+    if (!node || nodeCopyFrom(node) || (node.config && node.config.copyFromOff)) return;
+    var mail = upstreamMailData(node);
+    var data = mail || getUpstreamNodes(node.id).filter(function(n) { return n && n.brickId === 'data'; })[0];
+    if (!data) return;
+    setCopyFrom(node, ensureNodeSlug(data) + '.item');
+  }
+
+  function wireMailOutputFromInput(node) {
+    if (!node || node.brickId !== 'output') return;
+    var mail = upstreamMailData(node);
+    if (!mail) return;
+    if (!node.config || typeof node.config !== 'object') node.config = {};
+    if (!nodeProvider(node) && !String(node.config.connectorId || '').trim()) {
+      node.config.provider = 'mail';
+    }
+    if (nodeProvider(node) !== 'mail') return;
+    suggestMailCopyFrom(node);
+    suggestDefaultMapping(node);
+  }
+
+  function ensureOutputMaps(node) {
+    if (!node) return;
+    if (!node.config || typeof node.config !== 'object') node.config = {};
+    if (!node.config.outputMaps || typeof node.config.outputMaps !== 'object' || Array.isArray(node.config.outputMaps)) {
+      node.config.outputMaps = {};
+    }
+    if (!Array.isArray(node.config.mappedOutputIds)) node.config.mappedOutputIds = [];
+    if (!node.config.activeComposeTab) node.config.activeComposeTab = 'fields';
+  }
+
+  function isMappableOutput(node) {
+    if (!node || node.brickId !== 'output') return false;
+    if (isFlowOutput(node) || isCollectionOutput(node)) return false;
+    return true;
+  }
+
+  function mappableOutgoingOutputs(action) {
+    return outgoingNodes(action, 'output').filter(isMappableOutput);
+  }
+
+  function pruneOutputMaps(node) {
+    if (!node) return;
+    ensureOutputMaps(node);
+    var live = {};
+    mappableOutgoingOutputs(node).forEach(function(o) { live[o.id] = true; });
+    node.config.mappedOutputIds = node.config.mappedOutputIds.filter(function(id) {
+      return !!live[id];
+    });
+    Object.keys(node.config.outputMaps).forEach(function(id) {
+      if (!live[id]) delete node.config.outputMaps[id];
+    });
+    if (node.config.activeComposeTab && node.config.activeComposeTab !== 'fields'
+        && node.config.mappedOutputIds.indexOf(node.config.activeComposeTab) < 0) {
+      node.config.activeComposeTab = 'fields';
+    }
+  }
+
+  function unmappedOutgoingOutputs(action) {
+    pruneOutputMaps(action);
+    var have = {};
+    (action.config.mappedOutputIds || []).forEach(function(id) { have[id] = true; });
+    return mappableOutgoingOutputs(action).filter(function(o) { return !have[o.id]; });
+  }
+
+  function outputMapKindLabel(out) {
+    var p = nodeProvider(out);
+    if (p === 'mail') return 'Mail';
+    if (p === 'facebook') return 'Facebook';
+    if (p === 'webhook' || p === 'http') return 'Webhook';
+    return 'Sortie';
+  }
+
+  function outputMapTabLabel(out) {
+    if (!out) return 'Sortie';
+    var name = String(out.name || '').trim();
+    return name || outputMapKindLabel(out);
+  }
+
+  function outputMapNewLabel(out) {
+    var p = nodeProvider(out);
+    if (p === 'mail') return 'Nouveau mail';
+    if (p === 'facebook') return 'Nouveau commentaire';
+    return 'Nouveau contenu';
+  }
+
+  function outputMapUsesObject(map) {
+    return !!String((map && map.copyFrom) || '').trim();
+  }
+
+  function outputMapOpenKeys(map) {
+    return (map && Array.isArray(map.openKeys)) ? map.openKeys.filter(Boolean) : [];
+  }
+
+  function outputMapHasValue(map, key) {
+    return !!(map && map.values && String(map.values[key] || '').trim());
+  }
+
+  function outputMapVisibleSlots(output, map) {
+    var slots = brickInputContractFields(output);
+    var copy = outputMapUsesObject(map);
+    var extra = {};
+    outputMapOpenKeys(map).forEach(function(k) { extra[k] = true; });
+    return slots.filter(function(slot) {
+      if (!slot || !slot.key) return false;
+      if (outputMapHasValue(map, slot.key)) return true;
+      if (extra[slot.key]) return true;
+      if (!copy && slot.required) return true;
+      return false;
+    });
+  }
+
+  function outputMapHiddenSlots(output, map) {
+    var shown = {};
+    outputMapVisibleSlots(output, map).forEach(function(s) { shown[s.key] = true; });
+    return brickInputContractFields(output).filter(function(s) { return s && s.key && !shown[s.key]; });
+  }
+
+  function outputMapCanRemoveField(map, slot) {
+    if (!slot || !slot.key) return false;
+    if (!outputMapUsesObject(map) && slot.required) return false;
+    return true;
+  }
+
+  function getOutputMap(action, outputId) {
+    ensureOutputMaps(action);
+    return action.config.outputMaps[outputId] || null;
+  }
+
+  function defaultOutputMap() {
+    return {
+      mode: 'write',
+      copyFrom: '',
+      values: {},
+      openKeys: []
+    };
+  }
+
+  function ensureOutputMap(action, output) {
+    if (!action || !output) return null;
+    ensureOutputMaps(action);
+    if (!action.config.outputMaps[output.id]) {
+      action.config.outputMaps[output.id] = defaultOutputMap();
+    }
+    var map = action.config.outputMaps[output.id];
+    if (!map.values || typeof map.values !== 'object') map.values = {};
+    if (!Array.isArray(map.openKeys)) map.openKeys = [];
+    map.mode = outputMapUsesObject(map) ? 'object' : 'write';
+    if (action.config.mappedOutputIds.indexOf(output.id) < 0) {
+      action.config.mappedOutputIds.push(output.id);
+    }
+    return map;
+  }
+
+  function addOutputMap(action, output) {
+    var map = ensureOutputMap(action, output);
+    action.config.activeComposeTab = output.id;
+    action.config.pickingOutput = false;
+    syncOutputMapToNode(action, output);
+    return map;
+  }
+
+  function startMapOutput(action) {
+    if (!action) return false;
+    pruneOutputMaps(action);
+    var available = unmappedOutgoingOutputs(action);
+    var all = mappableOutgoingOutputs(action);
+    if (!all.length) {
+      window.alert('Branchez d’abord une sortie derrière cette action (mail, Facebook…).');
+      return false;
+    }
+    if (!available.length) {
+      window.alert('Toutes les sorties branchées ont déjà un onglet.');
+      return false;
+    }
+    if (available.length === 1) {
+      addOutputMap(action, available[0]);
+      return true;
+    }
+    action.config.pickingOutput = true;
+    return true;
+  }
+
+  function removeOutputMap(action, outputId) {
+    if (!action) return;
+    ensureOutputMaps(action);
+    delete action.config.outputMaps[outputId];
+    action.config.mappedOutputIds = action.config.mappedOutputIds.filter(function(id) { return id !== outputId; });
+    if (action.config.activeComposeTab === outputId) action.config.activeComposeTab = 'fields';
+  }
+
+  function outputMapOwnerAction(output) {
+    if (!output) return null;
+    return getIncomingNodes(output.id).filter(function(n) {
+      return isComposeAction(n) && n.config && (n.config.mappedOutputIds || []).indexOf(output.id) >= 0;
+    })[0] || null;
+  }
+
+  function actionOwnsOutputMap(output) {
+    return !!outputMapOwnerAction(output);
+  }
+
+  function syncOutputMapToNode(action, output) {
+    var map = getOutputMap(action, output && output.id);
+    if (!map || !output) return;
+    if (!output.config || typeof output.config !== 'object') output.config = {};
+    ensureMappingConfig(output);
+    var slots = brickInputContractFields(output);
+    if (outputMapUsesObject(map)) {
+      output.config.copyFrom = String(map.copyFrom || '').trim();
+      delete output.config.copyFromOff;
+    } else {
+      output.config.copyFrom = '';
+      output.config.copyFromOff = true;
+    }
+    slots.forEach(function(slot) {
+      if (!slot || !slot.key) return;
+      var ov = map.values && map.values[slot.key] != null ? String(map.values[slot.key]) : '';
+      if (ov.trim()) {
+        output.config.mapping[slot.key] = '__literal__';
+        output.config.literals[slot.key] = ov;
+      } else {
+        delete output.config.mapping[slot.key];
+        if (output.config.literals) delete output.config.literals[slot.key];
+      }
+    });
+  }
+
+  function setOutputMapValue(action, output, key, value) {
+    var map = ensureOutputMap(action, output);
+    if (!map.values || typeof map.values !== 'object') map.values = {};
+    map.values[key] = value;
+    syncOutputMapToNode(action, output);
+  }
+
+  function setOutputMapCopyFrom(action, output, path) {
+    var map = ensureOutputMap(action, output);
+    map.copyFrom = String(path || '').trim();
+    map.mode = outputMapUsesObject(map) ? 'object' : 'write';
+    map.openKeys = outputMapOpenKeys(map).filter(function(k) {
+      return outputMapHasValue(map, k);
+    });
+    syncOutputMapToNode(action, output);
+  }
+
+  function addOutputMapSlot(action, output, key) {
+    var map = ensureOutputMap(action, output);
+    var k = String(key || '').trim();
+    if (!k) return;
+    if (map.openKeys.indexOf(k) < 0) map.openKeys.push(k);
+    syncOutputMapToNode(action, output);
+  }
+
+  function removeOutputMapSlot(action, output, key) {
+    var map = ensureOutputMap(action, output);
+    var k = String(key || '').trim();
+    if (!k) return;
+    map.openKeys = outputMapOpenKeys(map).filter(function(x) { return x !== k; });
+    if (map.values) delete map.values[k];
+    syncOutputMapToNode(action, output);
+  }
+
+  function outputMapFieldHtml(output, slot, map) {
+    var key = slot.key;
+    var val = (map.values && map.values[key] != null) ? String(map.values[key]) : '';
+    var type = String(slot.type || '').toLowerCase();
+    var isArea = type === 'textarea' || type === 'file' || type === 'array'
+      || key === 'body' || key === 'message';
+    var ph = outputMapUsesObject(map)
+      ? 'Laissez vide pour garder la valeur de l’objet'
+      : (slot.label || key);
+    var html = '<div class="agent-compose-field-block agent-output-map-field" data-output-field="'
+      + escapeHtml(key) + '">';
+    html += '<div class="agent-compose-field-head"><label>' + escapeHtml(slot.label || key);
+    if (slot.required && !outputMapUsesObject(map)) html += ' <span class="agent-zone-preview-req">*</span>';
+    html += '</label>';
+    if (outputMapUsesObject(map)) {
+      html += String(val).trim()
+        ? '<span class="agent-output-map-badge is-override">Écrit ici</span>'
+        : '<span class="agent-output-map-badge">Surcharge</span>';
+    }
+    if (outputMapCanRemoveField(map, slot)) {
+      html += '<button type="button" class="agent-compose-zone-remove" data-remove-output-slot="'
+        + escapeHtml(key) + '" title="Retirer">×</button>';
+    }
+    html += '</div>';
+    if (isArea) {
+      html += '<textarea data-output-map-key="' + escapeHtml(key) + '" rows="'
+        + (key === 'body' || key === 'message' ? '6' : '3')
+        + '" class="form-control agent-compose-editor" placeholder="'
+        + escapeHtml(ph) + '">' + escapeHtml(val) + '</textarea>';
+    } else {
+      html += '<input type="text" data-output-map-key="' + escapeHtml(key)
+        + '" class="form-control agent-compose-editor" placeholder="'
+        + escapeHtml(ph) + '" value="' + escapeHtml(val) + '">';
+    }
+    html += '</div>';
+    return html;
+  }
+
+  function outputMapCopyFromHtml(action, output, map) {
+    var opts = copyFromOptions(action);
+    var cur = String((map && map.copyFrom) || '').trim();
+    var html = '<div class="form-group agent-copy-from"><label>Contenu</label>';
+    html += '<select data-output-copy-from>';
+    html += '<option value="">' + escapeHtml(outputMapNewLabel(output)) + '</option>';
+    opts.forEach(function(o) {
+      html += '<option value="' + escapeHtml(o.key) + '"' + (cur === o.key ? ' selected' : '') + '>'
+        + escapeHtml(o.label) + '</option>';
+    });
+    if (cur && !opts.some(function(o) { return o.key === cur; })) {
+      html += '<option value="' + escapeHtml(cur) + '" selected>' + escapeHtml(cur) + '</option>';
+    }
+    html += '</select>';
+    if (cur) {
+      html += '<p class="empty" style="margin-top:6px;">L’objet est repris tel quel. Surchargez seulement ce que vous changez.</p>';
+    } else {
+      html += '<p class="empty" style="margin-top:6px;">Champs obligatoires. Ajoutez les autres si besoin.</p>';
+    }
+    html += '</div>';
+    return html;
+  }
+
+  function outputMapAddSlotHtml(output, map) {
+    var hidden = outputMapHiddenSlots(output, map);
+    if (!hidden.length) return '';
+    var label = outputMapUsesObject(map) ? 'Surcharger un champ' : 'Ajouter un champ';
+    var html = '<div class="form-group agent-copy-from agent-output-map-add">';
+    html += '<select data-add-output-slot>';
+    html += '<option value="">' + escapeHtml(label) + '…</option>';
+    hidden.forEach(function(slot) {
+      html += '<option value="' + escapeHtml(slot.key) + '">'
+        + escapeHtml(slot.label || slot.key) + '</option>';
+    });
+    html += '</select></div>';
+    return html;
+  }
+
+  function outputMapEditorHtml(action, output) {
+    var map = ensureOutputMap(action, output);
+    var slots = brickInputContractFields(output);
+    var visible = outputMapVisibleSlots(output, map);
+    var html = '<div class="agent-output-map" data-output-map="' + escapeHtml(output.id) + '">';
+    html += outputMapCopyFromHtml(action, output, map);
+    if (!slots.length) {
+      html += '<p class="empty">Cette sortie n’a pas encore de contrat (choisissez mail, Facebook… sur le bloc Sortie).</p>';
+    }
+    visible.forEach(function(slot) {
+      html += outputMapFieldHtml(output, slot, map);
+    });
+    html += outputMapAddSlotHtml(output, map);
+    html += '</div>';
+    return html;
+  }
+
+  function composeTabsHtml(node) {
+    pruneOutputMaps(node);
+    var ids = node.config.mappedOutputIds || [];
+    var tab = node.config.activeComposeTab || 'fields';
+    var html = '<div class="agent-compose-tabs">';
+    html += '<button type="button" class="agent-compose-tab' + (tab === 'fields' ? ' is-active' : '')
+      + '" data-compose-tab="fields">Champs</button>';
+    ids.forEach(function(id) {
+      var out = state.nodes.find(function(n) { return n.id === id; });
+      html += '<button type="button" class="agent-compose-tab' + (tab === id ? ' is-active' : '')
+        + '" data-compose-tab="' + escapeHtml(id) + '">'
+        + escapeHtml(outputMapTabLabel(out)) + '</button>';
+    });
+    html += '</div>';
+    return html;
+  }
+
+  function outputPickerHtml(node) {
+    var available = unmappedOutgoingOutputs(node);
+    var html = '<div class="agent-output-picker">';
+    html += '<p class="empty" style="margin:0 0 8px;">Quelle sortie mapper ?</p>';
+    available.forEach(function(out) {
+      html += '<button type="button" class="agent-compose-chip" data-pick-output="'
+        + escapeHtml(out.id) + '">' + escapeHtml(outputMapTabLabel(out)) + '</button>';
+    });
+    html += '<button type="button" class="agent-compose-chip" data-cancel-pick-output>Annuler</button>';
+    html += '</div>';
+    return html;
   }
 
   function nodeFollowedByIa(node) {
@@ -4304,16 +5629,33 @@
 
   function nodeFamilyCaption(node, brick) {
     if (node.brickId === 'trigger' || node.kind === 'trigger') return 'Déclencher';
-    if (node.brickId === 'data') return 'Entrées · tableau';
+    if (node.brickId === 'data') {
+      var dataCap = String((node.config && node.config.provider) || '').toLowerCase();
+      if (dataCap === 'flow' || dataCap === 'flux') return 'Entrées · flux parent';
+      return 'Entrées · tableau';
+    }
     if (isLoopNode(node)) return 'Boucle';
     if (isConditionNode(node) || (brick && brick.category === 'logic')) return 'Condition';
     if (node.brickId === 'validation' || (brick && brick.interaction === 'human')) return 'Sous-agent';
+    if (node.brickId === 'visualization') {
+      var vt = String((node.config && node.config.vizType) || 'select');
+      if (vt === 'select') return 'Visualisation · liste';
+      if (vt === 'page') return 'Visualisation · page';
+      return 'Visualisation';
+    }
     if (node.brickId === 'output') return 'Sortie';
     if (node.brickId === 'ia') return 'IA · exécute le prompt';
+    if (isInsertableAction(node)) return 'Action · sous-action';
+    if (isHookAction(node) || isHookComposeAction(node)) return 'Action · surface';
     if (isFunctionAction(node)) return 'Action';
     if (isComposeAction(node)) {
+      pruneOutputMaps(node);
+      var maps = (node.config.mappedOutputIds || []).length;
       var n = ((node.config && node.config.variables) || []).length;
-      return n ? ('Action · ' + n + ' champ' + (n > 1 ? 's' : '')) : 'Action · champs';
+      var bits = [];
+      if (maps) bits.push(maps + ' sortie' + (maps > 1 ? 's' : ''));
+      if (n) bits.push(n + ' champ' + (n > 1 ? 's' : ''));
+      return bits.length ? ('Action · ' + bits.join(' + ')) : 'Action · champs';
     }
     return 'Action';
   }
@@ -4361,6 +5703,18 @@
         variables: [
           { key: 'message', label: 'Message', type: 'textarea', required: true, placeholder: '{{response}}' }
         ]
+      },
+      hook: {
+        id: 'hook',
+        label: 'Surface hook',
+        variables: [
+          { key: 'surface', label: 'Surface', type: 'text', required: true, placeholder: '{{liste_hooks.surface}}' },
+          { key: 'label', label: 'Libellé', type: 'text', placeholder: '{{liste_hooks.label}}' },
+          { key: 'name', label: 'Nom du bouton', type: 'text', placeholder: '{{liste_hooks.label}}' },
+          { key: 'iconEmoji', label: 'Icône', type: 'text', placeholder: '🪝' },
+          { key: 'logoUrl', label: 'Logo (URL)', type: 'text', placeholder: 'https://…' },
+          { key: 'color', label: 'Couleur', type: 'text', placeholder: '#7c3aed' }
+        ]
       }
     };
   }
@@ -4373,6 +5727,8 @@
   }
 
   function suggestZonePresetId(node) {
+    var incoming = getIncomingNodes(node && node.id);
+    if (incoming.some(isHookCollectionNode)) return 'hook';
     var nextIds = node ? nodeNextIds(node) : [];
     for (var i = 0; i < nextIds.length; i++) {
       var next = state.nodes.find(function(n) { return n.id === nextIds[i]; });
@@ -4480,6 +5836,7 @@
     if (presetId === 'output.mail') return 'Champs du mail';
     if (presetId === 'output.facebook') return 'Champs Facebook';
     if (presetId === 'ia') return 'Champs IA';
+    if (presetId === 'hook') return 'Surface hook';
     return (preset && preset.label) || presetId || 'Champs';
   }
 
@@ -4512,6 +5869,8 @@
 
   function presetFillValue(node, presetId, field) {
     if (!field) return '';
+    var copy = nodeCopyFrom(node);
+    if (copy) return copyFieldToken(copy, field.key, node);
     var slug = upstreamDataSlug(node);
     if (presetId === 'output.mail.digest' && field.key === 'body') {
       return slug ? digestMailSnippet(slug) : '';
@@ -4522,8 +5881,9 @@
     return fillFromPlaceholder(node, field.placeholder);
   }
 
-  function composeInputPlaceholder(field) {
+  function composeInputPlaceholder(field, node) {
     var k = String((field && field.key) || '');
+    if (node && copyFromInherits(node, k)) return 'Valeur de l’objet — modifiable';
     var hints = {
       to: 'Adresse e-mail',
       subject: 'Objet du mail',
@@ -4532,7 +5892,9 @@
       message: 'Texte du message',
       prompt: 'Instruction pour le modèle',
       context: 'Cadre, ton, règles',
-      rag: 'Extraits ou connaissances'
+      rag: 'Extraits ou connaissances',
+      surface: 'tab, modal, app…',
+      label: 'Nom de la surface'
     };
     if (hints[k]) return hints[k];
     var ph = String((field && field.placeholder) || '');
@@ -4550,15 +5912,21 @@
     ((actionNode.config && actionNode.config.variables) || []).forEach(function(v) {
       if (v && v.key) keys[v.key] = true;
     });
+    if (isFlowOutput(actionNode) || actionNode.brickId === 'ia') {
+      keys.html = true;
+      keys.css = true;
+    }
     var slotKeys = mappingSlotsForNode(target).map(function(s) { return s && s.key; }).filter(Boolean);
     if (!slotKeys.length) {
       slotKeys = Object.keys(keys).filter(function(k) {
         return k === 'to' || k === 'subject' || k === 'body' || k === 'attachments' || k === 'message'
-          || k === 'prompt' || k === 'context' || k === 'rag';
+          || k === 'prompt' || k === 'context' || k === 'rag'
+          || k === 'html' || k === 'css';
       });
     }
     slotKeys.forEach(function(key) {
       if (!keys[key] || overlay[key]) return;
+      if (isHookAction(target) && key === 'surface') return;
       var mapped = String((target.config.mapping && target.config.mapping[key]) || '').trim();
       var literal = String((target.config.literals && target.config.literals[key]) || '').trim();
       if (mapped === '__literal__' && literal) return;
@@ -4576,10 +5944,18 @@
         if (preset === 'output.facebook') out.config.provider = 'facebook';
         else if (preset.indexOf('output.mail') === 0) out.config.provider = 'mail';
       }
+      pruneOutputMaps(actionNode);
+      if ((actionNode.config.mappedOutputIds || []).indexOf(out.id) >= 0) {
+        syncOutputMapToNode(actionNode, out);
+        return;
+      }
       wireNodeMappingFromAction(actionNode, out);
     });
     outgoingNodes(actionNode, 'ia').forEach(function(ia) {
       wireNodeMappingFromAction(actionNode, ia);
+    });
+    outgoingNodes(actionNode, 'action').forEach(function(act) {
+      if (isHookAction(act)) wireNodeMappingFromAction(actionNode, act);
     });
   }
 
@@ -4661,10 +6037,92 @@
     }
   }
 
+  function schemaSourceNode(node) {
+    if (!node || !node.config) return null;
+    var from = String(node.config.fieldsFrom || '').trim();
+    if (!from) {
+      var upstream = typeof getUpstreamNodes === 'function' ? getUpstreamNodes(node.id) : [];
+      var data = (upstream || []).find(function(n) {
+        return n && n.brickId === 'data' && n.config
+          && (n.config.schemaSlug || n.slug === 'collection_design');
+      });
+      if (data && data.slug) {
+        node.config.fieldsFrom = String(data.slug);
+        from = node.config.fieldsFrom;
+      }
+    }
+    if (!from) return null;
+    return state.nodes.find(function(n) {
+      return String(n.slug || '') === from || String(n.id || '') === from;
+    }) || null;
+  }
+
+  function composeTypeFromSchemaRow(type) {
+    var t = String(type || 'text').toLowerCase();
+    if (t === 'textarea') return 'textarea';
+    if (t === 'number') return 'number';
+    if (t === 'array' || t === 'file') return t;
+    return 'text';
+  }
+
+  function ensureComposeFromSchema(node) {
+    if (!node || !node.config) return;
+    var source = schemaSourceNode(node);
+    if (!source || !source.config) return;
+    var rows = Array.isArray(source.config.modelRows) ? source.config.modelRows : [];
+    if (!rows.length) {
+      if (source.config.schemaSlug && !source._schemaFieldsLoading) {
+        source._schemaFieldsLoading = true;
+        ensureAtelierCollectionForNode(source).then(function(pack) {
+          source._schemaFieldsLoading = false;
+          var contract = pack && (pack.fieldContract || pack.fields);
+          if (!Array.isArray(contract) || !contract.length) return;
+          source.config.modelRows = contract.map(function(f) {
+            return { name: f.name || f.key, type: f.type || 'text', label: f.label || f.name || f.key };
+          });
+          source.config.modelFields = [
+            { key: 'name', label: 'Nom', type: 'text' },
+            { key: 'type', label: 'Type', type: 'text' },
+            { key: 'label', label: 'Libellé', type: 'text' }
+          ];
+          renderConfig();
+        });
+      }
+      return;
+    }
+    if (!Array.isArray(node.config.variables)) node.config.variables = [];
+    var byKey = {};
+    node.config.variables.forEach(function(v) {
+      if (v && v.key) byKey[v.key] = v;
+    });
+    var merged = [];
+    rows.forEach(function(r) {
+      var key = String((r && (r.name || r.key)) || '').trim();
+      if (!key) return;
+      var next = {
+        key: key,
+        label: String((r && r.label) || key),
+        type: composeTypeFromSchemaRow(r.type),
+        required: !!(r && r.required),
+        description: String((r && r.description) || ''),
+        placeholder: String((r && r.placeholder) || '')
+      };
+      if (byKey[key]) {
+        next = Object.assign({}, next, byKey[key], { key: key, type: byKey[key].type || next.type });
+        delete byKey[key];
+      }
+      merged.push(next);
+    });
+    Object.keys(byKey).forEach(function(k) { merged.push(byKey[k]); });
+    node.config.variables = merged;
+    if (!node.config.values || typeof node.config.values !== 'object') node.config.values = {};
+  }
+
   function ensureComposeZones(node) {
     ensureActionConfig(node);
     if (!node.config.values || typeof node.config.values !== 'object') node.config.values = {};
     if (!Array.isArray(node.config.variables)) node.config.variables = [];
+    ensureComposeFromSchema(node);
     node.config.variables.forEach(function(v) {
       if (v) v.type = normalizeComposeFieldType(v.type);
     });
@@ -4733,6 +6191,7 @@
       if (node.config.kind === 'ia') delete node.config.kind;
     }
     if (node.config.writeMode !== 'replace') node.config.writeMode = 'merge';
+    if (id === 'ia.compose' || id.indexOf('ia.') === 0) ensureOutputMaps(node);
   }
 
   function actionNodeSummary(config) {
@@ -4741,8 +6200,9 @@
     if (def && def.label && id && id.indexOf('ia.') !== 0) return def.label;
     var vars = (config && Array.isArray(config.variables)) ? config.variables : [];
     if (vars.length) {
+      var n = vars.length;
       return vars.map(function(v) { return v.label || v.key; }).slice(0, 3).join(', ')
-        + (vars.length > 3 ? '…' : '');
+        + (n > 3 ? '…' : '');
     }
     return 'Champs';
   }
@@ -4833,7 +6293,9 @@
       insert: '{{' + f.key + '}}',
       code: '{{' + f.key + '}}',
       hint: f.hint || describeContextField(f.key, f),
-      numeric: isNumericContextField(f)
+      numeric: isNumericContextField(f),
+      dropKey: f.own ? '' : (f.key || ''),
+      own: !!f.own
     };
   }
 
@@ -4868,7 +6330,8 @@
         hint: 'Nombre de lignes du tableau « ' + name + ' ».',
         numeric: true,
         mathOnly: true,
-        brickId: 'data'
+        brickId: 'data',
+        dropKey: slug + '.length'
       });
     });
     return { fields: fields, groups: groups, order: order };
@@ -4898,7 +6361,7 @@
     return html;
   }
 
-  function composeSourceGroupsHtml(pack, numericOnly) {
+  function composeSourceGroupsHtml(pack, numericOnly, node) {
     var html = '';
     var any = false;
     pack.order.forEach(function(source) {
@@ -4908,14 +6371,14 @@
       });
       if (!items.length) return;
       any = true;
-      html += '<div class="agent-compose-source is-open">';
+      html += '<div class="agent-compose-source">';
       html += '<div class="agent-compose-source-toggle">'
         + '<span class="agent-compose-source-name">' + escapeHtml(source) + '</span>'
         + '<span class="agent-compose-source-meta">' + items.length + '</span>'
-        + '<button type="button" class="agent-compose-source-btn" data-toggle-source>Replier</button>'
+        + '<button type="button" class="agent-compose-source-btn" data-toggle-source>Ouvrir</button>'
         + '</div>';
       html += '<div class="agent-compose-ns-fields">';
-      html += composeFieldButtonsHtml(items);
+      html += composeFieldButtonsHtml(items, node);
       html += '</div>';
       html += '</div>';
     });
@@ -5058,7 +6521,9 @@
           + (useIndex
             ? (' Dans {{#' + slug + '[i]}}, i est l’index. Vous pouvez le changer (0, 1, 2…).')
             : (' Champ du bloc « ' + slug + ' ».')),
-        type: f.type || ''
+        type: f.type || '',
+        dropKey: slug + '.' + local,
+        slug: slug
       });
     }
     if (Array.isArray(nodeOrFields)) {
@@ -5084,7 +6549,7 @@
         hint: 'Nom de la ligne. Dans {{#' + slug + '[i]}}.'
       });
     }
-    return composeFieldButtonsHtml(fields);
+    return composeFieldButtonsHtml(fields, opts.node);
   }
 
   function envelopeExtrasHtml(slug, opts) {
@@ -5096,25 +6561,29 @@
         snippet: 'ns-loop',
         nsSlug: slug,
         code: '{{#' + slug + '[i]}} … {{/' + slug + '}}',
-        hint: 'Insère {{#' + slug + '[i]}} … {{/' + slug + '}}. Changez i (0, 1, 2…) ou gardez i pour parcourir.'
+        hint: 'Insère {{#' + slug + '[i]}} … {{/' + slug + '}}. Changez i (0, 1, 2…) ou gardez i pour parcourir.',
+        dropKey: slug
       },
       {
         key: slug + '.item',
         label: 'Item (ligne courante / même index)',
         insert: '{{' + slug + '.item}}',
-        hint: 'Dans {{#donnees}}, c’est la ligne n° itemIndex de ce tableau (mail 2 → 2e intention). Hors boucle : première ligne.'
+        hint: 'Dans {{#donnees}}, c’est la ligne n° itemIndex de ce tableau (mail 2 → 2e intention). Hors boucle : première ligne.',
+        dropKey: slug + '.item'
       },
       {
         key: slug + '.items',
         label: 'Tableau (toutes les lignes)',
         insert: '{{' + slug + '.items}}',
-        hint: describeContextField('items')
+        hint: describeContextField('items'),
+        dropKey: slug + '.items'
       },
       {
         key: slug + '.length',
         label: 'Nombre de lignes',
         insert: '{{' + slug + '.length}}',
-        hint: describeContextField('itemsCount')
+        hint: describeContextField('itemsCount'),
+        dropKey: slug + '.length'
       },
       {
         key: 'itemIndex',
@@ -5148,10 +6617,11 @@
         snippet: 'ns-loop',
         nsSlug: 'donnees',
         code: '{{#donnees[i]}} … {{/donnees}}',
-        hint: 'Alias global : {{#donnees[i]}} … {{/donnees}}.'
+        hint: 'Alias global : {{#donnees[i]}} … {{/donnees}}.',
+        dropKey: 'donnees'
       });
     }
-    return composeFieldButtonsHtml(items);
+    return composeFieldButtonsHtml(items, opts.node);
   }
 
   function namespaceGroupTitle(slug, name) {
@@ -5161,14 +6631,14 @@
     return n || s || 'Flux';
   }
 
-  function namespaceGroupHtml(slug, name, fieldsHtml, extrasHtml) {
+  function namespaceGroupHtml(slug, name, fieldsHtml, extrasHtml, node) {
     if (!fieldsHtml && !extrasHtml) return '';
-    if (isExpertView()) return tableLoopPickerHtml(slug, name, fieldsHtml, extrasHtml);
+    if (isExpertView()) return tableLoopPickerHtml(slug, name, fieldsHtml, extrasHtml, node);
     var title = namespaceGroupTitle(slug, name);
-    var html = '<div class="agent-compose-source is-open" data-item-picker="1">';
+    var html = '<div class="agent-compose-source" data-item-picker="1">';
     html += '<div class="agent-compose-source-toggle">';
     html += '<span class="agent-compose-source-name">' + escapeHtml(title) + '</span>';
-    html += '<button type="button" class="agent-compose-source-btn" data-toggle-source>Replier</button>';
+    html += '<button type="button" class="agent-compose-source-btn" data-toggle-source>Ouvrir</button>';
     html += '</div>';
     html += '<div class="agent-compose-ns-fields">';
     html += fieldsHtml || '';
@@ -5177,19 +6647,19 @@
     return html;
   }
 
-  function tableLoopPickerHtml(slug, name, fieldsHtml, extrasHtml) {
+  function tableLoopPickerHtml(slug, name, fieldsHtml, extrasHtml, node) {
     var s = String(slug || 'donnees').trim() || 'donnees';
     var label = (name && name !== s) ? (name + ' · ' + s) : (name || s);
-    var html = '<div class="agent-compose-source is-open agent-compose-source--table" data-item-picker="1">';
+    var html = '<div class="agent-compose-source agent-compose-source--table" data-item-picker="1">';
     html += '<div class="agent-compose-source-head">';
     html += '<button type="button" class="agent-compose-source-toggle agent-compose-source-toggle--insert"'
       + ' data-insert-snippet="ns-loop" data-ns-slug="' + escapeHtml(s) + '"'
       + ' data-hint="Cliquez le groupe pour insérer {{#' + s + '[i]}} … {{/' + s + '}}. Changez i si besoin.">'
       + '<span class="agent-compose-source-badge">' + (s === 'donnees' ? 'global' : 'tableau') + '</span>'
       + '<span class="agent-compose-source-name">' + escapeHtml(label) + '</span>'
-      + '<code class="agent-compose-source-loop">{{#' + escapeHtml(s) + '[i]}} … {{/' + escapeHtml(s) + '}}</code>'
+      + '<code class="agent-compose-source-loop">{{#' + escapeHtml(s) + '[i]}} … {{/' + s + '}}</code>'
       + '</button>';
-    html += '<button type="button" class="agent-compose-source-btn" data-toggle-source>Replier</button>';
+    html += '<button type="button" class="agent-compose-source-btn" data-toggle-source>Ouvrir</button>';
     html += '</div>';
     if (extrasHtml) html += extrasHtml;
     html += '<div class="agent-compose-loop">';
@@ -5222,8 +6692,9 @@
         html += tableLoopPickerHtml(
           'donnees',
           'Entrées',
-          tableRowFieldsHtml(mergedDataRowFields(dataNodes), 'donnees'),
-          envelopeExtrasHtml('donnees')
+          tableRowFieldsHtml(mergedDataRowFields(dataNodes), 'donnees', { node: node }),
+          envelopeExtrasHtml('donnees', { node: node }),
+          node
         );
       }
     }
@@ -5261,7 +6732,7 @@
     if (!rowFields.length) return '';
     var slug = upstreamDataSlug(node);
     if (!slug) return '';
-    return namespaceGroupHtml(slug, 'Entrées', tableRowFieldsHtml(rowFields, slug), isExpertView() ? envelopeExtrasHtml(slug) : '');
+    return namespaceGroupHtml(slug, 'Entrées', tableRowFieldsHtml(rowFields, slug, { node: node }), isExpertView() ? envelopeExtrasHtml(slug, { node: node }) : '', node);
   }
 
   function composeSidebarHtml(pack, node) {
@@ -5297,72 +6768,94 @@
 
   function actionComposeEditorHtml(node) {
     ensureComposeZones(node);
+    pruneOutputMaps(node);
     var pack = composeInsertGroups(node);
     var vars = node.config.variables || [];
     var presetId = suggestZonePresetId(node);
     var preset = getZonePreset(presetId);
+    var tab = node.config.activeComposeTab || 'fields';
+    var tabOutput = tab !== 'fields' ? state.nodes.find(function(n) { return n.id === tab; }) : null;
+    if (tab !== 'fields' && !tabOutput) {
+      tab = 'fields';
+      node.config.activeComposeTab = 'fields';
+    }
     var html = '<div class="agent-compose" data-side-tab="flux">';
     html += '<div class="agent-compose-main">';
-    var dataSlug = upstreamDataSlug(node) || 'donnees';
-    if (isExpertView()) {
-      html += '<p class="empty" style="margin:0 0 10px;">Chaque champ créé est disponible ici en <code>{{cle}}</code>, et pour les blocs suivants en <code>{{'
-        + escapeHtml(ensureNodeSlug(node)) + '.cle}}</code>. Un tableau : cliquez le groupe <code>{{#donnees}} … {{/donnees}}</code>'
-        + (dataSlug && dataSlug !== 'donnees' ? ' (ou <code>{{#' + escapeHtml(dataSlug) + '}}</code>)' : '')
-        + ', puis un champ à l’intérieur.</p>';
-    } else if (presetId === 'output.mail') {
-      html += '<p class="empty" style="margin:0 0 10px;">Cliquez « Champs du mail » pour préparer destinataire, sujet, corps et pièces jointes. Le bloc mail suivant les envoie.</p>';
+    html += composeTabsHtml(node);
+    if (node.config.pickingOutput) {
+      html += outputPickerHtml(node);
     }
     html += '<div class="agent-compose-toolbar">';
-    html += '<button type="button" class="agent-compose-chip" data-add-zone="1">+ Champ</button>';
-    if (preset) {
-      html += '<button type="button" class="agent-compose-chip" data-apply-zone-preset="' + escapeHtml(presetId) + '">'
-        + escapeHtml(presetChipLabel(presetId, preset)) + '</button>';
-    }
-    if (isExpertView() && presetId === 'output.mail') {
-      html += '<button type="button" class="agent-compose-chip" data-fill-mail-digest="1" title="Un seul mail qui liste toutes les lignes reçues">Lister les mails dans le corps</button>';
+    html += '<button type="button" class="agent-compose-chip" data-map-an-output="1">Mapper une sortie</button>';
+    if (tab === 'fields') {
+      html += '<button type="button" class="agent-compose-chip" data-add-zone="1">+ Champ</button>';
+      if (preset && presetId !== 'output.mail' && presetId !== 'output.mail.digest' && presetId !== 'output.facebook') {
+        html += '<button type="button" class="agent-compose-chip" data-apply-zone-preset="' + escapeHtml(presetId) + '">'
+          + escapeHtml(presetChipLabel(presetId, preset)) + '</button>';
+      }
+      if (isExpertView() && presetId === 'output.mail') {
+        html += '<button type="button" class="agent-compose-chip" data-fill-mail-digest="1" title="Un seul mail qui liste toutes les lignes reçues">Lister les mails dans le corps</button>';
+      }
+    } else {
+      html += '<button type="button" class="agent-compose-chip" data-remove-output-map="'
+        + escapeHtml(tab) + '">Retirer cet onglet</button>';
     }
     html += '</div>';
-    if (!vars.length) {
-      html += '<div class="agent-compose-empty">Aucun champ. Ajoutez-en avec + Champ'
-        + (preset ? ', ou « ' + escapeHtml(presetChipLabel(presetId, preset)) + ' »' : '')
-        + '.</div>';
-    }
-    vars.forEach(function(v) {
-      var type = normalizeComposeFieldType(v.type);
-      var isArea = type === 'textarea' || type === 'array';
-      var contractField = actionContractField(node, v.key);
-      var requiredLocked = !!contractField;
-      var required = requiredLocked ? !!contractField.required : !!v.required;
-      html += '<div class="agent-compose-field-block" data-field-block="' + escapeHtml(v.key) + '" data-field-type="' + escapeHtml(type) + '">';
-      html += '<div class="agent-compose-field-head">'
-        + '<input type="text" class="agent-compose-name" data-field-label="' + escapeHtml(v.key) + '" value="'
-        + escapeHtml(v.label || v.key) + '" placeholder="Nom du champ" title="Nom du champ">'
-        + '<code data-field-slug="' + escapeHtml(v.key) + '">{{' + escapeHtml(ensureNodeSlug(node) + '.' + v.key) + '}}</code>'
-        + fieldTypeSelectHtml(type, 'data-set-field-type', v.key);
-      if (requiredLocked) {
-        if (required) {
-          html += '<span class="agent-compose-req is-locked" title="Imposé par le contrat du bloc suivant">Obligatoire</span>';
+    if (tabOutput) {
+      html += outputMapEditorHtml(node, tabOutput);
+    } else {
+      var dataSlug = upstreamDataSlug(node) || 'donnees';
+      if (isExpertView()) {
+        html += '<p class="empty" style="margin:0 0 10px;">Champs libres de l’action, disponibles ensuite en <code>{{'
+          + escapeHtml(ensureNodeSlug(node)) + '.cle}}</code>. Les sorties ont leurs propres onglets.</p>';
+      } else {
+        html += '<p class="empty" style="margin:0 0 10px;">Champs hors sorties. Pour un mail ou un commentaire, utilisez <strong>Mapper une sortie</strong>.</p>';
+      }
+      if (!vars.length) {
+        html += '<div class="agent-compose-empty">Aucun champ libre. Ajoutez-en avec + Champ'
+          + (preset && presetId !== 'output.mail' && presetId !== 'output.facebook'
+            ? ', ou « ' + escapeHtml(presetChipLabel(presetId, preset)) + ' »' : '')
+          + '.</div>';
+      }
+      vars.forEach(function(v) {
+        var type = normalizeComposeFieldType(v.type);
+        var isArea = type === 'textarea' || type === 'array';
+        var contractField = actionContractField(node, v.key);
+        var requiredLocked = !!contractField;
+        var required = requiredLocked ? !!contractField.required : !!v.required;
+        html += '<div class="agent-compose-field-block" data-field-block="' + escapeHtml(v.key) + '" data-field-type="' + escapeHtml(type) + '">';
+        html += '<div class="agent-compose-field-head">'
+          + '<input type="text" class="agent-compose-name" data-field-label="' + escapeHtml(v.key) + '" value="'
+          + escapeHtml(v.label || v.key) + '" placeholder="Nom du champ" title="Nom du champ">'
+          + '<code data-field-slug="' + escapeHtml(v.key) + '">{{' + escapeHtml(ensureNodeSlug(node) + '.' + v.key) + '}}</code>'
+          + fieldTypeSelectHtml(type, 'data-set-field-type', v.key);
+        html += '<div class="agent-compose-flags">';
+        if (requiredLocked) {
+          if (required) {
+            html += '<span class="agent-compose-req is-locked" title="Imposé par le contrat du bloc suivant">Obligatoire</span>';
+          }
+        } else {
+          html += '<label class="agent-compose-req agent-check" title="Champ obligatoire">'
+            + '<input type="checkbox" data-set-field-required="' + escapeHtml(v.key) + '"' + (required ? ' checked' : '') + '>'
+            + '<span>Obligatoire</span></label>';
         }
-      } else {
-        html += '<label class="agent-compose-req" title="Champ obligatoire">'
-          + '<input type="checkbox" data-set-field-required="' + escapeHtml(v.key) + '"' + (required ? ' checked' : '') + '>'
-          + 'Obligatoire</label>';
-      }
-      html += '<button type="button" class="agent-compose-zone-remove" data-remove-zone="' + escapeHtml(v.key) + '" title="Retirer">×</button>'
-        + '</div>';
-      if (v.description) html += '<p class="empty" style="margin:0 0 6px;">' + escapeHtml(v.description) + '</p>';
-      if (type === 'number') {
-        html += '<input type="text" data-field-key="' + escapeHtml(v.key) + '" class="form-control agent-compose-editor agent-compose-editor--field agent-compose-editor--number" placeholder="'
-          + escapeHtml(isExpertView() ? (v.placeholder || '{{prix}} * {{quantite}}') : 'Formule') + '" value="' + escapeHtml(zoneValue(node, v.key)) + '">';
-      } else if (isArea) {
-        html += '<textarea data-field-key="' + escapeHtml(v.key) + '" rows="5" class="form-control agent-compose-editor agent-compose-editor--field" placeholder="'
-          + escapeHtml(composeInputPlaceholder(v)) + '">' + escapeHtml(zoneValue(node, v.key)) + '</textarea>';
-      } else {
-        html += '<input type="text" data-field-key="' + escapeHtml(v.key) + '" class="form-control agent-compose-editor agent-compose-editor--field" placeholder="'
-          + escapeHtml(composeInputPlaceholder(v)) + '" value="' + escapeHtml(zoneValue(node, v.key)) + '">';
-      }
-      html += '</div>';
-    });
+        html += '</div>';
+        html += '<button type="button" class="agent-compose-zone-remove" data-remove-zone="' + escapeHtml(v.key) + '" title="Retirer">×</button>'
+          + '</div>';
+        if (v.description) html += '<p class="empty" style="margin:0 0 6px;">' + escapeHtml(v.description) + '</p>';
+        if (type === 'number') {
+          html += '<input type="text" data-field-key="' + escapeHtml(v.key) + '" class="form-control agent-compose-editor agent-compose-editor--field agent-compose-editor--number" placeholder="'
+            + escapeHtml(isExpertView() ? (v.placeholder || '{{prix}} * {{quantite}}') : 'Formule') + '" value="' + escapeHtml(zoneValue(node, v.key)) + '">';
+        } else if (isArea) {
+          html += '<textarea data-field-key="' + escapeHtml(v.key) + '" rows="5" class="form-control agent-compose-editor agent-compose-editor--field" placeholder="'
+            + escapeHtml(composeInputPlaceholder(v, node)) + '">' + escapeHtml(zoneValue(node, v.key)) + '</textarea>';
+        } else {
+          html += '<input type="text" data-field-key="' + escapeHtml(v.key) + '" class="form-control agent-compose-editor agent-compose-editor--field" placeholder="'
+            + escapeHtml(composeInputPlaceholder(v, node)) + '" value="' + escapeHtml(zoneValue(node, v.key)) + '">';
+        }
+        html += '</div>';
+      });
+    }
     html += '</div>';
     html += composeSidebarHtml(pack, node);
     html += '</div>';
@@ -5375,6 +6868,7 @@
     if (node.brickId === 'output' && isCollectionOutput(node)) return '';
     if (node.brickId === 'output') return 'output';
     if (node.brickId === 'validation' || node.brickId === 'human-doc-review') return 'validation';
+    if (isHookComposeAction(node)) return 'hook';
     return '';
   }
 
@@ -5403,6 +6897,7 @@
     var p = String(provider || '').toLowerCase();
     if (u === 'ia') return ['prompt'];
     if (u === 'output' && (p === 'mail' || p === 'email')) return ['html'];
+    if (u === 'hook' || u === 'page') return ['html'];
     if (u === 'output' || u === 'validation') return ['html', 'word', 'canvas'];
     return [];
   }
@@ -5615,8 +7110,78 @@
     var map = (flow && flow.exports && typeof flow.exports === 'object') ? flow.exports : {};
     var names = Object.keys(map);
     if (!names.length) return null;
-    var name = map.chrome ? 'chrome' : names[0];
+    var name = map.hook ? 'hook' : (map.chrome ? 'chrome' : names[0]);
     return { name: name, data: map[name] };
+  }
+
+  function subAgentEditorHref(fid) {
+    var id = String(fid || '').trim();
+    var path = String(window.location.pathname || '');
+    var params = new URLSearchParams(window.location.search || '');
+    var q = 'flowId=' + encodeURIComponent(id);
+    var ret = String(params.get('return') || '').trim();
+    var space = String(params.get('space') || '').trim();
+    if (ret) q += '&return=' + encodeURIComponent(ret);
+    if (space) q += '&space=' + encodeURIComponent(space);
+    return path + '?' + q;
+  }
+
+  function insertableActionFieldsHtml(node) {
+    var tid = String((node.config && node.config.subTemplateId) || '');
+    var fid = String((node.config && node.config.subFlowId) || '');
+    var look = insertablePaletteLook(node);
+    var html = '<div style="margin:0 0 12px;padding:10px;border:1px dashed #334155;border-radius:8px;background:#0f172a;">';
+    html += '<p class="empty" style="margin:0 0 8px;">Boîte noire. Le flux interne (Entrées flux, actions, Sortie) n’apparaît pas ici — ouvrez le sous-agent.</p>';
+    if (isInsertableHookNode(node) || subAgentWantsBlockTrigger(node)) {
+      html += blockHookPickerHtml(node);
+    }
+    if (look && look.iconEmoji) {
+      html += '<p style="margin:0 0 8px;font-size:1.2rem;">' + escapeHtml(look.iconEmoji)
+        + ' <strong style="color:#e2e8f0;">' + escapeHtml(node.name || 'Sous-action') + '</strong>'
+        + (look.hookSurface && look.hookSurface !== 'palette'
+          ? ' <span class="agent-node-badge">hook · ' + escapeHtml(hookSurfaceLabel(look.hookSurface)) + '</span>' : '')
+        + '</p>';
+    }
+    if (tid) {
+      html += '<p class="empty" style="margin:0 0 8px;">Modèle : <code>' + escapeHtml(tid) + '</code></p>';
+    }
+    if (fid) {
+      html += '<p class="empty" style="margin:0 0 8px;">Instance : <code>' + escapeHtml(fid) + '</code></p>';
+      var packedOpen = state.subAgentById[fid];
+      if (canOpenSystemAgentEditor(node, packedOpen && !packedOpen._pending ? packedOpen : null)) {
+        html += '<a class="btn-agent" href="' + escapeHtml(subAgentEditorHref(fid)) + '">Ouvrir le sous-agent</a>';
+      } else {
+        html += '<p class="empty" style="margin:0 0 8px;">' + escapeHtml(systemAgentLockedCopy()) + '</p>';
+      }
+      var packed = packedOpen;
+      if (!packed || packed._pending) {
+        html += '<p class="empty" id="subAgentPreviewStatus" style="margin:8px 0 0;">Chargement de la sortie flux…</p>';
+        if (!packed) {
+          loadSubAgentPreview(fid).then(function() { renderConfig(); });
+        }
+      } else {
+        var picked = pickSubAgentExport(packed);
+        if (picked && picked.data && (picked.data.html || picked.data.css || picked.data.surface)) {
+          html += '<p class="empty" style="margin:8px 0 4px;">Sortie flux <code>' + escapeHtml(picked.name) + '</code>'
+            + (picked.data.surface ? ' · surface ' + escapeHtml(String(picked.data.surface)) : '')
+            + (picked.data.updatedAt ? ' · ' + escapeHtml(String(picked.data.updatedAt).slice(0, 19).replace('T', ' ')) : '')
+            + '</p>';
+          if (picked.data.html || picked.data.css) {
+            html += '<iframe id="subAgentPreviewFrame" sandbox="" title="Aperçu sortie flux" style="width:100%;height:180px;border:1px solid #1f2937;border-radius:8px;background:#fff;margin-top:4px;"></iframe>';
+          }
+        } else {
+          html += '<p class="empty" style="margin:8px 0 0;">Pas encore de sortie flux. Lancez le sous-agent une fois.</p>';
+        }
+      }
+    } else if (tid) {
+      html += '<p class="empty">Pas encore importé — création dans Agents IA.</p>';
+      html += '<button type="button" class="btn-agent" id="btnImportSubAgent">Importer / créer l’agent</button>';
+    } else {
+      html += '<p class="empty">Aucun flux lié. Accrochez un agent à la palette, puis replacez ce bouton.</p>';
+    }
+    html += '<p id="subAgentStatus" class="empty" style="margin:8px 0 0;color:#64748b;"></p>';
+    html += '</div>';
+    return html;
   }
 
   function loadSubAgentPreview(flowId) {
@@ -5630,6 +7195,7 @@
       .then(parseJson)
       .then(function(data) {
         var flow = (data && data.flow) || { _id: id, exports: {} };
+        if (data && data.systemLocked) flow.systemLocked = true;
         state.subAgentById[id] = flow;
         return flow;
       })
@@ -5637,6 +7203,356 @@
         state.subAgentById[id] = { _id: id, exports: {} };
         return state.subAgentById[id];
       });
+  }
+
+  function hookCatalogOptions() {
+    var byKey = {};
+    (state.hookCatalog || []).forEach(function(row) {
+      var surface = String((row && (row.surface || row.value)) || '').trim();
+      if (!surface || surface === 'palette') return;
+      byKey[surface] = {
+        surface: surface,
+        label: String(row.label || row.name || surface),
+        description: String(row.description || '')
+      };
+    });
+    return Object.keys(byKey).map(function(k) { return byKey[k]; });
+  }
+
+  function visualizationSurfaceOptions() {
+    return hookCatalogOptions();
+  }
+
+  function vizRoleOf(node) {
+    if (!node) return 'apply';
+    var ups = getUpstreamNodes(node.id);
+    var triggers = ups.filter(isTriggerNode);
+    var hasRun = triggers.some(function(t) { return triggerModeOf(t) !== 'block'; });
+    if (hasRun) return 'apply';
+    var hasBlock = triggers.some(function(t) { return triggerModeOf(t) === 'block'; });
+    if (hasBlock) return 'choose';
+    return 'apply';
+  }
+
+  function syncVizRole(node) {
+    if (!node || node.brickId !== 'visualization' || !node.config) return;
+    node.config.vizRole = vizRoleOf(node);
+  }
+
+  function visualizationNodeSummary(node) {
+    var config = (node && node.config) || node || {};
+    var t = String(config.vizType || 'select');
+    if (t === 'page') return 'page (complexe)';
+    var role = node && node.id ? vizRoleOf(node) : String(config.vizRole || 'apply');
+    var field = String(config.valueField || '').trim();
+    var picked = String(config.surface || '').trim();
+    if (role === 'apply') return field ? ('ajouter · ' + field) : 'ajouter · champ manquant';
+    if (!field) return 'liste · attacher un champ';
+    if (!picked) return 'liste · ' + field + ' · non choisi';
+    return 'liste · ' + picked;
+  }
+
+  function vizCanAttachFrom(n) {
+    if (!n) return false;
+    if (n.brickId === 'visualization') return true;
+    if (n.brickId !== 'data') return false;
+    if (isHookCollectionNode(n)) return true;
+    var prov = String(resolveDataProvider(n) || '').toLowerCase();
+    return prov === 'json' || prov === 'database' || prov === 'flow' || prov === 'flux';
+  }
+
+  function vizDirectSources(node) {
+    if (!node) return [];
+    var seen = {};
+    var out = [];
+    function push(n) {
+      if (!n || seen[n.id] || !vizCanAttachFrom(n)) return;
+      seen[n.id] = true;
+      out.push(n);
+    }
+    getIncomingNodes(node.id).forEach(function(n) {
+      if (!n) return;
+      if (n.brickId === 'data' || n.brickId === 'visualization') {
+        push(n);
+        return;
+      }
+      getIncomingNodes(n.id).forEach(push);
+    });
+    return out;
+  }
+
+  function vizContextFields(node) {
+    var byKey = {};
+    vizDirectSources(node).forEach(function(n) {
+      var slug = ensureNodeSlug(n);
+      var sourceName = n.name || slug || n.brickId;
+      var locals = [];
+      if (n.brickId === 'data') {
+        var model = (n.config && n.config.modelFields) || [];
+        if (model.length) {
+          model.forEach(function(f) {
+            var key = f && (f.key || f.name);
+            if (key) locals.push({ key: key, label: f.label || key });
+          });
+        } else if (isHookCollectionNode(n) || String((n.config && n.config.presetId) || '') === 'hook') {
+          locals = [
+            { key: 'surface', label: 'Surface' },
+            { key: 'label', label: 'Libellé' },
+            { key: 'description', label: 'Description' }
+          ];
+        }
+      } else if (n.brickId === 'visualization') {
+        locals = [
+          { key: 'surface', label: 'Valeur choisie' },
+          { key: 'label', label: 'Libellé' }
+        ];
+      }
+      locals.forEach(function(f) {
+        if (!f || !f.key || byKey[slug + '.' + f.key]) return;
+        byKey[slug + '.' + f.key] = {
+          key: slug + '.' + f.key,
+          localKey: f.key,
+          label: f.label || f.key,
+          source: sourceName,
+          slug: slug,
+          own: false
+        };
+      });
+    });
+    return Object.keys(byKey).map(function(k) { return byKey[k]; });
+  }
+
+  function vizPathSlug(path) {
+    var s = String(path || '').trim();
+    var i = s.indexOf('.');
+    return i > 0 ? s.slice(0, i) : '';
+  }
+
+  function vizPathLocal(path) {
+    var s = String(path || '').trim();
+    var i = s.indexOf('.');
+    return i > 0 ? s.slice(i + 1) : s;
+  }
+
+  function vizSourceNode(node, fieldPath) {
+    var slug = vizPathSlug(fieldPath);
+    if (!slug) return null;
+    return state.nodes.find(function(n) { return String(n.slug || '') === slug; }) || null;
+  }
+
+  function vizRowValue(row, localKey) {
+    if (!row) return '';
+    var key = String(localKey || 'surface').trim() || 'surface';
+    if (row[key] != null && String(row[key]).trim()) return String(row[key]).trim();
+    if (row.surface != null && String(row.surface).trim()) return String(row.surface).trim();
+    if (row.id != null && String(row.id).trim()) return String(row.id).trim();
+    return '';
+  }
+
+  function vizRowLabel(row, localKey) {
+    if (!row) return '';
+    var key = String(localKey || 'label').trim() || 'label';
+    if (row[key] != null && String(row[key]).trim()) return String(row[key]).trim();
+    if (row.label != null && String(row.label).trim()) return String(row.label).trim();
+    if (row.name != null && String(row.name).trim()) return String(row.name).trim();
+    return vizRowValue(row, 'surface');
+  }
+
+  function vizRowsFromUpstream(node) {
+    var src = vizSourceNode(node, node && node.config && node.config.valueField);
+    if (src && !vizCanAttachFrom(src)) src = null;
+    if (!src) {
+      src = vizDirectSources(node).filter(function(n) { return n.brickId === 'data'; })[0] || null;
+    }
+    if (src && Array.isArray(src.config && src.config.modelRows) && src.config.modelRows.length) {
+      return src.config.modelRows;
+    }
+    if (src && isHookCollectionNode(src)) {
+      if (!Array.isArray(state.hookCatalog)) loadHookCatalog();
+      return Array.isArray(state.hookCatalog) ? state.hookCatalog : [];
+    }
+    if (isHookCollectionNode(src) || (node && String((node.config && node.config.collectionPreset) || '') === 'hook')) {
+      if (!Array.isArray(state.hookCatalog)) loadHookCatalog();
+      return Array.isArray(state.hookCatalog) ? state.hookCatalog : [];
+    }
+    return [];
+  }
+
+  function suggestVizFields(node) {
+    if (!node || node.brickId !== 'visualization' || !node.config) return;
+    var fields = vizContextFields(node);
+    var allowed = {};
+    fields.forEach(function(f) { if (f && f.key) allowed[f.key] = true; });
+    if (node.config.valueField && !allowed[String(node.config.valueField)]) node.config.valueField = '';
+    if (node.config.labelField && !allowed[String(node.config.labelField)]) node.config.labelField = '';
+    if (!fields.length) return;
+    if (!String(node.config.valueField || '').trim()) {
+      var valueHit = fields.find(function(f) { return f.localKey === 'surface'; });
+      if (valueHit) node.config.valueField = valueHit.key;
+    }
+    if (!String(node.config.labelField || '').trim()) {
+      var labelHit = fields.find(function(f) { return f.localKey === 'label'; });
+      if (labelHit) node.config.labelField = labelHit.key;
+    }
+  }
+
+  function visualizationFieldsHtml(node) {
+    if (!node.config || typeof node.config !== 'object') node.config = {};
+    if (!node.config.vizType) node.config.vizType = 'select';
+    syncVizRole(node);
+    suggestVizFields(node);
+    if (!Array.isArray(state.hookCatalog)) {
+      loadHookCatalog().then(function() { renderConfig(); });
+    }
+    var vizType = String(node.config.vizType || 'select');
+    var vizRole = vizRoleOf(node);
+    var valueField = String(node.config.valueField || '').trim();
+    var labelField = String(node.config.labelField || '').trim();
+    var surface = String(node.config.surface || '').trim();
+    var sources = vizDirectSources(node);
+    var ctxFields = vizContextFields(node);
+    var html = '<div class="agent-viz-simple" style="margin:0 0 12px;padding:10px;border:1px solid #1f2937;border-radius:8px;background:#0f172a;">';
+    html += '<p class="empty" style="margin:0 0 10px;">Sans IA. On attache un champ du flux amont, puis on choisit une ligne.</p>';
+    html += '<div class="form-group"><label>Type de visualisation</label>';
+    html += '<select data-key="vizType">';
+    html += '<option value="select"' + (vizType === 'select' ? ' selected' : '') + '>Liste déroulante</option>';
+    html += '<option value="page"' + (vizType === 'page' ? ' selected' : '') + '>Page (complexe)</option>';
+    html += '</select></div>';
+    html += '<p class="empty" style="margin:0 0 10px;">Rôle : <strong style="color:#e2e8f0;">'
+      + (vizRole === 'choose' ? 'choisir' : 'ajouter au flux')
+      + '</strong> — d’après le déclencheur amont'
+      + (vizRole === 'choose' ? ' (sélection de bloc).' : ' (exécution).')
+      + '</p>';
+    if (vizType === 'page') {
+      html += '<p class="empty" style="margin:8px 0 0;">Page complexe = sous-agent Design (chrome, zones). Ce bloc ne la génère pas.</p>';
+      html += '</div>';
+      return html;
+    }
+    if (!sources.length) {
+      html += '<p class="empty" style="margin:8px 0 0;color:#fbbf24;">Reliez d’abord une liste (ex. Liste hooks) pour proposer Surface / Libellé / Description.</p>';
+      html += '</div>';
+      return html;
+    }
+    html += '<div class="form-group"><label>Attacher — valeur</label>';
+    html += contextFieldSelectHtml(ctxFields, valueField, 'valueField');
+    html += '</div>';
+    html += '<div class="form-group"><label>Attacher — libellé</label>';
+    html += contextFieldSelectHtml(ctxFields, labelField, 'labelField');
+    html += '</div>';
+    if (!valueField) {
+      html += '<p class="empty" style="margin:8px 0 0;color:#fbbf24;">Choisissez un champ valeur parmi l’amont.</p>';
+      html += '</div>';
+      return html;
+    }
+    if (vizRole === 'apply') {
+      html += '<p class="empty" style="margin:8px 0 0;">À l’exécution, écrit dans le flux le hook déjà choisi (ce bloc ou le parent). Pas de nouvelle liste.</p>';
+      if (surface) {
+        html += '<p class="empty" style="margin:6px 0 0;">État sauvé : <strong style="color:#e2e8f0;">'
+          + escapeHtml(surface) + '</strong></p>';
+      }
+      html += '</div>';
+      return html;
+    }
+    var rows = vizRowsFromUpstream(node);
+    var localVal = vizPathLocal(valueField);
+    var localLab = vizPathLocal(labelField) || 'label';
+    html += '<div class="form-group"><label>Hook</label>';
+    html += '<select data-key="surface">';
+    html += '<option value="">— Choisir —</option>';
+    rows.forEach(function(row) {
+      var val = vizRowValue(row, localVal);
+      if (!val) return;
+      var lab = vizRowLabel(row, localLab) || val;
+      html += '<option value="' + escapeHtml(val) + '"' + (val === surface ? ' selected' : '') + '>'
+        + escapeHtml(lab) + '</option>';
+    });
+    if (surface && !rows.some(function(row) { return vizRowValue(row, localVal) === surface; })) {
+      html += '<option value="' + escapeHtml(surface) + '" selected>' + escapeHtml(surface) + ' — hors liste</option>';
+    }
+    html += '</select></div>';
+    if (!rows.length) {
+      html += '<p class="empty" style="margin:6px 0 0;">Aucun hook dans l’amont. Vérifiez la collection du bloc relié.</p>';
+    } else if (!surface) {
+      html += '<p class="empty" style="margin:6px 0 0;color:#fbbf24;">Aucun hook choisi — l’exécution n’aura pas d’accroche.</p>';
+    }
+    html += '</div>';
+    return html;
+  }
+
+  function isBlockTriggerNode(node) {
+    return isTriggerNode(node) && triggerModeOf(node) === 'block';
+  }
+
+  function blockTriggerAllows(reason) {
+    var tr = state.nodes.find(isBlockTriggerNode);
+    if (!tr) return false;
+    var cfg = tr.config || {};
+    if (reason === 'select') return cfg.blockOnSelect !== false;
+    if (reason === 'import') return cfg.blockOnImport !== false;
+    return true;
+  }
+
+  function subAgentWantsBlockTrigger(node) {
+    if (!isInsertableAction(node)) return false;
+    if (isInsertableHookNode(node)) return true;
+    var fid = String((node.config && node.config.subFlowId) || '').trim();
+    var packed = fid ? state.subAgentById[fid] : null;
+    if (!packed || packed._pending) return false;
+    var tcfg = (packed.trigger && packed.trigger.config) || packed.trigger || {};
+    var mode = String(tcfg.mode || '').toLowerCase();
+    if (mode === 'block' || mode === 'select' || mode === 'import') return true;
+    var nodes = packed.canvas && Array.isArray(packed.canvas.nodes) ? packed.canvas.nodes : [];
+    return nodes.some(function(n) {
+      if (!n || (n.brickId !== 'trigger' && n.kind !== 'trigger')) return false;
+      return String((n.config && n.config.mode) || '').toLowerCase() === 'block';
+    });
+  }
+
+  function shouldRefreshHookList(node, reason) {
+    if (!node) return false;
+    var wants = node.brickId === 'visualization' || subAgentWantsBlockTrigger(node);
+    if (!wants) return false;
+    var tr = state.nodes.find(isBlockTriggerNode);
+    if (!tr) return true;
+    return blockTriggerAllows(reason);
+  }
+
+  function refreshHookListForBlock(node, reason) {
+    if (!shouldRefreshHookList(node, reason)) return Promise.resolve();
+    if (state._hookListRefresh) return state._hookListRefresh;
+    state._hookListRefresh = loadHookCatalog().then(function() {
+      state._hookListRefresh = null;
+      if (node && state.selectedNodeId === node.id) renderConfig();
+    }).catch(function() {
+      state._hookListRefresh = null;
+    });
+    return state._hookListRefresh;
+  }
+
+  function blockHookPickerHtml(node) {
+    if (!node || !node.config) return '';
+    if (!Array.isArray(state.hookCatalog)) {
+      loadHookCatalog().then(function() { renderConfig(); });
+    }
+    var current = String(node.config.hookSurface || node.config.surface || '').trim();
+    if (current === 'palette') current = '';
+    var rows = hookCatalogOptions();
+    var html = '<div class="form-group" style="margin:0 0 10px;"><label>Hook</label>';
+    html += '<select data-key="hookSurface">';
+    html += '<option value="">— Choisir —</option>';
+    rows.forEach(function(row) {
+      html += '<option value="' + escapeHtml(row.surface) + '"' + (row.surface === current ? ' selected' : '')
+        + (row.description ? ' title="' + escapeHtml(row.description) + '"' : '') + '>'
+        + escapeHtml(row.label) + '</option>';
+    });
+    html += '</select>';
+    if (!rows.length) {
+      html += '<p class="empty" style="margin:6px 0 0;">Chargement de la liste Hook (Surface / Libellé)…</p>';
+    } else {
+      html += '<p class="empty" style="margin:6px 0 0;">Même liste que la collection Hook — pas le lieu d’accroche du bloc.</p>';
+    }
+    html += '</div>';
+    return html;
   }
 
   function vizBlockDataHtml(node) {
@@ -5650,8 +7566,13 @@
     html += '</select></label>';
     if (fid) {
       html += '<p class="empty" style="margin:0 0 8px;">Instance : <code>' + escapeHtml(fid) + '</code></p>';
-      html += '<a class="btn-agent" href="' + escapeHtml(String(window.location.pathname) + '?flowId=' + encodeURIComponent(fid)) + '">Ouvrir l’agent</a>';
-      var packed = state.subAgentById[fid];
+      var packedOpen = state.subAgentById[fid];
+      if (canOpenSystemAgentEditor(node, packedOpen && !packedOpen._pending ? packedOpen : null)) {
+        html += '<a class="btn-agent" href="' + escapeHtml(subAgentEditorHref(fid)) + '">Ouvrir l’agent</a>';
+      } else {
+        html += '<p class="empty" style="margin:0 0 8px;">' + escapeHtml(systemAgentLockedCopy()) + '</p>';
+      }
+      var packed = packedOpen;
       if (!packed || packed._pending) {
         html += '<p class="empty" id="subAgentPreviewStatus" style="margin:8px 0 0;">Chargement de la sortie flux…</p>';
         if (!packed) {
@@ -5703,6 +7624,7 @@
         node.config.subTemplateId = templateId;
         if (statusEl) statusEl.textContent = (data.created ? 'Agent créé : ' : 'Agent déjà là : ') + (flow.name || templateId);
         renderConfig();
+        refreshHookListForBlock(node, 'import');
         return saveFlow({ silent: true });
       })
       .catch(function(err) {
@@ -5712,29 +7634,197 @@
   }
 
   function hasSurfaceHook(surface) {
-    return state.nodes.some(function(n) {
-      if (!n || n.brickId !== 'action') return false;
-      var id = normalizeClientActionId((n.config && (n.config.actionId || n.config.operation)) || '');
-      if (id !== 'surface.hook') return false;
+    var legacy = state.nodes.some(function(n) {
+      if (!isHookAction(n)) return false;
       if (!surface) return true;
-      return String((n.config && n.config.surface) || 'tab') === surface;
+      var configured = hookConfiguredSurface(n);
+      if (!configured) return true;
+      return configured === surface;
     });
+    if (legacy) return true;
+    var hasList = state.nodes.some(isHookCollectionNode);
+    var hookActs = state.nodes.filter(isHookComposeAction);
+    if (!surface) return hasList || hookActs.length > 0;
+    return hookActs.some(function(n) {
+      var raw = String(zoneValue(n, 'surface') || '').trim();
+      if (!raw || raw.indexOf('{{') >= 0) return true;
+      return raw === surface;
+    }) || (!hookActs.length && hasList && surface === 'tab')
+      || state.nodes.some(isInsertableHookNode)
+      || state.nodes.some(function(n) {
+        if (!n || n.brickId !== 'visualization') return false;
+        if (String((n.config && n.config.vizType) || 'select') === 'page') return false;
+        if (!surface) return true;
+        return String((n.config && n.config.surface) || 'panel') === surface;
+      });
   }
 
-  function ensureAtelierCollectionForNode(node) {
-    var preset = (node && node.config && node.config.collectionPreset) || 'design-page-web';
+  function loadPaletteCatalog() {
     return fetch(API + '/atelier/collections/ensure', {
       method: 'POST',
       headers: headers(),
-      body: JSON.stringify({ presetId: preset, flowId: state.flowId || '' })
+      body: JSON.stringify({ presetId: 'palette', schemaSlug: 'palette', flowId: state.flowId || '' })
     })
       .then(parseJson)
       .then(function(data) {
-        if (!data || !data.success || !data.collectionId) return data;
-        if (node && node.config) node.config.collectionId = data.collectionId;
-        state._atelierPack = data;
+        state.paletteCatalog = (data && Array.isArray(data.rows)) ? data.rows : [];
+        var row = currentPaletteRow();
+        if (row) {
+          applyPaletteRowToState(row);
+          syncPaletteFields();
+        }
+        return state.paletteCatalog;
+      })
+      .catch(function() {
+        if (!Array.isArray(state.paletteCatalog)) state.paletteCatalog = [];
+        return state.paletteCatalog;
+      });
+  }
+
+  function paletteHookFormHtml() {
+    var name = String(state.name || '').trim() || 'Nouvelle sous-action';
+    var html = '<div class="agent-palette-hook-form">';
+    html += '<h4 style="margin:0 0 8px;color:#e2e8f0;">Accrocher à la palette</h4>';
+    html += '<p class="empty" style="margin:0 0 10px;">Ce flux devient un bouton (nom, logo) sous une famille. On le pose ensuite comme une boîte noire — le détail reste dans ce flux.</p>';
+    html += '<div class="form-group"><label>Nom du bouton</label>';
+    html += '<input type="text" id="paletteHookName" value="' + escapeHtml(name) + '" placeholder="Hook"></div>';
+    html += '<div class="form-group"><label>Icône (emoji)</label>';
+    html += '<input type="text" id="paletteHookEmoji" value="🪝" placeholder="🪝" maxlength="8"></div>';
+    html += '<div class="form-group"><label>Logo (URL)</label>';
+    html += '<input type="url" id="paletteHookLogo" placeholder="https://…"></div>';
+    html += '<div class="form-group"><label>Famille (où l’accrocher)</label>';
+    html += '<select id="paletteHookFamily">';
+    [
+      ['action', 'Action'],
+      ['data', 'Entrées'],
+      ['ia', 'IA'],
+      ['output', 'Sortie']
+    ].forEach(function(pair) {
+      html += '<option value="' + pair[0] + '"' + (pair[0] === 'action' ? ' selected' : '') + '>'
+        + pair[1] + '</option>';
+    });
+    html += '</select></div>';
+    html += '<div class="form-group"><label>Description</label>';
+    html += '<textarea id="paletteHookDesc" rows="2" placeholder="Ce que fait cette sous-action."></textarea></div>';
+    html += '<button type="button" class="btn-agent" id="btnConfirmPaletteHook">Accrocher ce flux</button>';
+    html += '<button type="button" class="btn-agent-ghost" id="btnCancelPaletteHook" style="margin-left:6px;">Annuler</button>';
+    html += '<p id="paletteHookStatus" class="empty" style="margin:8px 0 0;color:#64748b;"></p>';
+    html += '</div>';
+    return html;
+  }
+
+  function bindPaletteHookForm(host) {
+    if (!host) return;
+    var cancel = host.querySelector('#btnCancelPaletteHook');
+    if (cancel) {
+      cancel.addEventListener('click', function() {
+        state.paletteHookForm = false;
         renderConfig();
-        return data;
+      });
+    }
+    var confirm = host.querySelector('#btnConfirmPaletteHook');
+    if (confirm) {
+      confirm.addEventListener('click', function() {
+        hookCurrentFlowToPalette(host);
+      });
+    }
+  }
+
+  function hookCurrentFlowToPalette(host) {
+    readIdentityFromDom();
+    var pal = readPaletteFromDom();
+    var status = (host && host.querySelector('#paletteHookStatus'))
+      || document.getElementById('palettePublishStatus');
+    var name = String(state.name || '').trim();
+    if (!name) {
+      if (status) status.textContent = 'Nom du bloc obligatoire.';
+      return Promise.resolve(null);
+    }
+    var payload = {
+      name: name,
+      iconEmoji: pal.iconEmoji || '🪝',
+      logoUrl: String(state.imageUrl || '').trim(),
+      parentFamily: pal.parentFamily || 'action',
+      description: String(state.description || pal.description || '').trim(),
+      flowId: String(state.flowId || '').trim(),
+      templateId: '',
+      hookSurface: pal.hookSurface || 'palette',
+      rowId: pal.rowId || ''
+    };
+    function postRow() {
+      payload.flowId = String(state.flowId || '').trim();
+      if (!payload.flowId) {
+        if (status) status.textContent = 'Enregistrez l’agent avant de l’accrocher.';
+        return Promise.resolve(null);
+      }
+      if (status) status.textContent = 'Accroche dans la palette…';
+      return fetch(API + '/atelier/palette', {
+        method: 'POST',
+        headers: headers(),
+        body: JSON.stringify(payload)
+      })
+        .then(parseJson)
+        .then(function(data) {
+          if (!data || !data.success) {
+            throw new Error((data && data.message) || 'Accroche impossible');
+          }
+          state.paletteCatalog = Array.isArray(data.rows) ? data.rows : state.paletteCatalog;
+          pal.publish = true;
+          pal.rowId = String((data && data.elementId) || pal.rowId || '').trim();
+          state.palette = pal;
+          state.paletteHookForm = false;
+          renderPalette();
+          syncPaletteFields();
+          updateAgentBlockPreview();
+          renderConfig();
+          return data;
+        })
+        .catch(function(err) {
+          if (status) status.textContent = err.message;
+          return null;
+        });
+    }
+    if (!payload.flowId) {
+      if (status) status.textContent = 'Enregistrement de l’agent…';
+    }
+    return saveFlow({ silent: true }).then(postRow).catch(function(err) {
+      if (status) status.textContent = err.message;
+      return null;
+    });
+  }
+
+  function openPaletteHookForm() {
+    state.selectedNodeId = null;
+    state.selectedLink = null;
+    state.paletteHookForm = false;
+    setActiveTab('app');
+    var section = document.getElementById('agentBlockSection');
+    if (section && section.scrollIntoView) {
+      section.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  }
+
+  function ensureAtelierCollectionForNode(node) {
+    var preset = (node && node.config && (node.config.schemaSlug || node.config.collectionPreset)) || 'design';
+    return fetch(API + '/atelier/collections/ensure', {
+      method: 'POST',
+      headers: headers(),
+      body: JSON.stringify({ presetId: preset, schemaSlug: preset, flowId: state.flowId || '' })
+    })
+      .then(parseJson)
+      .then(function(data) {
+        if (!data || !data.success) return data;
+        if (node && node.config) {
+          if (data.catalogId) node.config.collectionId = data.catalogId;
+          else if (data.collectionId) node.config.collectionId = data.collectionId;
+          if (data.schemaSlug) node.config.schemaSlug = data.schemaSlug;
+          if (data.slug) node.config.collectionNamespace = data.slug;
+        }
+        state._atelierPack = data;
+        return loadDocCollections(true).then(function() {
+          renderConfig();
+          return data;
+        });
       })
       .catch(function() { return null; });
   }
@@ -5827,6 +7917,13 @@
         { key: 'temperature', label: 'Température', required: false, advanced: true, type: 'number' },
         { key: 'maxTokens', label: 'Max tokens', required: false, advanced: true, type: 'number' }
       ];
+    }
+    if (isHookAction(node)) {
+      return hookInputContractFields();
+    }
+    if (node.brickId === 'output' && isFlowOutput(node)) {
+      ensureFlowExportFields(node);
+      return [];
     }
     if (!fields.length && node.brickId === 'output') {
       fields = [
@@ -6735,9 +8832,9 @@
 
   function mappingSlotsForNode(node) {
     if (!node) return [];
-    if (isFlowOutput(node)) return [];
     if (node.brickId !== 'ia' && node.brickId !== 'output'
-      && node.brickId !== 'validation' && node.brickId !== 'human-doc-review') {
+      && node.brickId !== 'validation' && node.brickId !== 'human-doc-review'
+      && !isHookAction(node)) {
       return [];
     }
     var overlay = templateOverlayForNode(node);
@@ -6772,7 +8869,8 @@
     var literal = String((node.config.literals && node.config.literals[slot.key]) || '').trim();
     if (mapped === '__literal__') return !!literal;
     if (mapped) return true;
-    return !!literal;
+    if (literal) return true;
+    return copyFromInherits(node, slot.key);
   }
 
   function mappingSourceMissing(node, slot, fields) {
@@ -6802,8 +8900,12 @@
 
     if (node.brickId === 'output') {
       if (isFlowOutput(node)) {
+        ensureFlowExportFields(node);
         if (!String(cfg.exportName || '').trim()) {
           out.push({ label: 'Nom', reason: 'vide' });
+        }
+        if (!uniqueExportFields(node).length) {
+          out.push({ label: 'Données', reason: 'non choisies' });
         }
       } else if (isCollectionOutput(node)) {
         if (!linkedCollectionId(node)) {
@@ -6834,6 +8936,12 @@
       }
     }
 
+    if (isInsertableAction(node)
+        && !String(cfg.subFlowId || '').trim()
+        && !String(cfg.subTemplateId || '').trim()) {
+      out.push({ label: 'Flux', reason: 'non lié' });
+    }
+
     if ((node.brickId === 'trigger' || node.kind === 'trigger')
         && String(cfg.mode || 'button') === 'webhook'
         && !String(cfg.webhookInstanceId || '').trim()) {
@@ -6841,12 +8949,30 @@
     }
 
     if (isComposeAction(node)) {
+      pruneOutputMaps(node);
       var vars = cfg.variables || [];
-      if (!vars.length) out.push({ label: 'Champs', reason: 'non définis' });
+      var mappedOuts = cfg.mappedOutputIds || [];
+      if (!vars.length && !mappedOuts.length) out.push({ label: 'Champs', reason: 'non définis' });
       vars.forEach(function(v) {
         if (!v || !v.required) return;
         if (String(zoneValue(node, v.key) || '').trim()) return;
+        if (copyFromInherits(node, v.key)) return;
         out.push({ label: v.label || v.key, reason: 'vide' });
+      });
+      mappedOuts.forEach(function(oid) {
+        var target = state.nodes.find(function(n) { return n.id === oid; });
+        var map = getOutputMap(node, oid);
+        if (!target || !map) return;
+        brickInputContractFields(target).forEach(function(slot) {
+          if (!slot || !slot.required) return;
+          var ov = map.values && String(map.values[slot.key] || '').trim();
+          if (ov) return;
+          if (outputMapUsesObject(map)) return;
+          out.push({
+            label: outputMapTabLabel(target) + ' · ' + (slot.label || slot.key),
+            reason: 'vide'
+          });
+        });
       });
     }
 
@@ -6858,17 +8984,30 @@
       }
     }
 
-    var mapFields = collectContextFieldsForNode(node.id).filter(function(f) { return !f.own; });
-    mappingSlotsForNode(node).forEach(function(slot) {
-      if (!slot) return;
-      if (mappingSourceMissing(node, slot, mapFields)) {
-        out.push({ label: slot.label || slot.key, reason: 'source introuvable' });
-        return;
+    if (node.brickId === 'visualization' && String(cfg.vizType || 'select') !== 'page') {
+      var vizSrc = vizDirectSources(node);
+      if (!vizSrc.length) {
+        out.push({ label: 'Liste amont', reason: 'non reliée' });
+      } else if (!String(cfg.valueField || '').trim()) {
+        out.push({ label: 'Champ valeur', reason: 'non attaché' });
+      } else if (vizRoleOf(node) === 'choose' && !String(cfg.surface || '').trim()) {
+        out.push({ label: 'Hook', reason: 'non choisi' });
       }
-      if (!slot.required) return;
-      if (mappingSlotFilled(node, slot)) return;
-      out.push({ label: slot.label || slot.key, reason: 'non mappé' });
-    });
+    }
+
+    var mapFields = collectContextFieldsForNode(node.id).filter(function(f) { return !f.own; });
+    if (!(node.brickId === 'output' && actionOwnsOutputMap(node))) {
+      mappingSlotsForNode(node).forEach(function(slot) {
+        if (!slot) return;
+        if (mappingSourceMissing(node, slot, mapFields)) {
+          out.push({ label: slot.label || slot.key, reason: 'source introuvable' });
+          return;
+        }
+        if (!slot.required) return;
+        if (mappingSlotFilled(node, slot)) return;
+        out.push({ label: slot.label || slot.key, reason: 'non mappé' });
+      });
+    }
     return out;
   }
 
@@ -6895,6 +9034,11 @@
     var fields = collectContextFieldsForNode(node.id).filter(function(f) { return !f.own; });
     slots.forEach(function(slot) {
       if (node.config.mapping[slot.key] || String(node.config.literals[slot.key] || '').trim()) return;
+      if (isHookAction(node) && slot.key === 'surface') {
+        node.config.mapping.surface = '__literal__';
+        node.config.literals.surface = String(node.config.surface || '').trim() || 'tab';
+        return;
+      }
       if (slot.key === 'llmId') {
         var def = (state.entityLlms || []).filter(function(l) { return l.isDefault; })[0]
           || (state.entityLlms || [])[0];
@@ -7071,8 +9215,14 @@
       if (pre) return pre;
     }
     if (key === 'to') {
-      return pickPreferredField(slot, fields, function(f) { return f.localKey === 'from' || /\.from$/.test(f.key); })
-        || pickPreferredField(slot, fields, function(f) { return f.localKey === 'to' && !isDataMailToField(f); })
+      return pickPreferredField(slot, fields, function(f) { return f.localKey === 'to' || /(^|\.)to$/.test(f.key); })
+        || pickPreferredField(slot, fields, function(f) { return f.localKey === 'destinataire'; })
+        || pickPreferredField(slot, fields, function(f) { return f.localKey === 'from' || /\.from$/.test(f.key); })
+        || pickPreferredField(slot, fields, function(f) { return f.localKey === slot.key || f.key === slot.key; });
+    }
+    if (key === 'body') {
+      return pickPreferredField(slot, fields, function(f) { return f.localKey === 'body' || /(^|\.)body$/.test(f.key); })
+        || pickPreferredField(slot, fields, function(f) { return f.localKey === 'text' || /(^|\.)text$/.test(f.key); })
         || pickPreferredField(slot, fields, function(f) { return f.localKey === slot.key || f.key === slot.key; });
     }
     if (key === 'prompt' || key === 'context' || key === 'rag') {
@@ -7085,12 +9235,6 @@
       || (slot.key.indexOf('.') >= 0
         ? pickPreferredField(slot, fields, function(f) { return f.localKey === slot.key.split('.').pop(); })
         : null);
-  }
-
-  function isDataMailToField(f) {
-    var slug = String((f && f.slug) || '').toLowerCase();
-    var source = String((f && f.source) || '').toLowerCase();
-    return slug.indexOf('donnees') >= 0 || source.indexOf('donn') >= 0 || slug.indexOf('mail') >= 0;
   }
 
   function migrateFixedOutputSlots(node) {
@@ -7357,14 +9501,20 @@
     } else if (node.brickId !== 'ia') {
       if (mapped) {
         var mappedField = fields.filter(function(f) { return f.key === mapped; })[0];
-        html += isExpertView()
-          ? '<p class="agent-mapping-ns">Source : <code>{{' + escapeHtml(mapped) + '}}</code> → <code>{{'
-            + escapeHtml(token) + '}}</code></p>'
-          : '<p class="agent-mapping-ns">Relié à « ' + escapeHtml(contextFieldLabel(mappedField) || mapped) + ' ».</p>';
+        if (slot.key === 'to' && node.brickId === 'output') {
+          html += '<p class="agent-mapping-ns">Recopié de l’entrée. Passez en <strong>valeur fixe</strong> pour changer le destinataire.</p>';
+        } else {
+          html += isExpertView()
+            ? '<p class="agent-mapping-ns">Source : <code>{{' + escapeHtml(mapped) + '}}</code> → <code>{{'
+              + escapeHtml(token) + '}}</code></p>'
+            : '<p class="agent-mapping-ns">Relié à « ' + escapeHtml(contextFieldLabel(mappedField) || mapped) + ' ».</p>';
+        }
       } else {
         html += isExpertView()
           ? '<p class="agent-mapping-ns">Choisissez un champ amont <code>{{slug.champ}}</code> ou « Valeur fixe… ».</p>'
-          : '<p class="agent-mapping-ns">Choisissez un champ des blocs précédents, ou « Valeur fixe… ».</p>';
+          : (copyFromInherits(node, slot.key)
+            ? '<p class="agent-mapping-ns">Prérempli depuis l’objet. Changez-le si besoin.</p>'
+            : '<p class="agent-mapping-ns">Choisissez un champ des blocs précédents, ou « Valeur fixe… ».</p>');
       }
     }
     if (slot.required && unmapped) {
@@ -7379,9 +9529,23 @@
   }
 
   function mappingPanelHtml(node) {
+    if (node && node.brickId === 'output' && actionOwnsOutputMap(node)) {
+      var owner = outputMapOwnerAction(node);
+      var html = '<div class="agent-mapping-panel">';
+      html += '<p class="empty">Contenu préparé dans l’action'
+        + (owner ? ' « ' + escapeHtml(owner.name || 'Action') + ' »' : '')
+        + ', onglet <strong>' + escapeHtml(outputMapTabLabel(node)) + '</strong>. Ici : compte d’envoi uniquement.</p>';
+      html += '</div>';
+      return html;
+    }
     var slots = mappingSlotsForNode(node);
     if (!slots.length) return '';
     ensureMappingConfig(node);
+    if (node.brickId === 'output' && nodeProvider(node) === 'mail'
+        && !isFlowOutput(node) && !isCollectionOutput(node)
+        && !actionOwnsOutputMap(node)) {
+      wireMailOutputFromInput(node);
+    }
     suggestDefaultMapping(node);
     var fields = collectContextFieldsForNode(node.id).filter(function(f) { return !f.own; });
     var iaSlots = slots.filter(function(s) { return s.group !== 'template' && !s.advanced; });
@@ -7391,8 +9555,11 @@
     var tplSlots = slots.filter(function(s) { return s.group === 'template'; });
     var compact = node.brickId === 'ia';
     var html = '<div class="agent-mapping-panel">';
+    if (node.brickId === 'output' && !isFlowOutput(node) && !isCollectionOutput(node)) {
+      html += copyFromSelectHtml(node);
+    }
     if (iaSlots.length) {
-      html += compact ? '<h4>Entrées</h4>' : (isCollectionOutput(node) ? '<h4>Champs de la collection</h4>' : '<h4>Contrat du bloc</h4>');
+      html += compact ? '<h4>Entrées</h4>' : (isHookAction(node) ? '<h4>Entrées flux</h4>' : (isCollectionOutput(node) ? '<h4>Champs de la collection</h4>' : '<h4>Contrat du bloc</h4>'));
       if (!compact) html += '<p class="empty">' + mappingHintForNode(node) + '</p>';
       iaSlots.forEach(function(slot) { html += mappingRowHtml(node, slot, fields); });
     } else if (tplSlots.length && !compact) {
@@ -7431,6 +9598,12 @@
         return 'Le template recouvre une partie du contrat. Il reste : <strong>'
           + labels.join('</strong>, <strong>') + '</strong>.';
       }
+      if (isHookAction(node)) {
+        return 'Branchez <strong>surface</strong> (onglet, modal, app…), le <strong>libellé</strong>, et la page <strong>HTML / CSS</strong> déjà dessinée dans le flux. Pas de liste : une valeur fixe ou un champ amont.';
+      }
+      if (node.brickId === 'output' && isFlowOutput(node)) {
+        return 'Cochez les <strong>données déjà présentes dans le flux</strong>. Elles seront publiées sous le nom choisi — pas de contrat HTML/CSS à remplir.';
+      }
       if (node.brickId === 'output' && isCollectionOutput(node)) {
         if (!linkedCollectionId(node)) {
           return 'Choisissez une collection client. Ses champs deviennent le contrat de sortie.';
@@ -7439,6 +9612,9 @@
           return 'Ouvrez l’éditeur de collection pour définir les champs à enregistrer.';
         }
         return 'Branchez chaque champ de la collection sur une donnée des blocs précédents, ou une valeur fixe.';
+      }
+      if (node.brickId === 'output' && actionOwnsOutputMap(node)) {
+        return 'Le contenu est préparé dans l’action (onglet de cette sortie). Ici : compte d’envoi.';
       }
       if (node.brickId === 'output' && nodeTemplateId(node)) {
         if (!pending.length) {
@@ -7460,9 +9636,12 @@
       return 'Overlay template : le contrat de base reste pour <strong>'
         + labels.join('</strong>, <strong>') + '</strong>. Les champs du template se mappent à part.';
     }
+    if (isHookAction(node)) {
+      return 'Surface, libellé, HTML et CSS se branchent sur un champ namespacé amont <code>{{slug.champ}}</code>, ou une valeur fixe.';
+    }
     if (node.brickId === 'output') {
       if (isFlowOutput(node)) {
-        return 'Un nom + le résultat amont (HTML + CSS). On ne renvoie pas la collection.';
+        return 'Cochez les champs namespacés amont à publier sous ce nom.';
       }
       if (isCollectionOutput(node)) {
         return 'Chaque champ de la collection se branche sur un champ namespacé amont <code>{{slug.champ}}</code>.';
@@ -7676,6 +9855,15 @@
     node.config.modelFields = fieldsFromCollection(model);
     node.config.modelRows = rowsFromCollection(model);
     node.config.referenceFields = Array.isArray(model.referenceFields) ? model.referenceFields.slice() : [];
+    if (isSchemaCatalogCollection(model)) {
+      var nodeSlug = String(node.slug || '');
+      node.config.schemaSlug = (nodeSlug === 'collection_design' || nodeSlug === 'design')
+        ? 'design'
+        : (node.config.schemaSlug || 'design');
+      node.config.collectionNamespace = String(model.slug || 'atelier-schemas');
+    } else if (node.config.schemaSlug && String(model.slug || '') !== 'atelier-schemas') {
+      delete node.config.schemaSlug;
+    }
     syncJsonPayloadFromModel(node);
   }
 
@@ -7699,7 +9887,12 @@
   function loadDocCollections(force) {
     if (state.docCollectionsLoaded && !force) return Promise.resolve(state.docCollections);
     if (state._docCollectionsLoading && !force) return state._docCollectionsLoading;
-    state._docCollectionsLoading = docTemplateFetch('/collections')
+    state._docCollectionsLoading = fetch(API + '/atelier/schemas', { headers: headers() })
+      .then(parseJson)
+      .catch(function() { return null; })
+      .then(function() {
+        return docTemplateFetch('/collections');
+      })
       .then(function(payload) {
         state.docCollections = (payload && payload.data) || [];
         if (!Array.isArray(state.docCollections)) state.docCollections = [];
@@ -7749,6 +9942,48 @@
     var slug = String((col && col.slug) || '');
     return slug.indexOf('preset-intentions-') === 0
       || (Array.isArray(col && col.tags) && col.tags.indexOf('preset') !== -1);
+  }
+
+  function isSchemaCatalogCollection(col) {
+    var slug = String((col && col.slug) || '');
+    if (slug === 'atelier-schemas') return true;
+    return Array.isArray(col && col.tags) && col.tags.indexOf('schema') !== -1
+      && col.tags.indexOf('atelier') !== -1;
+  }
+
+  function collectionOptionLabel(col) {
+    var name = String((col && (col.name || col.slug)) || '');
+    var slug = String((col && col.slug) || '');
+    if (slug && slug !== name) return name + ' (' + slug + ')';
+    return name || slug;
+  }
+
+  function collectionV3OptionsHtml(colId, presetId) {
+    var html = '';
+    var schemas = [];
+    var others = [];
+    (state.docCollections || []).forEach(function(col) {
+      var id = collectionKeyOf(col);
+      if (!id || isPresetCollection(col)) return;
+      if (isSchemaCatalogCollection(col)) schemas.push(col);
+      else others.push(col);
+    });
+    if (schemas.length) {
+      html += '<optgroup label="Schémas (nom / type)">';
+      schemas.forEach(function(col) {
+        var id = collectionKeyOf(col);
+        html += '<option value="' + escapeHtml(id) + '"' + (colId === id && !presetId ? ' selected' : '') + '>'
+          + escapeHtml(collectionOptionLabel(col)) + '</option>';
+      });
+      html += '</optgroup>';
+    }
+    html += '<optgroup label="Collections V3">';
+    others.forEach(function(col) {
+      var id = collectionKeyOf(col);
+      html += '<option value="' + escapeHtml(id) + '"' + (colId === id && !presetId ? ' selected' : '') + '>'
+        + escapeHtml(collectionOptionLabel(col)) + '</option>';
+    });
+    return html;
   }
 
   function collectionMatchesPreset(colId, preset) {
@@ -7969,6 +10204,15 @@
     });
     html += '</select></div>';
 
+    if (provider === 'flow' || provider === 'flux') {
+      html += '<div class="form-group"><label>Nom d’import</label>';
+      html += '<input type="text" data-key="importName" value="'
+        + escapeHtml(String((node.config && node.config.importName) || 'parent'))
+        + '" placeholder="parent"></div>';
+      html += '<p class="empty">Lit le flux parent (html, css, surface, label). À placer en tête d’une sous-action accrochée à la palette.</p>';
+      return html;
+    }
+
     if (provider === 'json') {
       ensureJsonModel(node);
       if (!state.docCollectionsLoaded) loadDocCollections().then(function() { renderConfig(); });
@@ -7991,19 +10235,15 @@
         });
         html += '</optgroup>';
       }
-      html += '<optgroup label="Collections V3">';
-      (state.docCollections || []).forEach(function(col) {
-        var id = collectionKeyOf(col);
-        if (!id) return;
-        if (isPresetCollection(col)) return;
-        html += '<option value="' + escapeHtml(id) + '"' + (colId === id && !presetId ? ' selected' : '') + '>'
-          + escapeHtml(col.name || col.slug || id) + '</option>';
-      });
+      html += collectionV3OptionsHtml(colId, presetId);
       html += '<option value="__new__">+ Nouvelle collection V3</option>';
       html += '</optgroup>';
       html += '</select>';
       if (state.docCollectionsError) {
         html += '<p class="empty" style="margin-top:6px; color:#fbbf24;">' + escapeHtml(state.docCollectionsError) + '</p>';
+      } else if (node.config.schemaSlug) {
+        html += '<p class="empty" style="margin-top:6px; color:#93c5fd;">Schéma · <code>'
+          + escapeHtml(node.config.schemaSlug) + '</code> — champs nom / type (pas une collection vide).</p>';
       } else if (colId) {
         html += '<p class="empty" style="margin-top:6px; color:#93c5fd;">Collection · <code>'
           + escapeHtml(node.config.collectionNamespace || colId) + '</code></p>';
@@ -8081,14 +10321,7 @@
     var html = '<div class="form-group"><label>Collection</label>';
     html += '<select data-collection-pick="1">';
     html += '<option value="">— Choisir —</option>';
-    html += '<optgroup label="Collections V3">';
-    (state.docCollections || []).forEach(function(col) {
-      var id = collectionKeyOf(col);
-      if (!id) return;
-      if (isPresetCollection(col)) return;
-      html += '<option value="' + escapeHtml(id) + '"' + (colId === id ? ' selected' : '') + '>'
-        + escapeHtml(col.name || col.slug || id) + '</option>';
-    });
+    html += collectionV3OptionsHtml(colId, '');
     html += '<option value="__new__">+ Nouvelle collection</option>';
     html += '</optgroup>';
     html += '</select>';
@@ -8121,10 +10354,52 @@
   }
 
   function flowOutputFieldsHtml(node) {
+    ensureFlowExportFields(node);
     var name = String((node && node.config && node.config.exportName) || 'chrome');
+    var selected = {};
+    uniqueExportFields(node).forEach(function(k) { selected[k] = true; });
+    var fields = collectContextFieldsForNode(node && node.id).filter(function(f) {
+      return f && f.key && !f.own && f.source !== 'Système' && f.key !== 'today' && f.key !== 'date';
+    });
     var html = '<div class="form-group"><label>Nom de la sortie</label>';
     html += '<input type="text" data-key="exportName" value="' + escapeHtml(name) + '" placeholder="chrome">';
-    html += '<p class="empty" style="margin-top:6px;">Les données = le résultat amont (HTML + CSS). On ne renvoie pas la collection de la page.</p></div>';
+    html += '<p class="empty" style="margin-top:6px;">Nom sous lequel un parent / hook relit ce paquet.</p></div>';
+    html += '<div class="form-group"><label>Données du flux</label>';
+    html += '<p class="empty" style="margin-top:6px;">Cochez les champs déjà présents dans le run. Rien à composer : on publie une sélection.</p>';
+    if (!fields.length) {
+      html += '<p class="empty" style="margin-top:8px;">Aucun champ amont. Reliez ce bloc à des données du flux.</p></div>';
+      return html;
+    }
+    html += '<div class="agent-export-fields">';
+    html += '<div class="agent-export-fields__actions">';
+    html += '<button type="button" class="btn-agent-ghost" data-export-fields-all="1">Tout</button>';
+    html += '<button type="button" class="btn-agent-ghost" data-export-fields-none="1">Aucun</button>';
+    html += '</div>';
+    var groups = {};
+    var order = [];
+    fields.forEach(function(f) {
+      var g = contextFieldGroupName(f);
+      if (!groups[g]) {
+        groups[g] = [];
+        order.push(g);
+      }
+      groups[g].push(f);
+    });
+    order.forEach(function(g) {
+      html += '<div class="agent-export-fields__group"><strong>' + escapeHtml(g) + '</strong>';
+      groups[g].forEach(function(f) {
+        var checked = selected[f.key] ? ' checked' : '';
+        html += '<label class="agent-check"><input type="checkbox" data-export-field="'
+          + escapeHtml(f.key) + '"' + checked + '><span>'
+          + escapeHtml(contextFieldLabel(f));
+        if (isExpertView()) {
+          html += ' <code>{{' + escapeHtml(f.key) + '}}</code>';
+        }
+        html += '</span></label>';
+      });
+      html += '</div>';
+    });
+    html += '</div></div>';
     return html;
   }
 
@@ -8160,7 +10435,7 @@
       });
     }
     html += '</select>';
-    html += '<p class="empty" style="margin-top:6px;">Flux nommé (HTML + CSS du run), collection client, ou connecteur sortant.</p></div>';
+    html += '<p class="empty" style="margin-top:6px;">Flux nommé (données du run), collection client, ou connecteur sortant.</p></div>';
 
     if (isFlowOutput(node)) {
       html += flowOutputFieldsHtml(node);
@@ -8243,10 +10518,10 @@
       : 'Plusieurs types possibles pour ce canal.';
     var html = '<div class="form-group"><label>' + escapeHtml(title) + '</label>';
     kinds.forEach(function(kind) {
-      html += '<label style="display:flex; gap:8px; align-items:center; margin:6px 0; color:#e2e8f0; font-weight:400;">'
+      html += '<label class="agent-check" style="margin:6px 0;">'
         + '<input type="checkbox" data-kind="' + escapeHtml(kind.id) + '"'
-        + (selected[kind.id] ? ' checked' : '') + '> '
-        + escapeHtml(kind.label || kind.id)
+        + (selected[kind.id] ? ' checked' : '') + '>'
+        + '<span>' + escapeHtml(kind.label || kind.id) + '</span>'
         + '</label>';
     });
     html += '<p class="empty" style="margin-top:6px;">' + escapeHtml(help) + '</p></div>';
@@ -8316,6 +10591,14 @@
         { key: 'css', label: 'CSS', example: 'header { … }' },
         { key: 'decision', label: 'Décision', example: 'approved' },
         { key: 'editedText', label: 'Texte validé', example: '…' }
+      );
+    }
+    if (node.brickId === 'visualization') {
+      out.push(
+        { key: 'vizType', label: 'Type', example: 'select' },
+        { key: 'surface', label: 'Surface', example: 'panel' },
+        { key: 'label', label: 'Libellé', example: 'Panneau droit' },
+        { key: 'hookMounted', label: 'Accroché', example: true }
       );
     }
     return out;
@@ -8842,12 +11125,41 @@
     });
   }
 
+  function composeSourceLabel(el) {
+    var name = el && el.querySelector('.agent-compose-source-name');
+    return name ? String(name.textContent || '').trim() : '';
+  }
+
+  function readComposeOpenSources(container) {
+    var open = [];
+    if (!container) return open;
+    container.querySelectorAll('.agent-compose-source.is-open').forEach(function(el) {
+      var k = composeSourceLabel(el);
+      if (k) open.push(k);
+    });
+    return open;
+  }
+
+  function applyComposeOpenSources(container, keys) {
+    if (!container) return;
+    var want = {};
+    (keys || []).forEach(function(k) { want[k] = true; });
+    container.querySelectorAll('.agent-compose-source').forEach(function(el) {
+      var open = !!want[composeSourceLabel(el)];
+      el.classList.toggle('is-open', open);
+      var btn = el.querySelector('[data-toggle-source]');
+      if (btn) btn.textContent = open ? 'Replier' : 'Ouvrir';
+    });
+  }
+
   function refreshComposeModal(node) {
     var body = document.getElementById('actionComposeModalBody');
     if (!body) return;
     var keepKey = node.config && node.config.activeZone;
+    var openSources = readComposeOpenSources(body);
     body.innerHTML = actionComposeEditorHtml(node);
     bindComposeEditor(body, node);
+    applyComposeOpenSources(body, openSources);
     if (keepKey) {
       var el = body.querySelector('[data-field-key="' + keepKey.replace(/"/g, '') + '"]');
       if (el) el.focus();
@@ -8858,14 +11170,16 @@
     if (!container || !node) return;
     container._node = node;
     bindComposeFieldTips(container);
-    container.querySelectorAll('[data-toggle-source]').forEach(function(btn) {
-      btn.addEventListener('click', function(ev) {
+    container.querySelectorAll('.agent-compose-source').forEach(function(source) {
+      var bar = source.querySelector('.agent-compose-source-head') || source.querySelector('.agent-compose-source-toggle');
+      if (!bar) return;
+      bar.addEventListener('click', function(ev) {
+        if (ev.target.closest('[data-insert-snippet], [data-insert]')) return;
         ev.preventDefault();
         ev.stopPropagation();
-        var source = btn.closest('.agent-compose-source');
-        if (!source) return;
         var open = source.classList.toggle('is-open');
-        btn.textContent = open ? 'Replier' : 'Ouvrir';
+        var btn = source.querySelector('[data-toggle-source]');
+        if (btn) btn.textContent = open ? 'Replier' : 'Ouvrir';
       });
     });
     container.querySelectorAll('[data-toggle-ns-fields]').forEach(function(btn) {
@@ -8887,6 +11201,13 @@
         if (!box) return;
         var collapsed = box.classList.toggle('is-collapsed');
         btn.textContent = collapsed ? 'Champs de la ligne ▸' : 'Champs de la ligne ▾';
+      });
+    });
+    container.querySelectorAll('select[data-key="copyFrom"]').forEach(function(sel) {
+      sel.addEventListener('change', function() {
+        setCopyFrom(node, sel.value);
+        refreshComposeModal(node);
+        renderCanvas();
       });
     });
     container.querySelectorAll('[data-field-key]').forEach(function(input) {
@@ -9015,6 +11336,80 @@
       btn.addEventListener('click', function() {
         removeComposeZone(node, btn.getAttribute('data-remove-zone'));
         refreshComposeModal(node);
+      });
+    });
+    container.querySelectorAll('[data-compose-tab]').forEach(function(btn) {
+      btn.addEventListener('click', function() {
+        node.config.activeComposeTab = btn.getAttribute('data-compose-tab') || 'fields';
+        node.config.pickingOutput = false;
+        refreshComposeModal(node);
+      });
+    });
+    container.querySelectorAll('[data-map-an-output]').forEach(function(btn) {
+      btn.addEventListener('click', function() {
+        startMapOutput(node);
+        refreshComposeModal(node);
+        renderCanvas();
+      });
+    });
+    container.querySelectorAll('[data-pick-output]').forEach(function(btn) {
+      btn.addEventListener('click', function() {
+        var out = state.nodes.find(function(n) { return n.id === btn.getAttribute('data-pick-output'); });
+        if (out) addOutputMap(node, out);
+        refreshComposeModal(node);
+        renderCanvas();
+      });
+    });
+    var cancelPick = container.querySelector('[data-cancel-pick-output]');
+    if (cancelPick) {
+      cancelPick.addEventListener('click', function() {
+        node.config.pickingOutput = false;
+        refreshComposeModal(node);
+      });
+    }
+    container.querySelectorAll('[data-remove-output-map]').forEach(function(btn) {
+      btn.addEventListener('click', function() {
+        removeOutputMap(node, btn.getAttribute('data-remove-output-map'));
+        refreshComposeModal(node);
+        renderCanvas();
+      });
+    });
+    container.querySelectorAll('[data-output-copy-from]').forEach(function(sel) {
+      sel.addEventListener('change', function() {
+        var out = state.nodes.find(function(n) { return n.id === node.config.activeComposeTab; });
+        if (!out) return;
+        setOutputMapCopyFrom(node, out, sel.value);
+        refreshComposeModal(node);
+        renderCanvas();
+      });
+    });
+    container.querySelectorAll('[data-add-output-slot]').forEach(function(sel) {
+      sel.addEventListener('change', function() {
+        var out = state.nodes.find(function(n) { return n.id === node.config.activeComposeTab; });
+        var key = sel.value;
+        if (!out || !key) return;
+        addOutputMapSlot(node, out, key);
+        refreshComposeModal(node);
+        renderCanvas();
+      });
+    });
+    container.querySelectorAll('[data-remove-output-slot]').forEach(function(btn) {
+      btn.addEventListener('click', function() {
+        var out = state.nodes.find(function(n) { return n.id === node.config.activeComposeTab; });
+        if (!out) return;
+        removeOutputMapSlot(node, out, btn.getAttribute('data-remove-output-slot'));
+        refreshComposeModal(node);
+        renderCanvas();
+      });
+    });
+    container.querySelectorAll('[data-output-map-key]').forEach(function(input) {
+      input.addEventListener('input', function() {
+        var out = state.nodes.find(function(n) { return n.id === node.config.activeComposeTab; });
+        if (!out) return;
+        setOutputMapValue(node, out, input.getAttribute('data-output-map-key'), input.value);
+      });
+      input.addEventListener('change', function() {
+        renderCanvas();
       });
     });
   }
@@ -9372,11 +11767,15 @@
       return inst ? ('webhook · ' + (inst.name || instanceIdOf(inst))) : 'webhook';
     }
     if (m === 'cron') return 'cron';
+    if (m === 'block' || m === 'select' || m === 'import') return 'bloc · sélection / import';
     return 'bouton';
   }
 
   function dataNodeSummary(config) {
     var provider = String((config && config.provider) || '');
+    if (provider === 'flow' || provider === 'flux') {
+      return 'flux parent';
+    }
     if (provider === 'json') {
       var raw = String((config && config.payload) || '').trim();
       var rows = Array.isArray(config && config.modelRows) ? config.modelRows.length : 0;
@@ -9416,7 +11815,10 @@
     var connectorId = String((config && config.connectorId) || '').trim();
     if (provider === 'flow' || provider === 'flux' || connectorId === 'flow' || connectorId === 'flux') {
       var exportName = String((config && config.exportName) || '').trim();
-      return exportName ? ('Flux · ' + exportName) : 'Flux (nom + résultat)';
+      var nFields = Array.isArray(config && config.exportFields) ? config.exportFields.filter(Boolean).length : 0;
+      var label = exportName ? ('Flux · ' + exportName) : 'Flux nommé';
+      if (nFields) label += ' · ' + nFields + ' champ' + (nFields > 1 ? 's' : '');
+      return label;
     }
     if (provider === 'collection' || connectorId === 'collection') {
       var name = String((config && (config.modelName || config.collectionNamespace || config.collectionId)) || '').trim();
@@ -9816,7 +12218,7 @@
     }
     if (schema && schema.type === 'boolean') {
       var checked = value !== false && value !== 'false' ? ' checked' : '';
-      return '<div class="form-group"><label><input type="checkbox" data-key="' + key + '" data-type="boolean"' + checked + '> ' + title + '</label></div>';
+      return '<div class="form-group"><label class="agent-check"><input type="checkbox" data-key="' + key + '" data-type="boolean"' + checked + '><span>' + title + '</span></label></div>';
     }
     if (key === 'body' || key === 'message' || (schema && schema.format === 'textarea')) {
       return '<div class="form-group"><label>' + title + '</label><textarea rows="4" data-key="' + key + '">' + (value != null ? value : '') + '</textarea></div>';
@@ -9842,6 +12244,7 @@
     if (key === 'pollIntervalMinutes' || key === 'webhookPath') return false;
     var mode = String((config && config.mode) || 'button');
     if (key === 'webhookInstanceId') return mode === 'webhook';
+    if (key === 'blockOnSelect' || key === 'blockOnImport') return mode === 'block';
     if (mode !== 'cron') return false;
     var preset = String((config && config.preset) || 'daily');
     if (key === 'preset' || key === 'hour' || key === 'minute') return true;
@@ -10065,7 +12468,7 @@
     if (key === 'provider' || key === 'instanceId' || key === 'kinds' || key === 'pageId' || key === 'mailbox') return false;
     if (key === 'unseenOnly' || key === 'fromContains' || key === 'subjectContains') return false;
     if (key === 'pollByDate' || key === 'pollByCount' || key === 'lookbackHours' || key === 'pollLimit') return false;
-    if (key === 'payload' || key === 'dbSource' || key === 'presetId') return false;
+    if (key === 'payload' || key === 'dbSource' || key === 'presetId' || key === 'schemaSlug' || key === 'fieldsFrom') return false;
     if (key === 'collectionNamespace' || key === 'collectionId' || key === 'modelName' || key === 'modelFields'
       || key === 'modelRows' || key === 'referenceFields') return false;
     return true;
@@ -10084,6 +12487,7 @@
     if (key === 'provider' || key === 'instanceId' || key === 'accountRef' || key === 'pageId' || key === 'connectorId') return false;
     if (key === 'collectionId' || key === 'collectionNamespace' || key === 'modelName' || key === 'modelFields'
       || key === 'modelRows' || key === 'writeMode' || key === 'referenceFields') return false;
+    if (key === 'exportName' || key === 'exportFields' || key === 'copyFrom') return false;
     var p = String((config && config.provider) || '').toLowerCase();
     if (key === 'action') return p === 'facebook';
     if (key === 'usePreviousRoute') return p === 'mail' || p === 'facebook';
@@ -10130,9 +12534,15 @@
     }
     var node = state.nodes.find(function(n) { return n.id === state.selectedNodeId; });
     if (!node) {
+      if (state.paletteHookForm) {
+        host.innerHTML = paletteHookFormHtml();
+        bindPaletteHookForm(host);
+        return;
+      }
       host.innerHTML = '<p class="empty">Sélectionnez un bloc ou un lien sur le canvas.</p>';
       return;
     }
+    state.paletteHookForm = false;
     var brick = getBrick(node.brickId) || {};
     var schema = null;
     if (node.kind === 'trigger' && brick.trigger && brick.trigger.configSchema) {
@@ -10145,7 +12555,7 @@
 
     if (node.brickId === 'trigger') {
       var rawMode = String((node.config && node.config.mode) || 'button');
-      if (rawMode !== 'cron' && rawMode !== 'webhook') node.config.mode = 'button';
+      if (rawMode !== 'cron' && rawMode !== 'webhook' && rawMode !== 'block') node.config.mode = 'button';
     }
 
     var html = '<div class="agent-node-identity">';
@@ -10167,6 +12577,9 @@
     }
     if (node.brickId === 'trigger' && node.config.mode === 'button') {
       html += '<p class="empty" style="margin-bottom:12px; color:#94a3b8;">Le bouton ▶ Lancer démarre l’agent. Pour un événement canal, passez en mode Webhook et choisissez une instance connecteur.</p>';
+    }
+    if (node.brickId === 'trigger' && node.config.mode === 'block') {
+      html += '<p class="empty" style="margin-bottom:12px; color:#94a3b8;">À la sélection ou à l’import d’un bloc : la liste de hooks se met à jour, puis tu choisis l’accroche dans le panneau droit. Pas d’IA.</p>';
     }
     if (node.brickId === 'trigger' && node.config.mode === 'webhook') {
       html += '<p class="empty" style="margin-bottom:12px; color:#94a3b8;">Le webhook est configuré dans Connecteurs. Ici on choisit lequel écoute cet agent. Entrées se préremplit sur le même canal.</p>';
@@ -10205,6 +12618,9 @@
 
     if (node.brickId === 'human-doc-review' || node.brickId === 'validation') {
       html += vizBlockDataHtml(node);
+    }
+    if (node.brickId === 'visualization') {
+      html += visualizationFieldsHtml(node);
     }
 
     var incoming = getIncomingNodes(node.id);
@@ -10281,6 +12697,7 @@
         if (node.brickId === 'action' && !actionSchemaFieldVisible(key)) return;
         if (node.brickId === 'ia' && !iaSchemaFieldVisible(key)) return;
         if (node.brickId === 'output' && !outputSchemaFieldVisible(key, node.config)) return;
+        if (node.brickId === 'visualization') return;
         if ((node.brickId === 'validation' || node.brickId === 'human-doc-review') &&
             (key === 'reviewContext' || key === 'templateNamespace' || key === 'templateId')) return;
         html += fieldHtml(key, prop, val, {
@@ -10356,6 +12773,9 @@
           node.config.mapping[slot] = val;
           if (val) delete node.config.literals[slot];
         }
+        if (isHookAction(node) && slot === 'surface') {
+          node.config.surface = hookConfiguredSurface(node) || 'tab';
+        }
         render();
       });
     });
@@ -10367,8 +12787,13 @@
       });
       ta.addEventListener('change', function() {
         ensureMappingConfig(node);
-        node.config.mapping[ta.getAttribute('data-mapping-literal')] = '__literal__';
-        node.config.literals[ta.getAttribute('data-mapping-literal')] = ta.value;
+        var slot = ta.getAttribute('data-mapping-literal');
+        node.config.mapping[slot] = '__literal__';
+        node.config.literals[slot] = ta.value;
+        if (isHookAction(node) && slot === 'surface') {
+          node.config.surface = String(ta.value || '').trim() || 'tab';
+          updateConfigTabs();
+        }
         renderCanvas();
       });
     });
@@ -10527,10 +12952,37 @@
         }
         var val = input.value;
         if (input.type === 'number') val = parseInt(val, 10);
+        if (key === 'copyFrom') {
+          setCopyFrom(node, val);
+          render();
+          return;
+        }
         node.config[key] = val;
         if ((node.brickId === 'validation' || node.brickId === 'human-doc-review') && key === 'subTemplateId') {
           node.config.subFlowId = '';
           importOfficialSubAgent(node);
+          render();
+          return;
+        }
+        if (node.brickId === 'visualization' && (key === 'vizType' || key === 'valueField' || key === 'labelField' || key === 'surface')) {
+          if (key === 'surface') {
+            var localLab = vizPathLocal(node.config.labelField) || 'label';
+            var hit = vizRowsFromUpstream(node).filter(function(row) {
+              return vizRowValue(row, vizPathLocal(node.config.valueField)) === String(val || '');
+            })[0];
+            if (hit) node.config.label = vizRowLabel(hit, localLab);
+          }
+          render();
+          return;
+        }
+        if (key === 'hookSurface') {
+          if (val === 'palette') val = '';
+          node.config.hookSurface = val;
+          if (node.brickId === 'visualization') node.config.surface = val;
+          var pickedHook = hookCatalogOptions().filter(function(r) {
+            return r.surface === String(val || '');
+          })[0];
+          if (pickedHook) node.config.label = pickedHook.label;
           render();
           return;
         }
@@ -10598,6 +13050,10 @@
           node.config.pageName = page ? (page.pageName || '') : '';
         }
         if (node.brickId === 'trigger' && (key === 'mode' || key === 'preset' || key === 'webhookInstanceId')) {
+          if (key === 'mode' && val === 'block') {
+            if (node.config.blockOnSelect == null) node.config.blockOnSelect = true;
+            if (node.config.blockOnImport == null) node.config.blockOnImport = true;
+          }
           if (key === 'mode' || key === 'webhookInstanceId') {
             var prevPreset = state.lastWebhookPresetId;
             applyWebhookPresetToData({ previousId: prevPreset, trigger: node });
@@ -10658,6 +13114,10 @@
           renderCanvas();
           return;
         }
+        if (node.brickId === 'action' && key === 'visualizationId') {
+          render();
+          return;
+        }
         if (node.brickId === 'action' && (key === 'actionId' || key === 'writeMode' || key === 'surface')) {
           node.config.operation = node.config.actionId || node.config.operation;
           if (key === 'actionId') {
@@ -10672,16 +13132,11 @@
             if (aid === 'surface.hook') {
               node.config.actionId = 'surface.hook';
               node.config.operation = 'surface.hook';
-              loadHookCatalog().then(function(pack) {
-                if (pack && pack.collectionId) node.config.hookCollectionId = pack.collectionId;
-                node.config.hookCollectionPreset = 'hook';
-                if (!String(node.config.surface || '').trim()) {
-                  var firstSurf = hookSurfaceOptions()[0];
-                  if (firstSurf) node.config.surface = firstSurf.surface;
-                }
-                updateConfigTabs();
-                render();
-              });
+              delete node.config.hookCollectionId;
+              delete node.config.hookCollectionPreset;
+              ensureHookMappingDefaults(node);
+              updateConfigTabs();
+              render();
               return;
             }
           }
@@ -10697,6 +13152,33 @@
         }
       });
     });
+
+    host.querySelectorAll('[data-export-field]').forEach(function(input) {
+      input.addEventListener('change', function() {
+        setFlowExportField(node, input.getAttribute('data-export-field'), input.checked);
+        renderCanvas();
+      });
+    });
+    var exportAll = host.querySelector('[data-export-fields-all]');
+    if (exportAll) {
+      exportAll.addEventListener('click', function(ev) {
+        ev.preventDefault();
+        ensureFlowExportFields(node);
+        node.config.exportFields = collectContextFieldsForNode(node.id).filter(function(f) {
+          return f && f.key && !f.own && f.source !== 'Système' && f.key !== 'today' && f.key !== 'date';
+        }).map(function(f) { return f.key; });
+        render();
+      });
+    }
+    var exportNone = host.querySelector('[data-export-fields-none]');
+    if (exportNone) {
+      exportNone.addEventListener('click', function(ev) {
+        ev.preventDefault();
+        ensureFlowExportFields(node);
+        node.config.exportFields = [];
+        render();
+      });
+    }
 
     host.querySelectorAll('[data-remove-zone]').forEach(function(btn) {
       btn.addEventListener('click', function(ev) {
@@ -10844,21 +13326,23 @@
         previewFrame.srcdoc = combineFlowPreview(pickedPreview.data);
       }
     }
-    var btnRefreshHook = document.getElementById('btnRefreshHookCollection');
-    if (btnRefreshHook) {
-      btnRefreshHook.addEventListener('click', function() {
-        loadHookCatalog(true).then(function(pack) {
-          if (pack && node && node.config && pack.collectionId) {
-            node.config.hookCollectionId = pack.collectionId;
-            node.config.hookCollectionPreset = 'hook';
-          }
-          renderConfig();
-        });
-      });
-    }
     host.querySelectorAll('[data-open-zone]').forEach(function(btn) {
       btn.addEventListener('click', function() {
+        node.config.activeComposeTab = 'fields';
         openActionComposeModal(node, btn.getAttribute('data-open-zone'));
+      });
+    });
+    host.querySelectorAll('[data-open-output-map]').forEach(function(btn) {
+      btn.addEventListener('click', function() {
+        node.config.activeComposeTab = btn.getAttribute('data-open-output-map') || 'fields';
+        openActionComposeModal(node);
+      });
+    });
+    host.querySelectorAll('[data-map-an-output]').forEach(function(btn) {
+      btn.addEventListener('click', function() {
+        startMapOutput(node);
+        openActionComposeModal(node);
+        render();
       });
     });
 
@@ -11075,7 +13559,9 @@
     if (facebook) facebook.style.display = showFb ? '' : 'none';
     if (mailPanel) mailPanel.style.display = showMail ? '' : 'none';
     if (tab === 'app') {
-      syncAppFields();
+      loadHookCatalog().then(function() {
+        syncAppFields();
+      });
     }
     if (tab === 'design') {
       renderDesignTab();
@@ -12069,7 +14555,9 @@
       return '<input type="color" value="' + escapeHtml(hex) + '"' + common + ' style="display:block;width:56px;height:32px;padding:0;border:0;background:transparent;">';
     }
     if (type === 'boolean') {
-      return '<input type="checkbox" data-atelier-field="' + escapeHtml(key) + '"' + (val ? ' checked' : '') + '>';
+      return '<span class="agent-check" style="margin-top:6px;">'
+        + '<input type="checkbox" data-atelier-field="' + escapeHtml(key) + '"' + (val ? ' checked' : '') + '>'
+        + '<span>Oui</span></span>';
     }
     var itype = type === 'url' ? 'url' : type === 'number' ? 'number' : 'text';
     return '<input type="' + itype + '" value="' + escapeHtml(val) + '" placeholder="'
@@ -12102,7 +14590,7 @@
     html += '<button type="button" class="btn-agent' + (mode === 'expert' ? '' : '-ghost') + '" id="btnAtelierModeExpert">Expert</button>';
     html += '</div>';
     if (!fields.length) {
-      html += '<p class="empty">Chargement de la collection Design page web…</p>';
+      html += '<p class="empty">Chargement du schéma Collection design…</p>';
     } else if (mode === 'guide') {
       var idx = Math.max(0, Math.min(state._atelierGuideIndex || 0, fields.length - 1));
       state._atelierGuideIndex = idx;
@@ -12172,8 +14660,8 @@
         persistLocal();
         var pack = state._atelierPack || {};
         var statusEl = document.getElementById('atelierDesignStatus');
-        if (!pack.collectionId) {
-          if (statusEl) statusEl.textContent = 'Collection manquante.';
+        if (!pack.schemaSlug && !pack.collectionId && !pack.catalogId) {
+          if (statusEl) statusEl.textContent = 'Schéma design manquant.';
           return;
         }
         save.disabled = true;
@@ -12182,7 +14670,8 @@
           method: 'POST',
           headers: headers(),
           body: JSON.stringify({
-            collectionId: pack.collectionId,
+            collectionId: pack.collectionId || '',
+            schemaSlug: pack.schemaSlug || 'design',
             values: pack.record || {},
             flowId: state.flowId || '',
             nodeId: node && node.id
@@ -12191,7 +14680,8 @@
           .then(parseJson)
           .then(function(data) {
             if (!data || !data.success) throw new Error((data && data.message) || 'Échec');
-            if (statusEl) statusEl.textContent = 'Design enregistré dans la collection.';
+            if (data.collectionId) pack.collectionId = data.collectionId;
+            if (statusEl) statusEl.textContent = 'Design enregistré.';
             return saveFlow({ silent: true });
           })
           .catch(function(err) {
@@ -13089,6 +15579,7 @@
     syncClearRunButton();
     renderCanvas();
     if (state.runDebug.status !== 'running' && prevStatus === 'running') {
+      refreshCurrentFlowExports();
       var errNode = items.find(function(it) { return it && (it.status === 'failed' || it.error); });
       if (errNode) {
         state.selectedNodeId = errNode.id;
@@ -13189,10 +15680,25 @@
       state.suppressAutoConnectUntil = Date.now() + 400;
 
       var brickId = e.dataTransfer.getData('text/brick-id');
+      var shortcutId = e.dataTransfer.getData('text/palette-shortcut');
+      if (!shortcutId) {
+        var plain = e.dataTransfer.getData('text/plain') || '';
+        if (plain.indexOf('shortcut:') === 0) shortcutId = plain.slice('shortcut:'.length);
+      }
+      var rect = canvas.getBoundingClientRect();
+      var x = e.clientX - rect.left - 100;
+      var y = e.clientY - rect.top - 36;
+      if (shortcutId) {
+        var parent = getBrick(brickId);
+        var child = paletteChildrenOf(parent).filter(function(c) { return c.id === shortcutId; })[0];
+        if (child) {
+          placePaletteShortcut(child, x, y);
+          return;
+        }
+      }
       var brick = getBrick(brickId);
       if (!brick) return;
-      var rect = canvas.getBoundingClientRect();
-      addNodeFromBrick(brick, e.clientX - rect.left - 100, e.clientY - rect.top - 36);
+      addNodeFromBrick(brick, x, y);
     });
     canvas.addEventListener('click', function() {
       state.selectedNodeId = null;
@@ -13235,13 +15741,18 @@
             .then(parseJson)
             .then(function(fd) {
               if (!fd.success) throw new Error(fd.message);
+              if (!isGdriAdmin && (fd.systemLocked || isSystemFlowPayload(fd.flow))) {
+                showSystemAgentLocked(fd.message || systemAgentLockedCopy());
+                return null;
+              }
               if (fd.flow && fd.flow.entrepriseId) {
                 state.entrepriseId = String(fd.flow.entrepriseId);
               }
               loadFromFlow(fd.flow);
-              return Promise.all([loadFacebookPages(), loadConnectorCatalog(), loadMailAccounts(), loadDocCollections(), loadIntentionPresets(), loadEntityLlms()]);
+              return Promise.all([loadFacebookPages(), loadConnectorCatalog(), loadMailAccounts(), loadDocCollections(), loadIntentionPresets(), loadEntityLlms(), loadPaletteCatalog(), loadHookCatalog()]);
             })
-            .then(function() {
+            .then(function(loaded) {
+              if (!loaded) return;
               syncAllFacebookAccounts();
               fillFacebookPageSelects();
               applyWebhookPresetToData();
@@ -13250,7 +15761,7 @@
             });
         }
 
-        return Promise.all([loadFacebookPages(), loadConnectorCatalog(), loadMailAccounts(), loadDocCollections(), loadIntentionPresets(), loadEntityLlms()]).then(function() {
+        return Promise.all([loadFacebookPages(), loadConnectorCatalog(), loadMailAccounts(), loadDocCollections(), loadIntentionPresets(), loadEntityLlms(), loadPaletteCatalog(), loadHookCatalog()]).then(function() {
           syncAllFacebookAccounts();
           render();
           fillFacebookPageSelects();
@@ -13264,6 +15775,12 @@
     document.getElementById('btnSaveAgent').addEventListener('click', function() {
       saveFlow().catch(function(e) { alert(e.message); });
     });
+    var btnHookPalette = document.getElementById('btnHookPalette');
+    if (btnHookPalette) {
+      btnHookPalette.addEventListener('click', function() {
+        openPaletteHookForm();
+      });
+    }
     document.getElementById('btnRunAgent').addEventListener('click', function() {
       runFlow().catch(function(e) { alert(e.message); });
     });
@@ -13334,6 +15851,36 @@
         if (!state.app) state.app = { publish: 'auto', buttonLabel: 'Lancer' };
         state.app.publish = pubEl.value || 'auto';
         updateAppPreview();
+      });
+    }
+    ['paletteIconEmoji', 'paletteFamily', 'paletteHookSurface'].forEach(function(id) {
+      var el = document.getElementById(id);
+      if (!el) return;
+      function onPaletteField() {
+        readPaletteFromDom();
+        updateAgentBlockPreview();
+        var status = document.getElementById('palettePublishStatus');
+        var pal = ensurePaletteState();
+        if (status) {
+          status.textContent = pal.publish
+            ? 'Accroché dans la palette · ' + hookSurfaceLabel(pal.hookSurface)
+            : 'Pas encore publié comme sous-agent.';
+        }
+        var hint = document.getElementById('paletteHookHint');
+        if (hint) {
+          hint.textContent = pal.hookSurface === 'palette'
+            ? 'Tu ne le vois pas dans ce flux : nom + image deviennent le bouton palette, puis le bloc dans l’autre canvas.'
+            : 'Tu ne le vois pas dans ce flux : le hook « ' + hookSurfaceLabel(pal.hookSurface)
+              + ' » s’applique au bloc une fois l’agent posé ailleurs.';
+        }
+      }
+      el.addEventListener('input', onPaletteField);
+      el.addEventListener('change', onPaletteField);
+    });
+    var btnPublishPalette = document.getElementById('btnPublishPalette');
+    if (btnPublishPalette) {
+      btnPublishPalette.addEventListener('click', function() {
+        hookCurrentFlowToPalette(null);
       });
     }
     bindAppPagesEvents();

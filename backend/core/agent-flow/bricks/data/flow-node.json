@@ -6,7 +6,7 @@
   "category": "data",
   "kind": "action",
   "visibility": "orchestrator-only",
-  "description": "Source à lire : mail, Facebook, HTTP ou une collection. Le slug reste {{#donnees}}.",
+  "description": "Source à lire : flux parent, mail, Facebook, HTTP ou une collection. Le slug reste {{#donnees}}.",
   "canvas": {
     "iconEmoji": "📥",
     "color": "#2563eb",
@@ -28,12 +28,13 @@
           "provider": {
             "type": "string",
             "title": "Type",
-            "enum": ["mail", "facebook", "http", "json"],
+            "enum": ["mail", "facebook", "http", "json", "flow"],
             "enumLabels": {
               "mail": "Mail",
               "facebook": "Facebook",
               "http": "HTTP générique",
-              "json": "Collection / liste"
+              "json": "Collection / liste",
+              "flow": "Flux (parent)"
             },
             "default": ""
           },
@@ -81,6 +82,12 @@
             "title": "Lignes du modèle",
             "items": { "type": "object" },
             "default": []
+          },
+          "schemaSlug": {
+            "type": "string",
+            "title": "Schéma (catalogue)",
+            "description": "Élément de atelier-schemas : expose les champs nom / type, sans collection vide.",
+            "default": ""
           },
           "presetId": {
             "type": "string",

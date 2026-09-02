@@ -11,7 +11,7 @@ const path = require('path');
 
 const CORE_BRICKS_ROOT = path.join(__dirname, 'bricks');
 
-const FAMILY_ORDER = ['trigger', 'data', 'condition', 'loop', 'action', 'ia', 'validation', 'output'];
+const FAMILY_ORDER = ['trigger', 'data', 'condition', 'loop', 'action', 'ia', 'visualization', 'validation', 'output'];
 
 class FlowBrickRegistry {
   constructor() {

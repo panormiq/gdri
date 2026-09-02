@@ -1,0 +1,77 @@
+{
+  "id": "visualization",
+  "name": "Visualisation",
+  "version": "1.0.0",
+  "family": "visualization",
+  "category": "viz",
+  "kind": "action",
+  "visibility": "orchestrator-only",
+  "description": "Sans IA. On attache des champs du flux amont (valeur + libellé), puis on choisit une ligne.",
+  "vizTypes": [
+    { "id": "select", "label": "Liste déroulante" },
+    { "id": "page", "label": "Page (complexe)", "disabled": true }
+  ],
+  "canvas": {
+    "iconEmoji": "▤",
+    "color": "#c2410c",
+    "borderRadius": 12,
+    "width": 220,
+    "inputs": [
+      { "id": "main", "label": "Entrée", "type": "main", "maxConnections": 0 }
+    ],
+    "outputs": [
+      { "id": "main", "label": "Suite", "type": "main", "maxConnections": 0 }
+    ]
+  },
+  "operations": {
+    "visualization.run": {
+      "label": "Accrocher",
+      "configSchema": {
+        "type": "object",
+        "properties": {
+          "vizType": {
+            "type": "string",
+            "title": "Type",
+            "enum": ["select", "page"],
+            "enumLabels": {
+              "select": "Liste déroulante",
+              "page": "Page (complexe)"
+            },
+            "default": "select"
+          },
+          "valueField": {
+            "type": "string",
+            "title": "Attacher — valeur",
+            "format": "context-field",
+            "description": "Champ amont qui identifie la ligne (ex. liste_hooks.surface).",
+            "default": ""
+          },
+          "labelField": {
+            "type": "string",
+            "title": "Attacher — libellé",
+            "format": "context-field",
+            "description": "Champ amont affiché dans la liste (ex. liste_hooks.label).",
+            "default": ""
+          },
+          "surface": {
+            "type": "string",
+            "title": "Valeur choisie",
+            "description": "Ligne retenue (sauvé sur ce bloc).",
+            "default": ""
+          }
+        }
+      },
+      "outputMessage": {
+        "type": "visualization-select",
+        "fields": [
+          { "key": "vizType", "label": "Type" },
+          { "key": "surface", "label": "Surface" },
+          { "key": "label", "label": "Libellé" },
+          { "key": "hookMounted", "label": "Accroché" }
+        ]
+      }
+    }
+  },
+  "permissions": [],
+  "serviceRef": "backend/core/agent-flow/families"
+}
