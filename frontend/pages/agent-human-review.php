@@ -15,13 +15,16 @@ $runId = preg_replace('/[^a-f0-9]/i', '', (string) ($_GET['runId'] ?? ''));
 $page_title = 'Revue documentaire';
 $jwt_token = getJWTToken();
 $api_base_url = rtrim(getApiBaseUrl(), '/');
-$extra_styles = [url('assets/css/agent-cards.css')];
+$extra_styles = [
+    url('assets/css/agent-cards.css'),
+    url('assets/css/agent-run.css') . '?v=' . (is_file(__DIR__ . '/../assets/css/agent-run.css') ? filemtime(__DIR__ . '/../assets/css/agent-run.css') : time()),
+];
 
 require_once __DIR__ . '/../includes/header.php';
 renderConsoleLayoutStart(
-    'Revue documentaire',
-    'Liste des mails en attente → ouvrez-en un pour valider ou rejeter.',
-    ['actions' => '<a class="btn btn-outline" href="' . htmlspecialchars(url('pages/user-agents-assisted.php')) . '">← Agents assistés</a>']
+    'À traiter',
+    'File des runs en attente de validation humaine → ouvrez-en un pour valider ou rejeter.',
+    ['actions' => '<a class="btn btn-outline" href="' . htmlspecialchars(url('pages/user-agents.php')) . '">← Agents</a>']
 );
 ?>
 
@@ -84,7 +87,8 @@ renderConsoleLayoutStart(
             <div class="card-body">
                 <div id="reviewEditor"
                      contenteditable="true"
-                     style="min-height:280px; padding:16px; border:1px solid #e2e8f0; border-radius:8px; background:#fff; outline:none; line-height:1.5;">
+                     class="agent-run-draft"
+                     style="min-height:280px; max-height:none; padding:16px; border:1px solid #e2e8f0; border-radius:12px; background:#fff; outline:none;">
                 </div>
             </div>
         </div>
@@ -92,7 +96,7 @@ renderConsoleLayoutStart(
         <div style="display:flex; gap:10px; flex-wrap:wrap;">
             <button type="button" class="btn btn-success" id="btnApprove">Valider ce mail</button>
             <button type="button" class="btn btn-danger" id="btnReject">Rejeter ce mail</button>
-            <a class="btn btn-outline" href="<?= htmlspecialchars(url('pages/user-agents-assisted.php')) ?>">Retour</a>
+            <a class="btn btn-outline" href="<?= htmlspecialchars(url('pages/user-agents.php')) ?>">Retour</a>
         </div>
         <?php endif; ?>
     </div>
@@ -103,7 +107,7 @@ renderConsoleLayoutStart(
     var API = <?= json_encode($api_base_url . '/agent-flows') ?>;
     var JWT = <?= json_encode($jwt_token) ?>;
     var runId = <?= json_encode($runId) ?>;
-    var assistedUrl = <?= json_encode(url('pages/user-agents-assisted.php')) ?>;
+    var assistedUrl = <?= json_encode(url('pages/agent-human-review.php')) ?>;
     var reviewPageBase = <?= json_encode(url('pages/agent-human-review.php')) ?>;
     var apiRoot = <?= json_encode(rtrim($api_base_url, '/')) ?>;
     var uploadsRoot = apiRoot.replace(/\/api\/?$/, '');
@@ -298,6 +302,18 @@ renderConsoleLayoutStart(
             loadQueue(null).catch(function() {});
         });
 
+    function collectAtelierValues(editor) {
+        var values = {};
+        if (!editor) return values;
+        var form = editor.querySelector('.atelier-form') || editor;
+        form.querySelectorAll('[name]').forEach(function(el) {
+            if (!el.name) return;
+            if (el.type === 'checkbox') values[el.name] = !!el.checked;
+            else values[el.name] = el.value;
+        });
+        return values;
+    }
+
     function resume(decision) {
         var editor = document.getElementById('reviewEditor');
         var html = editor.innerHTML;
@@ -311,7 +327,8 @@ renderConsoleLayoutStart(
                 decision: decision,
                 resumeToken: resumeToken,
                 editedHtml: html,
-                editedText: text
+                editedText: text,
+                values: collectAtelierValues(editor)
             })
         })
             .then(function(r) { return r.json(); })

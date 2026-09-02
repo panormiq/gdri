@@ -4,6 +4,7 @@
  */
 
 const { commandeClientKind } = require('./commandeClientKind');
+const isPrestationLine = require('./isPrestationLine');
 
 function commandeNeedsAchats(commande) {
   const kind = commandeClientKind(commande);
@@ -14,6 +15,7 @@ function commandeNeedsAchats(commande) {
 
   const lignes = Array.isArray(commande?.lignes) ? commande.lignes : [];
   return lignes.some((l) => {
+    if (isPrestationLine(l)) return false;
     const t = String(l.articleType || '').toLowerCase();
     return t === 'produit' || (t !== 'developpement' && t !== 'service' && l.articleId);
   });

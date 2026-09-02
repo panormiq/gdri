@@ -5,13 +5,16 @@
  * ENTRÉES : ligne commande, commande client
  * SORTIES : boolean
  *
- * DÉPEND DE : —
+ * DÉPEND DE : isPrestationLine.js
  * NE PAS : persistance, calcul quantités
  *
  * APPELÉ PAR : resolveQuantiteLivrable.js
  */
 
+const isPrestationLine = require('./isPrestationLine');
+
 function isProductLine(line) {
+  if (isPrestationLine(line)) return false;
   const t = String(line?.articleType || '').toLowerCase();
   return t === 'produit' || (t !== 'developpement' && t !== 'service' && Boolean(line?.articleId));
 }

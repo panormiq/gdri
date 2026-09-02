@@ -27,8 +27,15 @@
 
   function renderActions(bl) {
     const blId = bl.bonLivraisonId || bl.id;
-    return '<button type="button" class="btn btn-outline btn-sm gderpi-bl-pdf" data-bl-id="' + esc(blId) + '">PDF</button> ' +
-      '<button type="button" class="btn btn-outline btn-sm gderpi-bl-html" data-bl-id="' + esc(blId) + '">Aperçu</button>';
+    const Menu = global.GderpiListActionsMenu;
+    if (!Menu) return '';
+    return Menu.render(
+      [
+        { value: 'pdf', label: 'PDF' },
+        { value: 'html', label: 'Aperçu' }
+      ],
+      { attrs: { 'data-bl-id': blId } }
+    );
   }
 
   function renderRow(bl) {
@@ -45,16 +52,15 @@
       '<td>' + esc(clientLabel(bl.clientId)) + '</td>' +
       '<td>' + cmdCell + '</td>' +
       '<td>' + esc(bl.objet || '—') + '</td>' +
-      '<td class="text-nowrap">' + renderActions(bl) + '</td>' +
+      '<td class="gderpi-cmd-actions-cell">' + renderActions(bl) + '</td>' +
       '</tr>';
   }
 
   function bindTableEvents(root) {
-    root.querySelectorAll('.gderpi-bl-pdf').forEach((btn) => {
-      btn.addEventListener('click', () => H().downloadBonLivraisonPdf(btn.dataset.blId).catch(handleErr));
-    });
-    root.querySelectorAll('.gderpi-bl-html').forEach((btn) => {
-      btn.addEventListener('click', () => H().previewBonLivraisonHtml(btn.dataset.blId).catch(handleErr));
+    global.GderpiListActionsMenu?.bind?.(root, async (action, _itemEl, menuEl) => {
+      const blId = menuEl.getAttribute('data-bl-id') || '';
+      if (action === 'pdf') return H().downloadBonLivraisonPdf(blId);
+      if (action === 'html') return H().previewBonLivraisonHtml(blId);
     });
     root.querySelectorAll('.gderpi-bl-cmd-link').forEach((btn) => {
       btn.addEventListener('click', () => {

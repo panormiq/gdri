@@ -5,6 +5,7 @@
 
 const { ConnectorInstanceService } = require('./ConnectorInstanceService');
 const { ConnectorRuntime } = require('./ConnectorRuntime');
+const { findStartTriggerNodes } = require('../agent-flow/triggerMatch');
 
 const TICK_MS = 60 * 1000;
 
@@ -87,6 +88,8 @@ class ConnectorScheduler {
           await this.dispatchMailInToFlows(instance, result.messages);
         } else if (instance.connectorId === 'facebook') {
           await this.dispatchFacebookToFlows(instance, result.messages);
+        } else {
+          await this.dispatchGenericToFlows(instance, result.messages, { triggerMode: 'polling' });
         }
       }
 
@@ -98,9 +101,103 @@ class ConnectorScheduler {
   }
 
   /**
+   * Webhook / push : démarre les agents liés à cette instance.
+   */
+  async dispatchPushToFlows(instance, messages) {
+    if (!instance || !messages || !messages.length) return;
+    if (instance.connectorId === 'facebook') {
+      return this.dispatchFacebookToFlows(instance, messages, { triggerMode: 'webhook' });
+    }
+    if (instance.connectorId === 'mail-in') {
+      return this.dispatchMailInToFlows(instance, messages, { triggerMode: 'webhook' });
+    }
+    return this.dispatchGenericToFlows(instance, messages, { triggerMode: 'webhook' });
+  }
+
+  async executeFlowForConnector(executor, flow, { triggerMode, triggeredBy, triggerPayload }) {
+    const payload = triggerPayload || {};
+    const starts = findStartTriggerNodes(flow, {
+      triggerNodeId: payload.triggerNodeId,
+      triggerMode,
+      instanceId: payload.instanceId,
+      pageId: payload.pageId,
+      accountRef: payload.accountRef
+    });
+    if (!starts.length) return;
+    for (const start of starts) {
+      await executor.execute(flow, {
+        triggerMode,
+        triggeredBy,
+        triggerPayload: {
+          ...payload,
+          triggerBrickId: payload.triggerBrickId || 'trigger',
+          triggerNodeId: start.id
+        }
+      });
+    }
+  }
+
+  async dispatchGenericToFlows(instance, messages, { triggerMode = 'webhook' } = {}) {
+    try {
+      const { AgentFlowService } = require('../agent-flow/AgentFlowService');
+      const { FlowExecutor } = require('../agent-flow/FlowExecutor');
+      const { providerFromConnectorId } = require('../agent-flow/channelFromConnector');
+      const flowService = new AgentFlowService(this.database);
+      const executor = new FlowExecutor(this.database);
+      const channel = providerFromConnectorId(instance.connectorId);
+
+      const flows = await flowService.listFlowsBoundToInstance(instance.entrepriseId, instance);
+      if (!flows.length) {
+        console.log(`  ℹ️ Aucun agent lié au webhook ${instance.connectorId} [${instance.name}]`);
+        return;
+      }
+
+      for (const raw of messages) {
+        const message = this.normalizeGenericMessage(raw, channel);
+        for (const flow of flows) {
+          try {
+            await this.executeFlowForConnector(executor, flow, {
+              triggerMode,
+              triggeredBy: `connector:${instance._id}`,
+              triggerPayload: {
+                message,
+                instanceId: String(instance._id),
+                triggerBrickId: 'trigger',
+                options: { channel }
+              }
+            });
+          } catch (err) {
+            console.error(`  ❌ Flow ${flow.name} (${flow._id}):`, err.message);
+          }
+        }
+      }
+    } catch (error) {
+      console.error('  ❌ dispatchGenericToFlows:', error.message);
+    }
+  }
+
+  normalizeGenericMessage(raw, channel) {
+    if (!raw || typeof raw !== 'object') {
+      return { text: String(raw || ''), subject: '', from: '', channel };
+    }
+    const author = raw.author && typeof raw.author === 'object' ? raw.author : {};
+    return {
+      text: String(raw.text || raw.body || ''),
+      subject: String(raw.subject || (raw.metadata && raw.metadata.subject) || ''),
+      from: String(author.email || author.name || raw.from || ''),
+      messageId: raw.sourceRef || raw.id || null,
+      channel,
+      attachments: Array.isArray(raw.attachments) ? raw.attachments : [],
+      metadata: raw.metadata && typeof raw.metadata === 'object' ? raw.metadata : {},
+      author,
+      raw
+    };
+  }
+
+  /**
    * Démarre les agent_flows trigger=mail-in pour chaque message.
    */
-  async dispatchMailInToFlows(instance, messages) {
+  async dispatchMailInToFlows(instance, messages, { triggerMode = 'polling' } = {}) {
     try {
       const { AgentFlowService } = require('../agent-flow/AgentFlowService');
       const { FlowExecutor } = require('../agent-flow/FlowExecutor');
@@ -112,7 +209,7 @@ class ConnectorScheduler {
         instance.name ||
         null;
 
-      const flows = await flowService.listMailInFlows(instance.entrepriseId, accountRef);
+      const flows = await flowService.listFlowsBoundToInstance(instance.entrepriseId, instance);
       if (!flows.length) {
         console.log(`  ℹ️ Aucun agent mail-in actif pour entité ${instance.entrepriseId}`);
         return;
@@ -121,14 +218,17 @@ class ConnectorScheduler {
       for (const raw of messages) {
         const message = this.normalizeMailMessage(raw);
         for (const flow of flows) {
+          if (!this.mailFlowAcceptsMessage(flow, message, instance)) continue;
           try {
-            await executor.execute(flow, {
-              triggerMode: 'mail-in',
+            await this.executeFlowForConnector(executor, flow, {
+              triggerMode,
               triggeredBy: `connector:${instance._id}`,
               triggerPayload: {
                 message,
                 instanceId: String(instance._id),
-                accountRef
+                accountRef,
+                triggerBrickId: 'trigger',
+                options: { channel: 'mail' }
               }
             });
           } catch (err) {
@@ -187,7 +287,7 @@ class ConnectorScheduler {
   /**
    * Démarre les agent_flows Facebook pour chaque message pollé.
    */
-  async dispatchFacebookToFlows(instance, messages) {
+  async dispatchFacebookToFlows(instance, messages, { triggerMode = 'polling' } = {}) {
     try {
       const { AgentFlowService } = require('../agent-flow/AgentFlowService');
       const { FlowExecutor } = require('../agent-flow/FlowExecutor');
@@ -198,7 +298,7 @@ class ConnectorScheduler {
         (instance.settings && instance.settings.pageId) ||
         null;
 
-      const flows = await flowService.listFacebookFlows(instance.entrepriseId, pageId);
+      const flows = await flowService.listFlowsBoundToInstance(instance.entrepriseId, instance);
       if (!flows.length) {
         console.log(`  ℹ️ Aucun agent Facebook actif pour entité ${instance.entrepriseId}`);
         return;
@@ -207,16 +307,16 @@ class ConnectorScheduler {
       for (const raw of messages) {
         const message = this.normalizeFacebookMessage(raw, pageId);
         for (const flow of flows) {
-          if (!this.facebookFlowAcceptsMessage(flow, message)) continue;
+          if (!this.facebookFlowAcceptsMessage(flow, message, instance)) continue;
           try {
-            await executor.execute(flow, {
-              triggerMode: 'facebook',
+            await this.executeFlowForConnector(executor, flow, {
+              triggerMode,
               triggeredBy: `connector:${instance._id}`,
               triggerPayload: {
                 message,
                 instanceId: String(instance._id),
                 pageId,
-                triggerBrickId: 'facebook',
+                triggerBrickId: 'trigger',
                 options: { channel: 'facebook', intentionSet: 'reseaux-sociaux' },
                 source: `facebook.${message.resourceType || 'item'}`
               }
@@ -232,12 +332,41 @@ class ConnectorScheduler {
   }
 
   /**
-   * Filtre par config du bloc Facebook du flow (webhookEvents / resources poll).
+   * Filtre par config du bloc Facebook correspondant à CE compte (pas le premier nœud).
    */
-  facebookFlowAcceptsMessage(flow, message) {
+  facebookFlowAcceptsMessage(flow, message, instance) {
     const { resolveWebhookEvents } = require('./facebook-graph-helper');
-    const { extractFacebookConfigFromFlow } = require('./syncFacebookAgentSettings');
-    const cfg = extractFacebookConfigFromFlow(flow) || {};
+    const {
+      extractFacebookConfigsFromFlow,
+      facebookConfigMatchesAccount
+    } = require('./syncFacebookAgentSettings');
+    const { messageMatchesKinds } = require('../agent-flow/dataContracts');
+    const all = extractFacebookConfigsFromFlow(flow);
+    const match = {
+      instanceId: String((instance && instance._id) || ''),
+      pageId: String(
+        (message && message.pageId) ||
+        (instance && instance.settings && instance.settings.pageId) ||
+        ''
+      )
+    };
+    let cfgs = all.filter((cfg) => facebookConfigMatchesAccount(cfg, match));
+    if (!cfgs.length) {
+      cfgs = all.filter((cfg) =>
+        !String(cfg.instanceId || '').trim() && !String(cfg.pageId || '').trim()
+      );
+    }
+    if (all.length && !cfgs.length) return false;
+    if (!cfgs.length) cfgs = [{}];
+    return cfgs.some((cfg) => this.facebookConfigAcceptsMessage(cfg || {}, message, {
+      resolveWebhookEvents,
+      messageMatchesKinds
+    }));
+  }
+
+  facebookConfigAcceptsMessage(cfg, message, helpers) {
+    const resolveWebhookEvents = helpers.resolveWebhookEvents;
+    const messageMatchesKinds = helpers.messageMatchesKinds;
     const modes = Array.isArray(cfg.ingestModes) ? cfg.ingestModes : ['push', 'poll'];
     const resourceType = String((message && message.resourceType) || '');
     const webhookEvent =
@@ -245,13 +374,13 @@ class ConnectorScheduler {
       (message && message.raw && message.raw.metadata && message.raw.metadata.webhookEvent) ||
       null;
 
-    // Tag webhook → filtre push / types d'événements
+    if (Array.isArray(cfg.kinds) && cfg.kinds.length) {
+      return messageMatchesKinds(message, cfg.kinds);
+    }
     if (webhookEvent) {
       if (!modes.includes('push')) return false;
       return resolveWebhookEvents(cfg).includes(String(webhookEvent));
     }
-
-    // Sinon message poll → filtre resources
     if (!modes.includes('poll')) return false;
     const resources = Array.isArray(cfg.resources) ? cfg.resources : [];
     if (!resources.length) return true;
@@ -261,13 +390,57 @@ class ConnectorScheduler {
     return true;
   }
 
+  mailFlowAcceptsMessage(flow, message, instance) {
+    const { messageMatchesKinds } = require('../agent-flow/dataContracts');
+    const nodes = flow && flow.canvas && Array.isArray(flow.canvas.nodes) ? flow.canvas.nodes : [];
+    const mailNodes = nodes.filter((n) =>
+      n && n.brickId === 'data' && String((n.config && n.config.provider) || '') === 'mail'
+    );
+    if (!mailNodes.length) return true;
+    const instanceId = String((instance && instance._id) || '');
+    const accountRef = String(
+      (instance && instance.settings && (instance.settings.accountRef || instance.settings.accountId)) ||
+      ''
+    ).trim();
+    let matched = mailNodes.filter((n) => {
+      const cfg = n.config || {};
+      const cfgInst = String(cfg.instanceId || '').trim();
+      const cfgRef = String(cfg.accountRef || '').trim();
+      if (cfgInst && instanceId && cfgInst === instanceId) return true;
+      if (cfgRef && accountRef && cfgRef === accountRef) return true;
+      return false;
+    });
+    if (!matched.length) {
+      matched = mailNodes.filter((n) => {
+        const cfg = n.config || {};
+        return !String(cfg.instanceId || '').trim() && !String(cfg.accountRef || '').trim();
+      });
+    }
+    if (!matched.length) return false;
+    return matched.some((n) => {
+      const kinds = Array.isArray(n.config && n.config.kinds) ? n.config.kinds : [];
+      if (!messageMatchesKinds(message, kinds)) return false;
+      const { resolveMailPollQuery, messageMatchesMailQuery } = require('./mail-query-helper');
+      return messageMatchesMailQuery(message, resolveMailPollQuery(n.config || {}));
+    });
+  }
+
+  facebookContentType(resourceType) {
+    const t = String(resourceType || 'post').toLowerCase();
+    if (t === 'comment' || t === 'comments' || t === 'commentaire') return 'commentaire';
+    if (t === 'messaging' || t === 'message' || t === 'messages' || t === 'mp') return 'mp';
+    if (t === 'notification' || t === 'notifications') return 'notification';
+    return 'post';
+  }
+
   normalizeFacebookMessage(raw, pageIdHint = null) {
     if (!raw || typeof raw !== 'object') {
-      return { text: String(raw || ''), subject: '', from: '', channel: 'facebook' };
+      return { text: String(raw || ''), subject: '', from: '', channel: 'facebook', type: 'post' };
     }
     const meta = raw.metadata || {};
     const author = raw.author || {};
     const resourceType = meta.type || 'post';
+    const type = this.facebookContentType(resourceType);
     const webhookEvent = meta.webhookEvent || null;
     const text = String(raw.text || '').trim();
     const from =
@@ -287,7 +460,10 @@ class ConnectorScheduler {
       from: String(from),
       messageId: raw.sourceRef || raw.id || null,
       channel: 'facebook',
+      type,
       pageId: meta.pageId || pageIdHint || null,
+      postId: meta.postId || null,
+      conversationId: meta.conversationId || null,
       resourceType,
       webhookEvent,
       permalink_url: meta.permalink_url || null,

@@ -1,103 +1,210 @@
-{
-  "id": "mail-in",
-  "name": "Mail entrant",
-  "version": "1.1.0",
-  "author": "GDR-Innovation",
-  "description": "Réception d'emails via IMAP (poll planifié ou manuel), avec pièces jointes et filtres optionnels.",
-  "direction": "input",
-  "compatiblePlatform": ">=1.0.0",
-  "audience": "contact",
-  "hosts": ["annuaire"],
-  "capabilities": [
-    "ingest.poll",
-    "emit.delete",
-    "emit.seen"
-  ],
-  "credentials": {
-    "type": "basic",
-    "inheritsFrom": "mail-infra",
-    "fields": ["accountRef"]
-  },
-  "configSchema": {
-    "type": "object",
-    "properties": {
-      "accountRef": {
-        "type": "string",
-        "title": "Compte mail (infra)",
-        "description": "Référence du compte configuré dans Paramètres > Mail"
-      },
-      "mailbox": {
-        "type": "string",
-        "title": "Dossier IMAP",
-        "default": "INBOX"
-      },
-      "pollIntervalMinutes": {
-        "type": "number",
-        "title": "Intervalle de poll (minutes)",
-        "minimum": 1,
-        "default": 3
-      },
-      "unseenOnly": {
-        "type": "boolean",
-        "title": "Uniquement non lus",
-        "default": true
-      },
-      "includeAttachments": {
-        "type": "boolean",
-        "title": "Télécharger les pièces jointes",
-        "default": true
-      },
-      "fromContains": {
-        "type": "string",
-        "title": "Filtre expéditeur (contient)",
-        "description": "Ex. games workshop — vide = tous",
-        "default": ""
-      },
-      "subjectContains": {
-        "type": "string",
-        "title": "Filtre sujet (contient)",
-        "description": "Ex. invoice — vide = tous",
-        "default": ""
-      },
-      "pollLimit": {
-        "type": "number",
-        "title": "Max messages par poll",
-        "minimum": 1,
-        "maximum": 100,
-        "default": 20
-      }
-    },
-    "required": ["accountRef"]
-  },
-  "operations": {
-    "ingest.poll": {
-      "description": "Lecture IMAP périodique (avec PJ si activé)"
-    },
-    "emit.delete": {
-      "description": "Supprime un message IMAP par UID"
-    },
-    "emit.seen": {
-      "description": "Marque un message IMAP comme lu"
-    }
-  },
-  "instanceDefaults": {
-    "ingestModes": ["poll"],
-    "settings": {
-      "mailbox": "INBOX",
-      "pollIntervalMinutes": 3,
-      "unseenOnly": true,
-      "includeAttachments": true,
-      "fromContains": "",
-      "subjectContains": "",
-      "pollLimit": 20
-    },
-    "mapping": {
-      "text": "text",
-      "author.email": "fromEmail",
-      "author.name": "fromName",
-      "sourceRef": "uid",
-      "metadata.subject": "subject"
-    }
-  },
-  "permissions": ["network", "secrets", "entity-data"]
-}
+{
+  "id": "mail-in",
+  "name": "Mail entrant",
+  "version": "1.3.0",
+  "author": "GDR-Innovation",
+  "description": "Réception d'emails via IMAP (poll planifié ou manuel), avec pièces jointes et filtres optionnels.",
+  "direction": "input",
+  "compatiblePlatform": ">=1.0.0",
+  "audience": "contact",
+  "hosts": ["annuaire"],
+  "capabilities": [
+    "ingest.poll",
+    "emit.delete",
+    "emit.seen",
+    "emit.unseen",
+    "emit.move"
+  ],
+  "dataKinds": ["email"],
+  "credentials": {
+    "type": "basic",
+    "inheritsFrom": "mail-infra",
+    "fields": ["accountRef"]
+  },
+  "settingsFields": [
+    {
+      "key": "accountRef",
+      "label": "Compte mail",
+      "type": "connection",
+      "required": true,
+      "connectionSource": "mail-account",
+      "description": "Compte configuré dans Paramètres > Mail"
+    },
+    {
+      "key": "mailbox",
+      "label": "Dossier IMAP",
+      "type": "text",
+      "default": "INBOX"
+    },
+    {
+      "key": "pollIntervalMinutes",
+      "label": "Intervalle de poll (minutes)",
+      "type": "number",
+      "min": 1,
+      "default": 3
+    },
+    {
+      "key": "unseenOnly",
+      "label": "Uniquement non lus",
+      "type": "boolean",
+      "default": true
+    },
+    {
+      "key": "includeAttachments",
+      "label": "Télécharger les pièces jointes",
+      "type": "boolean",
+      "default": true
+    },
+    {
+      "key": "fromContains",
+      "label": "Filtre expéditeur (contient)",
+      "type": "text",
+      "default": "",
+      "description": "Ex. games workshop — vide = tous. Appliqué en SEARCH IMAP."
+    },
+    {
+      "key": "subjectContains",
+      "label": "Filtre sujet (contient)",
+      "type": "text",
+      "default": "",
+      "description": "Ex. invoice — vide = tous. Appliqué en SEARCH IMAP."
+    },
+    {
+      "key": "pollByDate",
+      "label": "Limiter par date",
+      "type": "boolean",
+      "default": false,
+      "description": "SEARCH IMAP SINCE — fenêtre lookbackHours. Défaut faux sur l’instance (compat) ; l’agent peut l’activer."
+    },
+    {
+      "key": "lookbackHours",
+      "label": "Fenêtre de temps (heures)",
+      "type": "number",
+      "min": 1,
+      "max": 2160,
+      "default": 168
+    },
+    {
+      "key": "pollByCount",
+      "label": "Limiter par nombre",
+      "type": "boolean",
+      "default": true
+    },
+    {
+      "key": "pollLimit",
+      "label": "Max messages par poll",
+      "type": "number",
+      "min": 1,
+      "max": 100,
+      "default": 20
+    }
+  ],
+  "configSchema": {
+    "type": "object",
+    "properties": {
+      "accountRef": {
+        "type": "string",
+        "title": "Compte mail (infra)",
+        "description": "Référence du compte configuré dans Paramètres > Mail"
+      },
+      "mailbox": {
+        "type": "string",
+        "title": "Dossier IMAP",
+        "default": "INBOX"
+      },
+      "pollIntervalMinutes": {
+        "type": "number",
+        "title": "Intervalle de poll (minutes)",
+        "minimum": 1,
+        "default": 3
+      },
+      "unseenOnly": {
+        "type": "boolean",
+        "title": "Uniquement non lus",
+        "default": true
+      },
+      "includeAttachments": {
+        "type": "boolean",
+        "title": "Télécharger les pièces jointes",
+        "default": true
+      },
+      "fromContains": {
+        "type": "string",
+        "title": "Filtre expéditeur (contient)",
+        "description": "Ex. games workshop — vide = tous. SEARCH IMAP.",
+        "default": ""
+      },
+      "subjectContains": {
+        "type": "string",
+        "title": "Filtre sujet (contient)",
+        "description": "Ex. invoice — vide = tous. SEARCH IMAP.",
+        "default": ""
+      },
+      "pollByDate": {
+        "type": "boolean",
+        "title": "Limiter par date",
+        "default": false
+      },
+      "lookbackHours": {
+        "type": "number",
+        "title": "Fenêtre de temps (heures)",
+        "minimum": 1,
+        "maximum": 2160,
+        "default": 168
+      },
+      "pollByCount": {
+        "type": "boolean",
+        "title": "Limiter par nombre",
+        "default": true
+      },
+      "pollLimit": {
+        "type": "number",
+        "title": "Max messages par poll",
+        "minimum": 1,
+        "maximum": 100,
+        "default": 20
+      }
+    },
+    "required": ["accountRef"]
+  },
+  "operations": {
+    "ingest.poll": {
+      "description": "Lecture IMAP par SEARCH (non lus, expéditeur, sujet, date) puis FETCH limité"
+    },
+    "emit.delete": {
+      "description": "Supprime un message IMAP par UID"
+    },
+    "emit.seen": {
+      "description": "Marque un message IMAP comme lu"
+    },
+    "emit.unseen": {
+      "description": "Marque un message IMAP comme non lu"
+    },
+    "emit.move": {
+      "description": "Déplace un message IMAP vers un autre dossier"
+    }
+  },
+  "instanceDefaults": {
+    "ingestModes": ["poll"],
+    "settings": {
+      "mailbox": "INBOX",
+      "pollIntervalMinutes": 3,
+      "unseenOnly": true,
+      "includeAttachments": true,
+      "fromContains": "",
+      "subjectContains": "",
+      "pollByDate": false,
+      "lookbackHours": 168,
+      "pollByCount": true,
+      "pollLimit": 20
+    },
+    "mapping": {
+      "text": "text",
+      "author.email": "fromEmail",
+      "author.name": "fromName",
+      "sourceRef": "uid",
+      "metadata.subject": "subject"
+    }
+  },
+  "permissions": ["network", "secrets", "entity-data"]
+}

@@ -461,16 +461,26 @@
     wrap.hidden = false;
     const s = String(currentCommande.statut || 'brouillon');
     const next = NEXT_STATUS[s];
+    const reglee = currentCommande.reglee === true;
     let html = statutBadge(s);
+    html += ' <span class="gderpi-badge ' + (reglee ? 'gderpi-badge--regle' : 'gderpi-badge--non-regle') + '">' +
+      (reglee ? 'Réglée' : 'Non réglée') + '</span>';
     if (canWrite() && next) {
       html += ' <button type="button" class="btn btn-outline btn-sm gderpi-cmd-frs-next" data-next="' + esc(next) + '">' +
         esc(NEXT_LABEL[s] || 'Suivant') + '</button>';
+    }
+    if (canWrite() && s === 'brouillon') {
+      html += ' <button type="button" class="btn btn-outline btn-sm gderpi-cmd-frs-mark-sent">Marquer envoyée</button>';
     }
     if (canWrite() && RECEPTION_STATUTS.has(s)) {
       html += ' <button type="button" class="btn btn-outline btn-sm gderpi-cmd-frs-reception">Réception partielle</button>';
     }
     if (canWrite() && s !== 'brouillon' && s !== 'annulee') {
       html += ' <button type="button" class="btn btn-outline btn-sm gderpi-cmd-frs-email">E-mail fournisseur</button>';
+    }
+    if (canWrite() && s !== 'annulee') {
+      html += ' <button type="button" class="btn btn-outline btn-sm gderpi-cmd-frs-reglee">' +
+        (reglee ? 'Marquer non réglée' : 'Marquer réglée') + '</button>';
     }
     if (canWrite() && s !== 'annulee' && s !== 'recue') {
       html += ' <button type="button" class="btn btn-outline-danger btn-sm gderpi-cmd-frs-cancel">Annuler</button>';
@@ -479,16 +489,58 @@
     el.querySelector('.gderpi-cmd-frs-next')?.addEventListener('click', (ev) => {
       updateStatus(editingId, ev.currentTarget.getAttribute('data-next')).catch(handleErr);
     });
+    el.querySelector('.gderpi-cmd-frs-mark-sent')?.addEventListener('click', () => {
+      markAsSent(editingId).catch(handleErr);
+    });
     el.querySelector('.gderpi-cmd-frs-reception')?.addEventListener('click', () => {
       global.GderpiReceptionFournisseurModal?.openReceptionForCommandeFournisseur?.(editingId);
     });
     el.querySelector('.gderpi-cmd-frs-email')?.addEventListener('click', () => {
       sendEmail(editingId).catch(handleErr);
     });
+    el.querySelector('.gderpi-cmd-frs-reglee')?.addEventListener('click', () => {
+      setReglee(editingId, !reglee).catch(handleErr);
+    });
     el.querySelector('.gderpi-cmd-frs-cancel')?.addEventListener('click', () => {
       if (!window.confirm('Annuler cette commande fournisseur ?')) return;
       updateStatus(editingId, 'annulee').catch(handleErr);
     });
+  }
+
+  async function setReglee(id, reglee) {
+    const res = await global.GderpiApi.apiCall('/commandes-fournisseur/' + encodeURIComponent(id) + '/reglee', {
+      method: 'PATCH',
+      body: JSON.stringify({ reglee })
+    });
+    currentCommande = res.data || currentCommande;
+    renderHeader();
+    global.GderpiAchatsTab?.refreshAchatsList?.();
+    global.GderpiStatus.showStatus(reglee ? 'Commande marquée comme réglée.' : 'Commande marquée comme non réglée.', 'success');
+  }
+
+  async function applyStatus(id, statut, body = {}) {
+    const res = await global.GderpiApi.apiCall('/commandes-fournisseur/' + encodeURIComponent(id) + '/status', {
+      method: 'PATCH',
+      body: JSON.stringify({ statut, ...body })
+    });
+    await reloadCommande(id);
+    global.GderpiAchatsTab?.refreshAchatsList?.();
+    renderLines();
+    return res;
+  }
+
+  async function markAsSent(id) {
+    if (!window.confirm(
+      'Marquer cette commande comme envoyée sans e-mail ?\n\n' +
+      'Utile pour les commandes déjà parties via un autre canal ou un ancien logiciel.'
+    )) return;
+    try {
+      await applyStatus(id, 'envoyee', { sendEmail: false });
+      global.GderpiStatus.showStatus('Commande marquée comme envoyée (sans e-mail).', 'success');
+    } catch (err) {
+      global.GderpiStatus.showStatus(err.message || 'Erreur mise à jour statut', 'error');
+      throw err;
+    }
   }
 
   async function updateStatus(id, statut) {
@@ -501,32 +553,16 @@
       if (!modalResult) return;
       const emailPayload = global.GderpiSendEmail.buildPayload(modalResult) || {};
       try {
-        await global.GderpiApi.apiCall('/commandes-fournisseur/' + encodeURIComponent(id) + '/status', {
-          method: 'PATCH',
-          body: JSON.stringify({ statut, ...emailPayload })
-        });
-        global.GderpiStatus.showStatus('Commande validée et e-mail envoyé au fournisseur.', 'success');
-        await reloadCommande(id);
-        global.GderpiAchatsTab?.refreshAchatsList?.();
-        renderLines();
+        const res = await applyStatus(id, statut, emailPayload);
+        global.GderpiSendEmailFeedback.notifySendSuccess(res, { label: 'E-mail', fallbackTo: 'fournisseur' });
         return;
       } catch (err) {
-        global.GderpiStatus.showStatus(err.message || 'Erreur mise à jour statut', 'error');
-        throw err;
+        global.GderpiSendEmailFeedback.notifySendError(err);
       }
     }
     try {
-      await global.GderpiApi.apiCall('/commandes-fournisseur/' + encodeURIComponent(id) + '/status', {
-        method: 'PATCH',
-        body: JSON.stringify({ statut })
-      });
-      const msg = statut === 'envoyee'
-        ? 'Commande validée et e-mail envoyé au fournisseur.'
-        : 'Statut mis à jour.';
-      global.GderpiStatus.showStatus(msg, 'success');
-      await reloadCommande(id);
-      global.GderpiAchatsTab?.refreshAchatsList?.();
-      renderLines();
+      await applyStatus(id, statut);
+      global.GderpiStatus.showStatus('Statut mis à jour.', 'success');
     } catch (err) {
       global.GderpiStatus.showStatus(err.message || 'Erreur mise à jour statut', 'error');
       throw err;
@@ -546,12 +582,10 @@
         method: 'POST',
         body: JSON.stringify(payload)
       });
-      const to = res.data?.sentTo || 'fournisseur';
-      global.GderpiStatus.showStatus('E-mail envoyé à ' + to + '.', 'success');
+      global.GderpiSendEmailFeedback.notifySendSuccess(res, { label: 'E-mail', fallbackTo: 'fournisseur' });
       await reloadCommande(id);
     } catch (err) {
-      global.GderpiStatus.showStatus(err.message || 'Erreur envoi e-mail', 'error');
-      throw err;
+      global.GderpiSendEmailFeedback.notifySendError(err);
     }
   }
 
@@ -784,10 +818,17 @@
     const actions = document.getElementById('gderpi-cmd-frs-actions');
     if (!actions) return;
 
+    const statut = String(currentCommande?.statut || '');
+    const isBrouillon = mode !== 'create' && !!editingId && statut === 'brouillon';
+
     let html = '<button type="button" class="btn btn-outline btn-sm" id="gderpi-cmd-frs-close">Fermer</button>';
     if (editingId) {
       html += ' <button type="button" class="btn btn-outline btn-sm" id="gderpi-cmd-frs-pdf">PDF</button>';
       html += ' <button type="button" class="btn btn-outline btn-sm" id="gderpi-cmd-frs-html">Aperçu HTML</button>';
+    }
+    if (canWrite() && isBrouillon) {
+      html += ' <button type="button" class="btn btn-outline btn-sm" id="gderpi-cmd-frs-mark-sent-hdr">Marquer envoyée</button>';
+      html += ' <button type="button" class="btn btn-success btn-sm" id="gderpi-cmd-frs-send-hdr">Valider et envoyer</button>';
     }
     if (isEditable()) {
       const saveLabel = mode === 'create' ? 'Créer la commande' : 'Enregistrer';
@@ -797,6 +838,12 @@
     actions.innerHTML = html;
     actions.querySelector('#gderpi-cmd-frs-close')?.addEventListener('click', closeEditor);
     actions.querySelector('#gderpi-cmd-frs-save')?.addEventListener('click', () => save().catch(handleErr));
+    actions.querySelector('#gderpi-cmd-frs-mark-sent-hdr')?.addEventListener('click', () => {
+      markAsSent(editingId).catch(handleErr);
+    });
+    actions.querySelector('#gderpi-cmd-frs-send-hdr')?.addEventListener('click', () => {
+      updateStatus(editingId, 'envoyee').catch(handleErr);
+    });
     actions.querySelector('#gderpi-cmd-frs-pdf')?.addEventListener('click', () => {
       global.GderpiCommandeClientHelpers.downloadCommandeFournisseurPdf(editingId).catch(handleErr);
     });

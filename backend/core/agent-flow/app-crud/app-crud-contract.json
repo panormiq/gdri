@@ -1,0 +1,29 @@
+{
+  "version": "0.1.0",
+  "description": "Contrat d’une collection exposée par une app aux agents. writeVia=service : jamais d’insert Mongo métier. wired=false tant que le bloc n’est pas branché.",
+  "ops": ["read", "create", "update"],
+  "writeVia": ["service"],
+  "collection": {
+    "id": "devis",
+    "label": "Devis",
+    "ops": ["read", "create"],
+    "writeVia": "service",
+    "wired": false,
+    "key": "numero",
+    "serviceRef": "",
+    "fields": [
+      {
+        "key": "numero",
+        "label": "Numéro",
+        "type": "text",
+        "required": false
+      }
+    ]
+  },
+  "app": {
+    "appId": "gderpi",
+    "label": "GDERPI",
+    "enabled": true,
+    "collections": []
+  }
+}

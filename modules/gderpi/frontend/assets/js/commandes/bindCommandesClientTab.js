@@ -39,6 +39,21 @@
   }
 
   async function validerGdri(id) {
+    const cmd = commandes.find((c) => String(c.commandeClientId || c.id) === String(id));
+    const result = await global.GderpiBonCommandeClient?.ensure?.(cmd);
+    if (!result) return;
+    const currentRef = String(cmd?.referenceClient || '').trim();
+    const needSave = result.referenceClient !== currentRef
+      || result.sansBonCommandeClient !== (cmd?.sansBonCommandeClient === true);
+    if (needSave) {
+      await global.GderpiApi.apiCall('/commandes-client/' + encodeURIComponent(id), {
+        method: 'PUT',
+        body: JSON.stringify({
+          referenceClient: result.referenceClient || '',
+          sansBonCommandeClient: result.sansBonCommandeClient === true
+        })
+      });
+    }
     if (!confirm('Valider cette commande en interne (GDRI) ?')) return;
     await global.GderpiApi.apiCall('/commandes-client/' + encodeURIComponent(id) + '/valider-gdri', { method: 'POST' });
     global.GderpiStatus.showStatus('Commande validée GDRI.', 'success');
@@ -177,7 +192,7 @@
     if (!tbody) return;
 
     if (!commandes.length) {
-      tbody.innerHTML = '<tr><td colspan="11" class="text-muted">Aucune commande client. Créez-en une depuis un devis accepté.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="11" class="text-muted">Aucune commande client. Créez-en une depuis un devis accepté, ou via « + Commande client ».</td></tr>';
       return;
     }
 
@@ -187,7 +202,7 @@
       const id = c.commandeClientId || c.id;
       const devisLink = c.devisId && c.devisNumero
         ? '<button type="button" class="btn btn-link btn-sm p-0 gderpi-cmd-devis-link" data-devis-id="' + esc(c.devisId) + '">' + esc(c.devisNumero) + '</button>'
-        : '—';
+        : '<span class="text-muted">Sans devis</span>';
       const rowClass = H().rowHighlightClass(c);
       const highlight = String(id) === String(highlightId) ? ' gderpi-row-highlight' : '';
       const mainRow = '<tr data-gderpi-cmd-row data-cmd-id="' + esc(id) + '"' +
@@ -217,8 +232,10 @@
         global.GderpiCommandeClientEditor?.openCommande?.(id).catch(handleErr);
       });
 
-      wf.bindActionsSelect(row.querySelector('.gderpi-cmd-actions-select'), cmd, (action) =>
-        runWorkflowAction(cmd, action).catch(handleErr)
+      wf.bindActionsSelect(
+        row.querySelector('.gderpi-actions-menu') || row.querySelector('.gderpi-cmd-actions-select'),
+        cmd,
+        (action) => runWorkflowAction(cmd, action).catch(handleErr)
       );
     });
 

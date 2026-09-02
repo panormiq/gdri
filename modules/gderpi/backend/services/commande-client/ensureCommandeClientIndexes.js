@@ -8,7 +8,7 @@
  * DÉPEND DE : —
  * NE PAS : CRUD
  *
- * APPELÉ PAR : listCommandesClient.js, createFromDevis.js
+ * APPELÉ PAR : listCommandesClient.js, createFromDevis.js, createCommandeClient.js
  */
 
 const COLLECTION = 'gderpi_commandes_client';

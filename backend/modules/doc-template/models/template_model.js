@@ -5,6 +5,7 @@ const database = require('../../../config/database');
 class Template {
   constructor(data) {
     this.name = data.name;
+    this.kind = data.kind || data.type || 'word';
     this.generalStyles = data.generalStyles || {};
     this.structure = data.structure || {};
     this.content = data.content || '';

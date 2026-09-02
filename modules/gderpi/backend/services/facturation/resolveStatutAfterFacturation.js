@@ -10,6 +10,7 @@ function resolveStatutAfterFacturation(commande) {
   if (isCommandeFulfillmentComplete(commande)) return 'facturee_partiellement';
   const current = String(commande?.statut || '');
   if (['livree', 'a_facturer'].includes(current)) return 'facturee_partiellement';
+  if (current === 'prestation_en_cours') return 'prestation_en_cours';
   return current;
 }
 

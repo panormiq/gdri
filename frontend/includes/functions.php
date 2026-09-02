@@ -579,6 +579,20 @@ function buildPlatformAgentHubItems() {
             'icon' => '📊',
             'url' => url('pages/user-activity.php'),
         ],
+        [
+            'id' => 'platform-prod-templates',
+            'title' => 'Templates de production',
+            'description' => 'Mises en page Validation et prompts IA figés. Choisis selon la demande de l’agent.',
+            'icon' => '📄',
+            'url' => url('pages/platform-agent-templates.php'),
+        ],
+        [
+            'id' => 'platform-gdri-agents',
+            'title' => 'Agents GDRI',
+            'description' => 'Agents officiels importables (Design page web…). Création dans la console entité.',
+            'icon' => '▣',
+            'url' => url('pages/platform-gdri-agents.php'),
+        ],
     ];
 }
 
@@ -765,14 +779,9 @@ function getMigratedApplicationDefinitions() {
             'legacyIds' => ['agent-documentaire-v2', 'document-agent-v1', 'svc-agent-documentaire-v2', 'doc-template-v3'],
             'static' => true,
             'title' => 'Agent Documentaire',
-            'description' => 'Moteur documentaire canvas A4 — templates et PDF.',
+            'description' => 'Collections, templates et mise en page A4.',
             'icon' => '📄',
-            'url' => 'pages/modules/document-agent-v2/index.php',
-            'links' => [
-                ['label' => 'Ouvrir V2', 'url' => 'pages/modules/document-agent-v2/index.php', 'primary' => true],
-                ['label' => 'V1', 'url' => 'pages/modules/document-agent/index.php'],
-                ['label' => 'V3', 'url' => 'pages/modules/doc-template-v3/index.php'],
-            ],
+            'url' => 'pages/modules/doc-template-v3/index.php',
         ],
         [
             'id' => 'pm',
@@ -1620,6 +1629,8 @@ function isGdriPlatformShellPage() {
         'platform-users.php',
         'platform-applications.php',
         'platform-agents.php',
+        'platform-agent-templates.php',
+        'platform-gdri-agents.php',
         'platform-roles.php',
         'platform-deploy.php',
         'admin-modules.php',

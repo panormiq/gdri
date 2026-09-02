@@ -4,6 +4,7 @@ const normalizeDevisLine = require('../devis/normalizeDevisLine');
 const calculateDevisTotals = require('../devis/calculateDevisTotals');
 const nextSequenceNumber = require('../sequences/nextSequenceNumber');
 const { commandeClientKind } = require('../workflow/commandeClientKind');
+const isPrestationLine = require('../workflow/isPrestationLine');
 const remainingLineQty = require('../workflow/remainingLineQty');
 const resolveQuantiteLivrable = require('../workflow/resolveQuantiteLivrable');
 const maybeMarkCommandeLivree = require('../workflow/maybeMarkCommandeLivree');
@@ -22,6 +23,7 @@ function productLinesForBl(commande) {
   const kind = commandeClientKind(commande);
 
   function isProductLine(line) {
+    if (isPrestationLine(line)) return false;
     return String(line?.articleType || '').toLowerCase() === 'produit';
   }
 
@@ -31,12 +33,8 @@ function productLinesForBl(commande) {
     if (filtered.length) candidates = filtered;
   }
   if (!candidates.length) {
-    candidates = lignes.filter((l) => {
-      const t = String(l.articleType || '').toLowerCase();
-      return t !== 'developpement' && t !== 'service';
-    });
+    candidates = lignes.filter((l) => !isPrestationLine(l));
   }
-  if (!candidates.length) candidates = lignes;
 
   return candidates.filter((l) => remainingLineQty(l) > 0);
 }

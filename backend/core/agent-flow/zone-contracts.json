@@ -1,0 +1,135 @@
+{
+  "version": "1.0.0",
+  "description": "Champs du bloc Action, comme une collection. Chaque variable est sauvée (values[key]). Les presets (IA, sortie mail…) sont des suggestions selon le bloc suivant.",
+  "variableTypes": [
+    { "id": "textarea", "label": "Zone de texte" },
+    { "id": "text", "label": "Texte" },
+    { "id": "number", "label": "Nombre" },
+    { "id": "file", "label": "Fichier / PJ" },
+    { "id": "array", "label": "Liste" }
+  ],
+  "presets": {
+    "ia": {
+      "id": "ia",
+      "label": "IA",
+      "target": { "brickId": "ia" },
+      "description": "Le bloc IA lit prompt + contexte + RAG.",
+      "variables": [
+        {
+          "key": "prompt",
+          "label": "Prompt",
+          "type": "textarea",
+          "required": true,
+          "placeholder": "À partir de {{text}}, produis le résultat demandé.",
+          "description": "Instruction envoyée au modèle"
+        },
+        {
+          "key": "context",
+          "label": "Contexte",
+          "type": "textarea",
+          "placeholder": "Tu es l’assistant de l’entreprise. Ton : professionnel, français.",
+          "description": "Cadre métier, ton, règles"
+        },
+        {
+          "key": "rag",
+          "label": "RAG",
+          "type": "textarea",
+          "placeholder": "{{items}}",
+          "description": "Extraits, collection ou connaissances à injecter"
+        }
+      ]
+    },
+    "output.mail": {
+      "id": "output.mail",
+      "label": "Sortie mail",
+      "target": { "brickId": "output", "provider": "mail" },
+      "description": "La sortie mail lit destinataire, sujet, réponse, pièces jointes.",
+      "variables": [
+        {
+          "key": "to",
+          "label": "Destinataire",
+          "type": "text",
+          "required": true,
+          "placeholder": "{{from}}",
+          "description": "Adresse e-mail"
+        },
+        {
+          "key": "subject",
+          "label": "Sujet",
+          "type": "text",
+          "placeholder": "Re: {{subject}}",
+          "description": "Objet du mail"
+        },
+        {
+          "key": "body",
+          "label": "Réponse",
+          "type": "textarea",
+          "required": true,
+          "placeholder": "{{response}}",
+          "description": "Corps du mail. Pour lister le tableau, le nom du bloc Entrées (slug donnees) : {{#donnees}}- {{donnees.expediteur}}, {{donnees.sujet}}{{/donnees}}"
+        },
+        {
+          "key": "attachments",
+          "label": "Pièces jointes",
+          "type": "file",
+          "placeholder": "{{attachments}}",
+          "description": "Fichiers à joindre"
+        }
+      ]
+    },
+    "output.mail.digest": {
+      "id": "output.mail.digest",
+      "label": "Digest mail (tableau)",
+      "target": { "brickId": "output", "provider": "mail" },
+      "description": "Un seul mail qui liste toutes les lignes reçues (from + sujet). Pas de bloc Boucle.",
+      "variables": [
+        {
+          "key": "to",
+          "label": "Destinataire",
+          "type": "text",
+          "required": true,
+          "placeholder": "autre@exemple.fr",
+          "description": "Adresse de synthèse (pas l’expéditeur d’origine)"
+        },
+        {
+          "key": "subject",
+          "label": "Sujet",
+          "type": "text",
+          "placeholder": "Nouveau mail ({{itemsCount}})",
+          "description": "Objet du digest"
+        },
+        {
+          "key": "body",
+          "label": "Réponse",
+          "type": "textarea",
+          "required": true,
+          "placeholder": "Nouveau mail\nde :\n{{#donnees}}\n\n{{/donnees}}",
+          "description": "Boucle vide : cliquez les champs du groupe Données pour remplir l’intérieur."
+        },
+        {
+          "key": "attachments",
+          "label": "Pièces jointes",
+          "type": "file",
+          "placeholder": "{{attachments}}",
+          "description": "Fichiers à joindre"
+        }
+      ]
+    },
+    "output.facebook": {
+      "id": "output.facebook",
+      "label": "Sortie Facebook",
+      "target": { "brickId": "output", "provider": "facebook" },
+      "description": "La sortie Facebook lit le message.",
+      "variables": [
+        {
+          "key": "message",
+          "label": "Message",
+          "type": "textarea",
+          "required": true,
+          "placeholder": "{{response}}",
+          "description": "Texte publié ou répondu"
+        }
+      ]
+    }
+  }
+}

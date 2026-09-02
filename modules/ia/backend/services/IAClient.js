@@ -77,11 +77,70 @@ class IAClient {
     }
   }
 
-  async sendAnalysisPrompt(prompt, options = {}, _onChunk = null) {
-    return this.generate(prompt, options);
+  async sendAnalysisPrompt(prompt, options = {}, onChunk = null) {
+    return this.generate(prompt, { ...options, onChunk });
+  }
+
+  idleTimeoutMs() {
+    const n = Number(this.timeout);
+    return Number.isFinite(n) && n > 0 ? n : 120000;
+  }
+
+  firstByteTimeoutMs() {
+    return Math.max(this.idleTimeoutMs(), 10 * 60 * 1000);
   }
 
   async _viaServer(prompt, options = {}, cfg = {}) {
+    const serverUrl = (cfg.serverUrl || this.serverUrl).replace(/\/$/, '');
+    const serviceToken = cfg.serviceToken || this.serviceToken;
+    const model = options.model || this.model;
+    const promptEndpoint = cfg.endpoints && typeof cfg.endpoints.prompt === 'string' && cfg.endpoints.prompt.trim()
+      ? cfg.endpoints.prompt.trim()
+      : '/api/generate';
+    const streamPath = cfg.endpoints && typeof cfg.endpoints.promptStream === 'string' && cfg.endpoints.promptStream.trim()
+      ? cfg.endpoints.promptStream.trim()
+      : `${String(promptEndpoint).replace(/\/$/, '')}/stream`;
+    const url = new URL(streamPath, serverUrl);
+    const bodyObj = {
+      prompt,
+      model,
+      stream: true,
+      think: false
+    };
+    if (options.temperature !== undefined) bodyObj.temperature = options.temperature;
+    if (options.max_tokens !== undefined) bodyObj.max_tokens = options.max_tokens;
+    if (options.top_p !== undefined) bodyObj.top_p = options.top_p;
+    if (options.top_k !== undefined) bodyObj.top_k = options.top_k;
+    const body = JSON.stringify(bodyObj);
+    const headers = {
+      'Content-Type': 'application/json',
+      'Content-Length': Buffer.byteLength(body, 'utf8'),
+      Accept: 'text/event-stream'
+    };
+    if (serviceToken) headers.Authorization = `Bearer ${serviceToken}`;
+
+    const streamed = await this._httpStream(url, { method: 'POST', headers, body }, {
+      kind: 'sse',
+      onChunk: options.onChunk
+    });
+    if (streamed.success) {
+      return {
+        success: true,
+        data: {
+          response: streamed.text,
+          model: streamed.model || model,
+          processing_time: streamed.processing_time,
+          created_at: streamed.created_at || new Date().toISOString()
+        }
+      };
+    }
+    if (streamed.statusCode === 404 || streamed.statusCode === 405) {
+      return this._viaServerBuffered(prompt, options, cfg);
+    }
+    return { success: false, error: { message: streamed.error || 'Flux serveur IA interrompu', details: streamed.details } };
+  }
+
+  async _viaServerBuffered(prompt, options = {}, cfg = {}) {
     const serverUrl = (cfg.serverUrl || this.serverUrl).replace(/\/$/, '');
     const serviceToken = cfg.serviceToken || this.serviceToken;
     const model = options.model || this.model;
@@ -96,15 +155,15 @@ class IAClient {
       max_tokens: options.max_tokens,
       top_p: options.top_p,
       top_k: options.top_k,
-      stream: false
+      stream: false,
+      think: false
     });
     const headers = {
       'Content-Type': 'application/json',
       'Content-Length': Buffer.byteLength(body, 'utf8')
     };
-    if (serviceToken) headers['Authorization'] = `Bearer ${serviceToken}`;
-
-    return this._httpRequest(url, { method: 'POST', headers, body }, (data) => {
+    if (serviceToken) headers.Authorization = `Bearer ${serviceToken}`;
+    return this._httpRequest(url, { method: 'POST', headers, body, timeout: this.firstByteTimeoutMs() }, (data) => {
       try {
         const parsed = JSON.parse(data);
         return {
@@ -128,7 +187,8 @@ class IAClient {
     const payload = {
       model,
       prompt,
-      stream: false,
+      stream: true,
+      think: false,
       options: {}
     };
     if (options.temperature !== undefined) payload.options.temperature = options.temperature;
@@ -143,23 +203,22 @@ class IAClient {
       'Content-Length': Buffer.byteLength(body, 'utf8')
     };
 
-    return this._httpRequest(url, { method: 'POST', headers, body }, (data) => {
-      try {
-        const parsed = JSON.parse(data);
-        const response = parsed.response || '';
-        return {
-          success: true,
-          data: {
-            response,
-            model: parsed.model || model,
-            processing_time: null,
-            created_at: new Date().toISOString()
-          }
-        };
-      } catch (e) {
-        return { success: false, error: { message: 'Réponse Ollama invalide', details: data } };
-      }
+    const streamed = await this._httpStream(url, { method: 'POST', headers, body }, {
+      kind: 'ndjson',
+      onChunk: options.onChunk
     });
+    if (!streamed.success) {
+      return { success: false, error: { message: streamed.error || 'Flux Ollama interrompu', details: streamed.details } };
+    }
+    return {
+      success: true,
+      data: {
+        response: streamed.text,
+        model: streamed.model || model,
+        processing_time: streamed.processing_time,
+        created_at: new Date().toISOString()
+      }
+    };
   }
 
   async _viaOpenAI(prompt, options = {}, cfg = {}) {
@@ -173,33 +232,32 @@ class IAClient {
       model,
       messages: [{ role: 'user', content: prompt }],
       temperature: options.temperature ?? 0.7,
-      max_tokens: options.max_tokens ?? 2048
+      max_tokens: options.max_tokens ?? 2048,
+      stream: true
     });
     const headers = {
       'Content-Type': 'application/json',
       'Authorization': `Bearer ${apiKey}`,
-      'Content-Length': Buffer.byteLength(body, 'utf8')
+      'Content-Length': Buffer.byteLength(body, 'utf8'),
+      Accept: 'text/event-stream'
     };
 
-    return this._httpRequest(url, { method: 'POST', headers, body }, (data) => {
-      try {
-        const parsed = JSON.parse(data);
-        const content = parsed.choices && parsed.choices[0] && parsed.choices[0].message
-          ? parsed.choices[0].message.content
-          : '';
-        return {
-          success: true,
-          data: {
-            response: content,
-            model: parsed.model || model,
-            processing_time: parsed.usage ? null : null,
-            created_at: new Date().toISOString()
-          }
-        };
-      } catch (e) {
-        return { success: false, error: { message: 'Réponse OpenAI invalide', details: data } };
-      }
+    const streamed = await this._httpStream(url, { method: 'POST', headers, body }, {
+      kind: 'openai',
+      onChunk: options.onChunk
     });
+    if (!streamed.success) {
+      return { success: false, error: { message: streamed.error || 'Flux OpenAI interrompu', details: streamed.details } };
+    }
+    return {
+      success: true,
+      data: {
+        response: streamed.text,
+        model: streamed.model || model,
+        processing_time: null,
+        created_at: new Date().toISOString()
+      }
+    };
   }
 
   async _viaAnthropic(prompt, options = {}, cfg = {}) {
@@ -212,34 +270,33 @@ class IAClient {
     const body = JSON.stringify({
       model,
       max_tokens: options.max_tokens ?? 2048,
-      messages: [{ role: 'user', content: prompt }]
+      messages: [{ role: 'user', content: prompt }],
+      stream: true
     });
     const headers = {
       'Content-Type': 'application/json',
       'x-api-key': apiKey,
       'anthropic-version': '2023-06-01',
-      'Content-Length': Buffer.byteLength(body, 'utf8')
+      'Content-Length': Buffer.byteLength(body, 'utf8'),
+      Accept: 'text/event-stream'
     };
 
-    return this._httpRequest(url, { method: 'POST', headers, body }, (data) => {
-      try {
-        const parsed = JSON.parse(data);
-        const content = parsed.content && parsed.content[0] && parsed.content[0].text
-          ? parsed.content[0].text
-          : '';
-        return {
-          success: true,
-          data: {
-            response: content,
-            model: parsed.model || model,
-            processing_time: null,
-            created_at: new Date().toISOString()
-          }
-        };
-      } catch (e) {
-        return { success: false, error: { message: 'Réponse Anthropic invalide', details: data } };
-      }
+    const streamed = await this._httpStream(url, { method: 'POST', headers, body }, {
+      kind: 'anthropic',
+      onChunk: options.onChunk
     });
+    if (!streamed.success) {
+      return { success: false, error: { message: streamed.error || 'Flux Anthropic interrompu', details: streamed.details } };
+    }
+    return {
+      success: true,
+      data: {
+        response: streamed.text,
+        model: streamed.model || model,
+        processing_time: null,
+        created_at: new Date().toISOString()
+      }
+    };
   }
 
   async _viaDeepSeek(prompt, options = {}, cfg = {}) {
@@ -253,38 +310,228 @@ class IAClient {
       model,
       messages: [{ role: 'user', content: prompt }],
       temperature: options.temperature ?? 0.7,
-      max_tokens: options.max_tokens ?? 2048
+      max_tokens: options.max_tokens ?? 2048,
+      stream: true
     });
     const headers = {
       'Content-Type': 'application/json',
       'Authorization': `Bearer ${apiKey}`,
-      'Content-Length': Buffer.byteLength(body, 'utf8')
+      'Content-Length': Buffer.byteLength(body, 'utf8'),
+      Accept: 'text/event-stream'
     };
 
-    return this._httpRequest(url, { method: 'POST', headers, body }, (data) => {
-      try {
-        const parsed = JSON.parse(data);
-        const content = parsed.choices && parsed.choices[0] && parsed.choices[0].message
-          ? parsed.choices[0].message.content
-          : '';
-        return {
-          success: true,
-          data: {
-            response: content,
-            model: parsed.model || model,
-            processing_time: null,
-            created_at: new Date().toISOString()
-          }
-        };
-      } catch (e) {
-        return { success: false, error: { message: 'Réponse DeepSeek invalide', details: data } };
+    const streamed = await this._httpStream(url, { method: 'POST', headers, body }, {
+      kind: 'openai',
+      onChunk: options.onChunk
+    });
+    if (!streamed.success) {
+      return { success: false, error: { message: streamed.error || 'Flux DeepSeek interrompu', details: streamed.details } };
+    }
+    return {
+      success: true,
+      data: {
+        response: streamed.text,
+        model: streamed.model || model,
+        processing_time: null,
+        created_at: new Date().toISOString()
       }
+    };
+  }
+
+  consumeSseBlocks(buffer, onJson) {
+    let rest = buffer;
+    let idx;
+    while ((idx = rest.indexOf('\n\n')) >= 0) {
+      const block = rest.slice(0, idx);
+      rest = rest.slice(idx + 2);
+      for (const line of block.split('\n')) {
+        const trimmed = line.replace(/\r$/, '');
+        if (!trimmed.startsWith('data:')) continue;
+        const raw = trimmed.slice(5).trim();
+        if (!raw || raw === '[DONE]') continue;
+        try {
+          onJson(JSON.parse(raw));
+        } catch (_) { /* ignore */ }
+      }
+    }
+    return rest;
+  }
+
+  consumeNdjsonLines(buffer, onJson) {
+    let rest = buffer;
+    let idx;
+    while ((idx = rest.indexOf('\n')) >= 0) {
+      const line = rest.slice(0, idx).replace(/\r$/, '').trim();
+      rest = rest.slice(idx + 1);
+      if (!line) continue;
+      try {
+        onJson(JSON.parse(line));
+      } catch (_) { /* ignore */ }
+    }
+    return rest;
+  }
+
+  applyStreamEvent(kind, event, acc) {
+    if (!event || typeof event !== 'object') return;
+    if (event.error) {
+      acc.error = typeof event.error === 'string' ? event.error : JSON.stringify(event.error);
+      return;
+    }
+    if (kind === 'sse') {
+      if (event.token) {
+        acc.text += String(event.token);
+        if (typeof acc.onChunk === 'function') acc.onChunk(String(event.token));
+      }
+      if (event.done === true && event.full != null) acc.text = String(event.full);
+      if (event.model) acc.model = event.model;
+      if (event.processing_time != null) acc.processing_time = event.processing_time;
+      return;
+    }
+    if (kind === 'ndjson') {
+      const piece = event.response != null && String(event.response)
+        ? String(event.response)
+        : (event.message && event.message.content != null
+          ? String(event.message.content)
+          : (event.thinking != null ? String(event.thinking) : ''));
+      if (piece) {
+        acc.text += piece;
+        if (typeof acc.onChunk === 'function') acc.onChunk(piece);
+      }
+      if (event.model) acc.model = event.model;
+      return;
+    }
+    if (kind === 'openai') {
+      const delta = event.choices && event.choices[0] && event.choices[0].delta
+        ? event.choices[0].delta.content
+        : '';
+      if (delta) {
+        acc.text += String(delta);
+        if (typeof acc.onChunk === 'function') acc.onChunk(String(delta));
+      }
+      if (event.model) acc.model = event.model;
+      return;
+    }
+    if (kind === 'anthropic') {
+      const piece = event.type === 'content_block_delta' && event.delta && event.delta.text
+        ? String(event.delta.text)
+        : '';
+      if (piece) {
+        acc.text += piece;
+        if (typeof acc.onChunk === 'function') acc.onChunk(piece);
+      }
+      if (event.message && event.message.model) acc.model = event.message.model;
+    }
+  }
+
+  _httpStream(url, options, streamOpts = {}) {
+    const isHttps = url.protocol === 'https:';
+    const lib = isHttps ? https : http;
+    const kind = streamOpts.kind || 'sse';
+    const firstByteMs = this.firstByteTimeoutMs();
+    const idleMs = this.idleTimeoutMs();
+    return new Promise((resolve) => {
+      const acc = {
+        text: '',
+        model: '',
+        processing_time: null,
+        error: null,
+        onChunk: streamOpts.onChunk
+      };
+      let buffer = '';
+      let gotByte = false;
+      let settled = false;
+      let idleTimer = null;
+      let req = null;
+      const finish = (payload) => {
+        if (settled) return;
+        settled = true;
+        if (idleTimer) clearTimeout(idleTimer);
+        resolve(payload);
+      };
+      const armIdle = (ms) => {
+        if (idleTimer) clearTimeout(idleTimer);
+        idleTimer = setTimeout(() => {
+          if (req) req.destroy();
+          finish({
+            success: false,
+            error: gotByte
+              ? `Flux IA interrompu (aucune donnée depuis ${ms}ms)`
+              : `Aucune réponse IA après ${ms}ms (chargement du modèle ?)`
+          });
+        }, ms);
+      };
+      req = lib.request(
+        {
+          hostname: url.hostname,
+          port: url.port || (isHttps ? 443 : 80),
+          path: url.pathname + (url.search || ''),
+          method: options.method || 'POST',
+          headers: options.headers || {}
+        },
+        (res) => {
+          if (res.statusCode < 200 || res.statusCode >= 300) {
+            let errBody = '';
+            res.setEncoding('utf8');
+            res.on('data', (c) => { errBody += c; });
+            res.on('end', () => {
+              let msg = errBody || `HTTP ${res.statusCode}`;
+              try {
+                const j = JSON.parse(errBody);
+                if (j.detail) msg = typeof j.detail === 'string' ? j.detail : JSON.stringify(j.detail);
+                else if (j.message) msg = j.message;
+                else if (j.error) msg = typeof j.error === 'string' ? j.error : JSON.stringify(j.error);
+              } catch (_) { /* keep msg */ }
+              finish({
+                success: false,
+                statusCode: res.statusCode,
+                error: msg,
+                details: errBody
+              });
+            });
+            return;
+          }
+          res.setEncoding('utf8');
+          const onEvent = (event) => this.applyStreamEvent(kind, event, acc);
+          res.on('data', (chunk) => {
+            gotByte = true;
+            armIdle(idleMs);
+            buffer += chunk;
+            if (kind === 'ndjson') buffer = this.consumeNdjsonLines(buffer, onEvent);
+            else buffer = this.consumeSseBlocks(buffer, onEvent);
+          });
+          res.on('end', () => {
+            if (kind === 'ndjson') this.consumeNdjsonLines(buffer + '\n', onEvent);
+            else this.consumeSseBlocks(buffer + '\n\n', onEvent);
+            if (acc.error) {
+              finish({ success: false, error: acc.error, text: acc.text });
+              return;
+            }
+            finish({
+              success: true,
+              text: acc.text,
+              model: acc.model,
+              processing_time: acc.processing_time,
+              created_at: new Date().toISOString()
+            });
+          });
+          res.on('error', (e) => {
+            finish({ success: false, error: e.message || 'Flux interrompu', text: acc.text });
+          });
+        }
+      );
+      armIdle(firstByteMs);
+      req.on('error', (e) => {
+        finish({ success: false, error: e.message || 'Connexion serveur IA impossible' });
+      });
+      if (options.body) req.write(options.body);
+      req.end();
     });
   }
 
   _httpRequest(url, options, parseResponse) {
     const isHttps = url.protocol === 'https:';
     const lib = isHttps ? https : http;
+    const timeoutMs = options.timeout != null ? options.timeout : this.timeout;
     return new Promise((resolve, reject) => {
       const req = lib.request(
         {
@@ -293,7 +540,7 @@ class IAClient {
           path: url.pathname + (url.search || ''),
           method: options.method || 'GET',
           headers: options.headers || {},
-          timeout: this.timeout
+          timeout: timeoutMs
         },
         (res) => {
           let data = '';
@@ -318,7 +565,7 @@ class IAClient {
       req.on('error', reject);
       req.on('timeout', () => {
         req.destroy();
-        reject(new Error(`Timeout après ${this.timeout}ms`));
+        reject(new Error(`Timeout après ${timeoutMs}ms`));
       });
       if (options.body) req.write(options.body);
       req.end();

@@ -1,14 +1,15 @@
 /**
- * Liste / cartes agents (automatiques | assistés).
+ * Liste / cartes agents (liste unique).
  * Config via window.AGENTS_LIST_APP
  */
 (function() {
   var cfg = window.AGENTS_LIST_APP || {};
   var API = (cfg.apiBase || '').replace(/\/$/, '') + '/agent-flows';
   var JWT = cfg.jwt || '';
-  var mode = cfg.mode || null; // automatic | assisted | null
+  var mode = cfg.mode || null; // optional filter automatic | assisted | null
   var editorBase = cfg.editorBase || '#';
   var reviewBase = cfg.reviewBase || 'pages/agent-human-review.php';
+  var runPage = cfg.runPageUrl || 'pages/agent-run.php';
   var canManage = !!cfg.canManage;
   var showInbox = !!cfg.showInbox;
 
@@ -35,27 +36,52 @@
   }
 
   function triggerLabel(flow) {
-    var t = flow.trigger || {};
-    if (t.brickId === 'cron-trigger') return 'Planifié';
-    if (t.brickId === 'manual-trigger') return 'Manuel';
-    if (t.brickId === 'mail-in') return 'Mail entrant';
-    if (t.brickId === 'facebook') return 'Facebook';
-    return t.brickId || '—';
+    var list = Array.isArray(flow.triggers) && flow.triggers.length
+      ? flow.triggers
+      : (flow.trigger ? [flow.trigger] : []);
+    var labels = [];
+    var seen = {};
+    function add(lab) {
+      if (!lab || seen[lab]) return;
+      seen[lab] = true;
+      labels.push(lab);
+    }
+    list.forEach(function(t) {
+      if (!t) return;
+      if (t.brickId === 'trigger') {
+        var m = (t.config && t.config.mode) || 'button';
+        if (m === 'cron') add('Planifié');
+        else if (m === 'webhook' || m === 'http') add('Webhook');
+        else add('Manuel');
+        return;
+      }
+      if (t.brickId === 'cron-trigger') add('Planifié');
+      else if (t.brickId === 'manual-trigger') add('Manuel');
+      else if (t.brickId === 'mail-in') add('Mail entrant');
+      else if (t.brickId === 'facebook') add('Facebook');
+      else add(t.brickId || '');
+    });
+    return labels.join(' + ') || '—';
   }
 
   function modeBadge(flow) {
     var m = flow.effectiveInteractionMode || flow.derivedInteractionMode || 'automatic';
     if (m === 'assisted') {
-      return '<span class="agent-card-badge is-assisted">Assisté</span>';
+      return '<span class="agent-card-badge is-assisted">Validation humaine</span>';
     }
     return '<span class="agent-card-badge">Automatique</span>';
   }
 
+  function staleBadge(flow) {
+    if (!flow || !flow.staleCollections) return '';
+    return '<span class="agent-card-badge is-stale">Liste à actualiser</span>';
+  }
+
   function coverHtml(flow) {
     if (flow.imageUrl) {
-      return '<div class="agent-card-cover"><img src="' + esc(flow.imageUrl) + '" alt="">' + modeBadge(flow) + '</div>';
+      return '<div class="agent-card-cover"><img src="' + esc(flow.imageUrl) + '" alt="">' + modeBadge(flow) + staleBadge(flow) + '</div>';
     }
-    return '<div class="agent-card-cover">' + modeBadge(flow) + '</div>';
+    return '<div class="agent-card-cover">' + modeBadge(flow) + staleBadge(flow) + '</div>';
   }
 
   function editorHref(flowId) {
@@ -68,7 +94,8 @@
     var id = flow._id || '';
     var enabled = flow.enabled !== false;
     var manageThis = canManage && (flow.canManage !== false);
-    var actions = '<button type="button" class="btn btn-success btn-sm agent-run" data-id="' + esc(id) + '">Lancer</button>';
+    var runLabel = (flow.app && flow.app.buttonLabel) ? flow.app.buttonLabel : 'Lancer';
+    var actions = '<button type="button" class="btn btn-success btn-sm agent-run" data-id="' + esc(id) + '">' + esc(runLabel) + '</button>';
     if (manageThis) {
       actions =
         '<a class="btn btn-outline btn-sm" href="' + esc(editorHref(id)) + '">Éditer</a> ' +
@@ -76,7 +103,7 @@
         ' <button type="button" class="btn btn-outline btn-sm btn-danger agent-del" data-id="' + esc(id) + '">Suppr.</button>';
     }
     return (
-      '<article class="agent-card" data-id="' + esc(id) + '">' +
+      '<article class="agent-card' + (flow.staleCollections ? ' is-stale' : '') + '" data-id="' + esc(id) + '">' +
       coverHtml(flow) +
       '<div class="agent-card-body">' +
       '<h3>' + esc(flow.name || 'Sans nom') + '</h3>' +
@@ -93,122 +120,102 @@
   function bindCardActions(root) {
     root.querySelectorAll('.agent-run').forEach(function(btn) {
       btn.addEventListener('click', function() {
-        btn.disabled = true;
-        var card = btn.closest('.agent-card');
-        var nameHint = card ? (card.querySelector('h3') && card.querySelector('h3').textContent) || '' : '';
-        var body = /facebook/i.test(nameHint) ? { fetchLatestPost: true } : {};
-        fetch(API + '/flows/' + btn.getAttribute('data-id') + '/run', {
-          method: 'POST',
-          headers: headers(),
-          body: JSON.stringify(body)
-        })
-          .then(parseJson)
-          .then(function(d) {
-            if (!d.success) throw new Error(d.message);
-            if (d.run && d.run.status === 'waiting_human' && d.run.reviewUrl) {
-              var url = d.run.reviewUrl;
-              if (url.indexOf('http') !== 0 && cfg.urlPrefix) {
-                url = cfg.urlPrefix.replace(/\/$/, '') + '/' + url.replace(/^\//, '');
-              }
-              if (confirm('Validation humaine requise. Ouvrir la page de revue ?')) {
-                window.location.href = url.indexOf('pages/') === 0 && cfg.reviewPageUrl
-                  ? cfg.reviewPageUrl + '?runId=' + encodeURIComponent(d.run._id)
-                  : url;
-              }
-              return;
-            }
-            if (d.triggerMessage && d.triggerMessage.text) {
-              alert('Lancé.\n\n' + String(d.triggerMessage.text).slice(0, 300));
-            } else {
-              alert(d.run && d.run.status === 'waiting_human' ? 'En attente de validation humaine.' : 'Agent lancé.');
-            }
-            if (showInbox) loadInbox();
-          })
-          .catch(function(e) { alert(e.message); })
-          .finally(function() { btn.disabled = false; });
+        var id = btn.getAttribute('data-id');
+        var space = cfg.space || 'user';
+        var href = runPage + (runPage.indexOf('?') >= 0 ? '&' : '?') +
+          'flowId=' + encodeURIComponent(id || '') +
+          '&space=' + encodeURIComponent(space);
+        window.location.href = href;
       });
     });
-
-    if (canManage) {
-      root.querySelectorAll('.agent-del').forEach(function(btn) {
-        btn.addEventListener('click', function() {
-          if (!confirm('Supprimer cet agent ?')) return;
-          fetch(API + '/flows/' + btn.getAttribute('data-id'), { method: 'DELETE', headers: headers() })
-            .then(parseJson)
-            .then(function(d) {
-              if (!d.success) throw new Error(d.message);
-              loadAgents();
-            })
-            .catch(function(e) { alert(e.message); });
-        });
+    root.querySelectorAll('.agent-del').forEach(function(btn) {
+      btn.addEventListener('click', function() {
+        if (!confirm('Supprimer cet agent ?')) return;
+        fetch(API + '/flows/' + btn.getAttribute('data-id'), {
+          method: 'DELETE',
+          headers: headers()
+        })
+          .then(parseJson)
+          .then(function(data) {
+            if (!data.success) throw new Error(data.message || 'Échec');
+            loadAgents();
+          })
+          .catch(function(e) {
+            alert(e.message);
+          });
       });
-    }
+    });
   }
 
   function loadAgents() {
-    var statusEl = document.getElementById('agentsStatus');
-    var grid = document.getElementById('agentsCards');
-    if (!statusEl || !grid) return;
-    statusEl.textContent = 'Chargement…';
-    var qs = mode ? ('?interactionMode=' + encodeURIComponent(mode)) : '';
-    fetch(API + '/flows' + qs, { headers: headers() })
+    var status = document.getElementById('agentsStatus');
+    var cards = document.getElementById('agentsCards');
+    if (!cards) return;
+    if (status) status.textContent = 'Chargement…';
+    var q = mode ? ('?interactionMode=' + encodeURIComponent(mode)) : '';
+    fetch(API + '/flows' + q, { headers: headers() })
       .then(parseJson)
       .then(function(data) {
         if (!data.success) throw new Error(data.message || 'Erreur');
         var flows = data.flows || [];
-        if (!flows.length) {
-          statusEl.textContent = mode === 'assisted'
-            ? 'Aucun agent assisté. Ajoutez une brique « Revue documentaire » pour en créer un.'
-            : (mode === 'automatic'
-              ? 'Aucun agent automatique.'
-              : 'Aucun agent.');
-          grid.innerHTML = '';
-          return;
+        if (status) {
+          status.textContent = flows.length
+            ? flows.length + ' agent' + (flows.length > 1 ? 's' : '')
+            : 'Aucun agent pour le moment.';
         }
-        statusEl.textContent = flows.length + ' agent(s).';
-        grid.innerHTML = flows.map(cardHtml).join('');
-        bindCardActions(grid);
+        cards.innerHTML = flows.map(cardHtml).join('');
+        bindCardActions(cards);
       })
       .catch(function(e) {
-        statusEl.textContent = 'Erreur : ' + e.message;
-        grid.innerHTML = '';
+        if (status) status.textContent = e.message;
       });
   }
 
   function loadInbox() {
+    if (!showInbox) return;
     var host = document.getElementById('agentsInbox');
     var status = document.getElementById('inboxStatus');
     if (!host) return;
     if (status) status.textContent = 'Chargement…';
-    fetch(API + '/runs?status=waiting_human&limit=50', { headers: headers() })
+    fetch(API + '/runs?status=waiting_human&limit=30', { headers: headers() })
       .then(parseJson)
       .then(function(data) {
         if (!data.success) throw new Error(data.message || 'Erreur');
         var runs = data.runs || [];
-        if (status) status.textContent = runs.length ? runs.length + ' à traiter' : 'Rien en attente.';
-        host.innerHTML = runs.map(function(run) {
-          var reviewUrl = (cfg.reviewPageUrl || reviewBase) + '?runId=' + encodeURIComponent(run._id);
-          var out = run.humanOutput || {};
-          var from = out.from || '';
-          var subject = out.subject || '';
-          var line = from || subject
-            ? esc(from || '—') + (subject ? ' — ' + esc(subject) : '')
-            : esc(run.flowName || 'Agent');
-          return (
-            '<div class="agent-inbox-item">' +
-            '<div><strong>' + line + '</strong><br>' +
-            '<small class="text-muted">' + esc(run.flowName || '') +
-            (run.startedAt ? ' · ' + esc(run.startedAt) : '') + '</small></div>' +
-            '<a class="btn btn-primary btn-sm" href="' + esc(reviewUrl) + '">Traiter</a>' +
-            '</div>'
-          );
-        }).join('');
+        if (status) {
+          status.textContent = runs.length
+            ? runs.length + ' en attente'
+            : 'Rien à traiter.';
+        }
+        host.innerHTML = runs
+          .map(function(r) {
+            var id = r._id || '';
+            var title = (r.humanOutput && r.humanOutput.title) || r.flowName || 'Revue';
+            var href = reviewBase + (reviewBase.indexOf('?') >= 0 ? '&' : '?') + 'runId=' + encodeURIComponent(id);
+            return (
+              '<a class="agent-inbox-item" href="' +
+              esc(href) +
+              '"><strong>' +
+              esc(title) +
+              '</strong><span>' +
+              esc(r.flowName || '') +
+              '</span></a>'
+            );
+          })
+          .join('');
       })
       .catch(function(e) {
-        if (status) status.textContent = 'Erreur : ' + e.message;
+        if (status) status.textContent = e.message;
       });
   }
 
-  loadAgents();
-  if (showInbox) loadInbox();
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', function() {
+      loadAgents();
+      loadInbox();
+    });
+  } else {
+    loadAgents();
+    loadInbox();
+  }
 })();

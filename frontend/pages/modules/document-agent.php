@@ -1,5 +1,5 @@
 <?php
 require_once '../../includes/functions.php';
-redirect(url('pages/modules/document-agent/index.php'));
+redirect(url('pages/modules/doc-template-v3/index.php'));
 exit;
 ?>

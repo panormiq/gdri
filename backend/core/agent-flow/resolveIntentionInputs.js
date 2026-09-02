@@ -17,10 +17,22 @@ const CHANNEL_PRESET = {
 };
 
 function detectChannel(context = {}) {
+  const prev = context.previous || {};
+  const ns = prev.__ns && typeof prev.__ns === 'object' ? prev.__ns : {};
+  const order = Array.isArray(prev.__nsOrder) ? prev.__nsOrder : Object.keys(ns);
+  let fromNs = '';
+  for (let i = order.length - 1; i >= 0; i -= 1) {
+    const bag = ns[order[i]];
+    if (bag && bag.channel) {
+      fromNs = bag.channel;
+      break;
+    }
+  }
   const msg = context.message || {};
   const opts = context.options || {};
   const trigger = context.trigger || {};
   const raw =
+    fromNs ||
     opts.channel ||
     msg.channel ||
     trigger.payload?.channel ||

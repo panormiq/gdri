@@ -156,6 +156,11 @@
   margin-bottom: 0.75rem;
 }
 
+.gderpi-status-action {
+  margin-left: 0.5rem;
+  vertical-align: baseline;
+}
+
 /* Dashboard */
 .gderpi-dash-grid {
   display: grid;
@@ -282,6 +287,25 @@ body.gderpi-modal-open { overflow: hidden; }
 }
 .gderpi-modal--iframe .gderpi-modal__dialog { width: min(1000px, 100%); }
 .gderpi-modal--stacked { z-index: 1310; }
+.gderpi-modal--sm .gderpi-modal__dialog {
+  width: min(440px, 100%);
+  max-height: min(80vh, 420px);
+}
+.gderpi-prompt-field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 4px 2px 8px;
+}
+.gderpi-prompt-field p { margin: 0; color: #475569; font-size: 14px; line-height: 1.45; }
+.gderpi-prompt-error { color: #b91c1c; font-size: 13px; }
+.gderpi-prompt-actions {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
 
 .gderpi-modal__header {
   display: flex;
@@ -1226,7 +1250,9 @@ body.gderpi-modal-open { overflow: hidden; }
 .gderpi-badge-statut--a_facturer, .gderpi-badge-statut--livree { background: #fef3c7; color: #b45309; }
 .gderpi-badge-statut--a_valider_gdri { background: #ffedd5; color: #c2410c; }
 .gderpi-badge-statut--validee_gdri, .gderpi-badge-statut--confirmee { background: #dcfce7; color: #15803d; }
+.gderpi-badge-statut--prestation_en_cours { background: #f5f3ff; color: #6d28d9; }
 .gderpi-badge-statut--achats_en_cours, .gderpi-badge-statut--en_cours { background: #eff6ff; color: #1d4ed8; }
+.gderpi-recette-pct-wrap { display: flex; align-items: center; gap: 0.35rem; }
 .gderpi-badge-statut--attente_livraison_frs { background: #fef9c3; color: #a16207; }
 .gderpi-badge-statut--a_livrer { background: #dbeafe; color: #1d4ed8; }
 .gderpi-badge-statut--expire { background: #f3e8ff; color: #7e22ce; }
@@ -1257,6 +1283,105 @@ body.gderpi-modal-open { overflow: hidden; }
 
 .gderpi-cmd-actions-wrap { display: flex; flex-wrap: wrap; align-items: center; gap: 0.25rem; }
 .gderpi-cmd-actions-select { max-width: 220px; }
+
+/* Menu d'actions compact (listes) */
+.gderpi-actions-menu {
+  position: relative;
+  display: inline-flex;
+  vertical-align: middle;
+}
+.gderpi-actions-menu__btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-height: 1.85rem;
+  padding: 0.2rem 0.55rem 0.2rem 0.7rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 999px;
+  background: linear-gradient(180deg, #fff 0%, #f8fafc 100%);
+  color: #334155;
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  cursor: pointer;
+  box-shadow: 0 1px 1px rgba(15, 23, 42, 0.04);
+  transition: border-color .15s ease, box-shadow .15s ease, background .15s ease, color .15s ease;
+}
+.gderpi-actions-menu__btn:hover {
+  border-color: #94a3b8;
+  color: #0f172a;
+  background: #fff;
+}
+.gderpi-actions-menu.is-open .gderpi-actions-menu__btn {
+  border-color: #93c5fd;
+  color: #1d4ed8;
+  background: #eff6ff;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.12);
+}
+.gderpi-actions-menu__caret {
+  width: 0.45rem;
+  height: 0.45rem;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: translateY(-1px) rotate(45deg);
+  opacity: 0.7;
+  transition: transform .15s ease;
+}
+.gderpi-actions-menu.is-open .gderpi-actions-menu__caret {
+  transform: translateY(1px) rotate(225deg);
+}
+.gderpi-actions-menu__panel {
+  position: fixed;
+  z-index: 1200;
+  min-width: 11.5rem;
+  padding: 0.3rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  background: #fff;
+  box-shadow: 0 10px 28px rgba(15, 23, 42, 0.12), 0 2px 6px rgba(15, 23, 42, 0.06);
+}
+.gderpi-actions-menu__item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: #0f172a;
+  font-size: 0.82rem;
+  font-weight: 500;
+  padding: 0.45rem 0.65rem;
+  cursor: pointer;
+  transition: background .12s ease, color .12s ease;
+}
+.gderpi-actions-menu__item:hover {
+  background: #f1f5f9;
+  color: #0f172a;
+}
+.gderpi-actions-menu__item--primary {
+  color: #1d4ed8;
+}
+.gderpi-actions-menu__item--primary:hover {
+  background: #eff6ff;
+  color: #1e40af;
+}
+.gderpi-actions-menu__item--success {
+  color: #15803d;
+}
+.gderpi-actions-menu__item--success:hover {
+  background: #f0fdf4;
+}
+.gderpi-actions-menu__item--danger {
+  color: #b91c1c;
+}
+.gderpi-actions-menu__item--danger:hover {
+  background: #fef2f2;
+}
+.gderpi-actions-menu__divider {
+  height: 1px;
+  margin: 0.25rem 0.35rem;
+  background: #e2e8f0;
+}
 .gderpi-cmd-progress { margin-top: 0.2rem; line-height: 1.2; }
 .gderpi-cmd-statut-cell { min-width: 130px; }
 .gderpi-cmd-livraison-cell,
@@ -1387,7 +1512,12 @@ body.gderpi-modal-open { overflow: hidden; }
 }
 
 .gderpi-cmd-statut-cell { min-width: 130px; }
-.gderpi-cmd-actions-cell { min-width: 160px; }
+.gderpi-cmd-actions-cell {
+  width: 1%;
+  min-width: 7.5rem;
+  white-space: nowrap;
+  vertical-align: middle;
+}
 .gderpi-cmd-statut-select {
   max-width: 160px;
   font-size: 0.8rem;
@@ -2008,8 +2138,10 @@ body.gderpi-modal-open { overflow: hidden; }
 .gderpi-badge--cmd-kind-produit { background: #e0f2fe; color: #0369a1; }
 .gderpi-badge--cmd-kind-mixte { background: #fef3c7; color: #b45309; }
 .gderpi-badge--cmd-kind-autre { background: #f1f5f9; color: #64748b; }
-.gderpi-badge--paye { background: #dcfce7; color: #15803d; }
-.gderpi-badge--non-paye { background: #fef3c7; color: #b45309; }
+.gderpi-badge--paye,
+.gderpi-badge--regle { background: #dcfce7; color: #15803d; }
+.gderpi-badge--non-paye,
+.gderpi-badge--non-regle { background: #fef3c7; color: #b45309; }
 .gderpi-badge--soldee-avoir { background: #e0f2fe; color: #0369a1; }
 .gderpi-badge--remb-attente { background: #ffedd5; color: #c2410c; }
 .gderpi-badge--partiel-credit { background: #fef3c7; color: #92400e; }
@@ -2642,4 +2774,193 @@ tr[data-gderpi-fact-row] + .gderpi-fact-row--avoir td {
 
 .gderpi-tier-doc-actions .btn + .btn {
   margin-left: 0.25rem;
+}
+
+.gderpi-mailbox {
+  display: grid;
+  grid-template-columns: minmax(260px, 360px) minmax(0, 1fr);
+  min-height: min(62vh, 640px);
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  overflow: hidden;
+  background: #fff;
+}
+
+.gderpi-mailbox__list {
+  border-right: 1px solid #e2e8f0;
+  overflow: auto;
+  max-height: min(68vh, 720px);
+  background: #fff;
+}
+
+.gderpi-mailbox__item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  width: 100%;
+  text-align: left;
+  border: 0;
+  border-bottom: 1px solid #f1f5f9;
+  background: transparent;
+  padding: 0.75rem 0.9rem;
+  cursor: pointer;
+  color: inherit;
+}
+
+.gderpi-mailbox__item:hover { background: #f8fafc; }
+.gderpi-mailbox__item.is-active { background: #eff6ff; }
+.gderpi-mailbox__item.is-failed { border-left: 3px solid #dc2626; }
+
+.gderpi-mailbox__item-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.gderpi-mailbox__item-date {
+  font-size: 0.72rem;
+  color: #64748b;
+  white-space: nowrap;
+}
+
+.gderpi-mailbox__item-to {
+  font-size: 0.82rem;
+  color: #334155;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gderpi-mailbox__item-subject {
+  font-size: 0.8rem;
+  color: #475569;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gderpi-mailbox__item-doc {
+  font-size: 0.72rem;
+  color: #64748b;
+}
+
+.gderpi-mailbox-type {
+  display: inline-block;
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  background: #e2e8f0;
+  color: #334155;
+}
+
+.gderpi-mailbox-type--devis { background: #dbeafe; color: #1d4ed8; }
+.gderpi-mailbox-type--commande { background: #dcfce7; color: #15803d; }
+.gderpi-mailbox-type--facture { background: #fef3c7; color: #b45309; }
+.gderpi-mailbox-type--avoir { background: #fae8ff; color: #a21caf; }
+.gderpi-mailbox-type--achat { background: #ffedd5; color: #c2410c; }
+.gderpi-mailbox-type--autre { background: #f1f5f9; color: #475569; }
+
+.gderpi-mailbox__preview {
+  min-height: 100%;
+  background: #f8fafc;
+  overflow: auto;
+  max-height: min(68vh, 720px);
+}
+
+.gderpi-mailbox__empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 240px;
+  padding: 1.5rem;
+  color: #64748b;
+  text-align: center;
+}
+
+.gderpi-mailbox__empty--list { min-height: 160px; }
+.gderpi-mailbox__empty p { margin: 0; max-width: 28rem; }
+
+.gderpi-mailbox__message {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+}
+
+.gderpi-mailbox__meta {
+  padding: 0.9rem 1rem 0.75rem;
+  border-bottom: 1px solid #e2e8f0;
+  background: #fff;
+}
+
+.gderpi-mailbox__meta-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem 0.6rem;
+  margin-bottom: 0.45rem;
+}
+
+.gderpi-mailbox__meta-date { font-size: 0.8rem; color: #64748b; margin-left: auto; }
+.gderpi-mailbox__subject { margin: 0 0 0.6rem; font-size: 1.05rem; }
+
+.gderpi-mailbox__headers {
+  margin: 0;
+  display: grid;
+  gap: 0.2rem;
+  font-size: 0.82rem;
+}
+
+.gderpi-mailbox__headers > div {
+  display: grid;
+  grid-template-columns: 2.2rem minmax(0, 1fr);
+  gap: 0.5rem;
+}
+
+.gderpi-mailbox__headers dt { color: #64748b; font-weight: 600; }
+.gderpi-mailbox__headers dd { margin: 0; color: #1e293b; overflow-wrap: anywhere; }
+
+.gderpi-mailbox__error {
+  margin: 0.6rem 0 0;
+  color: #b91c1c;
+  font-size: 0.85rem;
+}
+
+.gderpi-mailbox__actions { margin-top: 0.75rem; }
+
+.gderpi-mailbox__body {
+  flex: 1;
+  min-height: 280px;
+  background: #fff;
+}
+
+.gderpi-mailbox__iframe {
+  display: block;
+  width: 100%;
+  min-height: 360px;
+  height: 48vh;
+  border: 0;
+  background: #fff;
+}
+
+.gderpi-mailbox__text {
+  margin: 0;
+  padding: 1rem;
+  white-space: pre-wrap;
+  font-size: 0.85rem;
+  color: #334155;
+}
+
+@media (max-width: 900px) {
+  .gderpi-mailbox {
+    grid-template-columns: 1fr;
+  }
+  .gderpi-mailbox__list {
+    max-height: 280px;
+    border-right: 0;
+    border-bottom: 1px solid #e2e8f0;
+  }
 }

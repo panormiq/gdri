@@ -1,0 +1,100 @@
+{
+  "id": "loop",
+  "name": "Boucle",
+  "version": "1.1.0",
+  "family": "loop",
+  "category": "logic",
+  "kind": "action",
+  "visibility": "orchestrator-only",
+  "description": "Répéter des actions : flux principal gauche → droite, corps de boucle en U en dessous.",
+  "canvas": {
+    "iconEmoji": "↻",
+    "color": "#a855f7",
+    "borderRadius": 12,
+    "width": 220,
+    "inputs": [
+      { "id": "main", "label": "Entrée", "type": "main", "side": "left", "maxConnections": 0 },
+      { "id": "return", "label": "Retour", "type": "main", "side": "bottom-right", "maxConnections": 0 }
+    ],
+    "outputs": [
+      { "id": "done", "label": "Terminé", "type": "main", "side": "right", "maxConnections": 0 },
+      { "id": "body", "label": "Répéter", "type": "main", "side": "bottom-left", "maxConnections": 0 }
+    ]
+  },
+  "operations": {
+    "loop.run": {
+      "label": "Boucler",
+      "configSchema": {
+        "type": "object",
+        "properties": {
+          "mode": {
+            "type": "string",
+            "title": "Mode",
+            "enum": ["items", "times", "until"],
+            "enumLabels": {
+              "items": "Chaque ligne du tableau",
+              "times": "N fois",
+              "until": "Jusqu’à un résultat"
+            },
+            "default": "items"
+          },
+          "times": {
+            "type": "number",
+            "title": "Nombre de répétitions",
+            "default": 10,
+            "minimum": 1,
+            "maximum": 200
+          },
+          "field": {
+            "type": "string",
+            "title": "Tableau / champ",
+            "format": "context-field",
+            "default": "items",
+            "description": "En mode « chaque ligne » : le tableau à parcourir (items par défaut). Sinon : champ testé après chaque tour."
+          },
+          "op": {
+            "type": "string",
+            "title": "Condition d’arrêt",
+            "enum": ["truthy", "falsy", "eq", "neq", "contains", "gt", "lt"],
+            "enumLabels": {
+              "truthy": "est renseigné / vrai",
+              "falsy": "est vide / faux",
+              "eq": "est égal à",
+              "neq": "est différent de",
+              "contains": "contient",
+              "gt": "supérieur à",
+              "lt": "inférieur à"
+            },
+            "default": "truthy"
+          },
+          "value": {
+            "type": "string",
+            "title": "Valeur",
+            "default": ""
+          },
+          "maxIterations": {
+            "type": "number",
+            "title": "Plafond de sécurité",
+            "default": 50,
+            "minimum": 1,
+            "maximum": 200,
+            "description": "Arrêt forcé si le résultat n’arrive pas"
+          }
+        }
+      },
+      "outputMessage": {
+        "type": "loop-result",
+        "fields": [
+          { "key": "loopIteration", "label": "Itération" },
+          { "key": "item", "label": "Ligne courante" },
+          { "key": "itemIndex", "label": "Index de ligne" },
+          { "key": "itemsCount", "label": "Nombre de lignes" },
+          { "key": "loopContinue", "label": "Encore un tour" },
+          { "key": "loopDone", "label": "Boucle terminée" }
+        ]
+      }
+    }
+  },
+  "permissions": [],
+  "serviceRef": "backend/core/agent-flow/families"
+}

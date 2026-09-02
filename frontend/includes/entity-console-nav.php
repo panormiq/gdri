@@ -15,6 +15,7 @@ function getEntityConsoleNavItems() {
             'label' => 'Agents IA',
             'url' => url('pages/entity-agents.php'),
             'path' => '/pages/entity-agents.php',
+            'alt_paths' => ['/pages/agent-run.php'],
             'icon' => '🤖',
         ],
         [
@@ -78,17 +79,21 @@ function getUserWorkspaceNavSections($includeLegacy = null) {
             'label' => 'Automatiser',
             'items' => [
                 [
-                    'label' => 'Agents automatiques',
-                    'url' => url('pages/user-agents-auto.php'),
-                    'path' => '/pages/user-agents-auto.php',
-                    'alt_paths' => ['/pages/user-agents.php'],
+                    'label' => 'Agents',
+                    'url' => url('pages/user-agents.php'),
+                    'path' => '/pages/user-agents.php',
+                    'alt_paths' => [
+                        '/pages/user-agents-auto.php',
+                        '/pages/user-agents-assisted.php',
+                        '/pages/agent-run.php',
+                    ],
                     'icon' => '⚡',
                 ],
                 [
-                    'label' => 'Agents assistés',
-                    'url' => url('pages/user-agents-assisted.php'),
-                    'path' => '/pages/user-agents-assisted.php',
-                    'icon' => '🧑‍💻',
+                    'label' => 'À traiter',
+                    'url' => url('pages/agent-human-review.php'),
+                    'path' => '/pages/agent-human-review.php',
+                    'icon' => '📋',
                 ],
             ],
         ],
@@ -251,6 +256,7 @@ function getPlatformConsoleNavItems() {
             'label' => 'Agents IA',
             'url' => url('pages/platform-agents.php'),
             'path' => '/pages/platform-agents.php',
+            'alt_paths' => ['/pages/platform-agent-templates.php', '/pages/platform-gdri-agents.php'],
             'icon' => '🤖',
         ],
         [

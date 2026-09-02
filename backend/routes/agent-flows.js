@@ -12,7 +12,91 @@ const { AgentFlowService } = require('../core/agent-flow/AgentFlowService');
 const { FlowExecutor } = require('../core/agent-flow/FlowExecutor');
 const { AgentBrickConfigService } = require('../core/agent-flow/AgentBrickConfigService');
 const { describeSchedule } = require('../core/agent-flow/CronEvaluator');
-const { TEMPLATES } = require('../core/agent-flow/flowTemplates');
+const { TEMPLATES, TEMPLATE_CATALOG } = require('../core/agent-flow/flowTemplates');
+const { buildRunProgress, flowSnapshot } = require('../core/agent-flow/runProgress');
+const { runData } = require('../core/agent-flow/families/FamilyDispatch');
+const {
+  listPresetCollectionMeta,
+  ensurePresetCollection
+} = require('../core/agent-flow/presetCollections');
+const {
+  collectConditionCollectionIds,
+  flowConditionCollectionStale,
+  loadCollectionsForConditionStale
+} = require('../core/agent-flow/conditionCollectionStale');
+
+const PREVIEW_SECRET_KEY = /token|password|secret|credential|accessToken/i;
+const PREVIEW_SKIP_KEYS = new Set(['content', 'raw', 'pageAccessToken', 'credentials']);
+const PREVIEW_MAX_ITEMS = 50;
+const PREVIEW_MAX_TEXT = 4000;
+
+function sanitizePreviewValue(value, depth = 0) {
+  if (value == null) return value;
+  if (typeof Buffer !== 'undefined' && Buffer.isBuffer(value)) {
+    return `[buffer ${value.length} octets]`;
+  }
+  if (typeof value === 'string') {
+    return value.length > PREVIEW_MAX_TEXT ? `${value.slice(0, PREVIEW_MAX_TEXT)}…` : value;
+  }
+  if (typeof value === 'number' || typeof value === 'boolean') return value;
+  if (Array.isArray(value)) {
+    if (depth > 4) return `[${value.length} éléments]`;
+    return value.slice(0, 80).map((item) => sanitizePreviewValue(item, depth + 1));
+  }
+  if (typeof value === 'object') {
+    if (value._bsontype) return String(value);
+    if (depth > 4) return '[objet]';
+    const out = {};
+    Object.keys(value).slice(0, 40).forEach((key) => {
+      if (PREVIEW_SKIP_KEYS.has(key) || PREVIEW_SECRET_KEY.test(key)) {
+        out[key] = '[masqué]';
+        return;
+      }
+      if (key === 'attachments' && Array.isArray(value.attachments)) {
+        out.attachments = value.attachments.map((att) => ({
+          filename: att && att.filename,
+          contentType: att && att.contentType,
+          size: att && att.size,
+          url: att && att.url,
+          path: att && att.path
+        }));
+        return;
+      }
+      out[key] = sanitizePreviewValue(value[key], depth + 1);
+    });
+    return out;
+  }
+  return String(value);
+}
+
+function sanitizeDataPreview(table, meta = {}) {
+  const src = table && typeof table === 'object' ? table : {};
+  const items = Array.isArray(src.items) ? src.items : [];
+  const clipped = items.slice(0, PREVIEW_MAX_ITEMS).map((row) => sanitizePreviewValue(row));
+  const debug = src.debug && typeof src.debug === 'object'
+    ? {
+      request: sanitizePreviewValue(src.debug.request),
+      response: sanitizePreviewValue(src.debug.response)
+    }
+    : null;
+  return {
+    nodeId: meta.nodeId || null,
+    name: meta.name || 'Entrées',
+    fetchedAt: new Date().toISOString(),
+    provider: src.provider || src.channel || '',
+    channel: src.channel || src.provider || '',
+    itemsCount: src.itemsCount != null ? Number(src.itemsCount) : items.length,
+    itemsShown: clipped.length,
+    truncated: items.length > PREVIEW_MAX_ITEMS,
+    empty: !!src.empty || !items.length,
+    error: src.error ? String(src.error) : null,
+    note: src.note ? String(src.note) : null,
+    modelName: src.modelName ? String(src.modelName) : '',
+    modelFields: Array.isArray(src.modelFields) ? src.modelFields : [],
+    items: clipped,
+    debug
+  };
+}
 
 function createAgentFlowsRouter(database) {
   const router = express.Router();
@@ -177,6 +261,169 @@ function createAgentFlowsRouter(database) {
     }
   });
 
+  router.get('/block-contracts', authenticateJWT, requireEntityMember, (req, res) => {
+    try {
+      const { listBlockInputContracts } = require('../core/agent-flow/blockContracts');
+      res.json({ success: true, contracts: listBlockInputContracts(flowBrickRegistry) });
+    } catch (error) {
+      res.status(500).json({ success: false, message: error.message });
+    }
+  });
+
+  router.get('/llms', authenticateJWT, requireEntityMember, async (req, res) => {
+    try {
+      const entrepriseId = resolveEntrepriseId(req);
+      if (!entrepriseId) {
+        return res.status(400).json({ success: false, message: 'Entité non définie' });
+      }
+      const { listAvailableLlms } = require('../../modules/ia/backend/services/AvailableModels');
+      const llms = await listAvailableLlms(entrepriseId, {
+        userId: resolveUserId(req) || (req.user && req.user.sub ? String(req.user.sub) : null)
+      });
+      res.json({ success: true, llms });
+    } catch (error) {
+      return res.status(500).json({ success: false, message: error.message });
+    }
+  });
+
+  router.get('/block-contracts/:brickId', authenticateJWT, requireEntityMember, (req, res) => {
+    try {
+      const { getBlockInputContract } = require('../core/agent-flow/blockContracts');
+      const contract = getBlockInputContract(flowBrickRegistry, req.params.brickId);
+      if (!contract) {
+        return res.status(404).json({ success: false, message: 'Contrat introuvable' });
+      }
+      res.json({ success: true, contract });
+    } catch (error) {
+      res.status(500).json({ success: false, message: error.message });
+    }
+  });
+
+  router.get('/data-contracts', authenticateJWT, requireEntityMember, (req, res) => {
+    try {
+      const { loadDataContracts } = require('../core/agent-flow/dataContracts');
+      res.json({ success: true, contracts: loadDataContracts() });
+    } catch (error) {
+      res.status(500).json({ success: false, message: error.message });
+    }
+  });
+
+  router.get('/app-crud', authenticateJWT, requireEntityMember, (req, res) => {
+    try {
+      const { catalogPayload } = require('../core/agent-flow/app-crud/appCrudRegistry');
+      res.json({ success: true, catalog: catalogPayload() });
+    } catch (error) {
+      res.status(500).json({ success: false, message: error.message });
+    }
+  });
+
+  router.get('/action-contracts', authenticateJWT, requireEntityMember, (req, res) => {
+    try {
+      const { loadActionContracts } = require('../core/agent-flow/actionContracts');
+      const { loadZoneContracts } = require('../core/agent-flow/zoneContracts');
+      res.json({
+        success: true,
+        contracts: loadActionContracts(),
+        zones: loadZoneContracts()
+      });
+    } catch (error) {
+      res.status(500).json({ success: false, message: error.message });
+    }
+  });
+
+  router.get('/block-templates', authenticateJWT, requireEntityMember, async (req, res) => {
+    try {
+      const entrepriseId = resolveEntrepriseId(req);
+      if (!entrepriseId) {
+        return res.status(400).json({ success: false, message: 'Entité non définie' });
+      }
+      const { listTemplates, kindsForUsage } = require('../core/agent-flow/blockTemplate');
+      const usage = String(req.query.usage || '').trim().toLowerCase();
+      const provider = String(req.query.provider || '').trim().toLowerCase();
+      if (!kindsForUsage(usage, provider)) {
+        return res.json({ success: true, templates: [] });
+      }
+      const templates = await listTemplates(database, entrepriseId, usage, provider);
+      res.json({ success: true, templates });
+    } catch (error) {
+      res.status(500).json({ success: false, message: error.message });
+    }
+  });
+
+  router.get('/production-templates', authenticateJWT, requireEntityMember, (req, res) => {
+    try {
+      const { listProductionTemplates } = require('../core/agent-flow/productionTemplates');
+      res.json({ success: true, templates: listProductionTemplates(req.query.usage) });
+    } catch (error) {
+      res.status(500).json({ success: false, message: error.message });
+    }
+  });
+
+  router.get('/production-templates/match', authenticateJWT, requireEntityMember, (req, res) => {
+    try {
+      const { matchProductionTemplate, summarize } = require('../core/agent-flow/productionTemplates');
+      const fields = String(req.query.fields || '')
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean);
+      const matched = matchProductionTemplate({
+        usage: String(req.query.usage || 'validation'),
+        brief: String(req.query.brief || ''),
+        reviewContext: String(req.query.reviewContext || ''),
+        agentContext: String(req.query.agentContext || ''),
+        channel: String(req.query.channel || ''),
+        fields
+      });
+      res.json({
+        success: true,
+        template: matched ? summarize(matched) : null,
+        html: matched && matched.kind === 'html' ? matched.html : '',
+        values: matched && matched.values ? matched.values : null,
+        outputHint: matched && matched.outputHint ? matched.outputHint : '',
+        outputFormat: matched && matched.outputFormat ? matched.outputFormat : ''
+      });
+    } catch (error) {
+      res.status(500).json({ success: false, message: error.message });
+    }
+  });
+
+  router.get('/production-templates/:id', authenticateJWT, requireEntityMember, (req, res) => {
+    try {
+      const { getProductionTemplate, summarize } = require('../core/agent-flow/productionTemplates');
+      const doc = getProductionTemplate(req.params.id);
+      if (!doc) {
+        return res.status(404).json({ success: false, message: 'Modèle de production introuvable' });
+      }
+      res.json({
+        success: true,
+        template: summarize(doc),
+        html: doc.kind === 'html' ? doc.html : '',
+        values: doc.values || null,
+        outputHint: doc.outputHint || '',
+        outputFormat: doc.outputFormat || ''
+      });
+    } catch (error) {
+      res.status(500).json({ success: false, message: error.message });
+    }
+  });
+
+  router.get('/block-templates/:id', authenticateJWT, requireEntityMember, async (req, res) => {
+    try {
+      const entrepriseId = resolveEntrepriseId(req);
+      if (!entrepriseId) {
+        return res.status(400).json({ success: false, message: 'Entité non définie' });
+      }
+      const { getTemplateWithSlots } = require('../core/agent-flow/blockTemplate');
+      const packed = await getTemplateWithSlots(database, entrepriseId, req.params.id);
+      if (!packed) {
+        return res.status(404).json({ success: false, message: 'Template introuvable' });
+      }
+      res.json({ success: true, template: packed.template, slots: packed.slots });
+    } catch (error) {
+      res.status(500).json({ success: false, message: error.message });
+    }
+  });
+
   router.get('/bricks', authenticateJWT, requireEntityMember, (req, res) => {
     const kind = req.query.kind || null;
     const category = req.query.category || null;
@@ -222,9 +469,13 @@ function createAgentFlowsRouter(database) {
       const flows = await flowService.listFlows(entrepriseId, {
         interactionMode: mode === 'automatic' || mode === 'assisted' ? mode : null
       });
+      const collectionsById = req.entrepriseDb
+        ? await loadCollectionsForConditionStale(req.entrepriseDb, collectConditionCollectionIds(flows))
+        : {};
       const enriched = flows.map((f) => ({
         ...f,
-        canManage: canManageFlow(req, f)
+        canManage: canManageFlow(req, f),
+        staleCollections: flowConditionCollectionStale(f, collectionsById)
       }));
       res.json({ success: true, flows: enriched });
     } catch (error) {
@@ -251,11 +502,35 @@ function createAgentFlowsRouter(database) {
   async function syncFacebookFromFlow(flow) {
     const {
       syncFacebookAgentSettings,
-      extractFacebookConfigFromFlow
+      extractFacebookConfigsFromFlow
     } = require('../core/connectors/syncFacebookAgentSettings');
-    const fbCfg = extractFacebookConfigFromFlow(flow);
-    if (!fbCfg || !flow || !flow.entrepriseId) return null;
-    return syncFacebookAgentSettings(database, flow.entrepriseId, fbCfg);
+    const configs = extractFacebookConfigsFromFlow(flow);
+    if (!configs.length || !flow || !flow.entrepriseId) return null;
+    let matched = 0;
+    let modified = 0;
+    for (const fbCfg of configs) {
+      const r = await syncFacebookAgentSettings(database, flow.entrepriseId, fbCfg);
+      matched += (r && r.matched) || 0;
+      modified += (r && r.modified) || 0;
+    }
+    return { matched, modified };
+  }
+
+  async function syncMailFromFlow(flow) {
+    const {
+      syncMailAgentSettings,
+      extractMailConfigsFromFlow
+    } = require('../core/connectors/syncMailAgentSettings');
+    const configs = extractMailConfigsFromFlow(flow);
+    if (!configs.length || !flow || !flow.entrepriseId) return null;
+    let matched = 0;
+    let modified = 0;
+    for (const mailCfg of configs) {
+      const r = await syncMailAgentSettings(database, flow.entrepriseId, mailCfg);
+      matched += (r && r.matched) || 0;
+      modified += (r && r.modified) || 0;
+    }
+    return { matched, modified };
   }
 
   router.post('/flows', authenticateJWT, requireEntityMember, async (req, res) => {
@@ -267,12 +542,18 @@ function createAgentFlowsRouter(database) {
       const body = { ...(req.body || {}), createdBy: resolveUserId(req) };
       const flow = await flowService.createFlow(entrepriseId, body);
       let facebookSync = null;
+      let mailSync = null;
       try {
         facebookSync = await syncFacebookFromFlow(flow);
       } catch (syncErr) {
         console.warn('syncFacebookFromFlow (create):', syncErr.message);
       }
-      res.json({ success: true, flow, facebookSync });
+      try {
+        mailSync = await syncMailFromFlow(flow);
+      } catch (syncErr) {
+        console.warn('syncMailFromFlow (create):', syncErr.message);
+      }
+      res.json({ success: true, flow, facebookSync, mailSync });
     } catch (error) {
       res.status(500).json({ success: false, message: error.message });
     }
@@ -293,12 +574,18 @@ function createAgentFlowsRouter(database) {
       }
       const updated = await flowService.updateFlow(req.params.id, req.body || {});
       let facebookSync = null;
+      let mailSync = null;
       try {
         facebookSync = await syncFacebookFromFlow(updated);
       } catch (syncErr) {
         console.warn('syncFacebookFromFlow (update):', syncErr.message);
       }
-      res.json({ success: true, flow: updated, facebookSync });
+      try {
+        mailSync = await syncMailFromFlow(updated);
+      } catch (syncErr) {
+        console.warn('syncMailFromFlow (update):', syncErr.message);
+      }
+      res.json({ success: true, flow: updated, facebookSync, mailSync });
     } catch (error) {
       res.status(500).json({ success: false, message: error.message });
     }
@@ -336,37 +623,122 @@ function createAgentFlowsRouter(database) {
       }
 
       let triggerPayload = (req.body && req.body.triggerPayload) || null;
+      const triggerNodeId = String(
+        (req.body && req.body.triggerNodeId) ||
+        (triggerPayload && triggerPayload.triggerNodeId) ||
+        ''
+      ).trim();
       const wantsLatestPost =
         req.body && (req.body.fetchLatestPost === true || req.body.fetchLatestPost === '1');
-      const triggerBrick = flow.trigger && flow.trigger.brickId;
-      const isFacebookPilot =
+      const hasFacebookData =
+        flowService.flowHasDataProvider(flow, 'facebook') ||
         flow.templateId === 'agent-facebook' ||
-        triggerBrick === 'facebook' ||
-        (Array.isArray(flow.steps) &&
-          flow.steps.some((s) => s.brickId === 'analyse-intention') &&
-          (triggerBrick === 'manual-trigger' || triggerBrick === 'facebook') &&
-          String(flow.name || '').toLowerCase().includes('facebook'));
+        String(flow.name || '').toLowerCase().includes('facebook');
 
       // Agent Facebook : lancer manuel = récupérer le dernier post de la page
-      if ((wantsLatestPost || isFacebookPilot) && !triggerPayload) {
+      if ((wantsLatestPost || hasFacebookData) && !(triggerPayload && triggerPayload.message)) {
         const { fetchLatestFacebookPost } = require('../core/connectors/fetchLatestFacebookPost');
-        const pageId =
-          (req.body && req.body.pageId) ||
-          (flow.trigger && flow.trigger.config && flow.trigger.config.pageId) ||
-          null;
+        const { extractFacebookConfigFromFlow } = require('../core/connectors/syncFacebookAgentSettings');
+        const fbCfg = extractFacebookConfigFromFlow(flow) || {};
+        const pageId = (req.body && req.body.pageId) || fbCfg.pageId || null;
         const message = await fetchLatestFacebookPost(database, flow.entrepriseId, pageId);
-        triggerPayload = { message, source: 'facebook.published_posts.latest' };
+        triggerPayload = {
+          ...(triggerPayload && typeof triggerPayload === 'object' ? triggerPayload : {}),
+          message,
+          source: 'facebook.published_posts.latest',
+          triggerBrickId: 'trigger',
+          options: { channel: 'facebook' }
+        };
+      } else if (triggerNodeId && !triggerPayload) {
+        triggerPayload = { triggerBrickId: 'trigger' };
       }
+      if (triggerPayload && triggerNodeId) triggerPayload.triggerNodeId = triggerNodeId;
 
-      const run = await executor.execute(flow, {
+      const execOpts = {
         triggerMode: triggerPayload && triggerPayload.source ? 'facebook-latest-post' : 'manual',
         triggeredBy: req.user.user_id || req.user.email || null,
         triggerPayload
-      });
+      };
+      const asyncMode = req.body && (req.body.async === true || req.body.async === '1');
+      const run = asyncMode
+        ? await executor.start(flow, execOpts)
+        : await executor.execute(flow, execOpts);
       res.json({
         success: true,
         run,
+        progress: buildRunProgress(flow, run),
         triggerMessage: triggerPayload && triggerPayload.message ? triggerPayload.message : null
+      });
+    } catch (error) {
+      res.status(500).json({ success: false, message: error.message });
+    }
+  });
+
+  /** Aperçu lecture d’un bloc Entrées — sans lancer le flow. */
+  router.post('/flows/:id/preview-data', authenticateJWT, requireEntityMember, async (req, res) => {
+    try {
+      const flow = await flowService.getFlowById(req.params.id);
+      if (!flow) {
+        return res.status(404).json({ success: false, message: 'Flow introuvable' });
+      }
+      const entrepriseId = resolveEntrepriseId(req);
+      if (req.user.role !== 'ADMIN_GDRI' && String(flow.entrepriseId) !== String(entrepriseId)) {
+        return res.status(403).json({ success: false, message: 'Accès refusé' });
+      }
+      if (!canManageFlow(req, flow)) {
+        return res.status(403).json({ success: false, message: 'Vous ne pouvez tester que vos propres agents' });
+      }
+
+      const body = req.body || {};
+      const nodeId = String(body.nodeId || '').trim();
+      const canvasNodes = (flow.canvas && Array.isArray(flow.canvas.nodes)) ? flow.canvas.nodes : [];
+      const savedNode = nodeId
+        ? canvasNodes.find((n) => String(n.id) === nodeId)
+        : null;
+      const brickId = String((body.brickId || (savedNode && savedNode.brickId) || 'data'));
+      if (brickId !== 'data') {
+        return res.status(400).json({ success: false, message: 'Seul un bloc Entrées peut être testé.' });
+      }
+      const config = (body.config && typeof body.config === 'object')
+        ? body.config
+        : ((savedNode && savedNode.config) || {});
+      if (!savedNode && !body.config) {
+        return res.status(400).json({
+          success: false,
+          message: nodeId ? 'Bloc introuvable — enregistrez l’agent, puis réessayez.' : 'nodeId requis'
+        });
+      }
+
+      const provider = String(config.provider || '').toLowerCase();
+      if (!provider) {
+        return res.json({
+          success: true,
+          preview: sanitizeDataPreview({
+            items: [],
+            itemsCount: 0,
+            empty: true,
+            error: 'Choisissez un type',
+            note: 'Aucun type (Mail, Facebook, collection…) sur ce bloc Entrées.'
+          }, {
+            nodeId: nodeId || (savedNode && savedNode.id) || null,
+            name: String((savedNode && savedNode.name) || body.name || 'Entrées')
+          })
+        });
+      }
+      const context = {
+        entrepriseId: flow.entrepriseId,
+        trigger: { mode: 'manual', payload: {} },
+        message: null,
+        channel: provider,
+        options: { channel: provider }
+      };
+      const table = await runData(executor, context, config, flow);
+      res.json({
+        success: true,
+        preview: sanitizeDataPreview(table, {
+          nodeId: nodeId || (savedNode && savedNode.id) || null,
+          name: String((savedNode && savedNode.name) || body.name || 'Entrées')
+        })
       });
     } catch (error) {
       res.status(500).json({ success: false, message: error.message });
@@ -396,7 +768,13 @@ function createAgentFlowsRouter(database) {
       if (req.user.role !== 'ADMIN_GDRI' && String(run.entrepriseId) !== String(entrepriseId)) {
         return res.status(403).json({ success: false, message: 'Accès refusé' });
       }
-      res.json({ success: true, run });
+      const flow = await flowService.getFlowById(run.flowId);
+      res.json({
+        success: true,
+        run,
+        flow: flowSnapshot(flow),
+        progress: buildRunProgress(flow, run)
+      });
     } catch (error) {
       res.status(500).json({ success: false, message: error.message });
     }
@@ -416,10 +794,18 @@ function createAgentFlowsRouter(database) {
         decision: body.decision,
         editedHtml: body.editedHtml,
         editedText: body.editedText,
+        selectedItems: body.selectedItems,
+        values: body.values,
         resumeToken: body.resumeToken || run.resumeToken,
         resumedBy: req.user.user_id || req.user.email || null
       });
-      res.json({ success: true, run: updated });
+      const flow = await flowService.getFlowById(updated.flowId || run.flowId);
+      res.json({
+        success: true,
+        run: updated,
+        flow: flowSnapshot(flow),
+        progress: buildRunProgress(flow, updated)
+      });
     } catch (error) {
       res.status(400).json({ success: false, message: error.message });
     }
@@ -509,10 +895,34 @@ function createAgentFlowsRouter(database) {
     }
   });
 
-  /** Listes d'intentions préconstruites (mail, réseaux sociaux, contact…) */
+  /** Listes préconstruites = collections V3 (mail, réseaux sociaux, contact…) */
   router.get('/intention-presets', authenticateJWT, requireEntityMember, (req, res) => {
     try {
-      res.json({ success: true, presets: brickConfigService.listIntentionPresets() });
+      res.json({ success: true, presets: listPresetCollectionMeta() });
+    } catch (error) {
+      res.status(500).json({ success: false, message: error.message });
+    }
+  });
+
+  router.post('/intention-presets/:presetId/collection', authenticateJWT, requireEntityMember, async (req, res) => {
+    try {
+      const entrepriseId = resolveEntrepriseId(req);
+      if (!entrepriseId) {
+        return res.status(400).json({ success: false, message: 'Entité non définie' });
+      }
+      const bundle = await ensurePresetCollection(entrepriseId, req.params.presetId);
+      if (!bundle || !bundle.collection) {
+        return res.status(404).json({ success: false, message: 'Preset introuvable' });
+      }
+      const col = bundle.collection;
+      res.json({
+        success: true,
+        data: {
+          ...col,
+          _id: col._id,
+          elements: bundle.elements || []
+        }
+      });
     } catch (error) {
       res.status(500).json({ success: false, message: error.message });
     }
@@ -544,21 +954,133 @@ function createAgentFlowsRouter(database) {
     }
   });
 
+  router.get('/atelier/presets', authenticateJWT, requireEntityMember, (req, res) => {
+    try {
+      const { listAtelierPresets } = require('../core/agent-flow/atelierPresets');
+      res.json({ success: true, presets: listAtelierPresets() });
+    } catch (error) {
+      res.status(500).json({ success: false, message: error.message });
+    }
+  });
+
+  router.post('/atelier/collections/ensure', authenticateJWT, requireEntityMember, async (req, res) => {
+    try {
+      const entrepriseId = resolveEntrepriseId(req);
+      if (!entrepriseId) {
+        return res.status(400).json({ success: false, message: 'Entité non définie' });
+      }
+      const { ensureAtelierCollection, latestAtelierRecord, listAtelierRows } = require('../core/agent-flow/atelierPresets');
+      const presetId = (req.body && req.body.presetId) || 'design-page-web';
+      const pack = await ensureAtelierCollection(entrepriseId, presetId);
+      if (!pack) return res.status(400).json({ success: false, message: 'Preset atelier inconnu' });
+      const flowId = (req.body && req.body.flowId) || '';
+      const record = await latestAtelierRecord(entrepriseId, pack.collectionId, flowId);
+      const rows = await listAtelierRows(entrepriseId, pack.collectionId);
+      res.json({ success: true, ...pack, record: record || null, rows });
+    } catch (error) {
+      res.status(500).json({ success: false, message: error.message });
+    }
+  });
+
+  router.post('/atelier/records', authenticateJWT, requireEntityMember, async (req, res) => {
+    try {
+      const entrepriseId = resolveEntrepriseId(req);
+      if (!entrepriseId) {
+        return res.status(400).json({ success: false, message: 'Entité non définie' });
+      }
+      const { writeAtelierRecord } = require('../core/agent-flow/atelierPresets');
+      const body = req.body || {};
+      const written = await writeAtelierRecord(
+        entrepriseId,
+        body.collectionId,
+        body.values || {},
+        { flowId: body.flowId, nodeId: body.nodeId }
+      );
+      res.json({ success: true, ...written });
+    } catch (error) {
+      res.status(400).json({ success: false, message: error.message });
+    }
+  });
+
+  router.post('/visualization/design-suggest', authenticateJWT, requireEntityMember, async (req, res) => {
+    try {
+      const entrepriseId = resolveEntrepriseId(req);
+      const { suggestVizDesign } = require('../core/agent-flow/vizConception');
+      const result = await suggestVizDesign({
+        entrepriseId,
+        brief: (req.body && (req.body.brief || req.body.prompt)) || ''
+      });
+      res.json({ success: true, ...result });
+    } catch (error) {
+      res.status(500).json({ success: false, message: error.message });
+    }
+  });
+
+  router.post('/visualization/design-fork', authenticateJWT, requireEntityMember, async (req, res) => {
+    try {
+      const entrepriseId = resolveEntrepriseId(req);
+      if (!entrepriseId) {
+        return res.status(400).json({ success: false, message: 'Entité non définie' });
+      }
+      const { forkDesignTemplate } = require('../core/agent-flow/vizConception');
+      const result = await forkDesignTemplate(
+        entrepriseId,
+        (req.body && req.body.templateId) || '',
+        (req.body && req.body.name) || ''
+      );
+      res.json({ success: true, ...result });
+    } catch (error) {
+      res.status(500).json({ success: false, message: error.message });
+    }
+  });
+
+  /** Étape 1 visualisation : couleurs, logo, zones (page web). */
+  router.post('/visualization/design', authenticateJWT, requireEntityMember, async (req, res) => {
+    try {
+      const entrepriseId = resolveEntrepriseId(req);
+      if (!entrepriseId) {
+        return res.status(400).json({ success: false, message: 'Entité non définie' });
+      }
+      const { applyVizDesign } = require('../core/agent-flow/vizConception');
+      const result = await applyVizDesign({
+        entrepriseId,
+        name: (req.body && req.body.name) || 'Design agent',
+        templateId: (req.body && (req.body.templateId || req.body.baseTemplateId)) || '',
+        design: (req.body && req.body.design) || req.body || {}
+      });
+      res.json({ success: true, ...result });
+    } catch (error) {
+      res.status(500).json({ success: false, message: error.message });
+    }
+  });
+
+  /** @deprecated alias — étape 1 design web. */
+  router.post('/visualization/generate', authenticateJWT, requireEntityMember, async (req, res) => {
+    try {
+      const entrepriseId = resolveEntrepriseId(req);
+      if (!entrepriseId) {
+        return res.status(400).json({ success: false, message: 'Entité non définie' });
+      }
+      const { applyVizDesign } = require('../core/agent-flow/vizConception');
+      const result = await applyVizDesign({
+        entrepriseId,
+        name: (req.body && req.body.name) || 'Design agent',
+        templateId: (req.body && (req.body.templateId || req.body.baseTemplateId)) || '',
+        design: (req.body && req.body.design) || req.body || {}
+      });
+      res.json({ success: true, ...result });
+    } catch (error) {
+      res.status(500).json({ success: false, message: error.message });
+    }
+  });
+
   /** Liste des templates disponibles */
   router.get('/templates', authenticateJWT, requireEntityMember, (req, res) => {
-    res.json({
-      success: true,
-      templates: [
-        { id: 'agent-mail', name: 'Agent Mail', description: 'mail-in → analyse → routage → mail-out' },
-        { id: 'agent-facebook', name: 'Agent Facebook', description: 'facebook / manuel → analyse → routage' },
-        { id: 'agent-assisted-doc', name: 'Agent assisté (document)', description: 'analyse → revue WYSIWYG → routage' },
-        {
-          id: 'agent-mail-invoices',
-          name: 'Agent factures mail',
-          description: 'mail-in → filtre → télécharger PJ → revue → suppression IMAP si validé'
-        }
-      ]
-    });
+    const importableOnly = String(req.query.importable || '') === '1';
+    const templates = importableOnly
+      ? TEMPLATE_CATALOG.filter((t) => t.importable)
+      : TEMPLATE_CATALOG;
+    res.json({ success: true, templates });
   });
 
   /** Créer un agent depuis un template (si pas déjà présent pour ce user / entité) */
@@ -588,6 +1110,24 @@ function createAgentFlowsRouter(database) {
         createdBy: userId
       });
 
+      if (templateId === 'agent-design-page-web') {
+        const { ensureAtelierCollection } = require('../core/agent-flow/atelierPresets');
+        const pack = await ensureAtelierCollection(entrepriseId, 'design-page-web');
+        if (pack && flow.canvas && Array.isArray(flow.canvas.nodes)) {
+          flow.canvas.nodes.forEach((n) => {
+            if (!n || !n.config) return;
+            const wantsDesign = n.slug === 'collection_design'
+              || n.config.collectionNamespace === 'atelier-design-page-web';
+            if (!wantsDesign) return;
+            n.config.collectionId = pack.collectionId;
+            n.config.collectionNamespace = pack.slug;
+          });
+          await flowService.updateFlow(flow._id, { canvas: flow.canvas });
+        }
+        const fresh = await flowService.getFlowById(flow._id);
+        return res.status(201).json({ success: true, flow: fresh || flow, created: true });
+      }
+
       // Seed configs briques (preset selon le type d'agent)
       const presetByTemplate = {
         'agent-mail': 'mail',
@@ -596,12 +1136,32 @@ function createAgentFlowsRouter(database) {
         'agent-mail-invoices': 'mail'
       };
       const presetId = presetByTemplate[templateId] || 'mail';
-      await brickConfigService.upsertConfig(flow._id, 'analyse-intention', entrepriseId, {
-        config: brickConfigService.getDefaultAnalyseConfig(presetId)
-      });
+      const bundle = await ensurePresetCollection(entrepriseId, presetId);
+      const intentions = (bundle && bundle.elements)
+        ? bundle.elements.map((el) => ({
+          id: el.name || el.id,
+          name: el.name || el.id,
+          definition: el.definition || '',
+          priority: el.priority || 'medium'
+        }))
+        : [];
       await brickConfigService.upsertConfig(flow._id, 'route-intention', entrepriseId, {
-        config: brickConfigService.getDefaultRouteConfig(presetId)
+        config: brickConfigService.getDefaultRouteConfig(intentions.length ? intentions : presetId)
       });
+      if (bundle && flow.canvas && Array.isArray(flow.canvas.nodes)) {
+        let patched = false;
+        flow.canvas.nodes.forEach((n) => {
+          if (!n || n.brickId !== 'data' || !n.config) return;
+          const isListe = n.config.presetId === presetId
+            || (n.config.provider === 'json' && n.slug === 'liste_intentions');
+          if (!isListe) return;
+          n.config.collectionId = String(bundle.collectionId || bundle.collection._id || '');
+          n.config.collectionNamespace = bundle.slug;
+          n.config.provider = 'json';
+          patched = true;
+        });
+        if (patched) await flowService.updateFlow(flow._id, { canvas: flow.canvas });
+      }
 
       res.status(201).json({ success: true, flow, created: true });
     } catch (error) {

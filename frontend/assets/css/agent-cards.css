@@ -16,6 +16,19 @@
   min-height: 220px;
 }
 
+.agent-card.is-stale {
+  border-color: #ea580c;
+  box-shadow: 0 0 0 2px rgba(234, 88, 12, 0.25);
+}
+
+.agent-card-badge.is-stale {
+  background: #ea580c;
+  color: #fff7ed;
+  top: auto;
+  bottom: 8px;
+  right: 8px;
+}
+
 .agent-card-cover {
   height: 110px;
   background: linear-gradient(135deg, #e0e7ff 0%, #f8fafc 100%);

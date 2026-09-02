@@ -49,6 +49,7 @@ function normalizeDevis(raw) {
     notes: String(d.notes || '').trim(),
     documentClient: contact.documentClient,
     referenceClient: contact.referenceClient,
+    sansBonCommandeClient: contact.referenceClient ? false : d.sansBonCommandeClient === true,
     contactClientId: contact.contactClientId,
     contactNom: contact.contactNom,
     contactService: contact.contactService,

@@ -228,10 +228,14 @@ class MailService {
       collection_name = null
     } = options;
 
-    // Validation
-    if (!to || !subject || !body) {
-      throw new Error('to, subject et body sont requis');
+    const missing = [];
+    if (!to) missing.push('to');
+    if (!subject) missing.push('subject');
+    if (!body && !body_html) missing.push('body');
+    if (missing.length) {
+      throw new Error(missing.join(', ') + (missing.length > 1 ? ' sont' : ' est') + ' requis');
     }
+    const textBody = body || (typeof body_html === 'string' ? body_html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim() : '') || subject || ' ';
 
     // Déterminer profil SMTP et destinataire via routing
     const moduleConfig = this.moduleConfigs.get(module_name);
@@ -266,7 +270,7 @@ class MailService {
         email: from.email
       },
       subject,
-      body,
+      body: textBody,
       body_html: body_html || null,
       attachments: attachments.length > 0 ? attachments.map(a => ({
         filename: a.filename || a.path,
@@ -285,7 +289,7 @@ class MailService {
         from: `${from.name} <${from.email}>`,
         to: routing.to || to,
         subject,
-        text: body,
+        text: textBody,
         html: body_html || null,
         attachments: attachments.map(a => ({
           filename: a.filename || a.path,

@@ -18,8 +18,10 @@ const updateDevis = require('../services/devis/updateDevis');
 const changeDevisStatus = require('../services/devis/changeDevisStatus');
 const getDevisHtml = require('../services/devis/getDevisHtml');
 const deleteDevis = require('../services/devis/deleteDevis');
+const duplicateDevis = require('../services/devis/duplicateDevis');
 const generateDevisPdf = require('../services/devis/generateDevisPdf');
 const sendDevisToClient = require('../services/devis/sendDevisToClient');
+const { sendEmailSuccess, sendEmailErrorStatus } = require('../services/mail/sendEmailHttpResponse');
 const linkDevisPmCard = require('../services/devis/linkDevisPmCard');
 const ensureDevisPmCard = require('../services/devis/ensureDevisPmCard');
 
@@ -72,7 +74,11 @@ async function update(req, res) {
 async function changeStatus(req, res) {
   try {
     const statut = req.body?.statut || req.body?.status;
-    const item = await changeDevisStatus(req.entrepriseDb, req.entrepriseId, req.params.id, statut);
+    const item = await changeDevisStatus(req.entrepriseDb, req.entrepriseId, req.params.id, statut, {
+      referenceClient: req.body?.referenceClient,
+      documentClient: req.body?.documentClient,
+      sansBonCommandeClient: req.body?.sansBonCommandeClient
+    });
     res.json({ success: true, data: item });
   } catch (error) {
     console.error('GDERPI devis changeStatus:', error);
@@ -114,6 +120,17 @@ async function downloadPdf(req, res) {
   }
 }
 
+async function duplicate(req, res) {
+  try {
+    const item = await duplicateDevis(req.entrepriseDb, req.entrepriseId, req.params.id);
+    res.status(201).json({ success: true, data: item });
+  } catch (error) {
+    console.error('GDERPI devis duplicate:', error);
+    const status = error.message === 'Devis introuvable' ? 404 : 400;
+    res.status(status).json({ success: false, message: error.message || 'Erreur duplication devis' });
+  }
+}
+
 async function remove(req, res) {
   try {
     const deleted = await deleteDevis(req.entrepriseDb, req.entrepriseId, req.params.id);
@@ -134,10 +151,10 @@ async function sendToClient(req, res) {
       req.body || {},
       req
     );
-    res.json({ success: true, data });
+    sendEmailSuccess(res, data, 'Devis envoyé');
   } catch (error) {
     console.error('GDERPI devis sendToClient:', error);
-    const status = error.message === 'Devis introuvable' ? 404 : 400;
+    const status = sendEmailErrorStatus(error);
     res.status(status).json({ success: false, message: error.message || 'Erreur envoi devis' });
   }
 }
@@ -175,6 +192,7 @@ module.exports = {
   downloadPdf,
   remove,
   sendToClient,
+  duplicate,
   linkPmCard,
   ensurePmCard
 };

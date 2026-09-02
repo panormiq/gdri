@@ -15,17 +15,15 @@ const ensureCommandeFournisseurIndexes = require('./ensureCommandeFournisseurInd
 const parseSupplierGroupKey = require('./parseSupplierGroupKey');
 const toCommandeFournisseurEntry = require('./toCommandeFournisseurEntry');
 const applyPrixAchatHtToLignesFournisseur = require('./applyPrixAchatHtToLignesFournisseur');
+const isPrestationLine = require('../workflow/isPrestationLine');
 
 const COLLECTION_CMD = 'gderpi_commandes_client';
 const COLLECTION = 'gderpi_commandes_fournisseur';
 
 function legacyProductLines(commande) {
   const lines = Array.isArray(commande?.lignes) ? commande.lignes : [];
-  const filtered = lines.filter((l) => {
-    const t = String(l.articleType || '').toLowerCase();
-    return t === 'produit' || (t !== 'developpement' && t !== 'service');
-  });
-  return filtered.length ? filtered : lines;
+  const filtered = lines.filter((l) => !isPrestationLine(l));
+  return filtered.length ? filtered : [];
 }
 
 async function createFromCommandeClient(db, entrepriseId, commandeClientId, options = {}) {
@@ -95,6 +93,8 @@ async function createFromCommandeClient(db, entrepriseId, commandeClientId, opti
       lignes,
       totaux,
       historique: [{ statut: 'brouillon', date: now }],
+      reglee: false,
+      regleeAt: null,
       createdAt: now,
       updatedAt: now
     };

@@ -9,6 +9,7 @@ const resolvePipelineStatutAfterGdri = require('./resolvePipelineStatutAfterGdri
 const ensureCommandesFournisseurFromClient = require('../commande-fournisseur/ensureCommandesFournisseurFromClient');
 const setCommandeClientStatut = require('./setCommandeClientStatut');
 const commandeNeedsAchats = require('../workflow/commandeNeedsAchats');
+const { requireBonCommandeClient } = require('../workflow/bonCommandeClient');
 
 const COLLECTION = 'gderpi_commandes_client';
 
@@ -18,6 +19,7 @@ async function validateCommandeGdri(db, entrepriseId, commandeClientId) {
   if (!['validee_client', 'a_valider_gdri'].includes(commande.statut)) {
     throw new Error('Cette commande n\'est pas en attente de validation GDRI');
   }
+  requireBonCommandeClient(commande);
 
   const now = new Date();
   let besoins = Array.isArray(commande.besoins) ? commande.besoins : [];

@@ -7,10 +7,28 @@ if (!hasRole(ROLE_ADMIN_GDRI) && !hasRole(ROLE_ADMIN_ENTITY) && !hasRole(ROLE_US
     redirect(url('pages/dashboard.php'));
 }
 
-$page_title = 'Agent Documentaire V2 — Éditeur';
 $templateNs = isset($_GET['template']) ? trim($_GET['template']) : 'ugap:devis:default';
+$isV3Tpl = strpos($templateNs, 'v3:') === 0;
+$page_title = $isV3Tpl ? 'Mise en page A4' : 'Agent Documentaire V2 — Éditeur';
+$returnRaw = trim((string) ($_GET['return'] ?? ''));
+$returnUrl = '';
+if ($returnRaw !== '') {
+    $parts = parse_url($returnRaw);
+    $host = isset($parts['host']) ? strtolower((string) $parts['host']) : '';
+    $reqHost = strtolower((string) ($_SERVER['HTTP_HOST'] ?? ''));
+    if ($host === '' || $host === $reqHost) {
+        $returnUrl = $returnRaw;
+    }
+}
+$backUrl = $returnUrl !== '' ? $returnUrl : url('pages/modules/doc-template-v3/index.php');
+$backLabel = $returnUrl !== '' ? '← Retour' : '← Retour aux documents';
 $isAgentReviewTpl = (strpos($templateNs, 'agent:review') === 0)
+    || (strpos($templateNs, 'agent:app') === 0)
     || (strpos($templateNs, ':review:') !== false);
+$contractProvider = isset($_GET['provider']) ? trim($_GET['provider']) : '';
+$catalogHint = $isAgentReviewTpl
+    ? ($contractProvider !== '' ? $contractProvider : 'contrat Données')
+    : 'Devis UGAP';
 
 $adv2CssPath = __DIR__ . '/assets/css/canvas-editor.css';
 $extra_styles = [url('pages/modules/document-agent-v2/assets/css/canvas-editor.css') . '?v=' . (int) @filemtime($adv2CssPath)];
@@ -29,19 +47,17 @@ require_once '../../../includes/header.php';
     <div class="container">
         <div class="hero-content">
             <div>
-                <h1>Éditeur devis — canvas A4</h1>
+                <h1><?= $isV3Tpl ? 'Mise en page A4' : 'Éditeur devis — canvas A4'; ?></h1>
                 <p class="hero-description">
                     Déplacez les zones sur la page. Guides et aimants actifs (Alt pour désactiver).
                     Template : <code><?= htmlspecialchars($templateNs) ?></code>
-                    <?php if ($isAgentReviewTpl): ?>
-                        — catalogue champs : <strong>Mail reçu</strong> (pas devis UGAP)
-                    <?php else: ?>
-                        — catalogue champs : <strong>Devis UGAP</strong>
+                    <?php if (!$isV3Tpl): ?>
+                    — catalogue champs : <strong><?= htmlspecialchars($catalogHint) ?></strong>
                     <?php endif; ?>
                 </p>
             </div>
             <div class="hero-actions">
-                <a class="btn btn-outline" href="<?= url('pages/modules/document-agent-v2/index.php'); ?>">← Retour</a>
+                <a class="btn btn-outline" id="adv2-back" href="<?= htmlspecialchars($backUrl); ?>"><?= htmlspecialchars($backLabel); ?></a>
                 <?php if ($isAgentReviewTpl): ?>
                 <button type="button" class="btn btn-outline" id="adv2-generate-ai" title="Générer / régénérer la mise en page via IA">✨ Générer par IA</button>
                 <?php endif; ?>

@@ -50,7 +50,11 @@ function resolveImapConfigForAccount(config, accountRef, mailboxOverride) {
   if (Array.isArray(config.profils_imap) && Array.isArray(config.comptes)) {
     const byId = (arr) => (arr || []).reduce((acc, p) => { acc[p.id] = p; return acc; }, {});
     const imapById = byId(config.profils_imap);
-    const compte = config.comptes.find((c) => String(c.id) === id || String(c.email) === id);
+    const compte = config.comptes.find((c) =>
+      String(c.id) === id
+      || String(c.email) === id
+      || String(c.from_name || '') === id
+    );
     if (!compte?.profil_imap_id || !imapById[compte.profil_imap_id]) return null;
     const profil = imapById[compte.profil_imap_id];
     if (!compte.email || !compte.password) return null;

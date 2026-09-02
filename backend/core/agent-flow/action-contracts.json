@@ -1,0 +1,133 @@
+{
+  "version": "1.0.0",
+  "description": "Catalogue : contrat de champs (défaut) ou fonctions connecteur. Un prompt n’est qu’un champ possible ; le bloc IA l’exécute.",
+  "writeModes": [
+    {
+      "id": "merge",
+      "label": "Compléter le flux",
+      "description": "Ajoute les champs (response, intention…) sans toucher au texte d’origine. La Sortie pourra lire {{response}}."
+    },
+    {
+      "id": "replace",
+      "label": "Écraser le texte",
+      "description": "Copie la réponse IA dans text / body. Les identifiants (sourceRef, from…) restent."
+    }
+  ],
+  "surfaces": [
+    {
+      "id": "surface.hook",
+      "label": "Accrocher la page",
+      "description": "Lit la collection Hook et écrit le champ surface (onglet, modal, app…). Sans ce bloc, la page reste portable.",
+      "writes": [
+        { "key": "surface", "label": "Surface" },
+        { "key": "label", "label": "Libellé" },
+        { "key": "hookMounted", "label": "Accroché" }
+      ],
+      "params": ["surface"]
+    }
+  ],
+  "ia": [
+    {
+      "id": "ia.compose",
+      "label": "Champs",
+      "description": "Contrat de champs écrits dans le flux. Ajoutez les champs utiles (prompt, to, body…). Reliez un bloc IA ensuite si un prompt doit être exécuté.",
+      "writes": [
+        { "key": "prompt", "label": "Prompt" },
+        { "key": "context", "label": "Contexte" },
+        { "key": "rag", "label": "RAG" },
+        { "key": "rendered", "label": "Prompt interpolé" },
+        { "key": "result", "label": "Résultat numérique" }
+      ],
+      "params": ["prompt", "writeMode"]
+    }
+  ],
+  "connectors": {
+    "mail": {
+      "provider": "mail",
+      "connectorId": "mail-in",
+      "label": "Mail",
+      "actions": [
+        {
+          "id": "mail.mark-unseen",
+          "label": "Marquer comme non lu",
+          "requires": ["sourceRef"],
+          "writes": [{ "key": "mailFlag", "label": "Flag IMAP" }]
+        },
+        {
+          "id": "mail.mark-seen",
+          "label": "Marquer comme lu",
+          "requires": ["sourceRef"],
+          "writes": [{ "key": "mailFlag", "label": "Flag IMAP" }]
+        },
+        {
+          "id": "mail.delete",
+          "label": "Supprimer",
+          "requires": ["sourceRef"],
+          "writes": [{ "key": "mailDeleted", "label": "Supprimé" }],
+          "params": ["onlyOnApprove"]
+        },
+        {
+          "id": "mail.move",
+          "label": "Déplacer",
+          "requires": ["sourceRef"],
+          "writes": [{ "key": "mailbox", "label": "Dossier IMAP" }],
+          "params": ["folder"]
+        },
+        {
+          "id": "mail.save-attachments",
+          "label": "Télécharger les pièces jointes",
+          "requires": ["attachments"],
+          "writes": [
+            { "key": "attachments", "label": "Pièces jointes" },
+            { "key": "folderUrl", "label": "Dossier téléchargement" }
+          ],
+          "params": ["subfolder"]
+        },
+        {
+          "id": "mail.pick",
+          "label": "Récupérer objet / texte",
+          "description": "Recopie sujet et corps dans le flux.",
+          "writes": [
+            { "key": "subject", "label": "Sujet" },
+            { "key": "text", "label": "Texte" }
+          ],
+          "params": ["pickFields"]
+        }
+      ]
+    },
+    "facebook": {
+      "provider": "facebook",
+      "connectorId": "facebook",
+      "label": "Facebook",
+      "actions": [
+        {
+          "id": "facebook.hide-comment",
+          "label": "Masquer le commentaire",
+          "requires": ["sourceRef"],
+          "writes": [{ "key": "facebookHidden", "label": "Masqué" }]
+        },
+        {
+          "id": "facebook.like",
+          "label": "Aimer",
+          "requires": ["sourceRef"],
+          "writes": [{ "key": "facebookLiked", "label": "Like" }]
+        },
+        {
+          "id": "facebook.delete",
+          "label": "Supprimer",
+          "requires": ["sourceRef"],
+          "writes": [{ "key": "facebookDeleted", "label": "Supprimé" }]
+        },
+        {
+          "id": "facebook.pick",
+          "label": "Récupérer le texte",
+          "description": "Recopie le texte et l’auteur dans le flux.",
+          "writes": [
+            { "key": "text", "label": "Texte" },
+            { "key": "from", "label": "Auteur" }
+          ]
+        }
+      ]
+    }
+  }
+}

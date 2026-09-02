@@ -1,9 +1,10 @@
 /**
  * FICHIER : backend/core/agent-flow/interactionMode.js
- * RÔLE : Dérive automatic | assisted selon les briques HITL du flow.
+ * RÔLE : Dérive automatic | assisted selon présence d'un bloc Validation (HITL).
  */
 
 const flowBrickRegistry = require('./FlowBrickRegistry');
+const { enrichFlowApp } = require('./appSurface');
 
 /**
  * @param {Object} flow
@@ -12,6 +13,7 @@ const flowBrickRegistry = require('./FlowBrickRegistry');
 function deriveInteractionMode(flow) {
   const brickIds = collectBrickIds(flow);
   for (const id of brickIds) {
+    if (id === 'validation') return 'assisted';
     const brick = flowBrickRegistry.get(id);
     if (brick && brick.interaction === 'human') return 'assisted';
   }
@@ -39,7 +41,7 @@ function collectBrickIds(flow) {
 }
 
 /**
- * Mode effectif affiché / filtré.
+ * Mode effectif affiché / badge.
  * @param {Object} flow
  * @returns {'automatic'|'assisted'}
  */
@@ -58,7 +60,7 @@ function resolveEffectiveInteractionMode(flow) {
 function enrichFlowModes(flow) {
   if (!flow) return flow;
   const derived = deriveInteractionMode(flow);
-  return {
+  return enrichFlowApp({
     ...flow,
     interactionMode: flow.interactionMode || 'auto',
     derivedInteractionMode: derived,
@@ -67,7 +69,7 @@ function enrichFlowModes(flow) {
       derivedInteractionMode: derived
     }),
     imageUrl: flow.imageUrl || null
-  };
+  });
 }
 
 module.exports = {

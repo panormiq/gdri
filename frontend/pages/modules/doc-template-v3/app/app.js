@@ -1,16 +1,16 @@
-import Router from './Router.js';
-import routes from './Routes.js';
+import Router from './Router.js?v=tpl-contract-1';
+import routes from './Routes.js?v=tpl-loop-4';
 import loadCSS from '../utils/loadCSS.js';
 
 console.log('📦 app.js chargé');
 
-loadCSS('styles/AppNav.css');
+loadCSS('styles/AppNav.css?v=shell-fix');
 
 function createAppShell(root, basePath) {
   root.innerHTML = '';
 
   const shell = document.createElement('div');
-  shell.className = 'app-shell';
+  shell.className = 'doc-v3-shell';
 
   const nav = document.createElement('nav');
   nav.className = 'app-nav';

@@ -26,8 +26,8 @@ class OllamaClient:
             response = requests.post(
                 f"{self.base_url}/api/generate",
                 json=payload,
-                stream=True,  # Permet de lire les données au fur et à mesure
-                timeout=300  # Timeout de 5 minutes (augmenté pour analyses longues)
+                stream=True,
+                timeout=(15, None),
             )
             response.raise_for_status()
             
@@ -41,9 +41,7 @@ class OllamaClient:
                         data = line.decode('utf-8')
                         if data.strip():
                             chunk = json.loads(data)
-                            if 'response' in chunk:
-                                full_response += chunk['response']
-                            # Si done=True, on a fini (pour streaming et non-streaming)
+                            full_response += self._chunk_text(chunk)
                             if chunk.get('done', False):
                                 break
                     except json.JSONDecodeError:
@@ -65,11 +63,27 @@ class OllamaClient:
         except Exception as e:
             raise Exception(f"Erreur lors du traitement de la réponse: {str(e)}")
 
+    @staticmethod
+    def _chunk_text(chunk: Dict[str, Any]) -> str:
+        if not isinstance(chunk, dict):
+            return ""
+        piece = chunk.get("response")
+        if piece:
+            return str(piece)
+        message = chunk.get("message")
+        if isinstance(message, dict) and message.get("content"):
+            return str(message.get("content") or "")
+        thinking = chunk.get("thinking")
+        if thinking:
+            return str(thinking)
+        return ""
+
     def _build_ollama_payload(self, prompt_request: PromptRequest, stream: bool) -> Dict[str, Any]:
         payload: Dict[str, Any] = {
             "model": prompt_request.model or self.model,
             "prompt": prompt_request.prompt,
             "stream": stream,
+            "think": False,
         }
         if prompt_request.temperature is not None:
             payload["options"] = payload.get("options", {})
@@ -102,7 +116,7 @@ class OllamaClient:
                 f"{self.base_url.rstrip('/')}/api/generate",
                 json=payload,
                 stream=True,
-                timeout=300,
+                timeout=(15, None),
             )
             response.raise_for_status()
             full_response = ""
@@ -113,7 +127,7 @@ class OllamaClient:
                     chunk = json.loads(line)
                 except json.JSONDecodeError:
                     continue
-                piece = chunk.get("response") or ""
+                piece = self._chunk_text(chunk)
                 if piece:
                     full_response += piece
                     yield f"data: {json.dumps({'token': piece}, ensure_ascii=False)}\n\n"

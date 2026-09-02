@@ -16,6 +16,22 @@
     "inheritsFrom": "mail-infra",
     "fields": ["accountRef"]
   },
+  "settingsFields": [
+    {
+      "key": "accountRef",
+      "label": "Compte mail",
+      "type": "connection",
+      "required": true,
+      "connectionSource": "mail-account",
+      "description": "Compte SMTP configuré dans Paramètres > Comptes mail"
+    },
+    {
+      "key": "defaultSubjectPrefix",
+      "label": "Préfixe sujet (optionnel)",
+      "type": "text",
+      "default": ""
+    }
+  ],
   "configSchema": {
     "type": "object",
     "properties": {

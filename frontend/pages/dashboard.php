@@ -107,10 +107,8 @@ function renderModuleLinks($service, $userRole) {
     }
 
     if (strpos($name, 'document') !== false) {
-        return '<div style="display:flex; gap: var(--spacing-sm); flex-wrap: wrap; margin-top: var(--spacing-md);">
-            <a class="btn btn-outline" href="' . url('pages/modules/document-agent/index.php') . '">📄 V1 (Ancien)</a>
-            <a class="btn btn-outline" href="https://www.gdri.fr/doc-template/" target="_blank">🚀 V2 (Externe)</a>
-            <a class="btn btn-primary" href="' . url('pages/modules/doc-template-v3/index.php') . '">✨ V3 (Intégré)</a>
+        return '<div style="margin-top: var(--spacing-md);">
+            <a class="btn btn-primary" href="' . url('pages/modules/doc-template-v3/index.php') . '">📄 Ouvrir Documents</a>
         </div>';
     }
 

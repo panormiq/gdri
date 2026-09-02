@@ -59,7 +59,7 @@ function getIAClientForServer(serverDoc) {
     serviceToken: flat.serviceToken,
     ollamaUrl: flat.ollamaUrl,
     model: flat.model,
-    timeout: 60000
+    timeout: 120000
   });
 }
 

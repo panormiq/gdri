@@ -62,6 +62,25 @@ router.put('/templates/:namespace', async (req, res) => {
   }
 });
 
+/** Crée une page App vide (profil page) si elle n'existe pas. */
+router.post('/templates/:namespace/ensure-page', authenticateJWT, async (req, res) => {
+  try {
+    const svc = getTemplateService();
+    const force = !!(req.body && req.body.force);
+    const saved = await svc.ensureBlankPageTemplate(req.params.namespace, {
+      force,
+      name: (req.body && (req.body.name || req.body.title)) || '',
+      slots: (req.body && req.body.slots) || [],
+      agentPageContext: (req.body && req.body.agentPageContext) || null,
+      productionTemplateId: (req.body && req.body.productionTemplateId) || '',
+      html: (req.body && req.body.html) || ''
+    });
+    res.json({ success: true, data: saved, created: true });
+  } catch (error) {
+    res.status(400).json({ success: false, error: error.message });
+  }
+});
+
 /** Crée un template de départ (ex. revue facture) s'il n'existe pas. */
 router.post('/templates/:namespace/ensure-seed', async (req, res) => {
   try {
@@ -77,7 +96,7 @@ router.post('/templates/:namespace/ensure-seed', async (req, res) => {
 /**
  * Génère (ou régénère) une page de revue mail via IA, puis enregistre le template.
  * POST /templates/:namespace/generate-ai
- * body: { brief?, save?=true, entrepriseId? }
+ * body: { brief?, agentContext?, reviewContext?, dataContract?, save?=true, entrepriseId? }
  */
 router.post('/templates/:namespace/generate-ai', authenticateJWT, async (req, res) => {
   try {
@@ -94,11 +113,16 @@ router.post('/templates/:namespace/generate-ai', authenticateJWT, async (req, re
       (req.user && (req.user.currentEntrepriseId || req.user.entrepriseId)) ||
       null;
 
+    const dataContract = req.body && req.body.dataContract && typeof req.body.dataContract === 'object'
+      ? req.body.dataContract
+      : null;
+
     const generated = await aiReviewTemplateService.generate({
       namespace,
       brief,
       agentContext,
       reviewContext,
+      dataContract,
       entrepriseId
     });
 

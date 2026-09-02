@@ -1,0 +1,146 @@
+{
+  "id": "data",
+  "name": "Entrées",
+  "version": "2.5.0",
+  "family": "data",
+  "category": "data",
+  "kind": "action",
+  "visibility": "orchestrator-only",
+  "description": "Source à lire : mail, Facebook, HTTP ou une collection. Le slug reste {{#donnees}}.",
+  "canvas": {
+    "iconEmoji": "📥",
+    "color": "#2563eb",
+    "borderRadius": 12,
+    "width": 220,
+    "inputs": [
+      { "id": "main", "label": "Entrée", "type": "main", "maxConnections": 0 }
+    ],
+    "outputs": [
+      { "id": "main", "label": "Tableau", "type": "main", "maxConnections": 0 }
+    ]
+  },
+  "operations": {
+    "data.read": {
+      "label": "Lire",
+      "configSchema": {
+        "type": "object",
+        "properties": {
+          "provider": {
+            "type": "string",
+            "title": "Type",
+            "enum": ["mail", "facebook", "http", "json"],
+            "enumLabels": {
+              "mail": "Mail",
+              "facebook": "Facebook",
+              "http": "HTTP générique",
+              "json": "Collection / liste"
+            },
+            "default": ""
+          },
+          "instanceId": {
+            "type": "string",
+            "title": "Compte",
+            "description": "Compte du connecteur (boîte mail ou page Facebook).",
+            "default": ""
+          },
+          "kinds": {
+            "type": "array",
+            "title": "À lire",
+            "items": { "type": "string" },
+            "default": []
+          },
+          "payload": {
+            "type": "string",
+            "title": "Texte / JSON",
+            "format": "textarea",
+            "default": ""
+          },
+          "collectionId": {
+            "type": "string",
+            "title": "Collection V3",
+            "default": ""
+          },
+          "collectionNamespace": {
+            "type": "string",
+            "title": "Collection (slug)",
+            "default": ""
+          },
+          "modelName": {
+            "type": "string",
+            "title": "Nom du modèle",
+            "default": ""
+          },
+          "modelFields": {
+            "type": "array",
+            "title": "Champs du modèle",
+            "items": { "type": "object" },
+            "default": []
+          },
+          "modelRows": {
+            "type": "array",
+            "title": "Lignes du modèle",
+            "items": { "type": "object" },
+            "default": []
+          },
+          "presetId": {
+            "type": "string",
+            "title": "Liste préconstruite (collection)",
+            "default": ""
+          },
+          "mailbox": {
+            "type": "string",
+            "title": "Dossier IMAP",
+            "description": "Optionnel. Vide = dossier du connecteur. Chaque bloc Entrées mail peut viser un dossier différent.",
+            "default": ""
+          },
+          "unseenOnly": {
+            "type": "boolean",
+            "title": "Uniquement non lus",
+            "description": "Pour le poll automatique. Un lancement manuel avec « Max messages » lit les N plus récents, déjà lus inclus.",
+            "default": false
+          },
+          "fromContains": {
+            "type": "string",
+            "title": "Filtre expéditeur (contient)",
+            "default": ""
+          },
+          "subjectContains": {
+            "type": "string",
+            "title": "Filtre sujet (contient)",
+            "default": ""
+          },
+          "pollByDate": {
+            "type": "boolean",
+            "title": "Limiter par date",
+            "default": false
+          },
+          "pollByCount": {
+            "type": "boolean",
+            "title": "Limiter par nombre",
+            "default": true
+          },
+          "lookbackHours": {
+            "type": "number",
+            "title": "Fenêtre de temps (heures)",
+            "minimum": 1,
+            "maximum": 2160,
+            "default": 168
+          },
+          "pollLimit": {
+            "type": "number",
+            "title": "Max messages",
+            "minimum": 1,
+            "maximum": 100,
+            "default": 20
+          }
+        }
+      },
+      "outputMessage": {
+        "type": "data-message",
+        "fields": ["items", "itemsCount", "item", "itemIndex", "channel", "text", "from", "subject", "attachments"]
+      }
+    }
+  },
+  "permissions": ["network", "secrets"],
+  "serviceRef": "backend/core/agent-flow/families"
+}

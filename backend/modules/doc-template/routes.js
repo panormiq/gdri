@@ -96,6 +96,7 @@ router.get('/collections/core', authenticateJWT, (req, res) => {
 router.get('/collections/fieldTypes', authenticateJWT, collectionController.getFieldTypes);
 
 router.get('/collections', authenticateJWT, useCurrentEntrepriseDb, collectionController.getAll);
+router.post('/collections/migrate-from-v1', authenticateJWT, useCurrentEntrepriseDb, collectionController.migrateFromV1);
 router.get('/collections/:id', authenticateJWT, useCurrentEntrepriseDb, checkEntrepriseAccess, collectionController.getById);
 router.post('/collections', authenticateJWT, useCurrentEntrepriseDb, collectionController.create);
 router.put('/collections/:id', authenticateJWT, useCurrentEntrepriseDb, checkEntrepriseAccess, collectionController.update);

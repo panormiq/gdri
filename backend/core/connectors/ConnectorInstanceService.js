@@ -6,6 +6,8 @@
 const { ObjectId } = require('mongodb');
 const connectorRegistry = require('./ConnectorRegistry');
 const { buildInstancePayload } = require('./instance-defaults');
+const { getSettingsFields } = require('./connectorContract');
+const { validateValues } = require('../collection-contract/collectionFields');
 
 const COLLECTION = 'connector_instances';
 
@@ -59,6 +61,94 @@ class ConnectorInstanceService {
     return serialize(await this.col().findOne(query));
   }
 
+  parseSyntheticId(id) {
+    const raw = String(id || '').trim();
+    if (raw.startsWith('mail-account:')) {
+      return { connectorId: 'mail-in', accountRef: raw.slice('mail-account:'.length) };
+    }
+    if (raw.startsWith('mail-out-account:')) {
+      return { connectorId: 'mail-out', accountRef: raw.slice('mail-out-account:'.length) };
+    }
+    if (raw.startsWith('fb-page:')) {
+      return { connectorId: 'facebook', pageId: raw.slice('fb-page:'.length) };
+    }
+    return null;
+  }
+
+  syntheticInstance(entrepriseId, connectorId, settings = {}) {
+    return {
+      _id: null,
+      entrepriseId: String(entrepriseId || ''),
+      connectorId,
+      name: settings.accountRef || settings.pageId || connectorId,
+      enabled: true,
+      settings: { ...(settings && typeof settings === 'object' ? settings : {}) },
+      mapping: {},
+      credentials: {},
+      cursor: null
+    };
+  }
+
+  /**
+   * ObjectId Mongo, ou id synthétique canvas (mail-account:… / fb-page:…).
+   */
+  async resolve(id, entrepriseId, extras = {}) {
+    const raw = String(id || '').trim();
+    const hintRef = String(extras.accountRef || '').trim();
+    const hintPage = String(extras.pageId || '').trim();
+    const hintConnector = String(extras.connectorId || '').trim();
+    if (!raw && !hintRef && !hintPage) return null;
+
+    if (raw) {
+      const byId = await this.getById(raw, entrepriseId);
+      if (byId) return byId;
+    }
+
+    const syn = this.parseSyntheticId(raw);
+    const accountRef = (syn && syn.accountRef) || hintRef;
+    const pageId = (syn && syn.pageId) || hintPage;
+    const connectorId = (syn && syn.connectorId) || hintConnector || null;
+    const q = { entrepriseId: String(entrepriseId) };
+    if (connectorId) q.connectorId = connectorId;
+
+    if (accountRef) {
+      const keys = [
+        accountRef,
+        `mail-in:${accountRef}`,
+        `mail-out:${accountRef}`
+      ];
+      const found = await this.col().findOne({
+        ...q,
+        $or: [
+          { 'settings.accountRef': accountRef },
+          { 'settings.mailAccountKey': { $in: keys } }
+        ]
+      });
+      if (found) return serialize(found);
+    }
+    if (pageId) {
+      const found = await this.col().findOne({
+        entrepriseId: String(entrepriseId),
+        'settings.pageId': pageId
+      });
+      if (found) return serialize(found);
+    }
+
+    if (accountRef && (connectorId === 'mail-in' || connectorId === 'mail-out' || !connectorId)) {
+      return this.syntheticInstance(entrepriseId, connectorId || 'mail-in', {
+        accountRef,
+        mailbox: extras.mailbox || 'INBOX'
+      });
+    }
+    if (pageId) {
+      return this.syntheticInstance(entrepriseId, connectorId || 'facebook', {
+        pageId,
+        pageName: extras.pageName || ''
+      });
+    }
+    return null;
+  }
+
   async create(entrepriseId, payload = {}) {
     const now = new Date();
     const connectorId = String(payload.connectorId || '').trim();
@@ -68,6 +158,10 @@ class ConnectorInstanceService {
 
     const manifest = connectorRegistry.getManifest(connectorId);
     const merged = buildInstancePayload(manifest, { ...payload, connectorId });
+    const settingsCheck = validateValues(getSettingsFields(manifest), merged.settings);
+    if (!settingsCheck.ok) {
+      throw new Error(settingsCheck.errors[0] || 'Réglages du connecteur invalides');
+    }
 
     const doc = {
       entrepriseId: String(entrepriseId),
@@ -95,7 +189,17 @@ class ConnectorInstanceService {
     const $set = { updated_at: new Date() };
     if (payload.name != null) $set.name = String(payload.name).trim();
     if (payload.enabled != null) $set.enabled = Boolean(payload.enabled);
-    if (payload.settings != null) $set.settings = payload.settings;
+    if (payload.settings != null) {
+      const current = await this.getById(id, entrepriseId);
+      const manifest = connectorRegistry.getManifest(
+        (current && current.connectorId) || payload.connectorId
+      );
+      const settingsCheck = validateValues(getSettingsFields(manifest), payload.settings);
+      if (!settingsCheck.ok) {
+        throw new Error(settingsCheck.errors[0] || 'Réglages du connecteur invalides');
+      }
+      $set.settings = payload.settings;
+    }
     if (payload.mapping != null) $set.mapping = payload.mapping;
     if (payload.ingestModes != null) $set.ingestModes = payload.ingestModes;
     if (payload.credentials != null) $set.credentials = payload.credentials;

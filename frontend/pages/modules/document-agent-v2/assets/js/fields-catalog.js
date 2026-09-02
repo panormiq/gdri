@@ -203,22 +203,34 @@
         { key: 'metadata.accountRef', label: 'Compte mail' },
         { key: 'metadata.mailbox', label: 'Dossier IMAP' }
       ]
+    },
+    {
+      id: 'review-items',
+      label: 'Données à valider',
+      fields: [
+        { key: 'items_html', label: 'Liste à cocher (HTML)' },
+        { key: 'itemsCount', label: 'Nombre d’éléments' },
+        { key: 'data_html', label: 'Données (HTML)' }
+      ]
     }
   ];
 
   const AGENT_REVIEW_PLACEHOLDER_DATA = {
-    from: 'Games Workshop <billing@games-workshop.com>',
-    subject: 'Your Invoice INV-2026-0042',
-    text: 'Bonjour,\n\nVeuillez trouver ci-joint votre facture.\n\nCordialement,\nGames Workshop',
-    sourceRef: '1842',
-    messageId: '<invoice-42@games-workshop.com>',
+    from: 'expediteur@exemple.fr',
+    subject: 'Données à valider',
+    text: 'Exemple de contenu renvoyé par le bloc Données.',
+    sourceRef: '42',
+    messageId: '<msg-42@exemple.fr>',
     channel: 'mail',
-    'author.email': 'billing@games-workshop.com',
-    'author.name': 'Games Workshop',
-    attachments_html: '<ul><li><a href="#">INV-2026-0042.pdf</a> (240 Ko)</li><li><a href="#">delivery-note.pdf</a> (88 Ko)</li></ul>',
-    attachmentCount: '2',
-    'metadata.accountRef': 'comptable@mon-entite.fr',
-    'metadata.mailbox': 'INBOX'
+    'author.email': 'expediteur@exemple.fr',
+    'author.name': 'Expéditeur',
+    attachments_html: '<ul><li><a href="#">document.pdf</a> (120 Ko)</li></ul>',
+    attachmentCount: '1',
+    'metadata.accountRef': 'compte@exemple.fr',
+    'metadata.mailbox': 'INBOX',
+    itemsCount: '3',
+    items_html: '<ul class="review-check-list"><li><label><input type="checkbox" checked> Ligne A — valeur 1</label></li><li><label><input type="checkbox" checked> Ligne B — valeur 2</label></li><li><label><input type="checkbox"> Ligne C — valeur 3</label></li></ul>',
+    data_html: '<p>Ligne A — valeur 1</p><p>Ligne B — valeur 2</p>'
   };
 
   const TABLE_LINE_FIELDS = [
@@ -236,26 +248,261 @@
     const scope = String(meta?.scope || '').toLowerCase();
     if (
       scope === 'agent-review'
+      || scope === 'agent-app'
       || namespace.startsWith('agent:review')
+      || namespace.startsWith('agent:app')
       || namespace.startsWith('agent-review')
       || namespace.includes(':review:')
     ) {
       return 'agent-review';
     }
+    if (scope === 'v3' || namespace.startsWith('v3:')) {
+      return 'v3';
+    }
     return 'ugap';
+  }
+
+  const REVIEW_FIELD_GROUP = {
+    id: 'review-items',
+    label: 'Données à valider',
+    fields: [
+      { key: 'items_html', label: 'Liste à cocher (HTML)' },
+      { key: 'itemsCount', label: 'Nombre d’éléments' },
+      { key: 'data_html', label: 'Données (HTML)' }
+    ]
+  };
+
+  const MAIL_RENDER_GROUP = {
+    id: 'mail-render',
+    label: 'Rendu mail',
+    fields: [
+      { key: 'attachments_html', label: 'Liste PJ (HTML avec liens)' },
+      { key: 'attachmentCount', label: 'Nombre de PJ' }
+    ]
+  };
+
+  function contractProviders(dataContract) {
+    return ((dataContract && dataContract.providers) || []).map((p) => String(p).toLowerCase());
+  }
+
+  function isMailContract(dataContract) {
+    const providers = contractProviders(dataContract);
+    return providers.includes('mail') || providers.includes('mail-in');
+  }
+
+  const MAIL_ONLY_KEYS = {
+    subject: true,
+    attachments: true,
+    'author.email': true,
+    'metadata.accountRef': true,
+    'metadata.mailbox': true,
+    attachments_html: true,
+    attachmentCount: true
+  };
+
+  function sanitizeContract(dataContract) {
+    if (!dataContract || isMailContract(dataContract)) return dataContract;
+    if (!contractProviders(dataContract).length) return dataContract;
+    function keep(fields) {
+      return (fields || []).filter((f) => f && f.key && !MAIL_ONLY_KEYS[f.key]);
+    }
+    return {
+      providers: dataContract.providers,
+      kinds: dataContract.kinds,
+      label: dataContract.label,
+      fields: keep(dataContract.fields),
+      groups: (dataContract.groups || [])
+        .map((g) => ({ id: g.id, label: g.label, fields: keep(g.fields) }))
+        .filter((g) => g.fields.length)
+    };
+  }
+
+  function placeholdersFromContract(dataContract) {
+    const providers = contractProviders(dataContract);
+    const isFb = providers.includes('facebook');
+    const out = {
+      itemsCount: '3',
+      items_html: AGENT_REVIEW_PLACEHOLDER_DATA.items_html,
+      data_html: AGENT_REVIEW_PLACEHOLDER_DATA.data_html
+    };
+    const fbSamples = {
+      channel: 'facebook',
+      text: 'Exemple de commentaire Facebook.',
+      from: 'Marie Dupont',
+      messageId: 'comment-42',
+      sourceRef: 'comment-42',
+      timestamp: '2026-08-17T10:00:00Z',
+      'author.id': '123456',
+      'author.name': 'Marie Dupont',
+      instanceId: 'facebook-1',
+      pageId: 'page-1',
+      resourceType: 'comment',
+      permalink_url: 'https://www.facebook.com/example',
+      created_time: '2026-08-17T10:00:00Z',
+      'metadata.postId': 'post-99'
+    };
+    (dataContract && Array.isArray(dataContract.fields) ? dataContract.fields : []).forEach((f) => {
+      if (!f || !f.key || out[f.key] != null) return;
+      if (isFb && fbSamples[f.key] != null) out[f.key] = fbSamples[f.key];
+      else if (AGENT_REVIEW_PLACEHOLDER_DATA[f.key] != null) out[f.key] = AGENT_REVIEW_PLACEHOLDER_DATA[f.key];
+      else out[f.key] = f.label || f.key;
+    });
+    return out;
+  }
+
+  function hasUsableFields(dataContract) {
+    if (!dataContract) return false;
+    if (Array.isArray(dataContract.fields) && dataContract.fields.length) return true;
+    return (dataContract.groups || []).some((g) => g && Array.isArray(g.fields) && g.fields.length);
+  }
+
+  function findConnectorContract(contracts, provider) {
+    const map = (contracts && contracts.connectors) || {};
+    const key = String(provider || '').toLowerCase();
+    if (map[key]) return map[key];
+    return Object.keys(map).map((k) => map[k]).find((c) => {
+      return String(c.provider || '').toLowerCase() === key
+        || String(c.connectorId || '').toLowerCase() === key;
+    }) || null;
+  }
+
+  function envelopeMatchesProvider(field, provider, contract) {
+    const allowed = field && Array.isArray(field.connectors) ? field.connectors : [];
+    if (!allowed.length) return true;
+    const aliases = [String(provider || '').toLowerCase()];
+    if (contract) {
+      aliases.push(String(contract.provider || '').toLowerCase());
+      aliases.push(String(contract.connectorId || '').toLowerCase());
+    }
+    return allowed.some((item) => aliases.includes(String(item).toLowerCase()));
+  }
+
+  function buildContractFromSpecs(contracts, providers, kinds) {
+    const providerList = (providers || []).map((p) => String(p).toLowerCase()).filter(Boolean);
+    const kindSet = {};
+    (kinds || []).forEach((id) => { kindSet[String(id)] = true; });
+    const fields = [];
+    const seen = {};
+    const groups = [];
+    const labels = [];
+    function pushField(list, f) {
+      if (!f || !f.key || seen[f.key]) return;
+      seen[f.key] = true;
+      const item = { key: f.key, label: f.label || f.key };
+      fields.push(item);
+      list.push(item);
+    }
+    providerList.forEach((provider) => {
+      const connector = findConnectorContract(contracts, provider);
+      const label = (connector && connector.label) || provider;
+      labels.push(label);
+      const groupFields = [];
+      ((contracts && contracts.envelope && contracts.envelope.fields) || []).forEach((f) => {
+        if (envelopeMatchesProvider(f, provider, connector)) pushField(groupFields, f);
+      });
+      ((connector && connector.kinds) || []).forEach((kind) => {
+        if (Object.keys(kindSet).length && !kindSet[kind.id]) return;
+        (kind.fields || []).forEach((f) => pushField(groupFields, f));
+      });
+      if (groupFields.length) {
+        groups.push({ id: provider, label: label, fields: groupFields });
+      }
+    });
+    return {
+      providers: providerList,
+      kinds: kinds || [],
+      fields: fields,
+      groups: groups,
+      label: labels.join(' + ') || providerList.join(' + ') || 'Données'
+    };
+  }
+
+  function groupsFromContract(dataContract) {
+    if (!hasUsableFields(dataContract)) return null;
+    const groups = [];
+    if (Array.isArray(dataContract.groups) && dataContract.groups.some((g) => g && g.fields && g.fields.length)) {
+      dataContract.groups.forEach((g) => {
+        if (!g || !Array.isArray(g.fields) || !g.fields.length) return;
+        groups.push({
+          id: g.id || g.label || 'data',
+          label: g.label || dataContract.label || 'Données',
+          fields: g.fields.map((f) => ({ key: f.key, label: f.label || f.key }))
+        });
+      });
+    } else {
+      groups.push({
+        id: 'data-contract',
+        label: dataContract.label || (dataContract.providers || []).join(', ') || 'Contrat données',
+        fields: dataContract.fields.map((f) => ({ key: f.key, label: f.label || f.key }))
+      });
+    }
+    if (isMailContract(dataContract)) groups.push(MAIL_RENDER_GROUP);
+    groups.push(REVIEW_FIELD_GROUP);
+    return groups;
   }
 
   function resolveCatalog(meta) {
     const id = detectCatalogId(meta || {});
-    if (id === 'agent-review') {
+    const ctx = (meta && meta.agentPageContext) || null;
+    const hint = (meta && meta.contractHint) || {};
+    let contract = sanitizeContract(
+      ctx && ctx.dataContract ? ctx.dataContract : (meta && meta.dataContract) || null
+    );
+    const providers = (hint.providers && hint.providers.length)
+      ? hint.providers
+      : contractProviders(contract);
+    const kinds = (hint.kinds && hint.kinds.length)
+      ? hint.kinds
+      : ((contract && contract.kinds) || []);
+    if (!hasUsableFields(contract) && meta && meta.contracts && providers.length) {
+      contract = buildContractFromSpecs(meta.contracts, providers, kinds);
+    }
+    if (id === 'v3') {
       return {
-        id: 'agent-review',
-        label: 'Revue mail / agent',
-        FIELD_GROUPS: AGENT_REVIEW_FIELD_GROUPS,
-        PLACEHOLDER_DATA: AGENT_REVIEW_PLACEHOLDER_DATA,
+        id: 'v3',
+        label: 'Documents',
+        FIELD_GROUPS: [],
+        PLACEHOLDER_DATA: {},
         SAMPLE_TABLE_LINES: [],
         LOGO_PLACEHOLDER,
         TABLE_LINE_FIELDS: []
+      };
+    }
+    if (id === 'agent-review') {
+      const groups = groupsFromContract(contract);
+      if (groups) {
+        return {
+          id: 'agent-review',
+          label: (contract && contract.label) || (isMailContract(contract) ? 'Mail' : 'Données'),
+          FIELD_GROUPS: groups,
+          PLACEHOLDER_DATA: placeholdersFromContract(contract),
+          SAMPLE_TABLE_LINES: [],
+          LOGO_PLACEHOLDER,
+          TABLE_LINE_FIELDS: [],
+          agentPageContext: ctx
+        };
+      }
+      if (isMailContract(contract) || providers.includes('mail') || providers.includes('mail-in')) {
+        return {
+          id: 'agent-review',
+          label: 'Mail',
+          FIELD_GROUPS: AGENT_REVIEW_FIELD_GROUPS,
+          PLACEHOLDER_DATA: AGENT_REVIEW_PLACEHOLDER_DATA,
+          SAMPLE_TABLE_LINES: [],
+          LOGO_PLACEHOLDER,
+          TABLE_LINE_FIELDS: [],
+          agentPageContext: ctx
+        };
+      }
+      return {
+        id: 'agent-review',
+        label: providers.join(', ') || 'Agent',
+        FIELD_GROUPS: [REVIEW_FIELD_GROUP],
+        PLACEHOLDER_DATA: placeholdersFromContract(contract || { fields: [] }),
+        SAMPLE_TABLE_LINES: [],
+        LOGO_PLACEHOLDER,
+        TABLE_LINE_FIELDS: [],
+        agentPageContext: ctx
       };
     }
     return {
@@ -287,6 +534,7 @@
       }
     },
     detectCatalogId,
-    resolveCatalog
+    resolveCatalog,
+    buildContractFromSpecs
   };
 }(window));

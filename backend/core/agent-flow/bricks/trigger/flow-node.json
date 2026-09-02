@@ -1,0 +1,68 @@
+{
+  "id": "trigger",
+  "name": "Déclencher",
+  "version": "2.1.0",
+  "family": "trigger",
+  "category": "trigger",
+  "kind": "trigger",
+  "visibility": "orchestrator-only",
+  "description": "Quand démarrer l'agent : bouton, cron, ou un webhook déjà posé sur un connecteur. Plusieurs flèches possibles (ex. mails et liste d’intentions en parallèle).",
+  "canvas": {
+    "iconEmoji": "▶",
+    "color": "#16a34a",
+    "borderRadius": 12,
+    "width": 220,
+    "inputs": [],
+    "outputs": [
+      { "id": "main", "label": "Déclenche", "type": "main", "maxConnections": 0 }
+    ]
+  },
+  "trigger": {
+    "type": "family",
+    "configSchema": {
+      "type": "object",
+      "properties": {
+        "mode": {
+          "type": "string",
+          "title": "Mode",
+          "enum": ["button", "cron", "webhook"],
+          "enumLabels": {
+            "button": "Bouton (manuel)",
+            "cron": "Planifié (cron)",
+            "webhook": "Webhook connecteur"
+          },
+          "default": "button"
+        },
+        "webhookInstanceId": {
+          "type": "string",
+          "title": "Webhook",
+          "description": "Instance connecteur déjà configurée (Facebook, HTTP…).",
+          "default": ""
+        },
+        "preset": {
+          "type": "string",
+          "title": "Preset cron",
+          "enum": ["daily", "weekly", "monthly", "custom"],
+          "enumLabels": {
+            "daily": "Tous les jours",
+            "weekly": "Toutes les semaines",
+            "monthly": "Tous les mois",
+            "custom": "Expression cron"
+          },
+          "default": "daily"
+        },
+        "hour": { "type": "number", "title": "Heure", "default": 8, "minimum": 0, "maximum": 23 },
+        "minute": { "type": "number", "title": "Minute", "default": 0, "minimum": 0, "maximum": 59 },
+        "dayOfWeek": { "type": "number", "title": "Jour semaine (0=dim)", "default": 1, "minimum": 0, "maximum": 6 },
+        "dayOfMonth": { "type": "number", "title": "Jour du mois", "default": 1, "minimum": 1, "maximum": 31 },
+        "cron": { "type": "string", "title": "Expression cron", "default": "0 8 * * *" }
+      }
+    },
+    "outputContext": {
+      "type": "trigger-event",
+      "fields": ["triggeredAt", "entrepriseId", "flowId", "mode", "webhookInstanceId"]
+    }
+  },
+  "permissions": [],
+  "serviceRef": "backend/core/agent-flow/families"
+}

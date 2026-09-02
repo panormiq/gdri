@@ -66,7 +66,7 @@ async function resolveGderpiSendRecipient(db, entrepriseId, options = {}, req = 
       commande.clientId ? getClientById(db, entrepriseId, commande.clientId) : null,
       commande.devisId ? getDevisById(db, entrepriseId, commande.devisId) : null
     ]);
-    return resolveClientRecipient(devis, client);
+    return resolveClientRecipient({ ...(devis || {}), ...(commande || {}) }, client);
   }
 
   if (type === 'commande_fournisseur') {

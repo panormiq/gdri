@@ -19,6 +19,8 @@ const { normalizeCommandeStatut } = require('../workflow/commandeClientStatuts')
 const normalizeFacture = require('../facturation/normalizeFacture');
 const resolveCommandeFactures = require('../facturation/resolveCommandeFactures');
 const enrichFactureSettlement = require('../facturation/enrichFactureSettlement');
+const normalizeDevisContact = require('../devis/normalizeDevisContact');
+const normalizeDevisEmetteurContact = require('../devis/normalizeDevisEmetteurContact');
 
 function normalizeCommandeClient(raw) {
   const c = raw && typeof raw === 'object' ? raw : {};
@@ -28,6 +30,8 @@ function normalizeCommandeClient(raw) {
   const cmdId = String(c.id || c.commandeClientId || '').trim() || crypto.randomUUID();
   const factures = resolveCommandeFactures(c);
   const lastFacture = factures[factures.length - 1] || null;
+  const contact = normalizeDevisContact(c);
+  const emetteur = normalizeDevisEmetteurContact(c);
 
   return {
     id: cmdId,
@@ -37,6 +41,18 @@ function normalizeCommandeClient(raw) {
     devisNumero: String(c.devisNumero || '').trim(),
     documentClient: String(c.documentClient || '').trim(),
     referenceClient: String(c.referenceClient || '').trim(),
+    sansBonCommandeClient: String(c.referenceClient || '').trim() ? false : c.sansBonCommandeClient === true,
+    contactClientId: contact.contactClientId,
+    contactNom: contact.contactNom,
+    contactService: contact.contactService,
+    contactFonction: contact.contactFonction,
+    contactEmail: contact.contactEmail,
+    contactTelephone: contact.contactTelephone,
+    emetteurContactId: emetteur.emetteurContactId,
+    emetteurContactNom: emetteur.emetteurContactNom,
+    emetteurContactFonction: emetteur.emetteurContactFonction,
+    emetteurContactEmail: emetteur.emetteurContactEmail,
+    emetteurContactTelephone: emetteur.emetteurContactTelephone,
     numero: String(c.numero || '').trim(),
     statut: normalizeCommandeStatut(c.statut),
     conformeAuDevis: c.conformeAuDevis === true,

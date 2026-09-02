@@ -22,6 +22,40 @@
       "pages_read_engagement"
     ]
   },
+  "settingsFields": [
+    {
+      "key": "pageId",
+      "label": "ID Page Facebook (optionnel)",
+      "type": "text"
+    },
+    {
+      "key": "action",
+      "label": "Action par défaut",
+      "type": "enum",
+      "enum": ["publish", "reply"],
+      "enumLabels": { "publish": "Publier", "reply": "Répondre" },
+      "default": "publish"
+    },
+    {
+      "key": "replyMode",
+      "label": "Canal de réponse",
+      "type": "enum",
+      "enum": ["auto", "comment", "post", "message"],
+      "enumLabels": {
+        "auto": "Auto",
+        "comment": "Commentaire",
+        "post": "Publication",
+        "message": "Message privé"
+      },
+      "default": "auto"
+    },
+    {
+      "key": "graphVersion",
+      "label": "Version Graph API",
+      "type": "text",
+      "default": "v21.0"
+    }
+  ],
   "configSchema": {
     "type": "object",
     "properties": {

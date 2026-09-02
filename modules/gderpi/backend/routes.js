@@ -230,6 +230,8 @@ router.get('/settings/mail-accounts', authenticateJWT, useGderpiEntrepriseDb, re
 router.put('/settings/mail-accounts', authenticateJWT, useGderpiEntrepriseDb, requireGderpiRole(writeRoles), mailSettingsController.saveAccounts);
 router.get('/mail/send-recipient', authenticateJWT, useGderpiEntrepriseDb, requireGderpiRole(readRoles), mailSettingsController.getSendRecipient);
 router.get('/mail/contacts', authenticateJWT, useGderpiEntrepriseDb, requireGderpiRole(readRoles), mailSettingsController.searchContacts);
+router.get('/emails', authenticateJWT, useGderpiEntrepriseDb, requireGderpiRole(readRoles), mailSettingsController.listSent);
+router.get('/emails/:id', authenticateJWT, useGderpiEntrepriseDb, requireGderpiRole(readRoles), mailSettingsController.getSent);
 
 // Devis
 router.get('/devis', authenticateJWT, useGderpiEntrepriseDb, requireGderpiRole(readRoles), devisController.list);
@@ -242,11 +244,13 @@ router.patch('/devis/:id/pm-link', authenticateJWT, useGderpiEntrepriseDb, requi
 router.post('/devis/:id/pm-ensure-card', authenticateJWT, useGderpiEntrepriseDb, requireGderpiRole(writeRoles), devisController.ensurePmCard);
 router.patch('/devis/:id/status', authenticateJWT, useGderpiEntrepriseDb, requireGderpiRole(writeRoles), devisController.changeStatus);
 router.post('/devis/:id/send', authenticateJWT, useGderpiEntrepriseDb, requireGderpiRole(writeRoles), devisController.sendToClient);
+router.post('/devis/:id/duplicate', authenticateJWT, useGderpiEntrepriseDb, requireGderpiRole(writeRoles), devisController.duplicate);
 router.delete('/devis/:id', authenticateJWT, useGderpiEntrepriseDb, requireGderpiRole(writeRoles), devisController.remove);
 
 // Workflow commandes & facturation
 router.post('/devis/:id/to-commande-client', authenticateJWT, useGderpiEntrepriseDb, requireGderpiRole(writeRoles), workflowController.devisToCommandeClient);
 router.get('/commandes-client', authenticateJWT, useGderpiEntrepriseDb, requireGderpiRole(readRoles), workflowController.listCommandesClient);
+router.post('/commandes-client', authenticateJWT, useGderpiEntrepriseDb, requireGderpiRole(writeRoles), workflowController.createCommandeClient);
 router.get('/commandes-client/:id/html', authenticateJWT, useGderpiEntrepriseDb, requireGderpiRole(readRoles), workflowController.renderCommandeClientHtml);
 router.get('/commandes-client/:id/pdf', authenticateJWT, useGderpiEntrepriseDb, requireGderpiRole(readRoles), workflowController.downloadCommandeClientPdf);
 router.get('/commandes-client/:id', authenticateJWT, useGderpiEntrepriseDb, requireGderpiRole(readRoles), workflowController.getCommandeClient);
@@ -286,6 +290,7 @@ router.get('/commandes-fournisseur/:id/pdf', authenticateJWT, useGderpiEntrepris
 router.get('/commandes-fournisseur/:id', authenticateJWT, useGderpiEntrepriseDb, requireGderpiRole(readRoles), workflowController.getCommandeFournisseur);
 router.put('/commandes-fournisseur/:id', authenticateJWT, useGderpiEntrepriseDb, requireGderpiRole(writeRoles), workflowController.updateCommandeFournisseur);
 router.patch('/commandes-fournisseur/:id/status', authenticateJWT, useGderpiEntrepriseDb, requireGderpiRole(writeRoles), workflowController.updateCommandeFournisseurStatus);
+router.patch('/commandes-fournisseur/:id/reglee', authenticateJWT, useGderpiEntrepriseDb, requireGderpiRole(writeRoles), workflowController.setCommandeFournisseurReglee);
 router.post('/commandes-fournisseur/:id/send', authenticateJWT, useGderpiEntrepriseDb, requireGderpiRole(writeRoles), workflowController.sendCommandeFournisseur);
 router.post('/commandes-fournisseur/:id/reception', authenticateJWT, useGderpiEntrepriseDb, requireGderpiRole(writeRoles), workflowController.enregistrerReceptionFournisseur);
 

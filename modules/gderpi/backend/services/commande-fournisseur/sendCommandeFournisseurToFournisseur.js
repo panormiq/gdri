@@ -9,6 +9,7 @@ const parseCustomMessageFromPayload = require('../mail/parseCustomMessageFromPay
 const { parseEmailRecipientsFromPayload } = require('../mail/parseEmailRecipientsFromPayload');
 const resolveGderpiMailTemplate = require('../mail/resolveGderpiMailTemplate');
 const { getMailService, resolveSmtpProfileForSender } = require('../mail/MailHelper');
+const { buildGderpiMailContext } = require('../mail/gderpiMailDocumentTypes');
 const renderCommandeFournisseurEmailHtml = require('./renderCommandeFournisseurEmailHtml');
 const createGderpiPublicLink = require('../public/createGderpiPublicLink');
 const {
@@ -92,10 +93,13 @@ async function sendCommandeFournisseurToFournisseur(db, entrepriseId, commandeFo
     profile,
     module_name: 'gderpi',
     entity_id: String(entrepriseId),
-    context: {
-      commandeFournisseurId: String(commandeFournisseurId),
-      action: 'send_commande_fournisseur'
-    }
+    context: buildGderpiMailContext({
+      action: 'send_commande_fournisseur',
+      documentType: 'commande_fournisseur',
+      documentId: commandeFournisseurId,
+      documentNumero: commande.numero,
+      extra: { commandeFournisseurId: String(commandeFournisseurId) }
+    })
   });
 
   if (!sendResult?.success) {

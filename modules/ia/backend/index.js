@@ -65,6 +65,7 @@ module.exports = {
   getIAClient,
   getIAClientForEntity,
   getLLMConfigForEntity,
+  listAvailableLlms: (...args) => require('./services/AvailableModels').listAvailableLlms(...args),
   PromptService: require('../../prompt/backend/services/PromptService'),
   routes: getRoutes,
   config: {}

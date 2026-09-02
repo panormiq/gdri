@@ -8,6 +8,7 @@ const isCommandeFulfillmentComplete = require('./isCommandeFulfillmentComplete')
 
 const ADVANCEABLE_STATUTS = new Set([
   'validee_gdri',
+  'prestation_en_cours',
   'achats_en_cours',
   'attente_livraison_frs',
   'a_livrer'

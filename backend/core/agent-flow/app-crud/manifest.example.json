@@ -1,0 +1,17 @@
+{
+  "appId": "mon-app",
+  "label": "Mon app",
+  "enabled": true,
+  "collections": [
+    {
+      "id": "exemple",
+      "label": "Exemple",
+      "ops": ["read", "create"],
+      "writeVia": "service",
+      "wired": false,
+      "key": "id",
+      "serviceRef": "",
+      "fields": []
+    }
+  ]
+}

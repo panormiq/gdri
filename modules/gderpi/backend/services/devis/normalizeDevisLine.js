@@ -45,12 +45,19 @@ function normalizeDevisLine(raw, index) {
   const rem = Number.isFinite(remise) && remise >= 0 ? Math.min(remise, 100) : 0;
   const tva = Number.isFinite(tauxTva) ? tauxTva : 20;
   const montantHt = Math.round(q * prix * (1 - rem / 100) * 100) / 100;
+  const articleType = String(l.articleType || l.type || '').trim();
+  let gererCommande = true;
+  if (articleType === 'developpement' || articleType === 'service') {
+    if (l.gererCommande === false) gererCommande = false;
+    else if (l.gererCommande === true) gererCommande = true;
+    else gererCommande = true;
+  }
 
   return {
     id: String(l.id || l.lineId || l.devisLineId || (l._id != null ? String(l._id) : '') || '').trim()
       || stableDevisLineId(l, index),
     articleId: l.articleId != null ? String(l.articleId || l.catalogId || '').trim() || null : null,
-    articleType: String(l.articleType || l.type || '').trim(),
+    articleType,
     reference: String(l.reference || '').trim(),
     referenceClient: String(l.referenceClient || l.refClient || '').trim(),
     referenceFournisseur: String(l.referenceFournisseur || l.refFournisseur || '').trim(),
@@ -79,7 +86,8 @@ function normalizeDevisLine(raw, index) {
     quantiteFacturee: Number.isFinite(Number(l.quantiteFacturee)) && Number(l.quantiteFacturee) > 0
       ? Math.round(Number(l.quantiteFacturee) * 10000) / 10000
       : 0,
-    recetteValideeAt: l.recetteValideeAt || null
+    recetteValideeAt: l.recetteValideeAt || null,
+    gererCommande
   };
 }
 

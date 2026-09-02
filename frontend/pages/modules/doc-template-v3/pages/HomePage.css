@@ -64,8 +64,13 @@
 }
 
 .home-page-container .card_general:nth-child(3) .card-icon svg {
-  color: var(--color-secondary); /* Vert citron GDRI pour Collections */
+  color: var(--color-secondary);
   stroke: var(--color-secondary);
+}
+
+.home-page-container .card_general:nth-child(4) .card-icon svg {
+  color: var(--color-primary);
+  stroke: var(--color-primary);
 }
 
 .home-page-container .card-body {

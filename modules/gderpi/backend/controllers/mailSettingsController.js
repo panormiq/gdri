@@ -10,6 +10,8 @@ const saveGderpiMailAccountMappings = require('../services/mail/saveGderpiMailAc
 const resolveGderpiSendRecipient = require('../services/mail/resolveGderpiSendRecipient');
 const searchMailContacts = require('../services/mail/searchMailContacts');
 const previewGderpiMailTemplate = require('../services/mail/previewGderpiMailTemplate');
+const listGderpiSentEmails = require('../services/mail/listGderpiSentEmails');
+const getGderpiSentEmailById = require('../services/mail/getGderpiSentEmailById');
 
 async function get(req, res) {
   try {
@@ -97,4 +99,44 @@ async function preview(req, res) {
   }
 }
 
-module.exports = { get, save, getAccounts, saveAccounts, getSendRecipient, searchContacts, preview };
+async function listSent(req, res) {
+  try {
+    const data = await listGderpiSentEmails(req.entrepriseId, {
+      type: req.query.type,
+      status: req.query.status,
+      q: req.query.q || req.query.search,
+      limit: req.query.limit,
+      skip: req.query.skip
+    });
+    res.json({ success: true, data });
+  } catch (error) {
+    console.error('GDERPI mail sent list:', error);
+    const message = error.message || 'Erreur serveur';
+    const status = /indisponible|connect/i.test(message) ? 503 : 500;
+    res.status(status).json({ success: false, message });
+  }
+}
+
+async function getSent(req, res) {
+  try {
+    const data = await getGderpiSentEmailById(req.entrepriseId, req.params.id);
+    res.json({ success: true, data });
+  } catch (error) {
+    console.error('GDERPI mail sent get:', error);
+    const message = error.message || 'Erreur serveur';
+    const status = /introuvable/i.test(message) ? 404 : 500;
+    res.status(status).json({ success: false, message });
+  }
+}
+
+module.exports = {
+  get,
+  save,
+  getAccounts,
+  saveAccounts,
+  getSendRecipient,
+  searchContacts,
+  preview,
+  listSent,
+  getSent
+};

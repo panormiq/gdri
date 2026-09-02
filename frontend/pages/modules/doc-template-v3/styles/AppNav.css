@@ -1,15 +1,15 @@
-/* AppNav.css - Navigation globale */
-:root {
+/* Navigation Documents — scoped to #app to avoid colliding with GDRI .app-shell */
+#app {
   --app-nav-height: 48px;
 }
 
-.app-shell {
+#app .doc-v3-shell {
   display: flex;
   flex-direction: column;
   min-height: 100%;
 }
 
-.app-nav {
+#app .app-nav {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -21,18 +21,18 @@
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.04);
   position: sticky;
   top: 0;
-  z-index: 900;
+  z-index: 20;
 }
 
-.app-nav-left,
-.app-nav-right {
+#app .app-nav-left,
+#app .app-nav-right {
   display: flex;
   align-items: center;
   gap: var(--spacing-sm);
   flex-wrap: wrap;
 }
 
-.app-nav-link {
+#app .app-nav-link {
   padding: var(--spacing-xs) var(--spacing-md);
   border-radius: var(--border-radius);
   text-decoration: none;
@@ -43,19 +43,19 @@
   white-space: nowrap;
 }
 
-.app-nav-link:hover {
+#app .app-nav-link:hover {
   border-color: var(--color-primary);
   color: var(--color-primary);
   background: var(--color-light);
 }
 
-.app-nav-link.active {
+#app .app-nav-link.active {
   background: var(--color-primary);
   color: var(--color-white);
   border-color: var(--color-primary);
 }
 
-.app-nav-back {
+#app .app-nav-back {
   padding: var(--spacing-xs) var(--spacing-md);
   border-radius: var(--border-radius);
   border: 1px solid var(--color-light);
@@ -67,12 +67,12 @@
   white-space: nowrap;
 }
 
-.app-nav-back:hover {
+#app .app-nav-back:hover {
   border-color: var(--color-primary);
   color: var(--color-primary);
 }
 
-.app-content {
+#app .app-content {
   flex: 1;
   min-height: 0;
 }

@@ -89,14 +89,9 @@
         method: 'POST',
         body: JSON.stringify(payload)
       });
-      global.GderpiStatus.showStatus('Facture envoyée à ' + (res.data?.sentTo || '') + '.', 'success');
+      global.GderpiSendEmailFeedback.notifySendSuccess(res, { label: 'Facture' });
     } catch (err) {
-      const msg = err.message || 'Erreur envoi';
-      if (/mail non configuré|serveur mail/i.test(msg)) {
-        global.GderpiStatus.showStatus(msg + ' — Configuration → Mail.', 'danger');
-      } else {
-        throw err;
-      }
+      global.GderpiSendEmailFeedback.notifySendError(err);
     }
   }
 
@@ -120,14 +115,9 @@
         method: 'POST',
         body: JSON.stringify(payload)
       });
-      global.GderpiStatus.showStatus('Avoir envoyé à ' + (res.data?.sentTo || '') + '.', 'success');
+      global.GderpiSendEmailFeedback.notifySendSuccess(res, { label: 'Avoir' });
     } catch (err) {
-      const msg = err.message || 'Erreur envoi';
-      if (/mail non configuré|serveur mail/i.test(msg)) {
-        global.GderpiStatus.showStatus(msg + ' — Configuration → Mail.', 'danger');
-      } else {
-        throw err;
-      }
+      global.GderpiSendEmailFeedback.notifySendError(err);
     }
   }
 
@@ -224,7 +214,7 @@
       '<td>' + payeBadge(c) + '</td>' +
       '<td class="text-end">' + fmt(factureTtc) + '</td>' +
       '<td class="text-end"><strong>' + fmt(resteDu) + '</strong></td>' +
-      '<td class="text-nowrap" onclick="event.stopPropagation()">' + renderFactureActions(c) + '</td></tr>';
+      '<td class="gderpi-cmd-actions-cell" onclick="event.stopPropagation()">' + renderFactureActions(c) + '</td></tr>';
   }
 
   function renderAvoirRow(entry) {
@@ -244,7 +234,7 @@
       '<td>' + avoirPayeBadge(avoir) + '</td>' +
       '<td class="text-end">' + fmt(montant) + '</td>' +
       '<td class="text-end text-muted">—</td>' +
-      '<td class="text-nowrap">' + renderAvoirActions(id, factureId, avoir) + '</td></tr>';
+      '<td class="gderpi-cmd-actions-cell">' + renderAvoirActions(id, factureId, avoir) + '</td></tr>';
   }
 
   function renderTableRows(displayRows) {
@@ -267,39 +257,62 @@
   function renderFactureActions(c) {
     const id = c.commandeClientId || c.id;
     const factureId = c.factureId || '';
-    let actions = '';
-    if (!canWrite()) return actions;
-    if (!c.soldeeParAvoir) {
+    const Menu = global.GderpiListActionsMenu;
+    if (!Menu) return '';
+    const items = [];
+    if (canWrite() && !c.soldeeParAvoir) {
       if (c.facturePayee) {
-        actions += '<button type="button" class="btn btn-outline btn-sm gderpi-fact-unpay" data-id="' + esc(id) + '" data-facture-id="' + esc(factureId) + '">Non payée</button> ';
+        items.push({ value: 'unpay', label: 'Marquer non payée' });
       } else if (!c.remboursementEnAttente) {
-        actions += '<button type="button" class="btn btn-outline btn-sm gderpi-fact-pay" data-id="' + esc(id) + '" data-facture-id="' + esc(factureId) + '">Marquer payée</button> ';
+        items.push({ value: 'pay', label: 'Marquer payée', tone: 'success' });
       }
     }
-    actions += '<button type="button" class="btn btn-outline btn-sm gderpi-fact-pdf" data-id="' + esc(id) + '" data-facture-id="' + esc(factureId) + '">PDF</button> ';
-    actions += '<button type="button" class="btn btn-outline btn-sm gderpi-fact-html" data-id="' + esc(id) + '" data-facture-id="' + esc(factureId) + '">Aperçu</button> ';
-    actions += '<button type="button" class="btn btn-outline btn-sm gderpi-fact-email" data-id="' + esc(id) + '" data-facture-id="' + esc(factureId) + '">E-mail</button> ';
-    if (canEmitAvoir(c)) {
-      actions += '<button type="button" class="btn btn-outline btn-sm gderpi-fact-avoir-partiel" data-id="' + esc(id) + '" data-facture-id="' + esc(factureId) + '" data-facture-numero="' + esc(c.factureNumero || '') + '">Avoir partiel</button> ';
-      actions += '<button type="button" class="btn btn-outline btn-sm gderpi-fact-avoir" data-id="' + esc(id) + '" data-facture-id="' + esc(factureId) + '" data-facture-numero="' + esc(c.factureNumero || '') + '">Avoir total</button> ';
+    items.push({ value: 'pdf', label: 'PDF', dividerBefore: items.length > 0 });
+    items.push({ value: 'html', label: 'Aperçu' });
+    if (canWrite()) items.push({ value: 'email', label: 'E-mail' });
+    if (canWrite() && canEmitAvoir(c)) {
+      items.push({ value: 'avoir_partiel', label: 'Avoir partiel', dividerBefore: true });
+      items.push({ value: 'avoir_total', label: 'Avoir total' });
     }
-    if (c.remboursementEnAttente && c.avoirRemboursementEnAttenteId) {
-      actions += '<button type="button" class="btn btn-outline btn-sm gderpi-fact-remb" data-id="' + esc(id) + '" data-facture-id="' + esc(factureId) + '" data-avoir-id="' + esc(c.avoirRemboursementEnAttenteId) + '">Remboursé</button>';
+    if (canWrite() && c.remboursementEnAttente && c.avoirRemboursementEnAttenteId) {
+      items.push({
+        value: 'rembourse',
+        label: 'Remboursé',
+        tone: 'success',
+        dividerBefore: true,
+        attrs: { 'data-avoir-id': c.avoirRemboursementEnAttenteId }
+      });
     }
-    return actions;
+    return Menu.render(items, {
+      attrs: {
+        'data-kind': 'facture',
+        'data-id': id,
+        'data-facture-id': factureId,
+        'data-facture-numero': c.factureNumero || ''
+      }
+    });
   }
 
   function renderAvoirActions(cmdId, factureId, avoir) {
-    if (!canWrite()) return '';
+    const Menu = global.GderpiListActionsMenu;
+    if (!Menu) return '';
     const avoirId = avoir.id || '';
-    let actions = '';
-    actions += '<button type="button" class="btn btn-outline btn-sm gderpi-avoir-pdf" data-id="' + esc(cmdId) + '" data-facture-id="' + esc(factureId) + '" data-avoir-id="' + esc(avoirId) + '">PDF</button> ';
-    actions += '<button type="button" class="btn btn-outline btn-sm gderpi-avoir-html" data-id="' + esc(cmdId) + '" data-facture-id="' + esc(factureId) + '" data-avoir-id="' + esc(avoirId) + '">Aperçu</button> ';
-    actions += '<button type="button" class="btn btn-outline btn-sm gderpi-avoir-email" data-id="' + esc(cmdId) + '" data-facture-id="' + esc(factureId) + '" data-avoir-id="' + esc(avoirId) + '">E-mail</button> ';
-    if (avoir.mode === 'remboursement' && avoir.remboursementStatut === 'en_attente') {
-      actions += '<button type="button" class="btn btn-outline btn-sm gderpi-fact-remb" data-id="' + esc(cmdId) + '" data-facture-id="' + esc(factureId) + '" data-avoir-id="' + esc(avoirId) + '">Remboursé</button>';
+    const items = [
+      { value: 'pdf', label: 'PDF' },
+      { value: 'html', label: 'Aperçu' }
+    ];
+    if (canWrite()) items.push({ value: 'email', label: 'E-mail' });
+    if (canWrite() && avoir.mode === 'remboursement' && avoir.remboursementStatut === 'en_attente') {
+      items.push({ value: 'rembourse', label: 'Remboursé', tone: 'success', dividerBefore: true });
     }
-    return actions;
+    return Menu.render(items, {
+      attrs: {
+        'data-kind': 'avoir',
+        'data-id': cmdId,
+        'data-facture-id': factureId,
+        'data-avoir-id': avoirId
+      }
+    });
   }
 
   async function refreshFacturationList() {
@@ -367,53 +380,39 @@
         global.GderpiDevisTab?.openDevis?.(btn.getAttribute('data-devis-id'));
       });
     });
-    root.querySelectorAll('.gderpi-fact-pay').forEach((btn) => {
-      btn.addEventListener('click', () => togglePayee(btn.dataset.id, true, btn.dataset.factureId || null).catch(handleErr));
-    });
-    root.querySelectorAll('.gderpi-fact-unpay').forEach((btn) => {
-      btn.addEventListener('click', () => togglePayee(btn.dataset.id, false, btn.dataset.factureId || null).catch(handleErr));
-    });
-    root.querySelectorAll('.gderpi-fact-pdf').forEach((btn) => {
-      btn.addEventListener('click', () => downloadFacturePdf(btn.dataset.id, btn.dataset.factureId || null).catch(handleErr));
-    });
-    root.querySelectorAll('.gderpi-fact-html').forEach((btn) => {
-      btn.addEventListener('click', () => previewFactureHtml(btn.dataset.id, btn.dataset.factureId || null).catch(handleErr));
-    });
-    root.querySelectorAll('.gderpi-fact-email').forEach((btn) => {
-      btn.addEventListener('click', () => sendFactureToClient(btn.dataset.id, null, btn.dataset.factureId || null).catch(handleErr));
-    });
-    root.querySelectorAll('.gderpi-fact-avoir-partiel').forEach((btn) => {
-      btn.addEventListener('click', () => {
-        global.GderpiAvoirModal?.openAvoirPartielModal?.(
-          btn.dataset.id,
-          btn.dataset.factureId || null,
-          btn.dataset.factureNumero || ''
-        );
-      });
-    });
-    root.querySelectorAll('.gderpi-fact-avoir').forEach((btn) => {
-      btn.addEventListener('click', () => {
-        global.GderpiAvoirModal?.createAvoirTotal?.(
-          btn.dataset.id,
-          btn.dataset.factureId || null,
-          btn.dataset.factureNumero || ''
-        ).catch(handleErr);
-      });
-    });
-    root.querySelectorAll('.gderpi-fact-remb').forEach((btn) => {
-      btn.addEventListener('click', () => {
+    global.GderpiListActionsMenu?.bind?.(root, async (action, itemEl, menuEl) => {
+      const kind = menuEl.getAttribute('data-kind') || 'facture';
+      const id = menuEl.getAttribute('data-id') || '';
+      const factureId = menuEl.getAttribute('data-facture-id') || null;
+      const factureNumero = menuEl.getAttribute('data-facture-numero') || '';
+      const avoirId = itemEl.getAttribute('data-avoir-id') || menuEl.getAttribute('data-avoir-id') || '';
+
+      if (kind === 'avoir') {
+        if (action === 'pdf') return H().downloadAvoirPdf(id, factureId, avoirId);
+        if (action === 'html') return H().previewAvoirHtml(id, factureId, avoirId);
+        if (action === 'email') return sendAvoirToClient(id, factureId, avoirId);
+        if (action === 'rembourse') {
+          if (!confirm('Confirmer le remboursement client ?')) return;
+          return markAvoirRembourse(id, factureId, avoirId);
+        }
+        return;
+      }
+
+      if (action === 'pay') return togglePayee(id, true, factureId);
+      if (action === 'unpay') return togglePayee(id, false, factureId);
+      if (action === 'pdf') return downloadFacturePdf(id, factureId);
+      if (action === 'html') return previewFactureHtml(id, factureId);
+      if (action === 'email') return sendFactureToClient(id, null, factureId);
+      if (action === 'avoir_partiel') {
+        return global.GderpiAvoirModal?.openAvoirPartielModal?.(id, factureId, factureNumero);
+      }
+      if (action === 'avoir_total') {
+        return global.GderpiAvoirModal?.createAvoirTotal?.(id, factureId, factureNumero);
+      }
+      if (action === 'rembourse') {
         if (!confirm('Confirmer le remboursement client ?')) return;
-        markAvoirRembourse(btn.dataset.id, btn.dataset.factureId, btn.dataset.avoirId).catch(handleErr);
-      });
-    });
-    root.querySelectorAll('.gderpi-avoir-pdf').forEach((btn) => {
-      btn.addEventListener('click', () => H().downloadAvoirPdf(btn.dataset.id, btn.dataset.factureId, btn.dataset.avoirId).catch(handleErr));
-    });
-    root.querySelectorAll('.gderpi-avoir-html').forEach((btn) => {
-      btn.addEventListener('click', () => H().previewAvoirHtml(btn.dataset.id, btn.dataset.factureId, btn.dataset.avoirId).catch(handleErr));
-    });
-    root.querySelectorAll('.gderpi-avoir-email').forEach((btn) => {
-      btn.addEventListener('click', () => sendAvoirToClient(btn.dataset.id, btn.dataset.factureId, btn.dataset.avoirId).catch(handleErr));
+        return markAvoirRembourse(id, factureId, avoirId);
+      }
     });
   }
 

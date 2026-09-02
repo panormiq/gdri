@@ -107,6 +107,8 @@ function styleToCss(style) {
 
   if (s.border) parts.push(`border:${s.border}`);
 
+  if (s.borderRadius) parts.push(`border-radius:${s.borderRadius}`);
+
   if (s.padding) parts.push(`padding:${s.padding}`);
 
   return parts.join(';');
@@ -177,8 +179,9 @@ function replaceVariables(html, variables) {
 
       const value = variables[k];
 
-      // HTML déjà préparé côté serveur (tables, listes de PJ…)
-      if (k === 'ugap:lignes.table' || k === 'attachments_html') return String(value ?? '');
+      // HTML déjà préparé (stats, sections, PJ…)
+      if (/_html$/.test(k) || k === 'confiance_pct') return String(value ?? '');
+      if (k === 'ugap:lignes.table') return String(value ?? '');
 
       return escapeHtml(value);
 
@@ -779,6 +782,12 @@ class HtmlRenderService {
   .adv2-table--lignes th, .adv2-table--lignes td { overflow:hidden; }
 
   p { margin:0 0 2mm; }
+
+  .adv2-text-frame { color:#0f172a; line-height:1.45; }
+
+  .adv2-text-frame h1, .adv2-text-frame h2 { margin:0 0 1.5mm; }
+
+  .adv2-text-frame a { color:#2563eb; }
 
   @media print {
 

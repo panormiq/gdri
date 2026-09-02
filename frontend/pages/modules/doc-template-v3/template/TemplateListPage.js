@@ -1,7 +1,8 @@
-// src/modules/editor/template/TemplateListPage.js
 import Page from '../shared/components/page/Page.js';
 import ListPage from '../shared/components/listPage/ListPage.js';
 import { templateApi } from '../shared/api/TemplateApi.js';
+import { canvasEditorUrl, canvasNamespaceForTemplate, templateIdOf } from '../app/canvasEditor.js';
+import { kindLabel, normalizeTemplateKind, editorPath } from './templateKinds.js?v=tpl-kind-3';
 
 export default class TemplateListPage extends Page {
   constructor(router) {
@@ -11,43 +12,64 @@ export default class TemplateListPage extends Page {
 
   async render(container) {
     container.innerHTML = '';
-
-    // Charger les templates
     const res = await templateApi.getAll();
     this.items = res.success ? res.data : [];
+    this.renderList(container, this.items);
+  }
 
+  openEditor(template) {
+    const id = templateIdOf(template);
+    const kind = normalizeTemplateKind(template);
+    if (kind === 'canvas') {
+      window.location.href = canvasEditorUrl({
+        template: canvasNamespaceForTemplate(template),
+      });
+      return;
+    }
+    this.navigate(editorPath(kind, id));
+  }
+
+  cardOf(template) {
+    const kind = normalizeTemplateKind(template);
+    const collection = template.defaultCollection
+      ? ` · Collection: ${template.defaultCollection.alias || 'Non définie'}`
+      : '';
+    return {
+      title: template.name || 'Sans nom',
+      subtitle: `${kindLabel(kind)}${collection}`,
+      onClick: () => this.openEditor(template),
+      actions: [
+        {
+          label: 'Éditer',
+          onClick: (e) => {
+            e.stopPropagation();
+            this.openEditor(template);
+          },
+        },
+        {
+          label: 'Supprimer',
+          onClick: async (e) => {
+            e.stopPropagation();
+            await this.deleteTemplate(template);
+          },
+        },
+      ],
+    };
+  }
+
+  renderList(container, items) {
     const listPage = new ListPage({
       title: 'Templates',
-      items: this.items,
-      emptyText: 'Aucun template disponible',
+      items,
+      emptyText: 'Aucun template. Créez-en un : Word, Canvas A4, HTML ou Prompt IA.',
       formAction: {
         placeholder: 'Rechercher...',
         buttonText: 'Créer un template',
         onButtonClick: () => this.createTemplate(),
         onInput: q => this.filter(q),
       },
-      mapItemToCard: template => ({
-        title: template.name || 'Sans nom',
-        subtitle: template.defaultCollection 
-          ? `Collection: ${template.defaultCollection.alias || 'Non définie'}` 
-          : 'Aucune collection associée',
-        onClick: () => this.editTemplate(template._id),
-        actions: [
-          {
-            label: 'Éditer',
-            onClick: (e) => {
-              e.stopPropagation();
-              this.editTemplate(template._id);
-            },
-          },
-          {
-            label: 'Supprimer',
-            onClick: async () => this.deleteTemplate(template),
-          },
-        ],
-      }),
+      mapItemToCard: template => this.cardOf(template),
     });
-
     listPage.render(container);
   }
 
@@ -55,17 +77,11 @@ export default class TemplateListPage extends Page {
     this.navigate('/templates/create');
   }
 
-  editTemplate(templateId) {
-    this.navigate(`/templates/edit/${templateId}`);
-  }
-
   async deleteTemplate(template) {
     if (!confirm(`Supprimer le template "${template.name}" ?`)) return;
-    
     const res = await templateApi.delete(template._id);
     if (res.success) {
       this.items = this.items.filter(t => t._id !== template._id);
-      // Re-render la liste
       await this.render(this.router.outlet);
     } else {
       alert(res.error || 'Erreur lors de la suppression');
@@ -76,41 +92,8 @@ export default class TemplateListPage extends Page {
     const q = query.toLowerCase();
     const filtered = this.items.filter(template =>
       (template.name || '').toLowerCase().includes(q)
+      || kindLabel(normalizeTemplateKind(template)).toLowerCase().includes(q)
     );
-
-    const listPage = new ListPage({
-      title: 'Templates',
-      items: filtered,
-      emptyText: 'Aucun template disponible',
-      formAction: {
-        placeholder: 'Rechercher...',
-        buttonText: 'Créer un template',
-        onButtonClick: () => this.createTemplate(),
-        onInput: q => this.filter(q),
-      },
-      mapItemToCard: template => ({
-        title: template.name || 'Sans nom',
-        subtitle: template.defaultCollection 
-          ? `Collection: ${template.defaultCollection.alias || 'Non définie'}` 
-          : 'Aucune collection associée',
-        onClick: () => this.editTemplate(template._id),
-        actions: [
-          {
-            label: 'Éditer',
-            onClick: (e) => {
-              e.stopPropagation();
-              this.editTemplate(template._id);
-            },
-          },
-          {
-            label: 'Supprimer',
-            onClick: async () => this.deleteTemplate(template),
-          },
-        ],
-      }),
-    });
-
-    listPage.render(this.router.outlet);
+    this.renderList(this.router.outlet, filtered);
   }
 }
-

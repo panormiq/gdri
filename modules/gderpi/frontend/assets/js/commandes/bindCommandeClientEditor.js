@@ -1,6 +1,6 @@
 /**
  * FICHIER : modules/gderpi/frontend/assets/js/commandes/bindCommandeClientEditor.js
- * RÔLE : Éditeur commande client — création depuis devis ou modification.
+ * RÔLE : Éditeur commande client — création autonome, depuis devis, ou modification.
  */
 
 (function initGderpiBindCommandeClientEditor(global) {
@@ -13,6 +13,7 @@
 
   let articles = [];
   let clients = [];
+  let boutiques = [];
   let lines = [];
   let lineSearchBindings = [];
   let editorModal = null;
@@ -22,6 +23,14 @@
   let editingId = '';
   let currentCommande = null;
   let isDirty = false;
+  let partyFields = null;
+
+  function getPartyFields() {
+    if (!partyFields && global.GderpiDocPartyFields) {
+      partyFields = global.GderpiDocPartyFields.createDocPartyFields('gderpi-cmd-client');
+    }
+    return partyFields;
+  }
 
   function emptyLine() {
     return {
@@ -52,7 +61,8 @@
     if (!canWrite()) return false;
     if (mode === 'create') return true;
     const s = String(currentCommande?.statut || '');
-    return ['validee_client', 'a_valider_gdri', 'validee_gdri', 'confirmee', 'en_cours'].includes(s);
+    // Modifiable jusqu'à facturation (livrée / à facturer inclus)
+    return !['facturee', 'facturee_partiellement', 'annulee'].includes(s);
   }
 
   function renderEditorActions() {
@@ -85,7 +95,7 @@
   }
 
   function isDevLine(l) {
-    return String(l?.articleType || '').toLowerCase() === 'developpement';
+    return H().isDevLine(l);
   }
 
   function calcLineTotals(line) {
@@ -133,7 +143,7 @@
 
     wf.bindDropdownToggles(el);
 
-    const actionsSel = el.querySelector('.gderpi-cmd-actions-select');
+    const actionsSel = el.querySelector('.gderpi-actions-menu') || el.querySelector('.gderpi-cmd-actions-select');
     const modalWorkflowActions = new Set([
       'facture_partiel', 'bl_partiel', 'reception_partiel', 'avancement_partiel', 'recette_partiel'
     ]);
@@ -173,12 +183,6 @@
     global.GderpiCommandesClientTab?.openList?.({ highlightId: commandeId, actives: true });
   }
 
-  function clientLabel(id) {
-    const c = clients.find((x) => String(x.clientId || x.id) === String(id));
-    if (!c) return id || '—';
-    return c.displayName || c.raisonSociale || [c.prenom, c.nom].filter(Boolean).join(' ') || id;
-  }
-
   function markDirty() {
     isDirty = true;
   }
@@ -188,8 +192,12 @@
     lineSearchBindings = [];
   }
 
+  function usesDraftLine() {
+    return mode === 'create' || !lines.some((l) => !isLineEmpty(l));
+  }
+
   function ensureTrailingEmptyLine() {
-    if (!isEditable()) return false;
+    if (!isEditable() || !usesDraftLine()) return false;
     if (!lines.length || !isLineEmpty(lines[lines.length - 1])) {
       lines.push(emptyLine());
       return true;
@@ -197,8 +205,31 @@
     return false;
   }
 
+  function addEmptyLine() {
+    if (!isEditable()) return;
+    if (!lines.length || !isLineEmpty(lines[lines.length - 1])) {
+      lines.push(emptyLine());
+    }
+    markDirty();
+    renderLines();
+    const last = document.querySelector('#gderpi-cmd-client-lines-tbody [data-cmd-line-idx="' + (lines.length - 1) + '"] .gderpi-devis-line-libelle');
+    last?.focus();
+  }
+
+  function renderAddLineButton() {
+    const btn = document.getElementById('gderpi-cmd-client-add-line');
+    const hint = document.getElementById('gderpi-cmd-client-lines-hint');
+    if (btn) btn.hidden = !isEditable();
+    if (hint) {
+      hint.textContent = mode === 'create'
+        ? 'Saisissez les articles, puis créez la commande.'
+        : 'Les lignes ci-dessous sont celles de la commande. Utilisez « Ajouter une ligne » pour en créer une nouvelle.';
+    }
+  }
+
   function cloneLineFromDevis(line) {
     return calcLineTotals({
+      id: line.id || line.lineId || null,
       articleId: line.articleId || null,
       articleType: line.articleType || '',
       reference: line.reference || '',
@@ -211,12 +242,64 @@
       remisePct: line.remisePct ?? 0,
       tauxTva: line.tauxTva ?? 20,
       fournisseurId: line.fournisseurId || null,
-      prixSurDevis: line.prixSurDevis === true
+      boutiqueFournisseurId: line.boutiqueFournisseurId || null,
+      sourceDevisLineId: line.sourceDevisLineId || null,
+      prixSurDevis: line.prixSurDevis === true,
+      quantiteLivree: line.quantiteLivree || 0,
+      quantiteRecueFrs: line.quantiteRecueFrs || 0,
+      quantiteRecue: line.quantiteRecue || 0,
+      quantiteFacturee: line.quantiteFacturee || 0,
+      recetteValideeAt: line.recetteValideeAt || null,
+      gererCommande: line.gererCommande
     });
   }
 
+  function isStandaloneCreate() {
+    return mode === 'create' && !sourceDevisId;
+  }
+
+  function getSelectedClientId() {
+    return getPartyFields()?.getClientId?.()
+      || sourceDevis?.clientId
+      || currentCommande?.clientId
+      || '';
+  }
+
+  function setSelectedClientId(clientId) {
+    if (getPartyFields()) {
+      getPartyFields().applyClient(clientId, null, { notify: false });
+      return;
+    }
+    const hidden = document.getElementById('gderpi-cmd-client-client-id');
+    const id = clientId ? String(clientId).trim() : '';
+    if (hidden) hidden.value = id;
+  }
+
+  function syncLineTarifsForClient() {
+    let changed = false;
+    lines.forEach((line, idx) => {
+      if (!line.articleId) return;
+      const article = articles.find((a) => String(a.articleId || a.id) === String(line.articleId));
+      if (!article) return;
+      const mapped = articleFromCatalog(article);
+      if (mapped.referenceClient !== (line.referenceClient || '') || mapped.prixHt !== line.prixHt) {
+        lines[idx] = calcLineTotals({
+          ...line,
+          referenceClient: mapped.referenceClient,
+          prixHt: mapped.prixHt,
+          prixSurDevis: mapped.prixSurDevis
+        });
+        changed = true;
+      }
+    });
+    if (changed) {
+      markDirty();
+      renderLines();
+    }
+  }
+
   function articleFromCatalog(a) {
-    const clientId = sourceDevis?.clientId || currentCommande?.clientId || '';
+    const clientId = getSelectedClientId();
     const tarif = global.GderpiArticleTarif?.resolveArticleTarifClient
       ? global.GderpiArticleTarif.resolveArticleTarifClient(a, clientId)
       : null;
@@ -237,17 +320,46 @@
       tauxTva: a.tauxTva ?? 20,
       fournisseurId: a.fournisseurId || null,
       boutiqueFournisseurId: a.boutiqueFournisseurId || null,
-      prixSurDevis
+      prixSurDevis,
+      gererCommande: a.gererCommande === true
     });
   }
 
   async function ensureRefs() {
-    const [articlesRes, clientsRes] = await Promise.all([
+    const [articlesRes, clientsRes, boutiquesRes] = await Promise.all([
       global.GderpiApi.apiCall('/articles'),
-      global.GderpiApi.apiCall('/clients')
+      global.GderpiApi.apiCall('/clients'),
+      global.GderpiApi.apiCall('/boutiques')
     ]);
     articles = articlesRes.data || [];
     clients = clientsRes.data || [];
+    boutiques = boutiquesRes.data || [];
+    getPartyFields()?.setLists?.(boutiques, clients);
+  }
+
+  function defaultBoutiqueId() {
+    const active = boutiques.find((b) => b.actif !== false);
+    return active?.boutiqueId || active?.id || boutiques[0]?.boutiqueId || boutiques[0]?.id || '';
+  }
+
+  function partyLocks() {
+    return {
+      boutique: !isStandaloneCreate(),
+      client: !isStandaloneCreate()
+    };
+  }
+
+  function partySourceDoc() {
+    return { ...(sourceDevis || {}), ...(currentCommande || {}) };
+  }
+
+  function applyPartyDocument(doc) {
+    const fields = getPartyFields();
+    if (!fields) return Promise.resolve();
+    return fields.applyDocument(doc || partySourceDoc(), {
+      editable: isEditable() || isStandaloneCreate(),
+      locks: partyLocks()
+    });
   }
 
   function ensureEditorModal() {
@@ -270,7 +382,7 @@
     const devisId = sourceDevisId || currentCommande?.devisId;
     const devisNumero = sourceDevis?.numero || currentCommande?.devisNumero;
     if (!devisId || !devisNumero) {
-      wrap.innerHTML = '<span class="text-muted">—</span>';
+      wrap.innerHTML = '<span class="text-muted">Sans devis</span>';
       return;
     }
     wrap.innerHTML = '<button type="button" class="btn btn-link btn-sm p-0 gderpi-cmd-open-devis" data-devis-id="' +
@@ -289,30 +401,19 @@
       if (title) title.textContent = 'Nouvelle commande client';
       if (subtitle) subtitle.textContent = sourceDevis?.numero
         ? 'À partir du devis ' + sourceDevis.numero
-        : '';
+        : 'Sans devis — saisissez le client et les lignes';
     } else {
       if (title) title.textContent = 'Commande ' + (currentCommande?.numero || '');
       if (subtitle) subtitle.textContent = currentCommande?.objet || '';
     }
     renderDevisLink();
     renderWorkflowStrip();
-
-    const clientEl = document.getElementById('gderpi-cmd-client-client');
-    const clientId = sourceDevis?.clientId || currentCommande?.clientId;
-    if (clientEl) clientEl.textContent = clientLabel(clientId);
-
-    const docEl = document.getElementById('gderpi-cmd-client-document');
-    if (docEl) {
-      const docVal = mode === 'create'
-        ? (sourceDevis?.documentClient || sourceDevis?.referenceClient || '')
-        : (currentCommande?.documentClient || '');
-      docEl.textContent = docVal || '—';
-    }
+    applyPartyDocument(partySourceDoc()).catch(handleErr);
 
     const refEl = document.getElementById('gderpi-cmd-client-reference');
     if (refEl) {
       refEl.value = mode === 'create'
-        ? ''
+        ? (sourceDevis?.referenceClient || sourceDevis?.documentClient || '')
         : (currentCommande?.referenceClient || '');
       refEl.disabled = !isEditable();
     }
@@ -535,6 +636,7 @@
       return editable ? renderEditableLine(line, idx) : renderReadonlyLine(line, idx);
     }).join('');
     if (editable) bindEditableRows();
+    renderAddLineButton();
     renderTotals();
   }
 
@@ -551,12 +653,30 @@
   function collectPayload() {
     syncAllLinesFromDom();
     const filledLines = lines.filter((l) => !isLineEmpty(l)).map(calcLineTotals);
-    return {
+    const party = getPartyFields()?.collect?.() || {};
+    const payload = {
       referenceClient: document.getElementById('gderpi-cmd-client-reference')?.value?.trim() || '',
       objet: document.getElementById('gderpi-cmd-client-objet')?.value?.trim() || '',
       notes: document.getElementById('gderpi-cmd-client-notes')?.value?.trim() || '',
-      lignes: filledLines
+      lignes: filledLines,
+      documentClient: party.documentClient || '',
+      contactClientId: party.contactClientId || '',
+      contactNom: party.contactNom || '',
+      contactService: party.contactService || '',
+      contactFonction: party.contactFonction || '',
+      contactEmail: party.contactEmail || '',
+      contactTelephone: party.contactTelephone || '',
+      emetteurContactId: party.emetteurContactId || '',
+      emetteurContactNom: party.emetteurContactNom || '',
+      emetteurContactFonction: party.emetteurContactFonction || '',
+      emetteurContactEmail: party.emetteurContactEmail || '',
+      emetteurContactTelephone: party.emetteurContactTelephone || ''
     };
+    if (isStandaloneCreate()) {
+      payload.boutiqueId = party.boutiqueId || document.getElementById('gderpi-cmd-client-boutique')?.value || '';
+      payload.clientId = party.clientId || getSelectedClientId();
+    }
+    return payload;
   }
 
   function isDevisExpired(devis) {
@@ -572,10 +692,36 @@
       return;
     }
 
+    const result = await global.GderpiBonCommandeClient?.ensure?.(
+      payload.referenceClient,
+      payload.documentClient,
+      currentCommande,
+      sourceDevis
+    );
+    if (!result) return;
+    payload.referenceClient = result.referenceClient || '';
+    payload.sansBonCommandeClient = result.sansBonCommandeClient === true;
+    if (!payload.documentClient && payload.referenceClient) payload.documentClient = payload.referenceClient;
+    const refEl = document.getElementById('gderpi-cmd-client-reference');
+    if (refEl && payload.referenceClient) refEl.value = payload.referenceClient;
+
     if (mode === 'create') {
+      if (isStandaloneCreate()) {
+        if (!payload.boutiqueId) {
+          global.GderpiStatus.showStatus('Sélectionnez une boutique.', 'warning');
+          return;
+        }
+        if (!payload.clientId) {
+          global.GderpiStatus.showStatus('Sélectionnez un client.', 'warning');
+          return;
+        }
+      }
       if (isDevisExpired(sourceDevis)) payload.allowExpired = true;
+      const url = isStandaloneCreate()
+        ? '/commandes-client'
+        : '/devis/' + encodeURIComponent(sourceDevisId) + '/to-commande-client';
       const res = await global.GderpiApi.apiCall(
-        '/devis/' + encodeURIComponent(sourceDevisId) + '/to-commande-client',
+        url,
         { method: 'POST', body: JSON.stringify(payload) }
       );
       let msg = 'Commande client ' + (res.data?.numero || '') + ' créée.';
@@ -625,6 +771,7 @@
     currentCommande = null;
     lines = [];
     isDirty = false;
+    getPartyFields()?.reset?.();
   }
 
   async function autoCreateFromDevis(devisId, devis) {
@@ -633,8 +780,13 @@
     if (d.statut !== 'accepte') throw new Error('Le devis doit être accepté');
     if (d.commandeClientId) return { commandeClientId: d.commandeClientId, id: d.commandeClientId, alreadyExists: true };
 
+    const result = await global.GderpiBonCommandeClient?.ensure?.(d);
+    if (!result) throw new Error('N° de bon de commande client requis, ou indiquez que le client n\'en a pas');
+
     const payload = {
-      referenceClient: '',
+      referenceClient: result.referenceClient || '',
+      sansBonCommandeClient: result.sansBonCommandeClient === true,
+      documentClient: d.documentClient || result.referenceClient || '',
       objet: d.objet || '',
       notes: d.notes || '',
       lignes: d.lignes || []
@@ -646,6 +798,27 @@
       { method: 'POST', body: JSON.stringify(payload) }
     );
     return res.data;
+  }
+
+  async function openNewCommande() {
+    await ensureRefs();
+    mode = 'create';
+    sourceDevisId = '';
+    sourceDevis = null;
+    editingId = '';
+    currentCommande = null;
+    isDirty = false;
+    lines = [emptyLine()];
+    ensureTrailingEmptyLine();
+    getPartyFields()?.reset?.();
+    getPartyFields()?.populateBoutique?.(boutiques, defaultBoutiqueId());
+    openEditor();
+    if (!boutiques.length) {
+      global.GderpiStatus.showStatus('Aucune boutique — créez-en une dans Configuration.', 'warning');
+    }
+    if (!clients.length) {
+      global.GderpiStatus.showStatus('Aucun client — créez-en un dans le menu Clients.', 'warning');
+    }
   }
 
   async function openFromDevis(devisId) {
@@ -682,6 +855,12 @@
     mode = 'edit';
     sourceDevisId = cmd.devisId || '';
     sourceDevis = cmd.devisId ? { numero: cmd.devisNumero, id: cmd.devisId } : null;
+    if (cmd.devisId) {
+      try {
+        const devisRes = await global.GderpiApi.apiCall('/devis/' + encodeURIComponent(cmd.devisId));
+        if (devisRes.data) sourceDevis = devisRes.data;
+      } catch (_) { /* devis d'origine optionnel pour préremplir l'interlocuteur */ }
+    }
     editingId = commandeClientId;
     currentCommande = cmd;
     isDirty = false;
@@ -692,9 +871,20 @@
 
   function bindCommandeClientEditor() {
     ensureEditorModal();
+    getPartyFields()?.bind?.({
+      getBoutiques: () => boutiques,
+      getClients: () => clients,
+      onDirty: markDirty,
+      onClientChange: () => syncLineTarifsForClient(),
+      getCanEdit: () => isEditable() || isStandaloneCreate()
+    });
     document.getElementById('gderpi-cmd-client-reference')?.addEventListener('input', markDirty);
     document.getElementById('gderpi-cmd-client-objet')?.addEventListener('input', markDirty);
     document.getElementById('gderpi-cmd-client-notes')?.addEventListener('input', markDirty);
+    document.getElementById('gderpi-cmd-client-add-line')?.addEventListener('click', addEmptyLine);
+    document.getElementById('gderpi-commandes-new')?.addEventListener('click', () => {
+      openNewCommande().catch(handleErr);
+    });
   }
 
   function handleErr(err) {
@@ -704,6 +894,7 @@
   global.GderpiCommandeClientEditor = {
     bindCommandeClientEditor,
     autoCreateFromDevis,
+    openNewCommande,
     openFromDevis,
     openCommande,
     reloadCommande

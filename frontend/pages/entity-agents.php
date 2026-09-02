@@ -1,6 +1,6 @@
 <?php
 /**
- * Console entité — Agents IA (cartes auto / assistés + modèles).
+ * Console entité — Agents IA (liste unique).
  */
 
 require_once __DIR__ . '/../config/config.php';
@@ -18,12 +18,10 @@ $createAgentUrl = url('pages/entity-agent-editor.php');
 $extra_styles = [url('assets/css/agent-cards.css')];
 $extra_scripts = [url('assets/js/agent-flow/agents-list-app.js') . '?v=' . time()];
 
-$tab = isset($_GET['tab']) && $_GET['tab'] === 'assisted' ? 'assisted' : 'automatic';
-
 require_once __DIR__ . '/../includes/header.php';
 renderConsoleLayoutStart(
     'Agents IA',
-    'Apps agents : image, mode automatique ou assisté, config par brique. Les comptes restent dans Connecteurs.',
+    'Apps agents : blocs génériques (déclencher, données, condition, action, validation, sortie). Les comptes restent dans Connecteurs.',
     ['actions' => '<a class="btn btn-primary" href="' . htmlspecialchars($createAgentUrl) . '">+ Créer un agent</a>']
 );
 ?>
@@ -37,30 +35,12 @@ renderConsoleLayoutStart(
     <div class="card-body" style="display:flex; gap:0.75rem; flex-wrap:wrap;">
         <button type="button" class="btn btn-outline" id="btnTplMail">Créer Agent Mail</button>
         <button type="button" class="btn btn-outline" id="btnTplFacebook">Créer Agent Facebook</button>
-        <button type="button" class="btn btn-outline" id="btnTplAssisted">Créer Agent assisté (document)</button>
+        <button type="button" class="btn btn-outline" id="btnTplAssisted">Créer Agent avec validation</button>
         <button type="button" class="btn btn-outline" id="btnTplInvoices">Créer Agent factures mail</button>
-        <span class="text-muted small" style="align-self:center;">Mail / Facebook = auto · Assisté / Factures = pause + Valider / Rejeter</span>
+        <button type="button" class="btn btn-primary" id="btnTplDesign">Créer Agent Design page web</button>
+        <span class="text-muted small" style="align-self:center;">« Design page web » est un agent GDRI importable (sous-agent). Le badge validation apparaît si un flux attend un humain.</span>
     </div>
 </div>
-
-<div style="display:flex; gap:8px; margin-bottom:1rem; flex-wrap:wrap;">
-    <a class="btn <?= $tab === 'automatic' ? 'btn-primary' : 'btn-outline' ?>"
-       href="<?= htmlspecialchars(url('pages/entity-agents.php?tab=automatic')) ?>">Automatiques</a>
-    <a class="btn <?= $tab === 'assisted' ? 'btn-primary' : 'btn-outline' ?>"
-       href="<?= htmlspecialchars(url('pages/entity-agents.php?tab=assisted')) ?>">Assistés</a>
-</div>
-
-<?php if ($tab === 'assisted'): ?>
-<div class="card" style="margin-bottom:1.25rem;">
-    <div class="card-header" style="background:#fff7ed; border-bottom:2px solid #ea580c;">
-        <h2 style="margin:0; font-size:1.05rem;">À traiter</h2>
-    </div>
-    <div class="card-body">
-        <div id="inboxStatus" class="text-muted small">Chargement…</div>
-        <div id="agentsInbox" class="agent-inbox-list"></div>
-    </div>
-</div>
-<?php endif; ?>
 
 <div id="agentsStatus" class="text-muted small">Chargement…</div>
 <div id="agentsCards" class="agent-cards-grid"></div>
@@ -107,16 +87,22 @@ renderConsoleLayoutStart(
     if (btnTplAs) btnTplAs.addEventListener('click', function() { createFromTemplate('agent-assisted-doc'); });
     var btnTplInv = document.getElementById('btnTplInvoices');
     if (btnTplInv) btnTplInv.addEventListener('click', function() { createFromTemplate('agent-mail-invoices'); });
+    var btnTplDesign = document.getElementById('btnTplDesign');
+    if (btnTplDesign) btnTplDesign.addEventListener('click', function() { createFromTemplate('agent-design-page-web'); });
+    var bootCreate = new URLSearchParams(window.location.search).get('create');
+    if (bootCreate) createFromTemplate(bootCreate);
 })();
 
 window.AGENTS_LIST_APP = <?= json_encode([
     'apiBase' => $api_base_url,
     'jwt' => $jwt_token,
-    'mode' => $tab,
+    'mode' => null,
     'editorBase' => $createAgentUrl,
     'canManage' => true,
-    'showInbox' => $tab === 'assisted',
+    'showInbox' => false,
     'reviewPageUrl' => url('pages/agent-human-review.php'),
+    'runPageUrl' => url('pages/agent-run.php'),
+    'space' => 'entity',
 ], JSON_UNESCAPED_SLASHES) ?>;
 </script>
 

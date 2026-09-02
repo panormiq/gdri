@@ -3,6 +3,18 @@
 const { ObjectId } = require('mongodb');
 const fieldTypes = require('../../../config/json/types/fieldTypes.json');
 const CollectionCore = require('../../../config/json/collection/collectionCore.json');
+const { migrateV1ModelsToV3 } = require('../services/V1ModelMigrationService');
+
+async function touchCollection(db, collectionId) {
+  try {
+    await db.collection('collections').updateOne(
+      { _id: new ObjectId(String(collectionId)) },
+      { $set: { updatedAt: new Date() }, $inc: { dataRevision: 1 } }
+    );
+  } catch (e) {
+    /* ignore */
+  }
+}
 /**
  * 🔹 Collections CRUD
  */
@@ -32,8 +44,14 @@ const getCollectionCore = async (req, res) => {
     res.status(500).json({ success: false, error: error.message });
   }
 };
+
 const getAllCollections = async (req, res) => {
   try {
+    try {
+      await migrateV1ModelsToV3(req.entrepriseDb, req.entrepriseId || req.user.entrepriseId);
+    } catch (migrateErr) {
+      console.warn('Migration V1 → V3:', migrateErr.message);
+    }
     const collections = await req.entrepriseDb
       .collection('collections')
       .find({})
@@ -170,6 +188,8 @@ const createCollection = async (req, res) => {
       tags: validatedTags,
 
       entrepriseId: new ObjectId(entrepriseId),
+      version: '1.0.0',
+      dataRevision: 0,
 
       createdAt: now,
       updatedAt: now
@@ -200,7 +220,8 @@ const updateCollection = async (req, res) => {
   try {
     // Exclure _id des données de mise à jour (champ immuable)
     const { _id, ...bodyWithoutId } = req.body;
-   
+    delete bodyWithoutId.dataRevision;
+
     const updateData = {
       ...bodyWithoutId,
       updatedAt: new Date()
@@ -218,7 +239,7 @@ const updateCollection = async (req, res) => {
       .collection('collections')
       .findOneAndUpdate(
         { _id: new ObjectId(req.params.id) },
-        { $set: updateData },
+        { $set: updateData, $inc: { dataRevision: 1 } },
         { returnDocument: 'after' } // Retourne le document après mise à jour
       );
 const updatedDoc = result.value || result;
@@ -354,6 +375,7 @@ const createCollectionData = async (req, res) => {
     
     const insertedId = result.insertedId.toString();
     entry._id = insertedId;
+    await touchCollection(req.entrepriseDb, collectionId);
 
     console.log('✅ Élément créé:', {
       collectionId,
@@ -505,6 +527,7 @@ const updateCollectionData = async (req, res) => {
       updatedAt: serializedElement.updatedAt
     });
 
+    await touchCollection(req.entrepriseDb, collectionId);
     res.json({ success: true, data: serializedElement });
   } catch (error) {
     console.error("❌ Erreur updateCollectionData:", error);
@@ -512,6 +535,19 @@ const updateCollectionData = async (req, res) => {
       success: false, 
       error: error.message || 'Erreur serveur lors de la mise à jour' 
     });
+  }
+};
+
+const migrateFromV1 = async (req, res) => {
+  try {
+    const summary = await migrateV1ModelsToV3(
+      req.entrepriseDb,
+      req.entrepriseId || req.user.entrepriseId
+    );
+    res.json({ success: true, data: summary });
+  } catch (error) {
+    console.error('❌ migrateFromV1:', error);
+    res.status(500).json({ success: false, error: error.message });
   }
 };
 
@@ -528,6 +564,7 @@ const deleteCollectionData = async (req, res) => {
       return res.status(404).json({ success: false, error: 'Donnée non trouvée' });
     }
 
+    await touchCollection(req.entrepriseDb, collectionId);
     res.json({ success: true, message: 'Donnée supprimée' });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
@@ -542,6 +579,7 @@ module.exports = {
   create: createCollection,
   update: updateCollection,
   delete: deleteCollection,
+  migrateFromV1,
   
   // Éléments (elements)
   getElements: getCollectionData,

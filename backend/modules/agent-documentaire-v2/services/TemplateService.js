@@ -31,6 +31,7 @@ class TemplateService {
       namespace: String(t.namespace || DEFAULT_NAMESPACE).trim(),
       name: String(t.name || t.namespace || 'Template').trim(),
       documentMode: 'canvas',
+      profile: String(t.profile || '').trim() || undefined,
       scope: String(t.scope || 'ugap').trim(),
       page: t.page || {
         format: 'A4',
@@ -55,7 +56,10 @@ class TemplateService {
       metadata: {
         createdAt: t.metadata?.createdAt || new Date(),
         updatedAt: new Date(),
-        version: Number(t.metadata?.version) || 1
+        version: Number(t.metadata?.version) || 1,
+        agentPageContext: t.metadata && t.metadata.agentPageContext
+          ? t.metadata.agentPageContext
+          : null
       }
     };
   }
@@ -176,7 +180,65 @@ class TemplateService {
     if (!doc && ns === DEFAULT_NAMESPACE) {
       doc = await this.ensureDefaultTemplate();
     }
+    if (!doc && ns.startsWith('v3:')) {
+      doc = await this.ensureBlankCanvasTemplate(ns);
+    }
     return doc;
+  }
+
+  /**
+   * Canvas A4 vide pour un template Documents (namespace v3:…).
+   */
+  async ensureBlankCanvasTemplate(namespace, options = {}) {
+    const ns = String(namespace || '').trim();
+    if (!ns.startsWith('v3:')) {
+      throw new Error('Namespace v3: requis');
+    }
+    const existing = await this.collection.findOne({ namespace: ns });
+    if (existing && !options.force) {
+      return existing;
+    }
+    const title = String(options.name || options.title || 'Mise en page A4').trim() || 'Mise en page A4';
+    return this.save(ns, this.buildBlankCanvasTemplate(ns, title));
+  }
+
+  buildBlankCanvasTemplate(namespace, title) {
+    return {
+      namespace,
+      name: title,
+      documentMode: 'canvas',
+      scope: 'v3',
+      page: {
+        format: 'A4',
+        widthMm: 210,
+        heightMm: 297,
+        margins: { top: 15, right: 15, bottom: 15, left: 15 }
+      },
+      guides: { vertical: [], horizontal: [] },
+      nodes: [
+        {
+          id: 'zone_body',
+          type: 'zone',
+          zoneType: 'body',
+          parentId: null,
+          layout: { x: 15, y: 15, width: 180, height: 40, unit: 'mm' },
+          zIndex: 1,
+          style: { border: '1px dashed #94a3b8', backgroundColor: '#ffffff' },
+          children: ['tf_body']
+        },
+        {
+          id: 'tf_body',
+          type: 'text-frame',
+          parentId: 'zone_body',
+          layout: { x: 3, y: 3, width: 174, height: 34, unit: 'mm' },
+          content: {
+            mode: 'flow',
+            html: `<p style="margin:0;color:#64748b;">${String(title || 'Mise en page A4').replace(/</g, '')}</p>`
+          },
+          style: { fontSize: 12 }
+        }
+      ]
+    };
   }
 
   /**
@@ -202,6 +264,145 @@ class TemplateService {
     return this.save(ns, seed);
   }
 
+  /**
+   * Page App (profil page), dédiée à un namespace agent:app:…
+   * Par défaut : mise en page « page-web » de production.
+   */
+  async ensureBlankPageTemplate(namespace, options = {}) {
+    const ns = String(namespace || '').trim();
+    if (!ns) throw new Error('Namespace requis');
+    const existing = await this.collection.findOne({ namespace: ns });
+    if (existing && !options.force) {
+      if (options.agentPageContext) {
+        existing.metadata = existing.metadata || {};
+        existing.metadata.agentPageContext = options.agentPageContext;
+        return this.save(ns, existing);
+      }
+      return existing;
+    }
+    const title = String(options.name || options.title || 'Page').trim() || 'Page';
+    const slots = Array.isArray(options.slots) ? options.slots : [];
+    const tpl = this.buildAppPageTemplate(ns, title, slots, {
+      html: options.html,
+      productionTemplateId: options.productionTemplateId
+    });
+    tpl.metadata = tpl.metadata || {};
+    if (options.agentPageContext) {
+      tpl.metadata.agentPageContext = options.agentPageContext;
+    }
+    tpl.metadata.productionTemplateId = options.productionTemplateId || 'page-web';
+    return this.save(ns, tpl);
+  }
+
+  productionLayoutHtml(templateId, title) {
+    try {
+      const { getProductionTemplate } = require('../../../core/agent-flow/productionTemplates');
+      const doc = getProductionTemplate(templateId || 'page-web') || getProductionTemplate('page-web');
+      return doc && doc.html ? String(doc.html) : '';
+    } catch (_) {
+      return '';
+    }
+  }
+
+  seedPageWebHtml(title) {
+    return this.productionLayoutHtml('page-web', title);
+  }
+
+  buildAppPageTemplate(namespace, title, slots, options = {}) {
+    const html = String(options.html || this.productionLayoutHtml(options.productionTemplateId, title) || '').trim();
+    const nodes = html
+      ? [
+        {
+          id: 'zone_page',
+          type: 'zone',
+          zoneType: 'body',
+          parentId: null,
+          layout: { x: 0, y: 0, width: 210, height: 180, unit: 'mm' },
+          zIndex: 1,
+          style: { border: 'none', backgroundColor: '#f1f5f9' },
+          children: ['tf_page']
+        },
+        {
+          id: 'tf_page',
+          type: 'text-frame',
+          parentId: 'zone_page',
+          layout: { x: 0, y: 0, width: 210, height: 176, unit: 'mm' },
+          content: { mode: 'flow', html },
+          style: { fontSize: 12 }
+        }
+      ]
+      : [
+      {
+        id: 'zone_title',
+        type: 'zone',
+        zoneType: 'header',
+        parentId: null,
+        layout: { x: 15, y: 15, width: 180, height: 18, unit: 'mm' },
+        zIndex: 1,
+        style: { border: 'none', backgroundColor: 'transparent' },
+        children: ['tf_title']
+      },
+      {
+        id: 'tf_title',
+        type: 'text-frame',
+        parentId: 'zone_title',
+        layout: { x: 0, y: 0, width: 180, height: 18, unit: 'mm' },
+        content: {
+          mode: 'flow',
+          html: `<h1 style="margin:0;font-size:18px;">${String(title || 'Page').replace(/</g, '')}</h1>`
+        },
+        style: { fontSize: 14 }
+      }
+    ];
+    const slotStartY = html ? 186 : 40;
+    (slots || []).forEach((slot, i) => {
+      const sid = String((slot && slot.id) || `slot-${i + 1}`).replace(/[^a-zA-Z0-9_-]/g, '');
+      const label = String((slot && slot.label) || slot.view || 'Vue bloc').replace(/</g, '');
+      const view = String((slot && slot.view) || 'block');
+      const nodeId = String((slot && slot.nodeId) || '');
+      const y = slotStartY + i * 42;
+      nodes.push({
+        id: `zone_${sid}`,
+        type: 'zone',
+        zoneType: 'body',
+        parentId: null,
+        layout: { x: 15, y, width: 180, height: 38, unit: 'mm' },
+        zIndex: 2 + i,
+        style: { border: '1px dashed #94a3b8', backgroundColor: '#ffffff' },
+        children: [`tf_${sid}`],
+        widget: { type: 'block-view', view, nodeId, label }
+      });
+      nodes.push({
+        id: `tf_${sid}`,
+        type: 'text-frame',
+        parentId: `zone_${sid}`,
+        layout: { x: 3, y: 3, width: 174, height: 32, unit: 'mm' },
+        content: {
+          mode: 'flow',
+          html: `<p style="margin:0;color:#64748b;"><strong>${label}</strong><br><span style="font-size:11px;">Vue de bloc — ${view}${nodeId ? ` · ${nodeId}` : ''}</span></p>`
+        },
+        style: { fontSize: 12 }
+      });
+    });
+    return {
+      namespace,
+      name: title,
+      profile: 'page',
+      scope: 'agent-app',
+      metadata: {
+        productionTemplateId: options.productionTemplateId || 'page-web'
+      },
+      page: {
+        format: 'A4',
+        widthMm: 210,
+        heightMm: 297,
+        margins: { top: 15, right: 15, bottom: 15, left: 15 }
+      },
+      guides: { vertical: [], horizontal: [] },
+      nodes
+    };
+  }
+
   async list(filters = {}) {
     return this.collection.find(filters).sort({ 'metadata.updatedAt': -1 }).toArray();
   }
@@ -217,6 +418,12 @@ class TemplateService {
       normalized.metadata.createdAt = now;
     }
     normalized.metadata.updatedAt = now;
+    if (!normalized.metadata.agentPageContext && existing?.metadata?.agentPageContext) {
+      normalized.metadata.agentPageContext = existing.metadata.agentPageContext;
+    }
+    if (!normalized.metadata.productionTemplateId && existing?.metadata?.productionTemplateId) {
+      normalized.metadata.productionTemplateId = existing.metadata.productionTemplateId;
+    }
     await this.collection.updateOne(
       { namespace: ns },
       { $set: normalized },

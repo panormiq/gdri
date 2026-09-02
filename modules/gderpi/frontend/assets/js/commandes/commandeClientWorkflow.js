@@ -54,11 +54,16 @@
       const ordered = Number(line.quantite) || 0;
       const recue = Number(line.quantiteRecueFrs) || 0;
       const livree = Number(line.quantiteLivree) || 0;
-      const reste = H().remainingQty(line);
+      const reste = isDev ? H().remainingPrestationQty(line) : H().remainingQty(line);
+      const title = String(line.libelle || '').trim() || String(line.reference || '').trim() || '—';
+      const sub = String(line.libelle || '').trim() && String(line.reference || '').trim()
+        ? line.reference
+        : '';
 
       if (isDev) {
         rows += '<tr>' +
-          '<td><strong>' + esc(line.reference || '—') + '</strong><br><span class="text-muted">' + esc(line.libelle || '') + '</span></td>' +
+          '<td><strong>' + esc(title) + '</strong>' +
+          (sub ? '<br><span class="text-muted">' + esc(sub) + '</span>' : '') + '</td>' +
           '<td class="text-end">' + esc(ordered) + '</td>' +
           '<td class="text-end">—</td>' +
           '<td class="text-end">' + esc(livree || '—') + '</td>' +
@@ -68,7 +73,8 @@
       }
 
       rows += '<tr>' +
-        '<td><strong>' + esc(line.reference || '—') + '</strong><br><span class="text-muted">' + esc(line.libelle || '') + '</span></td>' +
+        '<td><strong>' + esc(title) + '</strong>' +
+        (sub ? '<br><span class="text-muted">' + esc(sub) + '</span>' : '') + '</td>' +
         '<td class="text-end">' + esc(ordered) + '</td>' +
         '<td class="text-end">' + esc(recue || '—') + '</td>' +
         '<td class="text-end">' + esc(livree || '—') + '</td>' +
@@ -157,16 +163,22 @@
     return renderToggleButton(cmd, esc, 'facturation', H().facturationColumnSummary);
   }
 
-  function renderActionsSelect(cmd, esc, canWrite) {
+  function renderActionsSelect(cmd, escFn, canWrite) {
     if (!canWrite) return '<span class="text-muted small">—</span>';
     const items = H().workflowActions(cmd);
     if (!items.length) return '<span class="text-muted small">—</span>';
     const id = cmd.commandeClientId || cmd.id;
-    const opts = '<option value="">Actions…</option>' + items.map((it) =>
-      '<option value="' + esc(it.value) + '">' + esc(it.label) + '</option>'
-    ).join('');
-    return '<select class="form-control form-control-sm gderpi-cmd-actions-select" ' +
-      'data-cmd-id="' + esc(id) + '" title="Actions sur la commande">' + opts + '</select>';
+    const Menu = global.GderpiListActionsMenu;
+    if (!Menu) {
+      const opts = '<option value="">Actions…</option>' + items.map((it) =>
+        '<option value="' + escFn(it.value) + '">' + escFn(it.label) + '</option>'
+      ).join('');
+      return '<select class="form-control form-control-sm gderpi-cmd-actions-select" ' +
+        'data-cmd-id="' + escFn(id) + '" title="Actions sur la commande">' + opts + '</select>';
+    }
+    return Menu.render(items, {
+      attrs: { 'data-cmd-id': id, 'data-legacy-select': '0' }
+    });
   }
 
   function renderStatutSelect(cmd, esc, canWrite) {
@@ -301,15 +313,29 @@
     bindDropdownToggles(root);
   }
 
-  function bindActionsSelect(select, cmd, onAction) {
-    if (!select) return;
-    select.addEventListener('change', () => {
-      const action = select.value;
-      select.value = '';
-      if (!action) return;
-      Promise.resolve(onAction(action, cmd)).catch((err) => {
-        global.GderpiStatus?.showStatus?.(err?.message || 'Erreur action commande', 'danger');
+  function bindActionsSelect(selectOrRoot, cmd, onAction) {
+    if (!selectOrRoot) return;
+
+    // Ancien <select> (fallback)
+    if (selectOrRoot.tagName === 'SELECT') {
+      selectOrRoot.addEventListener('change', () => {
+        const action = selectOrRoot.value;
+        selectOrRoot.value = '';
+        if (!action) return;
+        Promise.resolve(onAction(action, cmd)).catch((err) => {
+          global.GderpiStatus?.showStatus?.(err?.message || 'Erreur action commande', 'danger');
+        });
       });
+      return;
+    }
+
+    // Nouveau menu actions — le root peut être le menu ou un conteneur
+    const menuRoot = selectOrRoot.classList?.contains('gderpi-actions-menu')
+      ? selectOrRoot
+      : selectOrRoot.querySelector?.('.gderpi-actions-menu');
+    if (!menuRoot) return;
+    global.GderpiListActionsMenu?.bind?.(menuRoot.parentNode || menuRoot, async (action) => {
+      await onAction(action, cmd);
     });
   }
 

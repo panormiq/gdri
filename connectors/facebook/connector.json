@@ -1,7 +1,7 @@
 {
   "id": "facebook",
   "name": "Facebook",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "author": "GDR-Innovation",
   "description": "Pages Facebook : webhook temps réel, poll Graph (posts / commentaires / MP), réponses.",
   "direction": "bidirectional",
@@ -12,8 +12,12 @@
     "ingest.push",
     "ingest.poll",
     "emit.reply",
-    "emit.alert"
+    "emit.alert",
+    "emit.hide",
+    "emit.like",
+    "emit.delete"
   ],
+  "dataKinds": ["posts", "comments", "messages", "notifications"],
   "credentials": {
     "type": "oauth2",
     "provider": "facebook",
@@ -23,6 +27,121 @@
       "pages_manage_metadata"
     ]
   },
+  "settingsFields": [
+    {
+      "key": "pageId",
+      "label": "ID Page Facebook",
+      "type": "text",
+      "required": true
+    },
+    {
+      "key": "pollIntervalMinutes",
+      "label": "Intervalle poll (minutes)",
+      "type": "number",
+      "min": 5,
+      "max": 1440,
+      "default": 15
+    },
+    {
+      "key": "resources",
+      "label": "Ressources à poller (Graph)",
+      "type": "enum",
+      "multiple": true,
+      "enum": ["posts", "comments", "messages"],
+      "enumLabels": {
+        "posts": "Publications",
+        "comments": "Commentaires",
+        "messages": "Messages privés"
+      },
+      "default": ["posts"],
+      "description": "posts | comments | messages — chacun a ses propres limites."
+    },
+    {
+      "key": "webhookEvents",
+      "label": "Événements webhook (temps réel)",
+      "type": "enum",
+      "multiple": true,
+      "enum": ["comments", "messages", "posts", "notifications"],
+      "enumLabels": {
+        "comments": "Commentaires",
+        "messages": "Messages privés",
+        "posts": "Publications",
+        "notifications": "Notifications"
+      },
+      "default": ["comments", "messages"]
+    },
+    {
+      "key": "postLimit",
+      "label": "Max posts / passage",
+      "type": "number",
+      "min": 1,
+      "max": 50,
+      "default": 25
+    },
+    {
+      "key": "lookbackHours",
+      "label": "Fenêtre de temps (heures)",
+      "type": "number",
+      "min": 1,
+      "max": 2160,
+      "default": 168
+    },
+    {
+      "key": "commentCatchupLimit",
+      "label": "Posts scannés pour commentaires",
+      "type": "number",
+      "min": 1,
+      "max": 50,
+      "default": 20
+    },
+    {
+      "key": "commentsPerPost",
+      "label": "Commentaires / post (si pas fetchAll)",
+      "type": "number",
+      "min": 1,
+      "max": 100,
+      "default": 50
+    },
+    {
+      "key": "commentsFetchAll",
+      "label": "Paginer tous les commentaires du post",
+      "type": "boolean",
+      "default": false
+    },
+    {
+      "key": "commentPostIds",
+      "label": "IDs de posts ciblés (commentaires)",
+      "type": "array",
+      "default": []
+    },
+    {
+      "key": "messageConversationsLimit",
+      "label": "Conversations Messenger / passage",
+      "type": "number",
+      "min": 1,
+      "max": 50,
+      "default": 10
+    },
+    {
+      "key": "messagesPerConversation",
+      "label": "Messages / conversation",
+      "type": "number",
+      "min": 1,
+      "max": 50,
+      "default": 20
+    },
+    {
+      "key": "graphVersion",
+      "label": "Version Graph API",
+      "type": "text",
+      "default": "v21.0"
+    },
+    {
+      "key": "webhookVerifyToken",
+      "label": "Verify token webhook",
+      "type": "secret"
+    }
+  ],
   "configSchema": {
     "type": "object",
     "properties": {
@@ -154,6 +273,15 @@
     },
     "emit.alert": {
       "description": "Alerte mail via connecteur mail-out"
+    },
+    "emit.hide": {
+      "description": "Masquer un commentaire"
+    },
+    "emit.like": {
+      "description": "Aimer un objet Graph (post / commentaire)"
+    },
+    "emit.delete": {
+      "description": "Supprimer un commentaire ou un post de la page"
     }
   },
   "instanceDefaults": {

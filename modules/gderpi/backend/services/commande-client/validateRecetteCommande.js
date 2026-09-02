@@ -2,10 +2,28 @@ const getCommandeClientById = require('../commande-client/getCommandeClientById'
 const { commandeClientKind, filterLinesByKind } = require('../workflow/commandeClientKind');
 const isCommandeFullyRecetted = require('../workflow/isCommandeFullyRecetted');
 const maybeMarkCommandeLivree = require('../workflow/maybeMarkCommandeLivree');
-const { applyRecetteLignes, remainingDevLineIds } = require('../commande-client/applyRecetteLignes');
-const { canRecordAvancement } = require('../workflow/canRecordAvancement');
+const applyAvancementLignes = require('../commande-client/applyAvancementLignes');
+const { remainingDevLines, canRecordAvancement } = require('../workflow/canRecordAvancement');
+const remainingPrestationQty = require('../workflow/remainingPrestationQty');
 
 const COLLECTION = 'gderpi_commandes_client';
+
+function buildAvancementItems(commande, payload) {
+  const p = payload && typeof payload === 'object' ? payload : {};
+  const mode = String(p.mode || '').trim().toLowerCase();
+  const remaining = remainingDevLines(commande);
+  if (mode === 'complet' || !Array.isArray(p.lignes) || !p.lignes.length) {
+    return remaining.map((line) => ({
+      id: String(line.id),
+      quantite: remainingPrestationQty(line)
+    }));
+  }
+  return p.lignes.map((item) => ({
+    id: String(item.id || item.ligneId || '').trim(),
+    quantite: item.quantite,
+    percent: item.percent
+  })).filter((item) => item.id);
+}
 
 async function validateRecetteCommande(db, entrepriseId, commandeClientId, payload = {}) {
   const commande = await getCommandeClientById(db, entrepriseId, commandeClientId);
@@ -26,28 +44,27 @@ async function validateRecetteCommande(db, entrepriseId, commandeClientId, paylo
   }
 
   const p = payload && typeof payload === 'object' ? payload : {};
-  const mode = String(p.mode || '').trim().toLowerCase();
   const now = new Date();
   const notes = String(p.notes || '').trim();
-  const libelle = String(p.libelle || p.label || 'Livraison prestation').trim();
-
-  let ligneIds = Array.isArray(p.ligneIds) ? p.ligneIds.map((id) => String(id).trim()).filter(Boolean) : [];
-  if (mode === 'complet' || !ligneIds.length) {
-    ligneIds = remainingDevLineIds(commande.lignes);
-  }
-  if (!ligneIds.length) {
+  const libelle = String(p.libelle || p.label || 'Avancement prestation').trim();
+  const items = buildAvancementItems(commande, p);
+  if (!items.length) {
     throw new Error('Aucune prestation / développement restant à livrer');
   }
 
-  const updatedLignes = applyRecetteLignes(commande.lignes, ligneIds, now);
-  const beforeDone = filterLinesByKind(commande.lignes, 'dev').filter((l) => l.recetteValideeAt).length;
-  const afterDone = filterLinesByKind(updatedLignes, 'dev').filter((l) => l.recetteValideeAt).length;
-  if (afterDone <= beforeDone) {
-    throw new Error('Aucune ligne prestation / développement n\'a pu être mise à jour — rechargez la commande et réessayez');
+  const updatedLignes = applyAvancementLignes(commande.lignes, items, now);
+  const beforeLeft = remainingDevLines(commande).length;
+  const afterLeft = remainingDevLines({ ...commande, lignes: updatedLignes }).length;
+  if (afterLeft >= beforeLeft && !updatedLignes.some((l, i) => {
+    const prev = (commande.lignes || [])[i];
+    return prev && Number(l.quantiteLivree || 0) > Number(prev.quantiteLivree || 0);
+  })) {
+    throw new Error('Aucun avancement n\'a pu être enregistré — indiquez des heures ou un %.');
   }
+
   const fullyRecetted = isCommandeFullyRecetted({ ...commande, lignes: updatedLignes });
   const totalDev = filterLinesByKind(commande.lignes, 'dev').length;
-  const doneDev = filterLinesByKind(updatedLignes, 'dev').filter((l) => l.recetteValideeAt).length;
+  const doneDev = totalDev - afterLeft;
 
   const $set = {
     lignes: updatedLignes,
@@ -64,7 +81,7 @@ async function validateRecetteCommande(db, entrepriseId, commandeClientId, paylo
     libelle,
     notes,
     percent: totalDev ? Math.round((doneDev / totalDev) * 100) : 100,
-    ligneIds,
+    ligneIds: items.map((item) => item.id),
     date: now
   };
 
@@ -79,7 +96,7 @@ async function validateRecetteCommande(db, entrepriseId, commandeClientId, paylo
           date: now,
           libelle,
           notes,
-          ligneIds
+          ligneIds: avancement.ligneIds
         }
       }
     }

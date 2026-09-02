@@ -12,6 +12,7 @@
  */
 
 const createFromDevis = require('../services/commande-client/createFromDevis');
+const createCommandeClient = require('../services/commande-client/createCommandeClient');
 const listCommandesClient = require('../services/commande-client/listCommandesClient');
 const getCommandeClientById = require('../services/commande-client/getCommandeClientById');
 const updateCommandeClientStatus = require('../services/commande-client/updateCommandeClientStatus');
@@ -50,6 +51,8 @@ const createCommandeFournisseur = require('../services/commande-fournisseur/crea
 const updateCommandeFournisseur = require('../services/commande-fournisseur/updateCommandeFournisseur');
 const enregistrerReceptionFournisseur = require('../services/commande-fournisseur/enregistrerReceptionFournisseur');
 const sendCommandeFournisseurToFournisseur = require('../services/commande-fournisseur/sendCommandeFournisseurToFournisseur');
+const { sendEmailSuccess, sendEmailErrorStatus } = require('../services/mail/sendEmailHttpResponse');
+const setCommandeFournisseurReglee = require('../services/commande-fournisseur/setCommandeFournisseurReglee');
 
 async function devisToCommandeClient(req, res) {
   try {
@@ -58,6 +61,16 @@ async function devisToCommandeClient(req, res) {
   } catch (error) {
     console.error('GDERPI workflow devisToCommandeClient:', error);
     res.status(400).json({ success: false, message: error.message || 'Erreur transformation devis' });
+  }
+}
+
+async function createCommandeClientHandler(req, res) {
+  try {
+    const item = await createCommandeClient(req.entrepriseDb, req.entrepriseId, req.body || {});
+    res.status(201).json({ success: true, data: item });
+  } catch (error) {
+    console.error('GDERPI workflow createCommandeClient:', error);
+    res.status(400).json({ success: false, message: error.message || 'Erreur création commande client' });
   }
 }
 
@@ -201,10 +214,10 @@ async function sendFactureToClientHandler(req, res) {
       { ...(req.body || {}), factureId: req.params.factureId || req.body?.factureId },
       req
     );
-    res.json({ success: true, data });
+    sendEmailSuccess(res, data, 'Facture envoyée');
   } catch (error) {
     console.error('GDERPI workflow sendFactureToClient:', error);
-    const status = error.message === 'Commande client introuvable' ? 404 : 400;
+    const status = sendEmailErrorStatus(error);
     res.status(status).json({ success: false, message: error.message || 'Erreur envoi facture' });
   }
 }
@@ -279,10 +292,10 @@ async function sendAvoirToClientHandler(req, res) {
       },
       req
     );
-    res.json({ success: true, data });
+    sendEmailSuccess(res, data, 'Avoir envoyé');
   } catch (error) {
     console.error('GDERPI workflow sendAvoirToClient:', error);
-    const status = error.message === 'Commande client introuvable' ? 404 : 400;
+    const status = sendEmailErrorStatus(error);
     res.status(status).json({ success: false, message: error.message || 'Erreur envoi avoir' });
   }
 }
@@ -315,10 +328,10 @@ async function sendCommandeClientToClientHandler(req, res) {
       req.body || {},
       req
     );
-    res.json({ success: true, data });
+    sendEmailSuccess(res, data, 'Accusé de réception envoyé');
   } catch (error) {
     console.error('GDERPI workflow sendCommandeClientToClient:', error);
-    const status = error.message === 'Commande client introuvable' ? 404 : 400;
+    const status = sendEmailErrorStatus(error);
     res.status(status).json({ success: false, message: error.message || 'Erreur envoi accusé de réception' });
   }
 }
@@ -570,7 +583,8 @@ async function listCommandesFournisseurHandler(req, res) {
       fournisseurId: req.query.fournisseurId,
       commandeClientId: req.query.commandeClientId,
       search: req.query.q || req.query.search,
-      enAttente: req.query.enAttente === '1' || req.query.enAttente === 'true'
+      enAttente: req.query.enAttente === '1' || req.query.enAttente === 'true',
+      reglee: req.query.reglee != null ? String(req.query.reglee).trim() : ''
     });
     res.json({ success: true, data });
   } catch (error) {
@@ -593,17 +607,18 @@ async function getCommandeFournisseur(req, res) {
 async function updateCommandeFournisseurStatusHandler(req, res) {
   try {
     const statut = req.body?.statut || req.body?.status;
+    const sendEmail = req.body?.sendEmail !== false;
     const item = await updateCommandeFournisseurStatus(
       req.entrepriseDb,
       req.entrepriseId,
       req.params.id,
       statut,
-      { req, emailPayload: req.body || {} }
+      { req, sendEmail, emailPayload: req.body || {} }
     );
     res.json({ success: true, data: item });
   } catch (error) {
     console.error('GDERPI workflow updateCommandeFournisseurStatus:', error);
-    const status = error.message === 'Commande fournisseur introuvable' ? 404 : 400;
+    const status = sendEmailErrorStatus(error);
     res.status(status).json({ success: false, message: error.message || 'Erreur mise à jour statut' });
   }
 }
@@ -617,10 +632,10 @@ async function sendCommandeFournisseurHandler(req, res) {
       req.body || {},
       req
     );
-    res.json({ success: true, data });
+    sendEmailSuccess(res, data, 'E-mail envoyé au fournisseur');
   } catch (error) {
     console.error('GDERPI workflow sendCommandeFournisseur:', error);
-    const status = error.message === 'Commande fournisseur introuvable' ? 404 : 400;
+    const status = sendEmailErrorStatus(error);
     res.status(status).json({ success: false, message: error.message || 'Erreur envoi e-mail fournisseur' });
   }
 }
@@ -632,6 +647,23 @@ async function createCommandeFournisseurHandler(req, res) {
   } catch (error) {
     console.error('GDERPI workflow createCommandeFournisseur:', error);
     res.status(400).json({ success: false, message: error.message || 'Erreur création commande fournisseur' });
+  }
+}
+
+async function setCommandeFournisseurRegleeHandler(req, res) {
+  try {
+    const reglee = req.body?.reglee ?? req.body?.regle ?? req.body?.payee ?? req.body?.paid;
+    const item = await setCommandeFournisseurReglee(
+      req.entrepriseDb,
+      req.entrepriseId,
+      req.params.id,
+      reglee
+    );
+    res.json({ success: true, data: item });
+  } catch (error) {
+    console.error('GDERPI workflow setCommandeFournisseurReglee:', error);
+    const status = error.message === 'Commande fournisseur introuvable' ? 404 : 400;
+    res.status(status).json({ success: false, message: error.message || 'Erreur mise à jour règlement' });
   }
 }
 
@@ -648,6 +680,7 @@ async function updateCommandeFournisseurHandler(req, res) {
 
 module.exports = {
   devisToCommandeClient,
+  createCommandeClient: createCommandeClientHandler,
   listCommandesClient: listCommandesClientHandler,
   getCommandeClient,
   updateCommandeClient: updateCommandeClientHandler,
@@ -682,6 +715,7 @@ module.exports = {
   getCommandeFournisseur,
   updateCommandeFournisseur: updateCommandeFournisseurHandler,
   updateCommandeFournisseurStatus: updateCommandeFournisseurStatusHandler,
+  setCommandeFournisseurReglee: setCommandeFournisseurRegleeHandler,
   sendCommandeFournisseur: sendCommandeFournisseurHandler,
   enregistrerReceptionFournisseur: enregistrerReceptionFournisseurHandler,
   renderCommandeFournisseurHtml: renderCommandeFournisseurHtmlHandler,

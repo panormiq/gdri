@@ -63,10 +63,10 @@ async function resolveBlContact(db, entrepriseId, payload, commande, client) {
   if (commande?.devisId) {
     devis = await getDevisById(db, entrepriseId, commande.devisId);
   }
-  const resolved = resolveDevisContact(devis || {}, client);
+  const resolved = resolveDevisContact({ ...(devis || {}), ...(commande || {}) }, client);
   if (resolved) {
     return {
-      contactClientId: String(devis?.contactClientId || contactId || '').trim(),
+      contactClientId: String(commande?.contactClientId || devis?.contactClientId || contactId || '').trim(),
       contactNom: resolved.nom,
       contactFonction: resolved.fonction,
       contactEmail: resolved.email,

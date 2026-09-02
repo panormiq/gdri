@@ -1,0 +1,137 @@
+{
+  "id": "condition",
+  "name": "Condition",
+  "version": "2.2.0",
+  "family": "condition",
+  "category": "logic",
+  "kind": "action",
+  "visibility": "orchestrator-only",
+  "description": "Branchement vrai / faux, ou cas figés depuis une collection (version / révision).",
+  "canvas": {
+    "iconEmoji": "◇",
+    "color": "#0ea5e9",
+    "borderRadius": 12,
+    "width": 200,
+    "inputs": [
+      { "id": "main", "label": "Entrée", "type": "main", "maxConnections": 0 }
+    ],
+    "outputs": [
+      { "id": "true", "label": "Vrai", "type": "main", "side": "right", "maxConnections": 0 },
+      { "id": "false", "label": "Faux", "type": "main", "side": "right", "maxConnections": 0 }
+    ]
+  },
+  "operations": {
+    "condition.if": {
+      "label": "Condition",
+      "configSchema": {
+        "type": "object",
+        "properties": {
+          "mode": {
+            "type": "string",
+            "title": "Type",
+            "enum": ["if", "case"],
+            "enumLabels": {
+              "if": "Si (vrai / faux)",
+              "case": "Cas (switch)"
+            },
+            "default": "if"
+          },
+          "field": {
+            "type": "string",
+            "title": "Champ du contexte",
+            "format": "context-field",
+            "default": "",
+            "description": "Liste construite depuis les blocs amont"
+          },
+          "op": {
+            "type": "string",
+            "title": "Condition",
+            "enum": ["contains", "eq", "neq", "truthy", "falsy", "gt", "lt"],
+            "enumLabels": {
+              "contains": "contient",
+              "eq": "est égal à",
+              "neq": "est différent de",
+              "truthy": "est renseigné",
+              "falsy": "est vide",
+              "gt": "supérieur à",
+              "lt": "inférieur à"
+            },
+            "default": "contains"
+          },
+          "value": {
+            "type": "string",
+            "title": "Valeur",
+            "default": ""
+          },
+          "caseOp": {
+            "type": "string",
+            "title": "Comparaison des cas",
+            "enum": ["eq", "contains", "neq"],
+            "enumLabels": {
+              "eq": "est égal à",
+              "contains": "contient",
+              "neq": "est différent de"
+            },
+            "default": "eq"
+          },
+          "caseSource": {
+            "type": "string",
+            "title": "Source des cas",
+            "enum": ["manual", "collection"],
+            "enumLabels": {
+              "manual": "Saisie",
+              "collection": "Collection"
+            },
+            "default": "manual"
+          },
+          "caseCollectionId": {
+            "type": "string",
+            "title": "Collection des cas",
+            "default": ""
+          },
+          "caseValueKey": {
+            "type": "string",
+            "title": "Champ valeur",
+            "default": ""
+          },
+          "caseLabelKey": {
+            "type": "string",
+            "title": "Champ libellé",
+            "default": ""
+          },
+          "casesCollectionVersion": {
+            "type": "string",
+            "title": "Version figée",
+            "default": ""
+          },
+          "casesCollectionRevision": {
+            "type": "integer",
+            "title": "Révision figée",
+            "default": 0
+          },
+          "casesSnapshotAt": {
+            "type": "string",
+            "title": "Instantané",
+            "default": ""
+          },
+          "cases": {
+            "type": "array",
+            "title": "Cas (snapshot)",
+            "items": { "type": "object" },
+            "default": []
+          }
+        }
+      },
+      "outputMessage": {
+        "type": "condition-result",
+        "fields": [
+          { "key": "condition", "label": "Résultat (vrai / faux / cas)" },
+          { "key": "field", "label": "Champ testé" },
+          { "key": "actual", "label": "Valeur trouvée" }
+        ]
+      }
+    }
+  },
+  "permissions": [],
+  "serviceRef": "backend/core/agent-flow/families"
+}

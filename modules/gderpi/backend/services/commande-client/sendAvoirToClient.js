@@ -12,6 +12,7 @@ const parseCustomMessageFromPayload = require('../mail/parseCustomMessageFromPay
 const { parseEmailRecipientsFromPayload } = require('../mail/parseEmailRecipientsFromPayload');
 const resolveGderpiMailTemplate = require('../mail/resolveGderpiMailTemplate');
 const { getMailService, resolveSmtpProfileForSender } = require('../mail/MailHelper');
+const { buildGderpiMailContext } = require('../mail/gderpiMailDocumentTypes');
 const renderAvoirEmailHtml = require('./renderAvoirEmailHtml');
 const resolveCgvEmailUrls = require('../mail/resolveCgvEmailUrls');
 const resolveDevisContact = require('../pdf/resolveDevisContact');
@@ -29,8 +30,9 @@ const SENDABLE_STATUTS = new Set(['facturee', 'facturee_partiellement', 'livree'
 function resolveRecipient(commande, devis, client, payload) {
   const override = String(payload?.to || payload?.email || '').trim();
   if (override) return override;
-  if (devis?.contactEmail) return String(devis.contactEmail).trim();
-  const contact = resolveDevisContact(devis || {}, client);
+  const party = { ...(devis || {}), ...(commande || {}) };
+  if (party.contactEmail) return String(party.contactEmail).trim();
+  const contact = resolveDevisContact(party, client);
   if (contact?.email) return contact.email;
   if (client?.email) return String(client.email).trim();
   return '';
@@ -103,7 +105,7 @@ async function sendAvoirToClient(db, entrepriseId, commandeClientId, payload, re
 
   const mail = getMailService();
   await mail.init();
-  const senderEmail = String(devis?.emetteurContactEmail || boutique?.email || '').trim();
+  const senderEmail = String(commande?.emetteurContactEmail || devis?.emetteurContactEmail || boutique?.email || '').trim();
   const profile = await resolveSmtpProfileForSender(entrepriseId, senderEmail, {
     boutiqueGenericEmail: boutique?.email || ''
   });
@@ -117,12 +119,17 @@ async function sendAvoirToClient(db, entrepriseId, commandeClientId, payload, re
     profile,
     module_name: 'gderpi',
     entity_id: String(entrepriseId),
-    context: {
-      commandeClientId: String(commandeClientId),
-      factureId: facture.id,
-      avoirId: avoir.id,
-      action: 'send_avoir'
-    }
+    context: buildGderpiMailContext({
+      action: 'send_avoir',
+      documentType: 'avoir',
+      documentId: avoir.id,
+      documentNumero: avoir.numero,
+      extra: {
+        commandeClientId: String(commandeClientId),
+        factureId: facture.id,
+        avoirId: avoir.id
+      }
+    })
   });
 
   if (!sendResult?.success) {

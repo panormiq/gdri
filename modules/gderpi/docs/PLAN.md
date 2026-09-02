@@ -33,7 +33,7 @@ Le parcours commercial principal est **opérationnel** :
 | Boutiques + CGV + conditions vente | 💻 | 💻 | OK |
 | Catégories (nœuds) + articles + unités | 💻 | 💻 | OK |
 | Clients + fournisseurs + services clients | 💻 | 💻 | OK |
-| Devis (CRUD, PDF, envoi, acceptation publique) | 💻 | 💻 | OK |
+| Devis (CRUD, PDF, envoi, duplication, acceptation publique) | 💻 | 💻 | OK |
 | Commandes client + workflow GDRI | 💻 | 💻 | OK |
 | Commandes fournisseur + réception partielle | 💻 | 💻 | OK |
 | Bons de livraison partiels | 💻 | 💻 | OK |
@@ -70,6 +70,9 @@ Le parcours commercial principal est **opérationnel** :
 | 10 | **Tests automatisés** | Basse | ⬜ | Aucun test module |
 | 11 | **README.md** | Basse | ⬜ | Installation / démarrage |
 | 12 | **Mise à jour continue PLAN.md** | — | 💻 | Ce fichier |
+| 13 | **Commande client sans devis** | Haute | 💻 | `POST /commandes-client` + bouton « + Commande client » |
+| 14 | **Articles dev sans suivi commande** | Haute | 💻 | Option `gererCommande` — recette facultative, facturable dès acceptation |
+| 15 | **Prestation en cours + avancement** | Haute | 💻 | Statut `prestation_en_cours`, heures ou % puis facture |
 
 ### Ordre de travail recommandé (suite)
 
@@ -189,8 +192,8 @@ Voir `backend/routes.js` pour la liste complète.
 | Boutiques | `GET/POST/PUT/DELETE /boutiques` | 💻 |
 | Catalogue | `/nodes`, `/articles`, `/unites` | 💻 |
 | Tiers | `/clients`, `/fournisseurs`, `/client-services` | 💻 |
-| Devis | `/devis`, `/devis/:id/pdf`, `/devis/:id/send`, `/devis/:id/to-commande-client` | 💻 |
-| Commandes client | `/commandes-client`, workflow, BL, facturation, avoirs | 💻 |
+| Devis | `/devis`, `/devis/:id/pdf`, `/devis/:id/send`, `/devis/:id/duplicate`, `/devis/:id/to-commande-client` | 💻 |
+| Commandes client | `GET/POST /commandes-client`, workflow, BL, facturation, avoirs | 💻 |
 | Commandes fournisseur | `/commandes-fournisseur`, réception | 💻 |
 | Public | `/public/devis|facture|avoir|…/:entrepriseId/…` | 💻 |
 | Mail | `/settings/mail`, `/mail/contacts` | 💻 |

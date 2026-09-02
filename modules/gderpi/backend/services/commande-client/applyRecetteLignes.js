@@ -4,6 +4,8 @@
  */
 
 const { filterLinesByKind } = require('../workflow/commandeClientKind');
+const lineRequiresRecette = require('../workflow/lineRequiresRecette');
+const isPrestationLine = require('../workflow/isPrestationLine');
 
 function applyRecetteLignes(lignes, ligneIds, now) {
   const list = Array.isArray(lignes) ? lignes.map((l) => ({ ...l })) : [];
@@ -11,8 +13,7 @@ function applyRecetteLignes(lignes, ligneIds, now) {
   const date = now || new Date();
 
   list.forEach((line, idx) => {
-    const t = String(line.articleType || '').toLowerCase();
-    if (t !== 'developpement' && t !== 'service') return;
+    if (!isPrestationLine(line)) return;
     if (line.recetteValideeAt) return;
     if (!ids.has(String(line.id))) return;
     list[idx] = { ...line, recetteValideeAt: date };
@@ -23,7 +24,7 @@ function applyRecetteLignes(lignes, ligneIds, now) {
 
 function remainingDevLineIds(lignes) {
   return filterLinesByKind(lignes, 'dev')
-    .filter((l) => !l.recetteValideeAt)
+    .filter((l) => lineRequiresRecette(l) && !l.recetteValideeAt)
     .map((l) => String(l.id));
 }
 

@@ -1081,6 +1081,23 @@ router.post('/config', authenticateJWT, async (req, res) => {
 // ---------- CRUD LLMs (backoffice, scopé par entité) ----------
 
 /**
+ * GET /api/ia/available-llms - Modèles utilisables (serveurs + droits + ia_llms)
+ */
+router.get('/available-llms', authenticateJWT, requireEntity, async (req, res) => {
+  try {
+    const { listAvailableLlms } = require('./services/AvailableModels');
+    const userId = (req.user && (req.user.user_id || req.user.sub || req.user._id))
+      ? String(req.user.user_id || req.user.sub || req.user._id)
+      : null;
+    const llms = await listAvailableLlms(req.iaEntityId, { userId });
+    res.json({ success: true, llms });
+  } catch (e) {
+    console.error('GET /api/ia/available-llms:', e);
+    res.status(500).json({ success: false, message: e.message });
+  }
+});
+
+/**
  * GET /api/ia/llms - Liste des LLMs de l'entité (JWT + entité)
  * Query: entity_id (optionnel, ADMIN_GDRI uniquement)
  */

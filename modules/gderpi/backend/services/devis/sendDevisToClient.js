@@ -20,6 +20,7 @@ const { parseEmailRecipientsFromPayload } = require('../mail/parseEmailRecipient
 const resolveGderpiMailTemplate = require('../mail/resolveGderpiMailTemplate');
 
 const { getMailService, resolveSmtpProfileForSender } = require('../mail/MailHelper');
+const { buildGderpiMailContext } = require('../mail/gderpiMailDocumentTypes');
 
 const createDevisPublicLink = require('./createDevisPublicLink');
 
@@ -177,7 +178,13 @@ async function sendDevisToClient(db, entrepriseId, devisId, payload, req) {
 
     entity_id: String(entrepriseId),
 
-    context: { devisId: String(devisId), action: 'send_devis' }
+    context: buildGderpiMailContext({
+      action: 'send_devis',
+      documentType: 'devis',
+      documentId: devisId,
+      documentNumero: devis.numero,
+      extra: { devisId: String(devisId) }
+    })
 
   });
 

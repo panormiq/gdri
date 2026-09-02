@@ -7,12 +7,50 @@ import DocumentListPage from '../document/DocumentListPage.js';
 import DocumentViewPage from '../document/DocumentViewPage.js';
 import DocumentCreatePage from '../document/DocumentCreatePage.js';
 import DocumentEditorPage from '../document/DocumentEditorPage.js';
-import TemplateListPage from '../template/TemplateListPage.js';
-import TemplateBuilderPage from '../templateBuilder/TemplateBuilderPage.js';
+import TemplateListPage from '../template/TemplateListPage.js?v=tpl-kind-3';
+import TemplateCreatePage from '../template/TemplateCreatePage.js?v=tpl-loop-4';
+import TemplateHtmlPage from '../template/TemplateHtmlPage.js?v=tpl-kind-3';
+import TemplatePromptPage from '../template/TemplatePromptPage.js?v=tpl-loop-4';
+import TemplateBuilderPage from '../templateBuilder/TemplateBuilderPage.js?v=tpl-kind-3';
 
 import { collectionApi } from '../shared/api/CollectionApi.js';
 import { collectionElementApi } from '../shared/api/CollectionElementApi.js';
 import { templateApi } from '../shared/api/TemplateApi.js';
+import { normalizeTemplateKind, editorPath } from '../template/templateKinds.js?v=tpl-loop-4';
+import { canvasEditorUrl, canvasNamespaceForTemplate } from './canvasEditor.js';
+
+function pageForTemplateKind(router, templateId, kind) {
+  const k = normalizeTemplateKind(kind);
+  if (k === 'canvas') {
+    window.location.href = canvasEditorUrl({
+      template: `v3:${templateId}`,
+    });
+    return null;
+  }
+  if (k === 'html') return new TemplateHtmlPage(router, templateId);
+  if (k === 'prompt') return new TemplatePromptPage(router, templateId);
+  return new TemplateBuilderPage(router, templateId, 'word');
+}
+
+async function pageForStoredTemplate(router, templateId) {
+  const res = await templateApi.getById(templateId);
+  if (!res.success || !res.data) {
+    const wrap = {
+      render(container) {
+        container.innerHTML = `<p style="padding:2rem;text-align:center;">Template introuvable.</p>`;
+      },
+    };
+    return wrap;
+  }
+  const kind = normalizeTemplateKind(res.data);
+  if (kind === 'canvas') {
+    window.location.href = canvasEditorUrl({
+      template: canvasNamespaceForTemplate(res.data),
+    });
+    return null;
+  }
+  return pageForTemplateKind(router, templateId, kind);
+}
 
 export default [
 
@@ -37,20 +75,45 @@ export default [
   ===================================================== */
   {
     regex: /^\/templates\/create$/,
-    component: router => new TemplateBuilderPage(router, null),
+    component: router => new TemplateCreatePage(router),
+  },
+  {
+    regex: /^\/templates\/create\/word$/,
+    component: router => new TemplateBuilderPage(router, null, 'word'),
+  },
+  {
+    regex: /^\/templates\/create\/prompt$/,
+    component: router => new TemplateCreatePage(router, 'prompt'),
   },
 
   /* =====================================================
-     TEMPLATES – Éditer un template
+     TEMPLATES – Éditer (éditeur imposé par le kind)
   ===================================================== */
   {
-    regex: /^\/templates\/edit\/([^/]+)$/,
-    component: (router, params) => {
-      // params est un tableau retourné par match.slice(1), donc params[0] contient le templateId
-      const templateId = params[0];
-      console.log('🔍 Route /templates/edit/ matched, templateId:', templateId, 'params:', params);
-      return new TemplateBuilderPage(router, templateId);
+    regex: /^\/templates\/edit\/(prompt|html|word)\/([^/]+)$/,
+    component: async (router, params) => {
+      const urlKind = params[0];
+      const templateId = params[1];
+      const res = await templateApi.getById(templateId);
+      const storedKind = res.success && res.data
+        ? normalizeTemplateKind(res.data)
+        : urlKind;
+      if (storedKind !== urlKind) {
+        if (storedKind === 'canvas') {
+          window.location.href = canvasEditorUrl({
+            template: canvasNamespaceForTemplate(res.data || { _id: templateId }),
+          });
+          return null;
+        }
+        router.navigate(editorPath(storedKind, templateId));
+        return null;
+      }
+      return pageForTemplateKind(router, templateId, urlKind);
     },
+  },
+  {
+    regex: /^\/templates\/edit\/([^/]+)$/,
+    component: async (router, params) => pageForStoredTemplate(router, params[0]),
   },
 
   /* =====================================================

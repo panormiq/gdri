@@ -74,6 +74,7 @@
     treeCollapsed: new Set(),
     fieldsExpanded: new Set(),
     fieldsCollapsed: new Set(),
+    dataContracts: null,
     selectedGuide: null,
     guideEditMode: false,
     guideRefZoneId: null,
@@ -140,20 +141,58 @@
 
   function $(id) { return document.getElementById(id); }
 
+  function readContractHintFromUrl() {
+    const params = new URLSearchParams(window.location.search);
+    return {
+      providers: String(params.get('provider') || '').split(',').map((s) => s.trim()).filter(Boolean),
+      kinds: String(params.get('kinds') || '').split(',').map((s) => s.trim()).filter(Boolean)
+    };
+  }
+
+  function loadAgentPageContext() {
+    const ns = state.namespace || state.template?.namespace || '';
+    let fromStore = null;
+    try {
+      if (ns) {
+        const keyed = sessionStorage.getItem('gdriAgentPageContext:' + ns);
+        if (keyed) fromStore = JSON.parse(keyed);
+      }
+      if (!fromStore) {
+        fromStore = JSON.parse(sessionStorage.getItem('gdriAgentPageContext') || 'null');
+      }
+    } catch (e) {
+      fromStore = null;
+    }
+    if (fromStore && fromStore.namespace && ns && fromStore.namespace !== ns) {
+      fromStore = null;
+    }
+    const fromTpl = state.template?.metadata?.agentPageContext || null;
+    return fromStore || fromTpl || null;
+  }
+
   function catalog() {
     const root = global.Adv2FieldsCatalog;
     if (!root) return { FIELD_GROUPS: [], PLACEHOLDER_DATA: {}, SAMPLE_TABLE_LINES: [] };
     if (typeof root.resolveCatalog === 'function') {
+      const ctx = loadAgentPageContext();
+      const hint = readContractHintFromUrl();
+      if (!hint.providers.length && ctx && ctx.dataContract) {
+        hint.providers = ctx.dataContract.providers || [];
+        hint.kinds = hint.kinds.length ? hint.kinds : (ctx.dataContract.kinds || []);
+      }
       return root.resolveCatalog({
         namespace: state.namespace || state.template?.namespace || '',
-        scope: state.template?.scope || ''
+        scope: state.template?.scope || '',
+        agentPageContext: ctx,
+        contracts: state.dataContracts || null,
+        contractHint: hint
       });
     }
     return root;
   }
 
   function isUgapDevisTemplate() {
-    return catalog().id !== 'agent-review';
+    return catalog().id === 'ugap';
   }
 
   function getFocusedTextFrameId() {
@@ -2568,7 +2607,7 @@
     const header = `
       <div class="adv2-field-catalog-banner" style="margin:0 0 10px;padding:8px 10px;border-radius:8px;background:#eff6ff;border:1px solid #bfdbfe;font-size:0.8rem;color:#1e3a8a;">
         Catalogue : <strong>${escHtml(catalogLabel)}</strong>
-        <br><span style="color:#64748b;">Template <code>${escHtml(state.namespace || '')}</code></span>
+        <br><span style="color:#64748b;">Champs du bloc Données — <code>${escHtml(state.namespace || '')}</code></span>
       </div>
     `;
     if (!groups.length) {
@@ -3250,12 +3289,19 @@
     renderSidePanel();
     renderCanvas();
     const catalogLabel = catalog().label || catalog().id || '';
+    const ctx = loadAgentPageContext();
+    const contractCount = ctx && ctx.dataContract && Array.isArray(ctx.dataContract.fields)
+      ? ctx.dataContract.fields.length
+      : 0;
+    const ctxHint = ctx
+      ? (contractCount ? ` — contexte agent + ${contractCount} champs contrat` : ' — contexte agent transmis')
+      : '';
     setStatus(
       addedTotal
         ? `Template ${state.namespace} chargé — zone Total devis ajoutée (enregistrez)`
         : upgradedTotal || fixedAlign
           ? `Template ${state.namespace} chargé — totaux mis à jour (enregistrez)`
-          : `Template ${state.namespace} chargé (${catalogLabel})`,
+          : `Template ${state.namespace} chargé (${catalogLabel})${ctxHint}`,
       'ok'
     );
   }
@@ -3326,21 +3372,35 @@
 
   async function generateTemplateWithAi() {
     if (catalog().id !== 'agent-review') {
-      alert('La génération IA est disponible pour les templates de revue mail (agent:review:…).');
+      alert('La génération IA est disponible pour les templates de revue / page agent.');
       return;
     }
+    const ctx = loadAgentPageContext() || {};
+    const defaultBrief = ctx.reviewContext || ctx.agentContext
+      || 'Page claire de validation des données avec cases à cocher.';
     const brief = window.prompt(
-      'Décrivez la page de revue à générer :',
-      'Page claire de validation facture : en-tête, expéditeur/sujet, corps du mail, liste des PDF à télécharger.'
+      'Décrivez la page à générer :',
+      defaultBrief
     );
     if (brief === null) return;
     if (!window.confirm('Remplacer la mise en page actuelle par une génération IA ?')) return;
     setStatus('Génération IA en cours…');
     const res = await global.Adv2Api.generateAi(state.namespace, {
       brief: String(brief || '').trim(),
+      agentContext: ctx.agentContext || '',
+      reviewContext: String(brief || '').trim() || ctx.reviewContext || '',
+      dataContract: ctx.dataContract || null,
       save: true
     });
     state.template = res.data;
+    try {
+      const savedCtx = res.data && res.data.metadata && res.data.metadata.agentPageContext;
+      if (savedCtx) {
+        const payload = JSON.stringify(Object.assign({ namespace: state.namespace }, savedCtx));
+        sessionStorage.setItem('gdriAgentPageContext', payload);
+        sessionStorage.setItem('gdriAgentPageContext:' + state.namespace, payload);
+      }
+    } catch (e) { /* ignore */ }
     state.selectedId = null;
     state.selectedGuide = null;
     state.fieldsExpanded = new Set();
@@ -3352,7 +3412,30 @@
     setStatus((res.message || 'Page générée') + ` (${src})`, res.source === 'ia' ? 'ok' : 'err');
   }
 
+  function returnToAgent(href) {
+    try {
+      if (window.opener && !window.opener.closed) {
+        window.opener.postMessage({ type: 'gdri-doc-editor-updated', namespace: state.namespace }, window.location.origin);
+        window.opener.focus();
+        window.close();
+        return;
+      }
+    } catch (e) { /* cross-origin */ }
+    if (href) window.location.href = href;
+  }
+
   function bindToolbar() {
+    $('adv2-back')?.addEventListener('click', (ev) => {
+      ev.preventDefault();
+      const href = ev.currentTarget.getAttribute('href');
+      saveTemplate()
+        .catch((e) => {
+          if (!window.confirm('Enregistrement échoué. Quitter quand même ?\n' + (e && e.message ? e.message : e))) {
+            throw e;
+          }
+        })
+        .then(() => returnToAgent(href));
+    });
     $('adv2-save')?.addEventListener('click', () => saveTemplate().catch((e) => setStatus(e.message, 'err')));
     $('adv2-preview')?.addEventListener('click', () => previewTemplate().catch((e) => setStatus(e.message, 'err')));
     $('adv2-reload')?.addEventListener('click', () => loadTemplate(state.namespace).catch((e) => setStatus(e.message, 'err')));
@@ -3370,6 +3453,16 @@
     document.addEventListener('mouseup', onMouseUp);
   }
 
+  async function loadDataContracts() {
+    if (!global.Adv2Api || typeof global.Adv2Api.getDataContracts !== 'function') return;
+    try {
+      const res = await global.Adv2Api.getDataContracts();
+      state.dataContracts = res.contracts || null;
+    } catch (e) {
+      state.dataContracts = null;
+    }
+  }
+
   async function boot() {
     const params = new URLSearchParams(window.location.search);
     const ns = params.get('template') || DEFAULT_NS;
@@ -3377,6 +3470,7 @@
     bindCanvasViewport();
     initCanvasInteraction();
     try {
+      await loadDataContracts();
       await loadTemplate(ns);
     } catch (e) {
       setStatus(e.message || 'Erreur chargement', 'err');

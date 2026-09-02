@@ -8,6 +8,7 @@ const createFromDevis = require('../commande-client/createFromDevis');
 const parsePublicDevisOrderLines = require('./parsePublicDevisOrderLines');
 const detectCommandeModifiedFromDevis = require('../workflow/detectCommandeModifiedFromDevis');
 const { resolveDevisPublicLink } = require('./resolveDevisPublicLink');
+const { parseSansBonCommandeClient } = require('../workflow/bonCommandeClient');
 const sendDevisOrderConfirmationEmail = require('./sendDevisOrderConfirmationEmail');
 
 const COLLECTION = 'gderpi_devis_public_links';
@@ -56,6 +57,17 @@ async function confirmDevisOrderByPublicLink(db, entrepriseId, token, payload = 
   }
 
   const body = payload && typeof payload === 'object' ? payload : {};
+  const sansBonCommandeClient = parseSansBonCommandeClient(body.sansBonCommandeClient);
+  const referenceClient = String(body.referenceClient || devis.referenceClient || devis.documentClient || '').trim();
+  if (!referenceClient && !sansBonCommandeClient && !devis.sansBonCommandeClient) {
+    return {
+      ok: false,
+      status: 400,
+      message: 'Indiquez votre n° de bon de commande, ou cochez « Je n\'ai pas de n° de commande ».',
+      code: 'missing_reference',
+      devis
+    };
+  }
   const lignes = parsePublicDevisOrderLines(devis.lignes, body);
   if (!lignes.length) {
     return {
@@ -72,7 +84,10 @@ async function confirmDevisOrderByPublicLink(db, entrepriseId, token, payload = 
 
   let updatedDevis = devis;
   if (devis.statut !== 'accepte') {
-    updatedDevis = await changeDevisStatus(db, entrepriseId, link.devisId, 'accepte');
+    updatedDevis = await changeDevisStatus(db, entrepriseId, link.devisId, 'accepte', {
+      referenceClient,
+      sansBonCommandeClient: !referenceClient
+    });
     await db.collection('gderpi_devis').updateOne(
       { entrepriseId: String(entrepriseId), devisId: String(link.devisId) },
       {
@@ -91,7 +106,8 @@ async function confirmDevisOrderByPublicLink(db, entrepriseId, token, payload = 
 
   const commande = await createFromDevis(db, entrepriseId, link.devisId, {
     lignes,
-    referenceClient: body.referenceClient
+    referenceClient,
+    sansBonCommandeClient: !referenceClient
   });
 
   await db.collection(COLLECTION).updateOne(

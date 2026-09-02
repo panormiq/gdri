@@ -42,6 +42,7 @@ require_once '../../includes/header.php';
             <button type="button" class="gderpi-nav-btn" data-gderpi-nav="bons-livraison">Bons de livraison</button>
             <button type="button" class="gderpi-nav-btn" data-gderpi-nav="achats">Commandes fournisseur</button>
             <button type="button" class="gderpi-nav-btn" data-gderpi-nav="facturation">Facturation</button>
+            <button type="button" class="gderpi-nav-btn" data-gderpi-nav="emails">E-mails envoyés</button>
             <div class="gderpi-nav-group" id="gderpi-nav-group-configuration">
                 <button type="button" class="gderpi-nav-btn gderpi-nav-btn--parent" data-gderpi-nav="configuration" aria-expanded="false">
                     <span>Configuration</span>
@@ -175,6 +176,12 @@ require_once '../../includes/header.php';
                                             <label class="gderpi-field__check" for="gderpi-article-gestion-stock">
                                                 <input id="gderpi-article-gestion-stock" type="checkbox"> Géré en stock (besoin d'achat à la commande)
                                             </label>
+                                        </div>
+                                        <div class="gderpi-field gderpi-field--check" id="gderpi-article-gerer-commande-wrap" hidden>
+                                            <label class="gderpi-field__check" for="gderpi-article-gerer-commande">
+                                                <input id="gderpi-article-gerer-commande" type="checkbox"> Suivre la prestation (avancement heures / % avant facture)
+                                            </label>
+                                            <p class="gderpi-field-hint">Cochez pour facturer au fur et à mesure (heures ou %). Décochez si la prestation est déjà terminée : facture directe.</p>
                                         </div>
                                         <div class="gderpi-field">
                                             <label class="gderpi-field__label" for="gderpi-article-tva">TVA (%)</label>
@@ -1035,7 +1042,7 @@ require_once '../../includes/header.php';
                                         <th><button type="button" class="gderpi-table-sort" data-devis-sort="numero">N°</button></th>
                                         <th><button type="button" class="gderpi-table-sort" data-devis-sort="date">Date</button></th>
                                         <th><button type="button" class="gderpi-table-sort" data-devis-sort="client">Client</button></th>
-                                        <th><button type="button" class="gderpi-table-sort" data-devis-sort="documentClient">Doc. client</button></th>
+                                        <th><button type="button" class="gderpi-table-sort" data-devis-sort="documentClient">N° cmd client</button></th>
                                         <th><button type="button" class="gderpi-table-sort" data-devis-sort="objet">Objet</button></th>
                                         <th><button type="button" class="gderpi-table-sort" data-devis-sort="statut">Statut</button></th>
                                         <th>Commande</th>
@@ -1064,7 +1071,7 @@ require_once '../../includes/header.php';
                                     <tr>
                                         <th>Boutique / émetteur</th>
                                         <th>Client</th>
-                                        <th>Document client</th>
+                                        <th>N° commande client</th>
                                         <th>Service</th>
                                         <th>Contact</th>
                                     </tr>
@@ -1087,7 +1094,7 @@ require_once '../../includes/header.php';
                                             <input type="text" id="gderpi-devis-client-search" class="form-control gderpi-devis-meta-client" placeholder="Tapez nom, email, ville…" autocomplete="off">
                                         </td>
                                         <td>
-                                            <input id="gderpi-devis-document-client" class="form-control gderpi-devis-meta-ref" type="text" placeholder="N° dossier, demande…" autocomplete="off">
+                                            <input id="gderpi-devis-document-client" class="form-control gderpi-devis-meta-ref" type="text" placeholder="N° bon de commande client…" autocomplete="off">
                                         </td>
                                         <td>
                                             <select id="gderpi-devis-service-select" class="form-control gderpi-devis-meta-service" disabled>
@@ -1308,8 +1315,11 @@ require_once '../../includes/header.php';
                     <div class="gderpi-vue-lc__header">
                         <div>
                             <h3 class="gderpi-vue-lc__title">Commandes client</h3>
-                            <p class="gderpi-vue-lc__desc">Pipeline commandes — validation GDRI, achats, livraison client et recette dev.</p>
+                            <p class="gderpi-vue-lc__desc">Pipeline commandes — depuis un devis accepté ou en création directe. Validation GDRI, achats, livraison et recette.</p>
                         </div>
+                        <?php if ($canWriteGderpi): ?>
+                        <button type="button" class="btn btn-primary btn-sm" id="gderpi-commandes-new">+ Commande client</button>
+                        <?php endif; ?>
                     </div>
                     <div class="gderpi-vue-lc__list-header">Liste</div>
                     <div class="gderpi-vue-lc__toolbar">
@@ -1325,6 +1335,7 @@ require_once '../../includes/header.php';
                             <option value="a_valider_gdri">À valider GDRI</option>
                             <option value="validee_client">Validée client</option>
                             <option value="validee_gdri">Validée GDRI</option>
+                            <option value="prestation_en_cours">Prestation en cours</option>
                             <option value="achats_en_cours">Achats en cours</option>
                             <option value="attente_livraison_frs">Attente livraison frs</option>
                             <option value="a_livrer">À livrer</option>
@@ -1365,7 +1376,7 @@ require_once '../../includes/header.php';
                     <div class="gderpi-vue-lc__header">
                         <div>
                             <h3 class="gderpi-vue-lc__title">Commandes fournisseur</h3>
-                            <p class="gderpi-vue-lc__desc">Achats liés aux commandes clients ou commandes autonomes (stock). Double-clic sur une ligne pour éditer.</p>
+                            <p class="gderpi-vue-lc__desc">Achats liés aux commandes clients ou commandes autonomes (stock). Double-clic pour éditer. En brouillon : « Marquer envoyée » (sans e-mail) ou « Valider et envoyer ».</p>
                         </div>
                         <?php if ($canWriteGderpi): ?>
                         <div class="gderpi-vue-lc__header-actions" style="display:flex;gap:0.5rem;flex-wrap:wrap;">
@@ -1384,11 +1395,16 @@ require_once '../../includes/header.php';
                             <option value="confirmee">Confirmée</option>
                             <option value="recue">Reçue</option>
                         </select>
+                        <select id="gderpi-achats-filter-reglee" class="form-control form-control-sm" style="max-width:160px;">
+                            <option value="">Tous règlements</option>
+                            <option value="0">Non réglées</option>
+                            <option value="1">Réglées</option>
+                        </select>
                         <span class="gderpi-vue-lc__count" id="gderpi-achats-count"></span>
                     </div>
                     <div class="gderpi-vue-lc__table-wrap">
                         <table class="gderpi-vue-lc__table">
-                            <thead><tr><th>N°</th><th>Fournisseur</th><th>Objet</th><th>Statut</th><th class="text-end">Total HT</th><th></th></tr></thead>
+                            <thead><tr><th>N°</th><th>Fournisseur</th><th>Objet</th><th>Statut</th><th>Règlement</th><th class="text-end">Total HT</th><th></th></tr></thead>
                             <tbody id="gderpi-achats-tbody"></tbody>
                         </table>
                     </div>
@@ -1446,6 +1462,39 @@ require_once '../../includes/header.php';
                 </div>
             </section>
 
+            <!-- E-mails envoyés -->
+            <section id="gderpi-panel-emails" class="gderpi-main-panel" hidden>
+                <div class="gderpi-vue-lc" data-gderpi-vue-lc="emails">
+                    <div class="gderpi-vue-lc__header">
+                        <div>
+                            <h3 class="gderpi-vue-lc__title">E-mails envoyés</h3>
+                            <p class="gderpi-vue-lc__desc">Copies des messages envoyés par GDERPI. L'envoi SMTP ne les dépose pas dans la boîte « Envoyés » de votre webmail.</p>
+                        </div>
+                        <button type="button" class="btn btn-outline btn-sm" id="gderpi-emails-refresh">Actualiser</button>
+                    </div>
+                    <div class="gderpi-vue-lc__toolbar">
+                        <select id="gderpi-emails-filter-type" class="form-control form-control-sm" style="max-width:220px;" aria-label="Filtrer par type de document">
+                            <option value="">Tous les documents</option>
+                        </select>
+                        <select id="gderpi-emails-filter-status" class="form-control form-control-sm" style="max-width:160px;" aria-label="Filtrer par statut">
+                            <option value="">Tous les statuts</option>
+                            <option value="sent">Envoyés</option>
+                            <option value="failed">Échecs</option>
+                        </select>
+                        <input type="search" class="form-control form-control-sm" id="gderpi-emails-search" placeholder="Destinataire, objet, n°…" style="max-width:260px;">
+                        <span class="gderpi-vue-lc__count" id="gderpi-emails-count"></span>
+                    </div>
+                    <div class="gderpi-mailbox">
+                        <div class="gderpi-mailbox__list" id="gderpi-emails-list"></div>
+                        <div class="gderpi-mailbox__preview" id="gderpi-emails-preview">
+                            <div class="gderpi-mailbox__empty">
+                                <p>Sélectionnez un message pour afficher le contenu envoyé.</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
             <!-- Éditeur commande client (modale) -->
             <div id="gderpi-cmd-client-editor" class="gderpi-doc-editor gderpi-modal gderpi-modal--xl gderpi-modal--devis" hidden>
                 <div class="gderpi-doc-editor__header">
@@ -1459,41 +1508,96 @@ require_once '../../includes/header.php';
                     Ce devis est expiré — vous pouvez tout de même créer la commande.
                 </div>
                 <div class="gderpi-panel-card gderpi-devis-meta-card">
-                    <div class="gderpi-devis-meta-fields" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:0.75rem 1rem;">
-                        <div class="gderpi-devis-meta-fields__item">
-                            <span class="gderpi-devis-meta-fields__label">Client</span>
-                            <div id="gderpi-cmd-client-client" class="form-control-plaintext">—</div>
-                        </div>
-                        <div class="gderpi-devis-meta-fields__item">
-                            <span class="gderpi-devis-meta-fields__label">Document client</span>
-                            <div id="gderpi-cmd-client-document" class="form-control-plaintext">—</div>
-                        </div>
-                        <div class="gderpi-devis-meta-fields__item">
-                            <label class="gderpi-devis-meta-fields__label" for="gderpi-cmd-client-reference">Bon de commande client</label>
-                            <input id="gderpi-cmd-client-reference" class="form-control" type="text" placeholder="N° bon de commande client…">
-                        </div>
-                        <div class="gderpi-devis-meta-fields__item">
-                            <span class="gderpi-devis-meta-fields__label">Devis d'origine</span>
-                            <div id="gderpi-cmd-client-devis-link">—</div>
-                        </div>
-                        <div class="gderpi-devis-meta-fields__item gderpi-devis-meta-fields__item--full">
-                            <label class="gderpi-devis-meta-fields__label" for="gderpi-cmd-client-objet">Objet</label>
-                            <input id="gderpi-cmd-client-objet" class="form-control" type="text">
-                        </div>
-                        <div class="gderpi-devis-meta-fields__item gderpi-devis-meta-fields__item--full" id="gderpi-cmd-client-workflow-wrap" hidden>
-                            <span class="gderpi-devis-meta-fields__label">Suivi commande</span>
-                            <div id="gderpi-cmd-client-workflow" class="gderpi-cmd-workflow"></div>
-                        </div>
-                        <div class="gderpi-devis-meta-fields__item gderpi-devis-meta-fields__item--full">
-                            <label class="gderpi-devis-meta-fields__label" for="gderpi-cmd-client-notes">Notes internes</label>
-                            <textarea id="gderpi-cmd-client-notes" class="form-control" rows="2"></textarea>
-                        </div>
+                    <div class="gderpi-vue-lc__table-wrap">
+                        <table class="gderpi-vue-lc__table gderpi-devis-meta-table">
+                            <thead>
+                                <tr>
+                                    <th>Boutique / émetteur</th>
+                                    <th>Client</th>
+                                    <th>Document client</th>
+                                    <th>Service</th>
+                                    <th>Contact</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr class="gderpi-devis-meta-main">
+                                    <td>
+                                        <select id="gderpi-cmd-client-boutique" class="form-control gderpi-devis-meta-boutique">
+                                            <option value="">— Sélectionner une boutique —</option>
+                                        </select>
+                                        <select id="gderpi-cmd-client-emetteur-select" class="form-control gderpi-devis-meta-emetteur" disabled>
+                                            <option value="">— Boutique requise —</option>
+                                        </select>
+                                        <input type="hidden" id="gderpi-cmd-client-emetteur-contact-id" value="">
+                                        <input type="hidden" id="gderpi-cmd-client-emetteur-contact-nom" value="">
+                                        <input type="hidden" id="gderpi-cmd-client-emetteur-contact-fonction" value="">
+                                        <input type="hidden" id="gderpi-cmd-client-emetteur-contact-email" value="">
+                                        <input type="hidden" id="gderpi-cmd-client-emetteur-contact-tel" value="">
+                                    </td>
+                                    <td>
+                                        <input type="hidden" id="gderpi-cmd-client-client-id" value="">
+                                        <input type="text" id="gderpi-cmd-client-client-search" class="form-control gderpi-devis-meta-client" placeholder="Tapez nom, email, ville…" autocomplete="off">
+                                    </td>
+                                    <td>
+                                        <input id="gderpi-cmd-client-document-client" class="form-control gderpi-devis-meta-ref" type="text" placeholder="N° dossier, demande…" autocomplete="off">
+                                    </td>
+                                    <td>
+                                        <select id="gderpi-cmd-client-service-select" class="form-control gderpi-devis-meta-service" disabled>
+                                            <option value="">— Client requis —</option>
+                                        </select>
+                                    </td>
+                                    <td>
+                                        <div class="gderpi-devis-contact-picker">
+                                            <select id="gderpi-cmd-client-contact-select" class="form-control gderpi-devis-meta-contact" disabled>
+                                                <option value="">— Service requis —</option>
+                                            </select>
+                                            <?php if ($canWriteGderpi): ?>
+                                            <button type="button" id="gderpi-cmd-client-contact-add" class="btn btn-outline btn-sm gderpi-devis-contact-add" disabled title="Ajouter un contact au client">+</button>
+                                            <?php endif; ?>
+                                        </div>
+                                        <input type="hidden" id="gderpi-cmd-client-contact-nom" value="">
+                                        <input type="hidden" id="gderpi-cmd-client-contact-fonction" value="">
+                                        <input type="hidden" id="gderpi-cmd-client-contact-email" value="">
+                                        <input type="hidden" id="gderpi-cmd-client-contact-tel" value="">
+                                    </td>
+                                </tr>
+                                <tr class="gderpi-devis-meta-detail">
+                                    <td colspan="5">
+                                        <div class="gderpi-devis-meta-fields" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:0.75rem 1rem;">
+                                            <div class="gderpi-devis-meta-fields__item">
+                                                <label class="gderpi-devis-meta-fields__label" for="gderpi-cmd-client-reference">Bon de commande client *</label>
+                                                <input id="gderpi-cmd-client-reference" class="form-control" type="text" placeholder="N° bon de commande client…" required>
+                                            </div>
+                                            <div class="gderpi-devis-meta-fields__item">
+                                                <span class="gderpi-devis-meta-fields__label">Devis d'origine</span>
+                                                <div id="gderpi-cmd-client-devis-link">—</div>
+                                            </div>
+                                            <div class="gderpi-devis-meta-fields__item gderpi-devis-meta-fields__item--full">
+                                                <label class="gderpi-devis-meta-fields__label" for="gderpi-cmd-client-objet">Objet</label>
+                                                <input id="gderpi-cmd-client-objet" class="form-control" type="text" placeholder="Intitulé de la commande">
+                                            </div>
+                                            <div class="gderpi-devis-meta-fields__item gderpi-devis-meta-fields__item--full" id="gderpi-cmd-client-workflow-wrap" hidden>
+                                                <span class="gderpi-devis-meta-fields__label">Suivi commande</span>
+                                                <div id="gderpi-cmd-client-workflow" class="gderpi-cmd-workflow"></div>
+                                            </div>
+                                            <div class="gderpi-devis-meta-fields__item gderpi-devis-meta-fields__item--full">
+                                                <label class="gderpi-devis-meta-fields__label" for="gderpi-cmd-client-notes">Notes internes</label>
+                                                <textarea id="gderpi-cmd-client-notes" class="form-control" rows="2" placeholder="Non imprimé sur la commande"></textarea>
+                                            </div>
+                                        </div>
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
                     </div>
                 </div>
                 <div class="gderpi-panel-card gderpi-devis-lines-card">
                     <div class="gderpi-devis-lines-header">
-                        <h4 class="gderpi-devis-lines-title">Lignes de la commande</h4>
-                        <p class="gderpi-devis-lines-hint text-muted small">Modifiez les quantités, ajoutez ou retirez des articles avant validation.</p>
+                        <div>
+                            <h4 class="gderpi-devis-lines-title">Lignes de la commande</h4>
+                            <p class="gderpi-devis-lines-hint text-muted small" id="gderpi-cmd-client-lines-hint">Modifiez les quantités, ajoutez ou retirez des articles avant validation.</p>
+                        </div>
+                        <button type="button" class="btn btn-outline btn-sm" id="gderpi-cmd-client-add-line" hidden>+ Ajouter une ligne</button>
                     </div>
                     <div class="gderpi-vue-lc__table-wrap">
                         <table class="gderpi-vue-lc__table gderpi-devis-lines-table">
@@ -1730,10 +1834,10 @@ require_once '../../includes/header.php';
                         <button type="button" class="btn btn-outline btn-sm gderpi-modal__close" data-gderpi-modal-close>Fermer</button>
                     </div>
                     <div class="gderpi-modal__body" data-gderpi-modal-body>
-                        <p class="text-muted small" id="gderpi-recette-intro">Indiquez les prestations ou développements livrés pour cette commande.</p>
+                        <p class="text-muted small" id="gderpi-recette-intro">Saisissez les heures livrées, ou un % pour un forfait.</p>
                         <div id="gderpi-recette-lines-wrap" class="gderpi-vue-lc__table-wrap mb-3" hidden>
                             <table class="gderpi-vue-lc__table">
-                                <thead><tr><th></th><th>Réf.</th><th>Désignation</th></tr></thead>
+                                <thead id="gderpi-recette-lines-thead"><tr><th>Réf.</th><th>Désignation</th><th class="text-end">Commandé</th><th class="text-end">Déjà livré</th><th>Cet avancement</th></tr></thead>
                                 <tbody id="gderpi-recette-lines-tbody"></tbody>
                             </table>
                         </div>
@@ -2370,6 +2474,7 @@ window.GDERPI_CONFIG = {
 <script src="<?= htmlspecialchars($gderpiAssetBase) ?>/assets/js/shared/escapeHtml.js"></script>
 <script src="<?= htmlspecialchars($gderpiAssetBase) ?>/assets/js/shared/loadingFeedback.js"></script>
 <script src="<?= htmlspecialchars($gderpiAssetBase) ?>/assets/js/shared/showStatus.js"></script>
+<script src="<?= htmlspecialchars($gderpiAssetBase) ?>/assets/js/shared/handleSendEmailFeedback.js?v=<?= (int)@filemtime(__DIR__ . '/../../../modules/gderpi/frontend/assets/js/shared/handleSendEmailFeedback.js') ?>"></script>
 <script src="<?= htmlspecialchars($gderpiAssetBase) ?>/assets/js/shared/apiCall.js"></script>
 <script src="<?= htmlspecialchars($gderpiAssetBase) ?>/assets/js/shared/gderpiAnnuaireBridge.js?v=<?= (int)@filemtime(__DIR__ . '/../../../modules/gderpi/frontend/assets/js/shared/gderpiAnnuaireBridge.js') ?>"></script>
 <script src="<?= htmlspecialchars($gderpiAssetBase) ?>/assets/js/shared/gderpiAnnuaireContactUi.js?v=<?= (int)@filemtime(__DIR__ . '/../../../modules/gderpi/frontend/assets/js/shared/gderpiAnnuaireContactUi.js') ?>"></script>
@@ -2383,6 +2488,8 @@ window.GDERPI_CONFIG = {
 <script src="<?= htmlspecialchars($gderpiAssetBase) ?>/assets/js/shared/bindImageUploadField.js"></script>
 <script src="<?= htmlspecialchars($gderpiAssetBase) ?>/assets/js/shared/bindTierDocumentsSection.js"></script>
 <script src="<?= htmlspecialchars($gderpiAssetBase) ?>/assets/js/shared/bindGderpiModal.js"></script>
+<script src="<?= htmlspecialchars($gderpiAssetBase) ?>/assets/js/shared/promptBonCommandeClient.js?v=<?= (int)@filemtime(__DIR__ . '/../../../modules/gderpi/frontend/assets/js/shared/promptBonCommandeClient.js') ?>"></script>
+<script src="<?= htmlspecialchars($gderpiAssetBase) ?>/assets/js/shared/bindListActionsMenu.js?v=<?= (int)@filemtime(__DIR__ . '/../../../modules/gderpi/frontend/assets/js/shared/bindListActionsMenu.js') ?>"></script>
 <script src="<?= htmlspecialchars($gderpiAssetBase) ?>/assets/js/shared/bindEmailContactChipField.js?v=<?= (int)@filemtime(__DIR__ . '/../../../modules/gderpi/frontend/assets/js/shared/bindEmailContactChipField.js') ?>"></script>
 <script src="<?= htmlspecialchars($gderpiAssetBase) ?>/assets/js/shared/bindSendEmailModal.js?v=<?= (int)@filemtime(__DIR__ . '/../../../modules/gderpi/frontend/assets/js/shared/bindSendEmailModal.js') ?>"></script>
 <script src="<?= htmlspecialchars($gderpiAssetBase) ?>/assets/js/shared/previewDocumentHtml.js"></script>
@@ -2413,12 +2520,14 @@ window.GDERPI_CONFIG = {
 <script src="<?= htmlspecialchars($gderpiAssetBase) ?>/assets/js/commandes/bindReceptionFournisseurModal.js?v=<?= (int)@filemtime(__DIR__ . '/../../../modules/gderpi/frontend/assets/js/commandes/bindReceptionFournisseurModal.js') ?>"></script>
 <script src="<?= htmlspecialchars($gderpiAssetBase) ?>/assets/js/commandes/bindRecetteModal.js?v=<?= (int)@filemtime(__DIR__ . '/../../../modules/gderpi/frontend/assets/js/commandes/bindRecetteModal.js') ?>"></script>
 <script src="<?= htmlspecialchars($gderpiAssetBase) ?>/assets/js/commandes/bindCommandesClientTab.js?v=<?= (int)@filemtime(__DIR__ . '/../../../modules/gderpi/frontend/assets/js/commandes/bindCommandesClientTab.js') ?>"></script>
+<script src="<?= htmlspecialchars($gderpiAssetBase) ?>/assets/js/shared/bindDocPartyFields.js?v=<?= (int)@filemtime(__DIR__ . '/../../../modules/gderpi/frontend/assets/js/shared/bindDocPartyFields.js') ?>"></script>
 <script src="<?= htmlspecialchars($gderpiAssetBase) ?>/assets/js/commandes/bindCommandeClientEditor.js?v=<?= (int)@filemtime(__DIR__ . '/../../../modules/gderpi/frontend/assets/js/commandes/bindCommandeClientEditor.js') ?>"></script>
 <script src="<?= htmlspecialchars($gderpiAssetBase) ?>/assets/js/commandes/bindCommandeFournisseurEditor.js?v=<?= (int)@filemtime(__DIR__ . '/../../../modules/gderpi/frontend/assets/js/commandes/bindCommandeFournisseurEditor.js') ?>"></script>
 <script src="<?= htmlspecialchars($gderpiAssetBase) ?>/assets/js/achats/bindAchatsTab.js?v=<?= (int)@filemtime(__DIR__ . '/../../../modules/gderpi/frontend/assets/js/achats/bindAchatsTab.js') ?>"></script>
 <script src="<?= htmlspecialchars($gderpiAssetBase) ?>/assets/js/facturation/bindFacturationModal.js?v=<?= (int)@filemtime(__DIR__ . '/../../../modules/gderpi/frontend/assets/js/facturation/bindFacturationModal.js') ?>"></script>
 <script src="<?= htmlspecialchars($gderpiAssetBase) ?>/assets/js/facturation/bindAvoirModal.js?v=<?= (int)@filemtime(__DIR__ . '/../../../modules/gderpi/frontend/assets/js/facturation/bindAvoirModal.js') ?>"></script>
 <script src="<?= htmlspecialchars($gderpiAssetBase) ?>/assets/js/facturation/bindFacturationTab.js?v=<?= (int)@filemtime(__DIR__ . '/../../../modules/gderpi/frontend/assets/js/facturation/bindFacturationTab.js') ?>"></script>
+<script src="<?= htmlspecialchars($gderpiAssetBase) ?>/assets/js/mail/bindSentEmailsTab.js?v=<?= (int)@filemtime(__DIR__ . '/../../../modules/gderpi/frontend/assets/js/mail/bindSentEmailsTab.js') ?>"></script>
 <script src="<?= htmlspecialchars($gderpiAssetBase) ?>/assets/js/initGderpiApp.js?v=<?= (int)@filemtime(__DIR__ . '/../../../modules/gderpi/frontend/assets/js/initGderpiApp.js') ?>"></script>
 
 <?php require_once '../../includes/footer.php'; ?>

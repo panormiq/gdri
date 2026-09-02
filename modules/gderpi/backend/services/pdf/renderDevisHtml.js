@@ -450,7 +450,7 @@ function renderDevisHtml(context) {
           <div><strong>N°</strong> ${esc(d.numero || '—')}</div>
           ${dateDevis ? `<div><strong>Date</strong> ${esc(dateDevis)}</div>` : ''}
           ${dateValidite ? `<div><strong>Valable jusqu'au</strong> ${esc(dateValidite)}</div>` : ''}
-          ${referenceClient ? `<div><strong>Document client</strong> ${esc(referenceClient)}</div>` : ''}
+          ${referenceClient ? `<div><strong>Bon de commande client</strong> ${esc(referenceClient)}</div>` : ''}
         </div>
         <div class="gderpi-devis-doc__client">
           <h2>Client</h2>

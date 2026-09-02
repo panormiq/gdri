@@ -24,7 +24,7 @@ const {
 
 const SEEN_IDS_CAP = 500;
 const SAFETY_MARGIN_SEC = 5 * 60;
-const COMMENT_FIELDS = 'id,message,created_time,from,message_tags';
+const COMMENT_FIELDS = 'id,message,created_time,from,permalink_url,parent';
 
 class FacebookConnector extends BaseConnector {
   async testConnection(ctx) {
@@ -143,7 +143,9 @@ class FacebookConnector extends BaseConnector {
     );
 
     const nowUnix = Math.floor(Date.now() / 1000);
-    const windowStartUnix = Math.max(0, nowUnix - poll.lookbackHours * 3600);
+    const windowStartUnix = poll.useLookback
+      ? Math.max(0, nowUnix - poll.lookbackHours * 3600)
+      : 0;
     const hasCursor = Boolean(
       cursor &&
         (cursor.sinceUnix ||
@@ -270,6 +272,7 @@ class FacebookConnector extends BaseConnector {
                 pageId,
                 type: 'comment',
                 postId,
+                permalink_url: comment.permalink_url || null,
                 created_time: comment.created_time || null
               }
             })
@@ -376,6 +379,24 @@ class FacebookConnector extends BaseConnector {
         });
       } catch (e) {
         return { success: false, message: e.message || 'Échec réponse Facebook' };
+      }
+    }
+    if (
+      operation === 'hide' || operation === 'emit.hide' || operation === 'facebook.hide-comment' ||
+      operation === 'like' || operation === 'emit.like' ||
+      operation === 'delete' || operation === 'emit.delete'
+    ) {
+      const { facebookObjectAction } = require('../../backend/core/connectors/facebook-graph-helper');
+      const action = operation.includes('hide') ? 'hide' : (operation.includes('like') ? 'like' : 'delete');
+      try {
+        return await facebookObjectAction(ctx.database, ctx.entrepriseId, {
+          action,
+          objectId: payload.objectId || payload.sourceRef || payload.commentId || payload.postId,
+          pageId: payload.pageId || ctx.instance.settings?.pageId || null,
+          graphVersion: ctx.instance.settings?.graphVersion
+        });
+      } catch (e) {
+        return { success: false, message: e.message || 'Échec action Facebook' };
       }
     }
     return super.emit(ctx, operation, payload);

@@ -162,6 +162,41 @@ async function sendFacebookReply(database, entrepriseId, opts = {}) {
 }
 
 /**
+ * Actions Graph sur un objet (commentaire / post) : masquer, aimer, supprimer.
+ * @param {Object} database
+ * @param {string} entrepriseId
+ * @param {Object} opts
+ */
+async function facebookObjectAction(database, entrepriseId, opts = {}) {
+  const pageIdHint = opts.pageId || null;
+  const config = await resolveFacebookPageConfig(database, entrepriseId, pageIdHint);
+  const token = config.pageAccessToken;
+  const version = opts.graphVersion || DEFAULT_GRAPH_VERSION;
+  const objectId = String(opts.objectId || opts.commentId || opts.postId || opts.sourceRef || '').trim();
+  if (!objectId) throw new Error('ID Facebook (sourceRef) requis');
+  const action = String(opts.action || '').toLowerCase();
+  let response = null;
+  if (action === 'hide' || action === 'hide-comment') {
+    response = await graphPost(objectId, token, { is_hidden: true }, version);
+  } else if (action === 'unhide') {
+    response = await graphPost(objectId, token, { is_hidden: false }, version);
+  } else if (action === 'like') {
+    response = await graphPost(`${objectId}/likes`, token, {}, version);
+  } else if (action === 'delete') {
+    response = await graphPost(objectId, token, { method: 'delete' }, version);
+  } else {
+    throw new Error(`Action Facebook inconnue : ${action}`);
+  }
+  return {
+    success: true,
+    action,
+    objectId,
+    pageId: String(config.pageId),
+    facebookResponse: response || {}
+  };
+}
+
+/**
  * Publie un post sur le fil de la page (texte / lien / image).
  * @param {Object} database
  * @param {string} entrepriseId
@@ -326,32 +361,51 @@ function normalizeIdList(raw) {
 /**
  * Config poll détaillée (posts / commentaires / MP séparés).
  */
+function flagEnabled(value, defaultValue = true) {
+  if (value === undefined || value === null || value === '') return defaultValue;
+  return value === true || value === 'true' || value === 1 || value === '1';
+}
+
 function resolvePollConfig(settings = {}) {
   const resources = resolveResources(settings);
   const postsEnabled = resources.includes('posts');
   const commentsEnabled = resources.includes('comments');
   const messagesEnabled = resources.includes('messages');
+  const useLookback = flagEnabled(settings.pollByDate, true);
+  const useCount = flagEnabled(settings.pollByCount, true);
 
   return {
     postsEnabled,
     commentsEnabled,
     messagesEnabled,
     resources,
-    postLimit: clampLimit(settings.postLimit != null ? settings.postLimit : settings.limit, 25, 50),
-    commentPostsToScan: clampLimit(
-      settings.commentPostsToScan != null ? settings.commentPostsToScan : settings.commentCatchupLimit,
-      20,
-      50
-    ),
-    commentsPerPost: clampLimit(
-      settings.commentsPerPost != null ? settings.commentsPerPost : settings.commentsPerPostLimit,
-      50,
-      100
-    ),
+    useLookback,
+    useCount,
+    postLimit: useCount
+      ? clampLimit(settings.postLimit != null ? settings.postLimit : settings.limit, 25, 50)
+      : 50,
+    commentPostsToScan: useCount
+      ? clampLimit(
+        settings.commentPostsToScan != null ? settings.commentPostsToScan : settings.commentCatchupLimit,
+        20,
+        50
+      )
+      : 50,
+    commentsPerPost: useCount
+      ? clampLimit(
+        settings.commentsPerPost != null ? settings.commentsPerPost : settings.commentsPerPostLimit,
+        50,
+        100
+      )
+      : 100,
     commentsFetchAll: settings.commentsFetchAll === true || settings.commentsFetchAll === '1' || settings.commentsFetchAll === 1,
     commentPostIds: normalizeIdList(settings.commentPostIds),
-    messageConversationsLimit: clampLimit(settings.messageConversationsLimit, 10, 50),
-    messagesPerConversation: clampLimit(settings.messagesPerConversation, 20, 50),
+    messageConversationsLimit: useCount
+      ? clampLimit(settings.messageConversationsLimit, 10, 50)
+      : 50,
+    messagesPerConversation: useCount
+      ? clampLimit(settings.messagesPerConversation, 20, 50)
+      : 50,
     lookbackHours: resolveLookbackHours(settings),
     pollIntervalMinutes: clampLimit(settings.pollIntervalMinutes, 15, 1440)
   };
@@ -461,6 +515,7 @@ module.exports = {
   graphGetAllPages,
   graphPost,
   sendFacebookReply,
+  facebookObjectAction,
   publishFacebookPost,
   clampLimit,
   resolveLookbackHours,

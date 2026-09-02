@@ -1,7 +1,7 @@
 {
   "id": "http-generic",
   "name": "HTTP générique",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "author": "GDR-Innovation",
   "description": "Webhook entrant, poll HTTP sortant et émission POST — connecteur déclaratif pour APIs REST simples.",
   "direction": "bidirectional",
@@ -11,10 +11,44 @@
     "ingest.poll",
     "emit.http"
   ],
+  "dataKinds": ["message"],
   "credentials": {
     "type": "api_key",
     "fields": ["bearerToken", "apiKeyHeader", "apiKeyValue", "basicUser", "basicPass", "webhookSecret"]
   },
+  "settingsFields": [
+    {
+      "key": "pollIntervalMinutes",
+      "label": "Intervalle de poll (minutes)",
+      "type": "number",
+      "min": 1,
+      "default": 5
+    },
+    {
+      "key": "pollUrl",
+      "label": "URL de poll (GET)",
+      "type": "url"
+    },
+    {
+      "key": "pollMethod",
+      "label": "Méthode poll",
+      "type": "enum",
+      "enum": ["GET", "POST"],
+      "default": "GET"
+    },
+    {
+      "key": "emitUrl",
+      "label": "URL d'émission (POST)",
+      "type": "url"
+    },
+    {
+      "key": "emitMethod",
+      "label": "Méthode emit",
+      "type": "enum",
+      "enum": ["POST", "PUT", "PATCH"],
+      "default": "POST"
+    }
+  ],
   "configSchema": {
     "type": "object",
     "properties": {

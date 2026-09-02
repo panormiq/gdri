@@ -4,8 +4,10 @@
  */
 
 const resolveQuantiteLivrable = require('./resolveQuantiteLivrable');
+const isPrestationLine = require('./isPrestationLine');
 
 function isProductLine(line) {
+  if (isPrestationLine(line)) return false;
   const t = String(line?.articleType || '').toLowerCase();
   return t === 'produit' || (t !== 'developpement' && t !== 'service');
 }

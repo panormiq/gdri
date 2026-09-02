@@ -28,6 +28,7 @@ function toCommandeFournisseurEntry(doc) {
     ...normalized,
     lignes,
     commandeFournisseurId: normalized.id,
+    regleeAt: isoDate(doc.regleeAt) || isoDate(normalized.regleeAt),
     createdAt: isoDate(doc.createdAt) || normalized.createdAt,
     updatedAt: isoDate(doc.updatedAt) || normalized.updatedAt
   };

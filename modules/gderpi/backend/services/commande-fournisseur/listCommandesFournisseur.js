@@ -2,7 +2,7 @@
  * FICHIER : modules/gderpi/backend/services/commande-fournisseur/listCommandesFournisseur.js
  * RÔLE : Liste les commandes fournisseur avec filtres.
  *
- * ENTRÉES : db, entrepriseId, { statut, fournisseurId, search }
+ * ENTRÉES : db, entrepriseId, { statut, fournisseurId, search, reglee }
  * SORTIES : CommandeFournisseur[]
  *
  * DÉPEND DE : ensureCommandeFournisseurIndexes.js, toCommandeFournisseurEntry.js
@@ -34,6 +34,12 @@ async function listCommandesFournisseur(db, entrepriseId, opts = {}) {
       const hay = [c.numero, c.objet, c.fournisseurId].join(' ').toLowerCase();
       return hay.includes(q);
     });
+  }
+  const reglee = opts.reglee;
+  if (reglee === true || reglee === '1' || reglee === 'true') {
+    entries = entries.filter((c) => c.reglee === true);
+  } else if (reglee === false || reglee === '0' || reglee === 'false') {
+    entries = entries.filter((c) => c.reglee !== true);
   }
   return entries;
 }

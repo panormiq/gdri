@@ -25,6 +25,8 @@ function buildCommandeForFactureRender(commande, facture) {
     factureCount: position.count,
     factureNature: position.nature,
     facturePositionLabel: position.label,
+    referenceClient: facture.referenceClient || commande.referenceClient,
+    documentClient: facture.documentClient || commande.documentClient,
     lignes,
     totaux
   };

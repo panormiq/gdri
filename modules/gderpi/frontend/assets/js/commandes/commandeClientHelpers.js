@@ -10,6 +10,7 @@
     validee_client: 'Validée client',
     a_valider_gdri: 'À valider GDRI',
     validee_gdri: 'Validée GDRI',
+    prestation_en_cours: 'Prestation en cours',
     achats_en_cours: 'Achats en cours',
     attente_livraison_frs: 'Attente livraison frs',
     a_livrer: 'À livrer',
@@ -29,7 +30,7 @@
     achats_a_envoyer: 'Valider et envoyer les commandes fournisseur',
     reception_a_confirmer: 'Réception partielle fournisseur',
     bl_a_creer: 'Créer le bon de livraison',
-    recette_a_valider: 'Saisir la livraison prestation',
+    recette_a_valider: 'Saisir un avancement (heures ou %)',
     facture_a_emettre: 'Émettre la facture'
   };
 
@@ -45,7 +46,7 @@
   };
 
   const AVANCEMENT_STATUTS = [
-    'validee_gdri', 'achats_en_cours', 'attente_livraison_frs', 'a_livrer', 'livree',
+    'validee_gdri', 'prestation_en_cours', 'achats_en_cours', 'attente_livraison_frs', 'a_livrer', 'livree',
     'a_facturer', 'facturee_partiellement'
   ];
 
@@ -56,13 +57,33 @@
     autre: '—'
   };
 
+  function isHeureUnite(unite) {
+    const u = String(unite || '').trim().toLowerCase();
+    if (!u) return false;
+    return /heure|jour/.test(u) || /^(h|hrs?|jh|j\/h)$/.test(u);
+  }
+
+  function isMeaningfulLine(line) {
+    if (!line) return false;
+    return Boolean(String(line.libelle || '').trim()
+      || line.articleId
+      || String(line.reference || '').trim());
+  }
+
+  function isDevLine(line) {
+    if (!isMeaningfulLine(line)) return false;
+    const t = String(line?.articleType || '').toLowerCase();
+    if (t === 'developpement' || t === 'service') return true;
+    return isHeureUnite(line?.unite);
+  }
+
   function commandeKind(cmd) {
-    const lines = Array.isArray(cmd?.lignes) ? cmd.lignes : [];
+    const lines = (Array.isArray(cmd?.lignes) ? cmd.lignes : []).filter(isMeaningfulLine);
     let hasDev = false;
     let hasProd = false;
     lines.forEach((line) => {
       const t = String(line.articleType || '').trim().toLowerCase();
-      if (t === 'developpement' || t === 'service') hasDev = true;
+      if (isDevLine(line)) hasDev = true;
       else if (t === 'produit') hasProd = true;
     });
     if (hasDev && hasProd) return 'mixte';
@@ -72,12 +93,22 @@
   }
 
   function isProductLine(line) {
+    if (!isMeaningfulLine(line) || isDevLine(line)) return false;
     return String(line?.articleType || '').toLowerCase() === 'produit';
   }
 
-  function isDevLine(line) {
-    const t = String(line?.articleType || '').toLowerCase();
-    return t === 'developpement' || t === 'service';
+  function lineRequiresRecette(line) {
+    if (!isDevLine(line)) return false;
+    if (line?.gererCommande === true) return true;
+    if (line?.gererCommande === false) return false;
+    return String(line?.articleType || '').toLowerCase() !== 'developpement';
+  }
+
+  function remainingPrestationQty(line) {
+    if (!line || line.recetteValideeAt) return 0;
+    const ordered = Number(line.quantite) || 0;
+    const livree = Number(line.quantiteLivree) || 0;
+    return Math.max(0, Math.round((ordered - livree) * 10000) / 10000);
   }
 
   function remainingQty(line) {
@@ -111,16 +142,13 @@
   }
 
   function productLines(cmd) {
-    const lines = Array.isArray(cmd?.lignes) ? cmd.lignes : [];
+    const lines = (Array.isArray(cmd?.lignes) ? cmd.lignes : []).filter(isMeaningfulLine);
     const kind = commandeKind(cmd);
     if (kind === 'produit' || kind === 'mixte') {
       const filtered = lines.filter(isProductLine);
       if (filtered.length) return filtered;
     }
-    return lines.filter((l) => {
-      const t = String(l.articleType || '').toLowerCase();
-      return t !== 'developpement' && t !== 'service';
-    });
+    return lines.filter((l) => !isDevLine(l));
   }
 
   function devLines(cmd) {
@@ -154,8 +182,13 @@
     const unite = String(line?.unite || 'pièce').trim();
 
     if (isDevLine(line)) {
-      if (line.recetteValideeAt) {
+      const livree = Number(line.quantiteLivree) || 0;
+      if (line.recetteValideeAt || remainingPrestationQty(line) <= 0) {
         return [{ qty: ordered, label: 'Prestation terminée', tone: 'done' }];
+      }
+      if (livree > 0) {
+        const pct = ordered ? Math.round((livree / ordered) * 100) : 0;
+        return [{ qty: livree, label: 'avancement ' + pct + ' %', tone: 'info' }];
       }
       return [{ qty: reste || ordered, label: 'Prestation en cours', tone: 'pending' }];
     }
@@ -266,7 +299,7 @@
   }
 
   function remainingDevLines(cmd) {
-    return devLines(cmd).filter((l) => !l.recetteValideeAt);
+    return devLines(cmd).filter((l) => remainingPrestationQty(l) > 0);
   }
 
   function hasBl(cmd) {
@@ -318,10 +351,13 @@
   }
 
   function lineFulfillmentCells(line, cmd, esc) {
-    const t = String(line?.articleType || '').toLowerCase();
-    if (t === 'developpement' || t === 'service') {
-      const livree = line.recetteValideeAt ? 'Oui' : '—';
-      const reste = line.recetteValideeAt ? '—' : 'Non';
+    if (isDevLine(line)) {
+      const ordered = Number(line.quantite) || 0;
+      const doneQty = Number(line.quantiteLivree) || 0;
+      const done = remainingPrestationQty(line) <= 0;
+      const pct = ordered ? Math.round((doneQty / ordered) * 100) : 0;
+      const livree = done ? '100 %' : (doneQty > 0 ? pct + ' %' : '—');
+      const reste = done ? '—' : (ordered - doneQty);
       return '<td class="text-muted">—</td>' +
         '<td class="text-end">' + esc(livree) + '</td>' +
         '<td class="text-muted">—</td>' +
@@ -342,7 +378,7 @@
   }
 
   function isLineFulfilled(line) {
-    if (isDevLine(line)) return Boolean(line.recetteValideeAt);
+    if (isDevLine(line)) return remainingPrestationQty(line) <= 0;
     return remainingQty(line) <= 0;
   }
 
@@ -379,7 +415,7 @@
     const s = String(statut || '');
     const progress = cmd ? fulfillmentProgress(cmd) : null;
     const EXECUTION_STATUTS = new Set([
-      'validee_gdri', 'achats_en_cours', 'attente_livraison_frs', 'a_livrer'
+      'validee_gdri', 'prestation_en_cours', 'achats_en_cours', 'attente_livraison_frs', 'a_livrer'
     ]);
 
     if (progress?.partial && EXECUTION_STATUTS.has(s)) {
@@ -560,8 +596,8 @@
       add('bl_complet', 'Livraison complète');
       add('bl_partiel', 'Livraison partielle');
     } else if (b === 'recette_a_valider') {
-      add('avancement_complet', 'Livraison prestation complète');
-      add('avancement_partiel', 'Livraison prestation partielle');
+      add('avancement_complet', 'Soldes la prestation (100 %)');
+      add('avancement_partiel', 'Avancement (heures ou %)');
     } else if (b === 'reception_a_confirmer') {
       add('reception_complet', 'Réception complète fournisseur');
       add('reception_partiel', 'Réception partielle fournisseur');
@@ -582,8 +618,8 @@
     }
     if (b !== 'recette_a_valider' && remainingDevLines(cmd).length
       && AVANCEMENT_STATUTS.includes(s)) {
-      add('avancement_complet', 'Livraison prestation complète');
-      add('avancement_partiel', 'Livraison prestation partielle');
+      add('avancement_complet', 'Soldes la prestation (100 %)');
+      add('avancement_partiel', 'Avancement (heures ou %)');
     }
 
     const billable = billableLines(cmd);
@@ -706,12 +742,17 @@
     }
 
     global.GderpiStatus.showStatus('Envoi de l\'accusé de réception…', 'secondary');
-    const res = await global.GderpiApi.apiCall('/commandes-client/' + encodeURIComponent(commandeClientId) + '/send', {
-      method: 'POST',
-      body: JSON.stringify(payload)
-    });
-    global.GderpiStatus.showStatus('Accusé de réception envoyé à ' + (res.data?.sentTo || ''), 'success');
-    return res.data;
+    try {
+      const res = await global.GderpiApi.apiCall('/commandes-client/' + encodeURIComponent(commandeClientId) + '/send', {
+        method: 'POST',
+        body: JSON.stringify(payload)
+      });
+      global.GderpiSendEmailFeedback.notifySendSuccess(res, { label: 'Accusé de réception' });
+      return res.data || res;
+    } catch (err) {
+      global.GderpiSendEmailFeedback.notifySendError(err);
+      return null;
+    }
   }
 
   function formatPostalAddressText(addr) {
@@ -1005,6 +1046,7 @@
     STATUT_LABELS,
     BLOQUANT_LABELS,
     commandeKind,
+    isMeaningfulLine,
     isProductLine,
     isDevLine,
     remainingQty,
@@ -1014,6 +1056,8 @@
     devLines,
     remainingProductLines,
     remainingDevLines,
+    remainingPrestationQty,
+    isHeureUnite,
     livrableProductLines,
     hasLivrableProducts,
     besoinForLine,

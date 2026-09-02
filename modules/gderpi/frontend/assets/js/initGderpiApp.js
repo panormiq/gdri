@@ -19,6 +19,7 @@
     'bons-livraison': () => global.GderpiBonsLivraisonTab?.refreshBonsLivraisonList?.(),
     achats: () => global.GderpiAchatsTab?.refreshAchatsList?.(),
     facturation: () => global.GderpiFacturationTab?.refreshFacturationList?.(),
+    emails: () => global.GderpiSentEmailsTab?.refreshSentEmails?.(),
     configuration: (opts) => global.GderpiConfigurationTab?.open?.(opts || CONFIG_DEFAULT)
   };
 
@@ -260,6 +261,7 @@
     global.GderpiAchatsTab.bindAchatsTab();
     global.GderpiCommandeFournisseurEditor?.bindAchatsCreateButtons?.();
     global.GderpiFacturationTab.bindFacturationTab();
+    global.GderpiSentEmailsTab?.bindSentEmailsTab?.();
     global.GderpiConfigurationTab.bindConfigurationTab();
     global.GderpiMailConfigTab?.bindMailConfigTab?.();
     global.GderpiUnitesTab.bindUnitesTab();

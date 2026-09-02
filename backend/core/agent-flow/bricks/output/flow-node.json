@@ -1,0 +1,126 @@
+{
+  "id": "output",
+  "name": "Sortie",
+  "version": "2.3.0",
+  "family": "output",
+  "category": "output",
+  "kind": "action",
+  "visibility": "orchestrator-only",
+  "description": "Émettre une sortie : flux nommé (HTML + CSS du run), collection client, ou connecteur sortant (mail, Facebook, HTTP).",
+  "inputContract": {
+    "version": "1.0.0",
+    "fields": [
+      { "key": "to", "label": "Destinataire", "required": true, "type": "text", "providers": ["mail"] },
+      { "key": "subject", "label": "Sujet", "required": false, "type": "text", "providers": ["mail"] },
+      { "key": "body", "label": "Corps", "required": true, "type": "textarea", "providers": ["mail"] },
+      { "key": "attachments", "label": "Pièces jointes", "required": false, "type": "file", "providers": ["mail"] },
+      { "key": "message", "label": "Message", "required": true, "type": "textarea", "providers": ["facebook"] }
+    ]
+  },
+  "canvas": {
+    "iconEmoji": "📤",
+    "color": "#dc2626",
+    "borderRadius": 12,
+    "width": 220,
+    "inputs": [
+      { "id": "main", "label": "Entrée", "type": "main", "maxConnections": 0 }
+    ],
+    "outputs": [
+      { "id": "main", "label": "Suite", "type": "main", "maxConnections": 0 }
+    ]
+  },
+  "operations": {
+    "output.emit": {
+      "label": "Émettre",
+      "configSchema": {
+        "type": "object",
+        "properties": {
+          "provider": {
+            "type": "string",
+            "title": "Type",
+            "default": ""
+          },
+          "connectorId": {
+            "type": "string",
+            "title": "Connecteur",
+            "description": "Type issu du catalogue Connecteurs (sortant).",
+            "default": ""
+          },
+          "instanceId": {
+            "type": "string",
+            "title": "Compte",
+            "description": "Instance / compte de ce connecteur.",
+            "default": ""
+          },
+          "templateId": {
+            "type": "string",
+            "title": "Template",
+            "description": "Document HTML / Word lié. Étoffe le mapping et habille le corps envoyé.",
+            "default": ""
+          },
+          "accountRef": { "type": "string", "title": "Compte mail", "default": "" },
+          "to": { "type": "string", "title": "Destinataire", "default": "" },
+          "subject": { "type": "string", "title": "Sujet", "default": "{{subject}}" },
+          "body": { "type": "string", "title": "Corps", "default": "{{body}}" },
+          "usePreviousRoute": {
+            "type": "boolean",
+            "title": "Utiliser le routage précédent",
+            "default": true
+          },
+          "attachPrevious": {
+            "type": "boolean",
+            "title": "Joindre fichier précédent",
+            "default": false
+          },
+          "pageId": { "type": "string", "title": "Page Facebook", "default": "" },
+          "message": { "type": "string", "title": "Message Facebook", "default": "{{body}}" },
+          "action": {
+            "type": "string",
+            "title": "Action Facebook",
+            "enum": ["reply", "publish"],
+            "default": "reply"
+          },
+          "emitUrl": { "type": "string", "title": "URL webhook", "default": "" },
+          "emitMethod": {
+            "type": "string",
+            "title": "Méthode",
+            "enum": ["POST", "PUT"],
+            "default": "POST"
+          },
+          "path": { "type": "string", "title": "Chemin fichier sortie", "default": "" },
+          "collectionId": { "type": "string", "title": "Collection", "default": "" },
+          "collectionNamespace": { "type": "string", "title": "Collection (slug)", "default": "" },
+          "modelName": { "type": "string", "title": "Nom de la collection", "default": "" },
+          "modelFields": {
+            "type": "array",
+            "title": "Champs de la collection",
+            "items": { "type": "object" },
+            "default": []
+          },
+          "writeMode": {
+            "type": "string",
+            "title": "Écriture",
+            "enum": ["insert", "upsert"],
+            "enumLabels": {
+              "insert": "Toujours créer une ligne",
+              "upsert": "Mettre à jour si même événement"
+            },
+            "default": "insert"
+          },
+          "exportName": {
+            "type": "string",
+            "title": "Nom de la sortie flux",
+            "description": "Nom du résultat (ex. chrome). Données = html + css du run, pas la collection.",
+            "default": "chrome"
+          }
+        }
+      },
+      "outputMessage": {
+        "type": "output-result",
+        "fields": ["success", "provider", "exportName", "html", "css", "collectionId", "elementId", "writeMode"]
+      }
+    }
+  },
+  "permissions": ["network", "secrets"],
+  "serviceRef": "backend/core/agent-flow/families"
+}

@@ -18,6 +18,13 @@ function createCanonicalMessage(partial = {}) {
     entrepriseId: partial.entrepriseId != null ? String(partial.entrepriseId) : null,
     instanceId: partial.instanceId != null ? String(partial.instanceId) : null,
     text: partial.text != null ? String(partial.text) : '',
+    from: partial.from
+      || (partial.author && (partial.author.email || partial.author.name))
+      || '',
+    subject: partial.subject
+      || (partial.metadata && partial.metadata.subject)
+      || '',
+    channel: partial.channel || '',
     author: {
       id: partial.author?.id != null ? String(partial.author.id) : null,
       name: partial.author?.name != null ? String(partial.author.name) : null,

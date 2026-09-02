@@ -1,0 +1,378 @@
+{
+  "version": "1.6.1",
+  "description": "Contrat des données renvoyées par le bloc Entrées. Toujours un tableau. Un mail / commentaire / document simple = 1 ligne. Le nom du bloc est le tableau ({{#donnees}}). item = ligne courante (choix par défaut). items = toutes les lignes. text/from/subject = ligne courante.",
+  "envelope": {
+    "id": "canonical",
+    "label": "Tableau canonique",
+    "example": {
+      "channel": "mail",
+      "itemsCount": 1,
+      "itemIndex": 0,
+      "text": "Bonjour, pouvez-vous me faire un devis pour 3 bureaux ?",
+      "from": "Marie Dupont <marie.dupont@client.fr>",
+      "subject": "Demande de devis — 3 bureaux",
+      "messageId": "evt-8f3a2c",
+      "sourceRef": "1842",
+      "timestamp": "2026-08-17T08:12:00.000Z",
+      "author": { "id": "u-12", "name": "Marie Dupont", "email": "marie.dupont@client.fr" },
+      "instanceId": "inst-mail-support",
+      "items": [
+        {
+          "text": "Bonjour, pouvez-vous me faire un devis pour 3 bureaux ?",
+          "from": "Marie Dupont <marie.dupont@client.fr>",
+          "subject": "Demande de devis — 3 bureaux",
+          "messageId": "evt-8f3a2c",
+          "sourceRef": "1842",
+          "author": { "id": "u-12", "name": "Marie Dupont", "email": "marie.dupont@client.fr" }
+        }
+      ]
+    },
+    "fields": [
+      { "key": "item", "label": "Item (ligne courante)", "type": "object", "example": { "text": "Bonjour" } },
+      { "key": "items", "label": "Tableau (toutes les lignes)", "type": "array", "example": [{ "text": "Bonjour", "from": "Marie Dupont" }] },
+      { "key": "itemsCount", "label": "Nombre de lignes", "type": "number", "example": 1 },
+      { "key": "itemIndex", "label": "Index de la ligne courante", "type": "number", "example": 0 },
+      { "key": "channel", "label": "Canal", "type": "string", "example": "mail" },
+      { "key": "text", "label": "Texte (ligne courante)", "type": "string", "example": "Bonjour, pouvez-vous me faire un devis pour 3 bureaux ?" },
+      { "key": "name", "label": "Nom (ligne courante)", "type": "string", "example": "Marie Dupont" },
+      { "key": "from", "label": "Auteur / expéditeur (ligne courante)", "type": "string", "example": "Marie Dupont <marie.dupont@client.fr>" },
+      { "key": "subject", "label": "Sujet (ligne courante)", "type": "string", "connectors": ["mail"], "example": "Demande de devis — 3 bureaux" },
+      { "key": "attachments", "label": "Pièces jointes (ligne courante)", "type": "array", "connectors": ["mail"], "example": [{ "filename": "plan.pdf", "contentType": "application/pdf" }] },
+      { "key": "messageId", "label": "ID message", "type": "string", "example": "evt-8f3a2c" },
+      { "key": "sourceRef", "label": "Référence source", "type": "string", "example": "1842" },
+      { "key": "timestamp", "label": "Horodatage", "type": "datetime", "example": "2026-08-17T08:12:00.000Z" },
+      { "key": "author.id", "label": "ID auteur", "type": "string", "example": "u-12" },
+      { "key": "author.name", "label": "Nom auteur", "type": "string", "example": "Marie Dupont" },
+      { "key": "author.email", "label": "Email auteur", "type": "string", "connectors": ["mail"], "example": "marie.dupont@client.fr" },
+      { "key": "instanceId", "label": "Instance connecteur", "type": "string", "example": "inst-mail-support" }
+    ]
+  },
+  "connectors": {
+    "facebook": {
+      "connectorId": "facebook",
+      "provider": "facebook",
+      "label": "Facebook",
+      "kinds": [
+        {
+          "id": "posts",
+          "label": "Publications",
+          "ingest": ["poll"],
+          "schemaExclusive": true,
+          "graphPath": "{page-id}/published_posts",
+          "graphFields": ["id", "message", "story", "created_time", "from", "permalink_url"],
+          "graphExample": {
+            "id": "123456789_111",
+            "message": "Notre showroom ouvre samedi 10h — venez découvrir les nouveautés.",
+            "created_time": "2026-08-16T14:00:00+0000",
+            "from": { "id": "123456789", "name": "Page Boutique" },
+            "permalink_url": "https://www.facebook.com/123456789/posts/111"
+          },
+          "example": {
+            "channel": "facebook",
+            "type": "post",
+            "text": "Notre showroom ouvre samedi 10h — venez découvrir les nouveautés.",
+            "from": "Page Boutique",
+            "subject": "Post FB 123456789_111",
+            "messageId": "123456789_111",
+            "sourceRef": "123456789_111",
+            "timestamp": "2026-08-16T14:00:00+0000",
+            "author": { "id": "123456789", "name": "Page Boutique" },
+            "pageId": "123456789",
+            "permalink_url": "https://www.facebook.com/123456789/posts/111",
+            "created_time": "2026-08-16T14:00:00+0000"
+          },
+          "fields": [
+            { "key": "channel", "label": "Canal", "type": "string", "graph": null, "example": "facebook" },
+            { "key": "type", "label": "Type", "type": "string", "graph": null, "example": "post", "enum": ["post", "commentaire", "mp", "notification"] },
+            { "key": "text", "label": "Texte", "type": "string", "graph": "message", "example": "Notre showroom ouvre samedi 10h — venez découvrir les nouveautés." },
+            { "key": "from", "label": "Auteur", "type": "string", "graph": "from.name", "example": "Page Boutique" },
+            { "key": "subject", "label": "Sujet (généré)", "type": "string", "graph": null, "example": "Post FB 123456789_111" },
+            { "key": "messageId", "label": "ID Graph", "type": "string", "graph": "id", "example": "123456789_111" },
+            { "key": "sourceRef", "label": "Référence Graph", "type": "string", "graph": "id", "example": "123456789_111" },
+            { "key": "timestamp", "label": "Horodatage", "type": "datetime", "graph": "created_time", "example": "2026-08-16T14:00:00+0000" },
+            { "key": "author.id", "label": "ID auteur", "type": "string", "graph": "from.id", "example": "123456789" },
+            { "key": "author.name", "label": "Nom auteur", "type": "string", "graph": "from.name", "example": "Page Boutique" },
+            { "key": "pageId", "label": "Page Facebook", "type": "string", "graph": null, "example": "123456789" },
+            { "key": "permalink_url", "label": "Lien du post", "type": "uri", "graph": "permalink_url", "example": "https://www.facebook.com/123456789/posts/111" },
+            { "key": "created_time", "label": "Date de publication", "type": "datetime", "graph": "created_time", "example": "2026-08-16T14:00:00+0000" }
+          ]
+        },
+        {
+          "id": "comments",
+          "label": "Commentaires",
+          "ingest": ["poll", "push"],
+          "schemaExclusive": true,
+          "graphPath": "{post-id}/comments",
+          "graphFields": ["id", "message", "created_time", "from", "permalink_url", "parent"],
+          "graphExample": {
+            "id": "222",
+            "message": "Vous livrez sur Lyon ?",
+            "created_time": "2026-08-17T09:05:00+0000",
+            "from": { "id": "102938", "name": "Marie Dupont" },
+            "permalink_url": "https://www.facebook.com/123456789/posts/111?comment_id=222",
+            "parent": { "id": "123456789_111" }
+          },
+          "webhookExample": {
+            "item": "comment",
+            "comment_id": "222",
+            "post_id": "123456789_111",
+            "parent_id": "123456789_111",
+            "sender_id": "102938",
+            "from": { "id": "102938", "name": "Marie Dupont" },
+            "message": "Vous livrez sur Lyon ?",
+            "created_time": 1755417900,
+            "verb": "add"
+          },
+          "example": {
+            "channel": "facebook",
+            "type": "commentaire",
+            "text": "Vous livrez sur Lyon ?",
+            "from": "Marie Dupont",
+            "subject": "Commentaire FB 222",
+            "messageId": "222",
+            "sourceRef": "222",
+            "timestamp": "2026-08-17T09:05:00+0000",
+            "author": { "id": "102938", "name": "Marie Dupont" },
+            "pageId": "123456789",
+            "postId": "123456789_111",
+            "permalink_url": "https://www.facebook.com/123456789/posts/111?comment_id=222",
+            "created_time": "2026-08-17T09:05:00+0000"
+          },
+          "fields": [
+            { "key": "channel", "label": "Canal", "type": "string", "graph": null, "example": "facebook" },
+            { "key": "type", "label": "Type", "type": "string", "graph": null, "example": "commentaire", "enum": ["post", "commentaire", "mp", "notification"] },
+            { "key": "text", "label": "Texte", "type": "string", "graph": "message", "example": "Vous livrez sur Lyon ?" },
+            { "key": "from", "label": "Auteur", "type": "string", "graph": "from.name", "example": "Marie Dupont" },
+            { "key": "subject", "label": "Sujet (généré)", "type": "string", "graph": null, "example": "Commentaire FB 222" },
+            { "key": "messageId", "label": "ID Graph", "type": "string", "graph": "id", "example": "222" },
+            { "key": "sourceRef", "label": "Référence Graph", "type": "string", "graph": "id", "example": "222" },
+            { "key": "timestamp", "label": "Horodatage", "type": "datetime", "graph": "created_time", "example": "2026-08-17T09:05:00+0000" },
+            { "key": "author.id", "label": "ID auteur", "type": "string", "graph": "from.id", "example": "102938" },
+            { "key": "author.name", "label": "Nom auteur", "type": "string", "graph": "from.name", "example": "Marie Dupont" },
+            { "key": "pageId", "label": "Page Facebook", "type": "string", "graph": null, "example": "123456789" },
+            { "key": "postId", "label": "ID du post parent", "type": "string", "graph": "parent.id", "example": "123456789_111" },
+            { "key": "permalink_url", "label": "Lien du commentaire", "type": "uri", "graph": "permalink_url", "example": "https://www.facebook.com/123456789/posts/111?comment_id=222" },
+            { "key": "created_time", "label": "Date du commentaire", "type": "datetime", "graph": "created_time", "example": "2026-08-17T09:05:00+0000" }
+          ]
+        },
+        {
+          "id": "messages",
+          "label": "Messages privés",
+          "ingest": ["poll", "push"],
+          "schemaExclusive": true,
+          "graphPath": "{page-id}/conversations",
+          "graphFields": ["id", "updated_time", "messages{id,message,from,created_time}"],
+          "graphExample": {
+            "id": "t_conv123",
+            "updated_time": "2026-08-17T10:22:00+0000",
+            "messages": {
+              "data": [
+                {
+                  "id": "m_abc555",
+                  "message": "Bonjour, je voudrais un rendez-vous mercredi après-midi.",
+                  "created_time": "2026-08-17T10:22:00+0000",
+                  "from": { "id": "445566", "name": "Jean Martin" }
+                }
+              ]
+            }
+          },
+          "webhookExample": {
+            "sender": { "id": "445566" },
+            "recipient": { "id": "123456789" },
+            "timestamp": 1755422520000,
+            "message": {
+              "mid": "m_abc555",
+              "text": "Bonjour, je voudrais un rendez-vous mercredi après-midi."
+            }
+          },
+          "example": {
+            "channel": "facebook",
+            "type": "mp",
+            "text": "Bonjour, je voudrais un rendez-vous mercredi après-midi.",
+            "from": "Jean Martin",
+            "subject": "Message privé FB m_abc555",
+            "messageId": "m_abc555",
+            "sourceRef": "m_abc555",
+            "timestamp": "2026-08-17T10:22:00+0000",
+            "author": { "id": "445566", "name": "Jean Martin" },
+            "pageId": "123456789",
+            "conversationId": "t_conv123",
+            "created_time": "2026-08-17T10:22:00+0000"
+          },
+          "fields": [
+            { "key": "channel", "label": "Canal", "type": "string", "graph": null, "example": "facebook" },
+            { "key": "type", "label": "Type", "type": "string", "graph": null, "example": "mp", "enum": ["post", "commentaire", "mp", "notification"] },
+            { "key": "text", "label": "Texte", "type": "string", "graph": "messages.data[].message", "example": "Bonjour, je voudrais un rendez-vous mercredi après-midi." },
+            { "key": "from", "label": "Auteur", "type": "string", "graph": "messages.data[].from.name", "example": "Jean Martin" },
+            { "key": "subject", "label": "Sujet (généré)", "type": "string", "graph": null, "example": "Message privé FB m_abc555" },
+            { "key": "messageId", "label": "ID Graph", "type": "string", "graph": "messages.data[].id", "example": "m_abc555" },
+            { "key": "sourceRef", "label": "Référence Graph", "type": "string", "graph": "messages.data[].id", "example": "m_abc555" },
+            { "key": "timestamp", "label": "Horodatage", "type": "datetime", "graph": "messages.data[].created_time", "example": "2026-08-17T10:22:00+0000" },
+            { "key": "author.id", "label": "ID auteur", "type": "string", "graph": "messages.data[].from.id", "example": "445566" },
+            { "key": "author.name", "label": "Nom auteur", "type": "string", "graph": "messages.data[].from.name", "example": "Jean Martin" },
+            { "key": "pageId", "label": "Page Facebook", "type": "string", "graph": null, "example": "123456789" },
+            { "key": "conversationId", "label": "ID conversation", "type": "string", "graph": "id", "example": "t_conv123" },
+            { "key": "created_time", "label": "Date du message", "type": "datetime", "graph": "messages.data[].created_time", "example": "2026-08-17T10:22:00+0000" }
+          ]
+        },
+        {
+          "id": "notifications",
+          "label": "Notifications",
+          "ingest": ["push"],
+          "schemaExclusive": true,
+          "graphPath": "webhook field=mention",
+          "graphFields": ["item", "sender_id", "post_id", "verb", "created_time"],
+          "graphExample": {
+            "field": "mention",
+            "value": {
+              "item": "mention",
+              "sender_id": "102938",
+              "post_id": "123456789_111",
+              "verb": "add",
+              "created_time": 1755418320
+            }
+          },
+          "example": {
+            "channel": "facebook",
+            "type": "notification",
+            "text": "Nouvelle mention de la page",
+            "from": "Page Boutique",
+            "subject": "Notification FB 123456789_111",
+            "messageId": "123456789_111",
+            "sourceRef": "123456789_111",
+            "timestamp": "2026-08-17T10:32:00.000Z",
+            "author": { "id": "102938", "name": "Marie Dupont" },
+            "pageId": "123456789",
+            "postId": "123456789_111",
+            "created_time": "2026-08-17T10:32:00.000Z"
+          },
+          "fields": [
+            { "key": "channel", "label": "Canal", "type": "string", "graph": null, "example": "facebook" },
+            { "key": "type", "label": "Type", "type": "string", "graph": null, "example": "notification", "enum": ["post", "commentaire", "mp", "notification"] },
+            { "key": "text", "label": "Texte", "type": "string", "graph": null, "example": "Nouvelle mention de la page" },
+            { "key": "from", "label": "Auteur", "type": "string", "graph": null, "example": "Page Boutique" },
+            { "key": "subject", "label": "Sujet (généré)", "type": "string", "graph": null, "example": "Notification FB 123456789_111" },
+            { "key": "messageId", "label": "ID Graph", "type": "string", "graph": "value.post_id", "example": "123456789_111" },
+            { "key": "sourceRef", "label": "Référence Graph", "type": "string", "graph": "value.post_id", "example": "123456789_111" },
+            { "key": "timestamp", "label": "Horodatage", "type": "datetime", "graph": "value.created_time", "example": "2026-08-17T10:32:00.000Z" },
+            { "key": "author.id", "label": "ID auteur", "type": "string", "graph": "value.sender_id", "example": "102938" },
+            { "key": "author.name", "label": "Nom auteur", "type": "string", "graph": null, "example": "Marie Dupont" },
+            { "key": "pageId", "label": "Page Facebook", "type": "string", "graph": null, "example": "123456789" },
+            { "key": "postId", "label": "ID du post", "type": "string", "graph": "value.post_id", "example": "123456789_111" },
+            { "key": "created_time", "label": "Date", "type": "datetime", "graph": "value.created_time", "example": "2026-08-17T10:32:00.000Z" }
+          ]
+        }
+      ]
+    },
+    "mail": {
+      "connectorId": "mail-in",
+      "provider": "mail",
+      "label": "Mail",
+      "kinds": [
+        {
+          "id": "email",
+          "label": "E-mail",
+          "ingest": ["poll"],
+          "example": {
+            "channel": "mail",
+            "text": "Bonjour, pouvez-vous me faire un devis pour 3 bureaux ?",
+            "from": "Marie Dupont <marie.dupont@client.fr>",
+            "subject": "Demande de devis — 3 bureaux",
+            "attachments": [{ "filename": "plan.pdf", "contentType": "application/pdf", "size": 245760 }],
+            "author": { "name": "Marie Dupont", "email": "marie.dupont@client.fr" },
+            "metadata": { "accountRef": "support@entreprise.fr", "mailbox": "INBOX" }
+          },
+          "fields": [
+            { "key": "subject", "label": "Sujet", "type": "string", "example": "Demande de devis — 3 bureaux" },
+            { "key": "metadata.accountRef", "label": "Compte mail", "type": "string", "example": "support@entreprise.fr" },
+            { "key": "metadata.mailbox", "label": "Dossier IMAP", "type": "string", "example": "INBOX" }
+          ]
+        }
+      ]
+    },
+    "json": {
+      "connectorId": "json",
+      "provider": "json",
+      "label": "Collection / liste",
+      "kinds": [
+        {
+          "id": "payload",
+          "label": "Texte ou JSON",
+          "ingest": ["poll", "push"],
+          "example": {
+            "channel": "json",
+            "type": "payload",
+            "text": "Bonjour, pouvez-vous me faire un devis ?",
+            "from": "Marie Dupont",
+            "json": { "text": "Bonjour, pouvez-vous me faire un devis ?", "from": "Marie Dupont" }
+          },
+          "fields": [
+            { "key": "channel", "label": "Canal", "type": "string", "example": "json" },
+            { "key": "type", "label": "Type", "type": "string", "example": "payload" },
+            { "key": "text", "label": "Texte", "type": "string", "example": "Bonjour, pouvez-vous me faire un devis ?" },
+            { "key": "json", "label": "Objet JSON", "type": "object", "example": { "text": "Bonjour" } },
+            { "key": "item", "label": "Item (ligne courante)", "type": "object", "example": {} },
+            { "key": "items", "label": "Tableau (toutes les lignes)", "type": "array", "example": [] },
+            { "key": "itemsCount", "label": "Nombre de lignes", "type": "number", "example": 0 },
+            { "key": "payload", "label": "Brut saisi", "type": "string", "example": "{ \"text\": \"Bonjour\" }" }
+          ]
+        }
+      ]
+    },
+    "database": {
+      "connectorId": "database",
+      "provider": "database",
+      "label": "Base (agent)",
+      "kinds": [
+        {
+          "id": "intentions",
+          "label": "Liste d’intentions",
+          "ingest": ["poll", "push"],
+          "example": {
+            "channel": "database",
+            "type": "intentions",
+            "text": "commercial, sav, technique",
+            "subject": "Intentions de l’agent",
+            "items": [
+              { "id": "commercial", "name": "commercial", "definition": "Demande commerciale" }
+            ],
+            "intentions": [
+              { "id": "commercial", "name": "commercial", "definition": "Demande commerciale" }
+            ]
+          },
+          "fields": [
+            { "key": "channel", "label": "Canal", "type": "string", "example": "database" },
+            { "key": "type", "label": "Type", "type": "string", "example": "intentions" },
+            { "key": "text", "label": "Noms (texte)", "type": "string", "example": "commercial, sav, technique" },
+            { "key": "items", "label": "Liste", "type": "array", "example": [{ "id": "commercial", "name": "commercial" }] },
+            { "key": "intentions", "label": "Intentions", "type": "array", "example": [{ "id": "commercial", "name": "commercial" }] },
+            { "key": "source", "label": "Source", "type": "string", "example": "intentions" }
+          ]
+        }
+      ]
+    },
+    "http": {
+      "connectorId": "http-generic",
+      "provider": "http",
+      "label": "HTTP générique",
+      "kinds": [
+        {
+          "id": "message",
+          "label": "Message HTTP",
+          "ingest": ["poll", "push"],
+          "example": {
+            "channel": "http",
+            "text": "Ticket #4821 : le client demande un avoir sur la facture F-2026-118.",
+            "from": "Claire Petit",
+            "sourceRef": "4821",
+            "author": { "name": "Claire Petit", "email": "claire.petit@crm.example" },
+            "metadata": { "ticket_id": "4821", "priority": "high" }
+          },
+          "fields": [
+            { "key": "metadata", "label": "Métadonnées mappées", "type": "object", "example": { "ticket_id": "4821", "priority": "high" } }
+          ]
+        }
+      ]
+    }
+  }
+}

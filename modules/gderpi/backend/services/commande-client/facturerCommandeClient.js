@@ -27,6 +27,7 @@ const applyFactureQuantites = require('../facturation/applyFactureQuantites');
 const calculateDevisTotals = require('../devis/calculateDevisTotals');
 
 const resolveStatutAfterFacturation = require('../facturation/resolveStatutAfterFacturation');
+const { requireBonCommandeClient } = require('../workflow/bonCommandeClient');
 
 const resolveCommandeFactures = require('../facturation/resolveCommandeFactures');
 
@@ -45,6 +46,8 @@ async function facturerCommandeClient(db, entrepriseId, commandeClientId, payloa
   const commande = await fetchCommandeClientEntry(db, entrepriseId, commandeClientId);
 
   if (!commande) throw new Error('Commande client introuvable');
+
+  requireBonCommandeClient(commande);
 
 
 
@@ -125,6 +128,10 @@ async function facturerCommandeClient(db, entrepriseId, commandeClientId, payloa
     payee: false,
 
     payeeAt: null,
+
+    referenceClient: String(commande.referenceClient || commande.documentClient || '').trim(),
+
+    documentClient: String(commande.documentClient || '').trim(),
 
     lignes: selections,
 

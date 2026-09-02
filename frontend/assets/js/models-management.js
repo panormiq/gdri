@@ -23,6 +23,10 @@
    * Initialisation
    */
   function init() {
+    if (window.CollectionFieldTypes) {
+      CollectionFieldTypes.fillSelect(document.getElementById('variableType'), 'text');
+      CollectionFieldTypes.fillSelect(document.getElementById('fieldType'), 'text');
+    }
     loadTemplates();
     loadModels();
     initEventListeners();
@@ -1252,7 +1256,7 @@
     const referenceFields = currentModel?.referenceFields || [];
 
     const html = modelVariables.map((variable, index) => {
-      const typeLabels = {
+      const typeLabels = (window.CollectionFieldTypes && CollectionFieldTypes.labels()) || {
         text: 'Texte',
         number: 'Nombre',
         boolean: 'Booléen',

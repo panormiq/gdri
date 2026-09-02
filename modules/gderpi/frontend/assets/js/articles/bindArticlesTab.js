@@ -568,10 +568,17 @@
     const commentWrap = document.getElementById('gderpi-article-commentaire-wrap');
     const stockWrap = document.getElementById('gderpi-article-gestion-stock-wrap');
     const stockEl = document.getElementById('gderpi-article-gestion-stock');
+    const gererWrap = document.getElementById('gderpi-article-gerer-commande-wrap');
+    const gererEl = document.getElementById('gderpi-article-gerer-commande');
     const isDev = typeSel?.value === 'developpement';
     const isProduit = typeSel?.value === 'produit';
     if (stockWrap) stockWrap.hidden = !isProduit;
     if (!isProduit && stockEl) stockEl.checked = false;
+    if (gererWrap) gererWrap.hidden = isProduit;
+    if (isProduit && gererEl) gererEl.checked = true;
+    else if (!editingId && gererEl && !isFillingForm) {
+      gererEl.checked = true;
+    }
     const isForfait = String(uniteSel?.value || '').toLowerCase() === 'forfait';
     if (commentWrap) commentWrap.classList.toggle('gderpi-field--highlight', isDev);
     if (wrap) wrap.classList.toggle('gderpi-field--highlight', isDev || prixSurDevis?.checked);
@@ -643,6 +650,14 @@
     setPrixSurDevisChecked(prixSurDevisValue);
     const stockEl = document.getElementById('gderpi-article-gestion-stock');
     if (stockEl) stockEl.checked = item.gestionStock === true;
+    const gererEl = document.getElementById('gderpi-article-gerer-commande');
+    if (gererEl) {
+      if (!item.articleId && !item.id) {
+        gererEl.checked = item.gererCommande !== false;
+      } else {
+        gererEl.checked = item.gererCommande === true;
+      }
+    }
     document.getElementById('gderpi-article-prix').value = item.prixHt ?? 0;
     document.getElementById('gderpi-article-tva').value = item.tauxTva ?? 20;
     document.getElementById('gderpi-article-desc').value = item.description || '';
@@ -838,6 +853,7 @@
           prixHt: prixSurDevis ? 0 : Number(document.getElementById('gderpi-article-prix').value),
           prixSurDevis,
           gestionStock: document.getElementById('gderpi-article-gestion-stock')?.checked === true,
+          gererCommande: document.getElementById('gderpi-article-gerer-commande')?.checked === true,
           tauxTva: Number(document.getElementById('gderpi-article-tva').value),
           nodeId: document.getElementById('gderpi-article-node').value.trim(),
           description: document.getElementById('gderpi-article-desc').value.trim(),

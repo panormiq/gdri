@@ -23,7 +23,7 @@ const { loadConnectors } = require('./core/connectors/connector-loader');
 const { loadAgentFlows } = require('./core/agent-flow/agent-flow-loader');
 const createConnectorsRouter = require('./routes/connectors');
 const { syncServicesCatalogFromModules } = require('./core/services-catalog-sync');
-const { globalLimiter, detectSuspiciousConnections } = require('./middleware/rate-limiter');
+const { globalLimiter, strictLimiter, detectSuspiciousConnections } = require('./middleware/rate-limiter');
 
 // Créer l'application Express
 const app = express();
@@ -137,6 +137,7 @@ app.use('/api/contact', contactRoutes);
 
 // Routes d'authentification (pour définir les cookies HttpOnly)
 const authRoutes = require('./routes/auth');
+app.use('/api/auth/login-gdri', strictLimiter);
 app.use('/api/auth', authRoutes);
 const activityLogsRoutes = require('./routes/activity-logs');
 app.use('/api/activity-logs', activityLogsRoutes);

@@ -29,6 +29,7 @@
   let editorModal = null;
   let previewModal = null;
   let newContactModal = null;
+  let pendingNewContactClientId = '';
   let selectedContactClientId = '';
   let selectedDevisService = '';
   let selectedEmetteurContactId = '';
@@ -1046,22 +1047,27 @@
   function renderDevisListActions(d) {
     const id = d.devisId || d.id;
     const s = String(d.statut || 'brouillon');
-    let html = '';
-    if (!canWrite()) return html;
+    const Menu = global.GderpiListActionsMenu;
+    if (!Menu || !canWrite()) return '';
+    const items = [];
     if (s === 'brouillon' || s === 'envoye') {
-      html += '<button type="button" class="btn btn-outline btn-sm gderpi-devis-list-email" data-devis-id="' + esc(id) + '">' +
-        (s === 'envoye' ? 'Renvoyer' : 'E-mail') + '</button> ';
+      items.push({ value: 'email', label: s === 'envoye' ? 'Renvoyer' : 'E-mail' });
     }
+    items.push({ value: 'duplicate', label: 'Dupliquer' });
     if (s === 'accepte' && !d.commandeClientId) {
-      html += '<button type="button" class="btn btn-primary btn-sm gderpi-devis-list-cmd" data-devis-id="' + esc(id) + '">→ Cmd</button> ';
+      items.push({ value: 'to_cmd', label: '→ Commande client', tone: 'primary' });
     }
     if (d.commandeClientId) {
-      html += '<button type="button" class="btn btn-outline btn-sm gderpi-devis-list-view-cmd" data-cmd-id="' + esc(d.commandeClientId) + '">Cmd</button> ';
+      items.push({
+        value: 'view_cmd',
+        label: 'Voir commande',
+        attrs: { 'data-cmd-id': d.commandeClientId }
+      });
     }
     if (s === 'brouillon') {
-      html += '<button type="button" class="btn btn-outline-danger btn-sm gderpi-devis-delete">Suppr.</button>';
+      items.push({ value: 'delete', label: 'Supprimer', tone: 'danger', dividerBefore: items.length > 0 });
     }
-    return html;
+    return Menu.render(items, { attrs: { 'data-devis-id': id } });
   }
 
   function renderDevisTable() {
@@ -1090,31 +1096,16 @@
             esc(d.commandeClientNumero || 'Voir') + '</button>'
           : '—') + '</td>' +
         '<td class="text-end">' + fmt(d.totaux?.totalTtc) + '</td>' +
-        '<td class="text-nowrap gderpi-devis-list-actions" onclick="event.stopPropagation()">' +
+        '<td class="gderpi-cmd-actions-cell gderpi-devis-list-actions" onclick="event.stopPropagation()">' +
           renderDevisListActions(d) +
         '</td></tr>';
     }).join('');
     tbody.querySelectorAll('tr[data-devis-id]').forEach((row) => {
       const id = row.getAttribute('data-devis-id');
-      const devis = devisList.find((d) => String(d.devisId || d.id) === String(id));
       const open = () => openDevis(id);
-      row.addEventListener('dblclick', open);
-      row.querySelector('.gderpi-devis-delete')?.addEventListener('click', (e) => {
-        e.stopPropagation();
-        deleteDevisById(id).catch(handleErr);
-      });
-      row.querySelector('.gderpi-devis-list-email')?.addEventListener('click', (e) => {
-        e.stopPropagation();
-        sendDevisEmailById(id, devis).catch(handleErr);
-      });
-      row.querySelector('.gderpi-devis-list-cmd')?.addEventListener('click', (e) => {
-        e.stopPropagation();
-        toCommandeClientById(id).catch(handleErr);
-      });
-      row.querySelector('.gderpi-devis-list-view-cmd')?.addEventListener('click', (e) => {
-        e.stopPropagation();
-        const cmdId = row.querySelector('.gderpi-devis-list-view-cmd')?.getAttribute('data-cmd-id');
-        if (cmdId) global.GderpiCommandeClientEditor?.openCommande?.(cmdId).catch(handleErr);
+      row.addEventListener('dblclick', (ev) => {
+        if (ev.target.closest('.gderpi-actions-menu, select, button')) return;
+        open();
       });
       const statutSel = row.querySelector('.gderpi-devis-statut-select');
       if (statutSel) {
@@ -1132,6 +1123,27 @@
             });
         });
       }
+    });
+    // Lien commande éventuellement hors menu (colonne dédiée)
+    tbody.querySelectorAll('.gderpi-devis-list-view-cmd').forEach((btn) => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const cmdId = btn.getAttribute('data-cmd-id');
+        if (cmdId) global.GderpiCommandeClientEditor?.openCommande?.(cmdId).catch(handleErr);
+      });
+    });
+    global.GderpiListActionsMenu?.bind?.(tbody, async (action, itemEl, menuEl) => {
+      const id = menuEl.getAttribute('data-devis-id') || '';
+      const devis = devisList.find((d) => String(d.devisId || d.id) === String(id));
+      if (action === 'email') return sendDevisEmailById(id, devis);
+      if (action === 'duplicate') return duplicateDevisById(id);
+      if (action === 'to_cmd') return toCommandeClientById(id);
+      if (action === 'view_cmd') {
+        const cmdId = itemEl.getAttribute('data-cmd-id');
+        if (cmdId) return global.GderpiCommandeClientEditor?.openCommande?.(cmdId);
+        return;
+      }
+      if (action === 'delete') return deleteDevisById(id);
     });
   }
 
@@ -1305,7 +1317,8 @@
       tauxTva: a.tauxTva ?? 20,
       fournisseurId: a.fournisseurId || null,
       boutiqueFournisseurId: a.boutiqueFournisseurId || null,
-      prixSurDevis: tarif.prixSurDevis === true
+      prixSurDevis: tarif.prixSurDevis === true,
+      gererCommande: a.gererCommande === true
     });
   }
 
@@ -1625,6 +1638,9 @@
       if (currentDevis.commandeClientId) {
         html += '<button type="button" class="btn btn-outline btn-sm" id="gderpi-devis-view-cmd">Voir commande</button>';
       }
+      if (!isLocalDraft && editingId) {
+        html += '<button type="button" class="btn btn-outline btn-sm" id="gderpi-devis-duplicate">Dupliquer</button>';
+      }
     }
     if (editingId && !isLocalDraft) {
       html += '<button type="button" class="btn btn-outline btn-sm" id="gderpi-devis-download-pdf">Télécharger PDF</button>';
@@ -1640,6 +1656,7 @@
     wrap.querySelector('#gderpi-devis-refuse')?.addEventListener('click', () => changeStatus('refuse'));
     wrap.querySelector('#gderpi-devis-expire')?.addEventListener('click', () => changeStatus('expire'));
     wrap.querySelector('#gderpi-devis-to-cmd')?.addEventListener('click', toCommandeClient);
+    wrap.querySelector('#gderpi-devis-duplicate')?.addEventListener('click', () => duplicateDevisById(editingId).catch(handleErr));
     wrap.querySelector('#gderpi-devis-view-cmd')?.addEventListener('click', () => {
       const cmdId = currentDevis?.commandeClientId;
       if (cmdId) global.GderpiCommandeClientEditor?.openCommande?.(cmdId).catch(handleErr);
@@ -1675,17 +1692,26 @@
     if (principal) principal.checked = false;
   }
 
-  async function openNewContactModal() {
-    const clientId = getDevisClientId();
-    const client = getClientById(clientId);
+  function clearPendingNewContact() {
+    pendingNewContactClientId = '';
+    global.__gderpiContactModalClientId = '';
+    global.__gderpiContactModalOnCreated = null;
+    global.__gderpiContactModalService = '';
+  }
+
+  async function openNewContactModal(overrideClientId) {
+    const clientId = String(overrideClientId || global.__gderpiContactModalClientId || getDevisClientId() || '').trim();
+    pendingNewContactClientId = clientId;
+    const client = clientId ? await ensureClientLoaded(clientId) : null;
     if (!clientId || !isClientEntreprise(client)) {
       global.GderpiStatus.showStatus('Sélectionnez un client entreprise.', 'warning');
       return;
     }
     resetNewContactForm();
     const svcSel = document.getElementById('gderpi-devis-new-contact-service');
-    const prefill = selectedDevisService && selectedDevisService !== (global.GderpiClientServices?.SANS_SERVICE || 'Sans service')
-      ? selectedDevisService
+    const overrideService = String(global.__gderpiContactModalService || '').trim();
+    const prefill = (overrideService || selectedDevisService) && (overrideService || selectedDevisService) !== (global.GderpiClientServices?.SANS_SERVICE || 'Sans service')
+      ? (overrideService || selectedDevisService)
       : '';
     if (svcSel) {
       await global.GderpiClientServices.populateServiceSelect(svcSel, prefill, {
@@ -1698,7 +1724,7 @@
 
   async function saveNewClientContact(event) {
     event?.preventDefault?.();
-    const clientId = getDevisClientId();
+    const clientId = pendingNewContactClientId || global.__gderpiContactModalClientId || getDevisClientId();
     const client = getClientById(clientId);
     if (!clientId || !isClientEntreprise(client)) return;
 
@@ -1743,10 +1769,16 @@
     }
 
     const newService = contactServiceOf(newContact);
-    await refreshServiceSelect(clientId, newService);
-    refreshContactSelect(clientId, newId, null, selectedDevisService);
-    applyContactFromSelect(newId);
+    const onCreated = global.__gderpiContactModalOnCreated;
     newContactModal?.close();
+    clearPendingNewContact();
+    if (typeof onCreated === 'function') {
+      await onCreated(updated, newId);
+    } else {
+      await refreshServiceSelect(clientId, newService);
+      refreshContactSelect(clientId, newId, null, selectedDevisService);
+      applyContactFromSelect(newId);
+    }
     global.GderpiStatus.showStatus('Contact ajouté dans l\'Annuaire.', 'success');
   }
 
@@ -1775,6 +1807,7 @@
       form.addEventListener('submit', (e) => saveNewClientContact(e).catch(handleErr));
     }
     document.getElementById('gderpi-devis-new-contact-cancel')?.addEventListener('click', () => {
+      clearPendingNewContact();
       newContactModal?.close();
     });
 
@@ -2277,6 +2310,34 @@
     await refreshDevisList();
   }
 
+  async function duplicateDevisById(id) {
+    const devisId = String(id || '').trim();
+    if (!devisId) return;
+    const src = devisList.find((d) => String(d.devisId || d.id) === devisId);
+    const numero = src?.numero || (editingId === devisId ? currentDevis?.numero : '') || '';
+    if (!confirm(
+      'Créer un nouveau devis brouillon à partir de ' +
+      (numero ? numero : 'ce devis') + ' ?'
+    )) return;
+
+    if (!isLocalDraft && editingId === devisId && isDirty && isEditable()) {
+      await saveDevis();
+    }
+
+    const res = await global.GderpiApi.apiCall(
+      '/devis/' + encodeURIComponent(devisId) + '/duplicate',
+      { method: 'POST', loadingMessage: 'Duplication du devis…' }
+    );
+    const created = res.data;
+    global.GderpiStatus.showStatus(
+      'Devis dupliqué' + (created?.numero ? ' (' + created.numero + ')' : '') + '.',
+      'success'
+    );
+    await refreshDevisList();
+    const newId = created?.devisId || created?.id;
+    if (newId) await openDevis(newId);
+  }
+
   async function changeDevisStatusById(id, statut, options) {
     const opts = options && typeof options === 'object' ? options : {};
     const devisId = String(id || '').trim();
@@ -2284,15 +2345,40 @@
     const fromList = devisList.find((d) => String(d.devisId || d.id) === devisId);
     const fromStatut = opts.fromStatut || fromList?.statut || currentDevis?.statut || 'brouillon';
     if (fromStatut === statut) return null;
+
+    let bonCommande = '';
+    let sansBonCommandeClient = false;
+    if (statut === 'accepte') {
+      const fromEditor = (!opts.fromList && editingId === devisId)
+        ? (document.getElementById('gderpi-devis-document-client')?.value || '')
+        : '';
+      const result = await global.GderpiBonCommandeClient?.ensure?.(
+        fromEditor,
+        fromList,
+        currentDevis && editingId === devisId ? currentDevis : null
+      );
+      if (!result) return null;
+      bonCommande = result.referenceClient || '';
+      sansBonCommandeClient = result.sansBonCommandeClient === true;
+      const docEl = document.getElementById('gderpi-devis-document-client');
+      if (docEl && editingId === devisId && bonCommande) docEl.value = bonCommande;
+    }
+
     if (!confirmStatusChange(fromStatut, statut)) return null;
 
     if (!opts.fromList && statut === 'envoye' && editingId === devisId && isEditable()) {
       await saveDevis().catch(() => {});
     }
 
+    const body = { statut };
+    if (statut === 'accepte') {
+      body.referenceClient = bonCommande;
+      body.sansBonCommandeClient = sansBonCommandeClient;
+    }
+
     const res = await global.GderpiApi.apiCall('/devis/' + encodeURIComponent(devisId) + '/status', {
       method: 'PATCH',
-      body: JSON.stringify({ statut })
+      body: JSON.stringify(body)
     });
 
     let updatedDevis = res.data;
@@ -2377,15 +2463,10 @@
         fillEditor(res.data?.devis || res.data);
         isDirty = false;
       }
-      global.GderpiStatus.showStatus('Devis envoyé à ' + (res.data?.sentTo || email) + '.', 'success');
+      global.GderpiSendEmailFeedback.notifySendSuccess(res, { label: 'Devis', fallbackTo: email });
       await refreshDevisList();
     } catch (err) {
-      const msg = err.message || 'Erreur envoi';
-      if (/mail non configuré|serveur mail/i.test(msg)) {
-        global.GderpiStatus.showStatus(msg + ' — Configuration → Mail.', 'danger');
-      } else {
-        throw err;
-      }
+      global.GderpiSendEmailFeedback.notifySendError(err);
     }
   }
 
@@ -2427,15 +2508,10 @@
       });
       fillEditor(res.data?.devis || res.data);
       isDirty = false;
-      global.GderpiStatus.showStatus('Devis envoyé à ' + (res.data?.sentTo || email) + '.', 'success');
+      global.GderpiSendEmailFeedback.notifySendSuccess(res, { label: 'Devis', fallbackTo: email });
       await refreshDevisList();
     } catch (err) {
-      const msg = err.message || 'Erreur envoi';
-      if (/mail non configuré|serveur mail/i.test(msg)) {
-        global.GderpiStatus.showStatus(msg + ' — Configuration → Mail.', 'danger');
-      } else {
-        handleErr(err);
-      }
+      global.GderpiSendEmailFeedback.notifySendError(err);
     }
   }
 
@@ -2486,5 +2562,5 @@
     global.GderpiStatus.showStatus(err.message || 'Erreur devis', 'danger');
   }
 
-  global.GderpiDevisTab = { bindDevisTab, refreshDevisList, showList, openDevis };
+  global.GderpiDevisTab = { bindDevisTab, refreshDevisList, showList, openDevis, openNewContactModal };
 })(window);

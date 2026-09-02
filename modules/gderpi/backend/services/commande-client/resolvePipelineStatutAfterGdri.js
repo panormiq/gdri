@@ -5,14 +5,17 @@
 
 const { commandeClientKind } = require('../workflow/commandeClientKind');
 const commandeNeedsAchats = require('../workflow/commandeNeedsAchats');
+const lineRequiresRecette = require('../workflow/lineRequiresRecette');
 
 function resolvePipelineStatutAfterGdri(commande) {
   const kind = commandeClientKind(commande);
   const needsAchats = commandeNeedsAchats(commande);
+  const needsRecette = (Array.isArray(commande?.lignes) ? commande.lignes : []).some(lineRequiresRecette);
 
   if (needsAchats) return 'validee_gdri';
+  if (kind === 'dev') return needsRecette ? 'prestation_en_cours' : 'a_facturer';
   if (kind === 'produit' || kind === 'mixte' || kind === 'autre') return 'a_livrer';
-  return 'validee_gdri';
+  return 'prestation_en_cours';
 }
 
 module.exports = resolvePipelineStatutAfterGdri;

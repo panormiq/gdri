@@ -1,5 +1,5 @@
 {
-  "version": "1.0.1",
+  "version": "1.0.2",
 
   "coreFields": {
     "label": {
@@ -120,10 +120,29 @@
         "extensions": { "value": [], "fieldType": "text" },
         "maxSizeMB": { "value": null, "fieldType": "number" }
       }
+    },
+    "connection": {
+      "label": "Connexion",
+      "description": "Référence vers une instance de connecteur ou un compte — pas un secret",
+      "valueType": "string",
+      "defaultValue": "",
+      "uiType": "Connection",
+      "validation": {
+        "connectionSource": {
+          "allowedValues": ["connector-instance", "mail-account", "facebook-page"],
+          "fieldType": "select"
+        },
+        "connectorId": { "value": null, "fieldType": "text" }
+      }
+    },
+    "secret": {
+      "label": "Secret",
+      "description": "Valeur sensible (token, mot de passe) — coffre du connecteur, pas la collection métier",
+      "valueType": "string",
+      "defaultValue": "",
+      "uiType": "Secret",
+      "validation": {}
     }
-  
-      
-    
   },
 
   "types": {
@@ -194,7 +213,18 @@
         "label": "Unité",
          "type": "text",
         "defaultValue": ""
-      } }}
-  
+      } }},
+    "Connection": {
+      "typeRef": "connection",
+      "label": "Connexion",
+      "validation": {
+        "connectionSource": "connector-instance"
+      }
+    },
+    "Secret": {
+      "typeRef": "secret",
+      "label": "Secret",
+      "validation": {}
+    }
 }
 }

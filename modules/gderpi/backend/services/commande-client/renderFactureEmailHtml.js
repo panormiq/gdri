@@ -16,7 +16,8 @@ const { DEFAULTS } = require('../mail/gderpiMailTemplateDefaults');
 
 function buildFactureTemplateVars({ commande, boutique, client, devis }) {
   const totaux = commande?.totaux || {};
-  const contactNom = devis?.contactNom
+  const contactNom = commande?.contactNom
+    || devis?.contactNom
     || client?.nom
     || client?.raisonSociale
     || 'Madame, Monsieur';

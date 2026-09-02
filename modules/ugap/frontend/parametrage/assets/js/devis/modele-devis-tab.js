@@ -37,7 +37,10 @@
     const base = global.UgapDevisTemplateEditorBase
       || '/frontend/pages/modules/document-agent-v2/editor.php';
     const join = base.includes('?') ? '&' : '?';
-    return `${base}${join}template=${encodeURIComponent(templateNamespace || 'ugap:devis:default')}`;
+    const params = new URLSearchParams();
+    params.set('template', templateNamespace || 'ugap:devis:default');
+    params.set('return', window.location.href);
+    return `${base}${join}${params.toString()}`;
   }
 
   function encodeNs(namespace) {

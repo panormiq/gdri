@@ -55,6 +55,22 @@
     return '<span class="gderpi-badge-statut gderpi-badge-statut--' + esc(s) + '">' + esc(STATUT_LABELS[s] || s) + '</span>';
   }
 
+  function regleeBadge(cmd) {
+    if (cmd?.reglee === true) {
+      return '<span class="gderpi-badge gderpi-badge--regle">Réglée</span>';
+    }
+    return '<span class="gderpi-badge gderpi-badge--non-regle">Non réglée</span>';
+  }
+
+  async function setReglee(id, reglee) {
+    await global.GderpiApi.apiCall('/commandes-fournisseur/' + encodeURIComponent(id) + '/reglee', {
+      method: 'PATCH',
+      body: JSON.stringify({ reglee })
+    });
+    global.GderpiStatus.showStatus(reglee ? 'Commande marquée comme réglée.' : 'Commande marquée comme non réglée.', 'success');
+    await refreshAchatsList();
+  }
+
   async function ensureFournisseurs() {
     const [frsRes, btqRes] = await Promise.all([
       global.GderpiApi.apiCall('/fournisseurs'),
@@ -62,6 +78,29 @@
     ]);
     fournisseurs = frsRes.data || [];
     boutiques = btqRes.data || [];
+  }
+
+  async function applyStatus(id, statut, body = {}) {
+    const res = await global.GderpiApi.apiCall('/commandes-fournisseur/' + encodeURIComponent(id) + '/status', {
+      method: 'PATCH',
+      body: JSON.stringify({ statut, ...body })
+    });
+    await refreshAchatsList();
+    return res;
+  }
+
+  async function markAsSent(id) {
+    if (!confirm(
+      'Marquer cette commande comme envoyée sans e-mail ?\n\n' +
+      'Utile pour les commandes déjà parties via un autre canal ou un ancien logiciel.'
+    )) return;
+    try {
+      await applyStatus(id, 'envoyee', { sendEmail: false });
+      global.GderpiStatus.showStatus('Commande marquée comme envoyée (sans e-mail).', 'success');
+    } catch (err) {
+      global.GderpiStatus.showStatus(err.message || 'Erreur mise à jour statut', 'error');
+      throw err;
+    }
   }
 
   async function updateStatus(id, statut) {
@@ -76,28 +115,16 @@
       if (!modalResult) return;
       const emailPayload = global.GderpiSendEmail.buildPayload(modalResult) || {};
       try {
-        await global.GderpiApi.apiCall('/commandes-fournisseur/' + encodeURIComponent(id) + '/status', {
-          method: 'PATCH',
-          body: JSON.stringify({ statut, ...emailPayload })
-        });
-        global.GderpiStatus.showStatus('Commande validée et e-mail envoyé au fournisseur.', 'success');
-        await refreshAchatsList();
+        const res = await applyStatus(id, statut, emailPayload);
+        global.GderpiSendEmailFeedback.notifySendSuccess(res, { label: 'E-mail', fallbackTo: 'fournisseur' });
         return;
       } catch (err) {
-        global.GderpiStatus.showStatus(err.message || 'Erreur mise à jour statut', 'error');
-        throw err;
+        global.GderpiSendEmailFeedback.notifySendError(err);
       }
     }
     try {
-      await global.GderpiApi.apiCall('/commandes-fournisseur/' + encodeURIComponent(id) + '/status', {
-        method: 'PATCH',
-        body: JSON.stringify({ statut })
-      });
-      const msg = statut === 'envoyee'
-        ? 'Commande validée et e-mail envoyé au fournisseur.'
-        : 'Statut mis à jour.';
-      global.GderpiStatus.showStatus(msg, 'success');
-      await refreshAchatsList();
+      await applyStatus(id, statut);
+      global.GderpiStatus.showStatus('Statut mis à jour.', 'success');
     } catch (err) {
       global.GderpiStatus.showStatus(err.message || 'Erreur mise à jour statut', 'error');
       throw err;
@@ -117,12 +144,10 @@
         method: 'POST',
         body: JSON.stringify(payload)
       });
-      const to = res.data?.sentTo || 'fournisseur';
-      global.GderpiStatus.showStatus('E-mail envoyé à ' + to + '.', 'success');
+      global.GderpiSendEmailFeedback.notifySendSuccess(res, { label: 'E-mail', fallbackTo: 'fournisseur' });
       await refreshAchatsList();
     } catch (err) {
-      global.GderpiStatus.showStatus(err.message || 'Erreur envoi e-mail', 'error');
-      throw err;
+      global.GderpiSendEmailFeedback.notifySendError(err);
     }
   }
 
@@ -130,9 +155,11 @@
     await ensureFournisseurs();
     const q = document.getElementById('gderpi-achats-search')?.value?.trim() || '';
     const statut = document.getElementById('gderpi-achats-filter-statut')?.value || '';
+    const reglee = document.getElementById('gderpi-achats-filter-reglee')?.value || '';
     const params = new URLSearchParams();
     if (q) params.set('q', q);
     if (statut) params.set('statut', statut);
+    if (reglee === '0' || reglee === '1') params.set('reglee', reglee);
     const path = '/commandes-fournisseur' + (params.toString() ? '?' + params.toString() : '');
     const res = await global.GderpiApi.apiCall(path);
     commandes = res.data || [];
@@ -143,28 +170,46 @@
     if (!tbody) return;
 
     if (!commandes.length) {
-      tbody.innerHTML = '<tr><td colspan="6" class="text-muted">Aucune commande fournisseur. Elles sont créées en brouillon depuis une commande client validée.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="7" class="text-muted">Aucune commande fournisseur. Elles sont créées en brouillon depuis une commande client validée.</td></tr>';
       return;
     }
 
     tbody.innerHTML = commandes.map((c) => {
       const id = c.commandeFournisseurId || c.id;
       const next = NEXT_STATUS[c.statut];
-      let actions = '';
+      const items = [];
       if (canWrite() && next) {
-        actions = '<button type="button" class="btn btn-outline btn-sm gderpi-achats-next" data-id="' + esc(id) + '" data-next="' + esc(next) + '">' + esc(NEXT_LABEL[c.statut]) + '</button>';
+        items.push({
+          value: 'next',
+          label: NEXT_LABEL[c.statut] || 'Suivant',
+          tone: c.statut === 'brouillon' ? 'primary' : 'success',
+          attrs: { 'data-next': next }
+        });
+      }
+      if (canWrite() && c.statut === 'brouillon') {
+        items.push({ value: 'mark_sent', label: 'Marquer envoyée' });
       }
       if (canWrite() && c.statut && c.statut !== 'brouillon' && c.statut !== 'annulee') {
-        actions += ' <button type="button" class="btn btn-outline btn-sm gderpi-achats-email" data-id="' + esc(id) + '">E-mail fournisseur</button>';
+        items.push({ value: 'email', label: 'E-mail fournisseur' });
       }
       if (canWrite() && RECEPTION_STATUTS.has(String(c.statut))) {
-        actions += ' <button type="button" class="btn btn-outline btn-sm gderpi-achats-reception" data-id="' + esc(id) + '">Réception partielle</button>';
+        items.push({ value: 'reception', label: 'Réception partielle' });
       }
-      actions += ' <button type="button" class="btn btn-outline btn-sm gderpi-achats-pdf" data-id="' + esc(id) + '">PDF</button>';
-      actions += ' <button type="button" class="btn btn-outline btn-sm gderpi-achats-html" data-id="' + esc(id) + '">Aperçu</button>';
+      if (canWrite() && String(c.statut) !== 'annulee') {
+        if (c.reglee === true) {
+          items.push({ value: 'unpay', label: 'Marquer non réglée' });
+        } else {
+          items.push({ value: 'pay', label: 'Marquer réglée', tone: 'success' });
+        }
+      }
+      items.push({ value: 'pdf', label: 'PDF', dividerBefore: items.length > 0 });
+      items.push({ value: 'html', label: 'Aperçu' });
       if (canWrite() && c.statut !== 'annulee' && c.statut !== 'recue') {
-        actions += ' <button type="button" class="btn btn-outline-danger btn-sm gderpi-achats-cancel" data-id="' + esc(id) + '">Annuler</button>';
+        items.push({ value: 'cancel', label: 'Annuler', tone: 'danger', dividerBefore: true });
       }
+      const actions = global.GderpiListActionsMenu
+        ? global.GderpiListActionsMenu.render(items, { attrs: { 'data-id': id } })
+        : '';
       const origineTag = c.origine === 'stock'
         ? ' <span class="gderpi-badge gderpi-badge--stock" title="Commande stock autonome">Stock</span>'
         : '';
@@ -173,50 +218,41 @@
         '<td>' + esc(supplierLabel(c)) + '</td>' +
         '<td>' + esc(c.objet || '—') + '</td>' +
         '<td>' + statutBadge(c.statut) + '</td>' +
+        '<td>' + regleeBadge(c) + '</td>' +
         '<td class="text-end">' + fmt(c.totaux?.totalHt) + '</td>' +
-        '<td class="text-nowrap">' + actions + '</td></tr>';
+        '<td class="gderpi-cmd-actions-cell" onclick="event.stopPropagation()">' + actions + '</td></tr>';
     }).join('');
 
     tbody.querySelectorAll('[data-gderpi-achats-row]').forEach((tr) => {
       tr.style.cursor = 'pointer';
       tr.addEventListener('dblclick', (ev) => {
-        if (ev.target.closest('button')) return;
+        if (ev.target.closest('button, .gderpi-actions-menu')) return;
         const id = tr.getAttribute('data-id');
         global.GderpiCommandeFournisseurEditor?.openCommandeFournisseur?.(id).catch(handleErr);
       });
     });
 
-    tbody.querySelectorAll('.gderpi-achats-next').forEach((btn) => {
-      btn.addEventListener('click', () => updateStatus(btn.dataset.id, btn.dataset.next).catch(handleErr));
-    });
-    tbody.querySelectorAll('.gderpi-achats-email').forEach((btn) => {
-      btn.addEventListener('click', () => sendEmail(btn.dataset.id).catch(handleErr));
-    });
-    tbody.querySelectorAll('.gderpi-achats-pdf').forEach((btn) => {
-      btn.addEventListener('click', () => {
-        global.GderpiCommandeClientHelpers.downloadCommandeFournisseurPdf(btn.dataset.id).catch(handleErr);
-      });
-    });
-    tbody.querySelectorAll('.gderpi-achats-html').forEach((btn) => {
-      btn.addEventListener('click', () => {
-        global.GderpiCommandeClientHelpers.previewCommandeFournisseurHtml(btn.dataset.id).catch(handleErr);
-      });
-    });
-    tbody.querySelectorAll('.gderpi-achats-reception').forEach((btn) => {
-      btn.addEventListener('click', () => {
-        global.GderpiReceptionFournisseurModal?.openReceptionForCommandeFournisseur?.(btn.dataset.id);
-      });
-    });
-    tbody.querySelectorAll('.gderpi-achats-cancel').forEach((btn) => {
-      btn.addEventListener('click', () => {
+    global.GderpiListActionsMenu?.bind?.(tbody, async (action, itemEl, menuEl) => {
+      const id = menuEl.getAttribute('data-id') || '';
+      if (action === 'next') return updateStatus(id, itemEl.getAttribute('data-next'));
+      if (action === 'mark_sent') return markAsSent(id);
+      if (action === 'email') return sendEmail(id);
+      if (action === 'pdf') return global.GderpiCommandeClientHelpers.downloadCommandeFournisseurPdf(id);
+      if (action === 'html') return global.GderpiCommandeClientHelpers.previewCommandeFournisseurHtml(id);
+      if (action === 'reception') {
+        return global.GderpiReceptionFournisseurModal?.openReceptionForCommandeFournisseur?.(id);
+      }
+      if (action === 'pay') return setReglee(id, true);
+      if (action === 'unpay') return setReglee(id, false);
+      if (action === 'cancel') {
         if (!confirm('Annuler cette commande fournisseur ?')) return;
-        updateStatus(btn.dataset.id, 'annulee').catch(handleErr);
-      });
+        return updateStatus(id, 'annulee');
+      }
     });
   }
 
   function bindAchatsTab() {
-    ['gderpi-achats-search', 'gderpi-achats-filter-statut'].forEach((id) => {
+    ['gderpi-achats-search', 'gderpi-achats-filter-statut', 'gderpi-achats-filter-reglee'].forEach((id) => {
       const el = document.getElementById(id);
       if (!el) return;
       el.addEventListener('change', () => refreshAchatsList().catch(handleErr));

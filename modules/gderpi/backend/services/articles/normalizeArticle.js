@@ -33,6 +33,13 @@ function normalizeGestionStock(value, type) {
   return value === true || value === 1 || String(value).toLowerCase() === 'true';
 }
 
+function normalizeGererCommande(value, type) {
+  if (type === 'produit') return true;
+  if (value === true || value === 1 || String(value).toLowerCase() === 'true') return true;
+  if (value === false || value === 0 || String(value).toLowerCase() === 'false') return false;
+  return true;
+}
+
 function normalizeArticle(raw) {
   const a = raw && typeof raw === 'object' ? raw : {};
   const type = normalizeArticleType(a.type);
@@ -60,6 +67,7 @@ function normalizeArticle(raw) {
     fournisseurId: principalIds.fournisseurId || legacyFournisseurId,
     boutiqueFournisseurId: principalIds.boutiqueFournisseurId,
     gestionStock: normalizeGestionStock(a.gestionStock, type),
+    gererCommande: normalizeGererCommande(a.gererCommande, type),
     referenceFournisseur: principalFrs?.referenceFournisseur || legacyRefFournisseur,
     refsClient: normalizeArticleRefsClient(a.refsClient),
     imageUrl: String(a.imageUrl || '').trim(),

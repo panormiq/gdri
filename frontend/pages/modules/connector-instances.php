@@ -25,6 +25,10 @@ $page_title = 'Connecteur — ' . ucfirst($connectorId);
 $jwt_token = getJWTToken();
 $api_base_url = rtrim(getApiBaseUrl(), '/');
 $webhook_base = preg_replace('#/api/?$#', '', $api_base_url);
+$fieldTypesJs = __DIR__ . '/../../assets/js/collection-field-types.js';
+$extra_scripts = [
+    url('assets/js/collection-field-types.js') . '?v=' . (is_file($fieldTypesJs) ? filemtime($fieldTypesJs) : time())
+];
 
 require_once __DIR__ . '/../../includes/header.php';
 renderConsoleLayoutStart(
@@ -66,6 +70,7 @@ renderConsoleBackLink('Connecteurs', url('pages/entity-connecteurs.php'));
                     <input type="text" id="instanceName" class="form-control" required placeholder="Ex: Support client">
                 </div>
                 <div id="dynamicSettings"></div>
+                <div id="payloadContract" class="form-group" style="display:none;"></div>
                 <div class="form-group">
                     <label for="instanceMapping">Mapping (JSON)</label>
                     <textarea id="instanceMapping" class="form-control" rows="5" placeholder='{"text":"body","author.name":"contact.name"}'></textarea>
@@ -194,43 +199,95 @@ renderConsoleBackLink('Connecteurs', url('pages/entity-connecteurs.php'));
             });
     }
 
-    function renderDynamicSettings(settings, schema) {
+    function renderDynamicSettings(settings, fields) {
         const container = document.getElementById('dynamicSettings');
         if (!container) return;
-        container.innerHTML = '';
+        if (window.CollectionFieldTypes && typeof CollectionFieldTypes.mount === 'function') {
+            CollectionFieldTypes.mount(container, fields || [], settings || {});
+            fillConnectionFields(container, settings || {});
+            return;
+        }
+        container.innerHTML = '<p class="text-muted small">Catalogue de champs indisponible.</p>';
+    }
 
-        const props = schema?.properties || {};
-        const skipKeys = new Set(['webhookVerify']);
-        Object.entries(props).forEach(([key, field]) => {
-            if (skipKeys.has(key)) return;
-            const value = settings?.[key];
-            const title = field.title || key;
-            const group = document.createElement('div');
-            group.className = 'form-group';
-            group.dataset.settingKey = key;
+    function renderPayloadContract(kinds) {
+        const el = document.getElementById('payloadContract');
+        if (!el) return;
+        if (!Array.isArray(kinds) || !kinds.length) {
+            el.style.display = 'none';
+            el.innerHTML = '';
+            return;
+        }
+        let html = '<label>Contrat (payload)</label>';
+        html += '<p class="text-muted small" style="margin:0 0 0.4rem;">Champs produits / consommés par ce connecteur — même langage que les collections.</p>';
+        kinds.forEach(function(kind) {
+            const fields = kind.fields || [];
+            html += '<div class="badge-mode" style="display:inline-block;margin:0 6px 6px 0;">' + escapeHtml(kind.label || kind.id);
+            if (fields.length) html += ' · ' + fields.length + ' champ(s)';
+            html += '</div>';
+        });
+        el.innerHTML = html;
+        el.style.display = 'block';
+    }
 
-            if (field.type === 'boolean') {
-                group.innerHTML = '<label><input type="checkbox" data-setting="' + key + '"' + (value !== false ? ' checked' : '') + '> ' + escapeHtml(title) + '</label>';
-            } else if (field.enum) {
-                let html = '<label for="setting_' + key + '">' + escapeHtml(title) + '</label><select id="setting_' + key + '" class="form-control" data-setting="' + key + '">';
-                field.enum.forEach(opt => {
-                    html += '<option value="' + escapeHtml(opt) + '"' + (String(value) === String(opt) ? ' selected' : '') + '>' + escapeHtml(opt) + '</option>';
-                });
-                html += '</select>';
-                group.innerHTML = html;
-            } else if (field.type === 'number') {
-                group.innerHTML = '<label for="setting_' + key + '">' + escapeHtml(title) + '</label>' +
-                    '<input type="number" id="setting_' + key + '" class="form-control" data-setting="' + key + '" value="' + escapeHtml(value ?? field.default ?? '') + '"' +
-                    (field.minimum != null ? ' min="' + field.minimum + '"' : '') + '>';
-            } else {
-                group.innerHTML = '<label for="setting_' + key + '">' + escapeHtml(title) + '</label>' +
-                    '<input type="text" id="setting_' + key + '" class="form-control" data-setting="' + key + '" value="' + escapeHtml(value ?? field.default ?? '') + '">';
+    function mailAccountsFromConfig(cfg) {
+        const out = [];
+        const seen = {};
+        function push(id, label) {
+            const key = String(id || '');
+            if (!key || seen[key]) return;
+            seen[key] = true;
+            out.push({ id: key, label: String(label || key) });
+        }
+        if (!cfg) return out;
+        (cfg.comptes || []).forEach(function(c) {
+            if (!c || c.enabled === false) return;
+            push(c.id || c.email, c.from_name || c.email);
+        });
+        const profiles = cfg.smtp_profiles || {};
+        Object.keys(profiles).forEach(function(id) {
+            const p = profiles[id] || {};
+            const email = (p.smtp && p.smtp.auth && p.smtp.auth.user) || p.email || id;
+            push(id, p.from_name || p.name || email);
+        });
+        return out;
+    }
+
+    function fillConnectionFields(container, settings) {
+        if (!container || !window.CollectionFieldTypes) return;
+        container.querySelectorAll('[data-connection]').forEach(function(sel) {
+            const source = sel.getAttribute('data-connection-source') || '';
+            const connectorId = sel.getAttribute('data-connector-id') || CONNECTOR_ID;
+            const current = settings[sel.getAttribute('data-setting')] || sel.value || '';
+            const apply = function(options) {
+                CollectionFieldTypes.fillConnectionSelect(sel, options, current);
+            };
+            if (source === 'mail-account') {
+                fetch(API + '/mail/config/mail', { headers: headers() })
+                    .then(function(r) { return r.json(); })
+                    .then(function(data) {
+                        apply(mailAccountsFromConfig((data && (data.effective_config || data.config)) || null));
+                    })
+                    .catch(function() { apply([]); });
+                return;
             }
-            container.appendChild(group);
+            fetch(API + '/connectors/instances/list/all?connectorId=' + encodeURIComponent(connectorId), { headers: headers() })
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    const rows = (data && data.success && Array.isArray(data.data)) ? data.data : [];
+                    apply(rows.map(function(inst) {
+                        return { id: String(inst._id), label: inst.name || inst._id };
+                    }));
+                })
+                .catch(function() { apply([]); });
         });
     }
 
     function collectSettings() {
+        const container = document.getElementById('dynamicSettings');
+        if (window.CollectionFieldTypes && typeof CollectionFieldTypes.collect === 'function') {
+            return CollectionFieldTypes.collect(container, manifest && manifest.settingsFields);
+        }
         const settings = {};
         document.querySelectorAll('[data-setting]').forEach(el => {
             const key = el.getAttribute('data-setting');
@@ -341,7 +398,8 @@ renderConsoleBackLink('Connecteurs', url('pages/entity-connecteurs.php'));
 
     function applyTemplateToForm(template, inst) {
         const settings = inst?.settings || template?.settings || {};
-        renderDynamicSettings(settings, manifest?.configSchema);
+        renderDynamicSettings(settings, manifest?.settingsFields);
+        renderPayloadContract(manifest?.payloadKinds);
         document.getElementById('instanceMapping').value = JSON.stringify(
             inst?.mapping || template?.mapping || {},
             null,

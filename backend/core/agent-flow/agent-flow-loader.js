@@ -14,11 +14,10 @@ let scheduler = null;
  * @param {Object} database
  */
 async function loadAgentFlows(app, database) {
-  console.log('🧩 Découverte des briques flow (orchestrateur)...');
+  console.log('🧩 Découverte des familles de blocs agent...');
   const bricks = flowBrickRegistry.discover();
-  const triggers = bricks.filter((b) => b.kind === 'trigger').length;
-  const actions = bricks.filter((b) => b.kind === 'action').length;
-  console.log(`🧩 Briques flow : ${bricks.length} (${triggers} triggers, ${actions} actions)`);
+  const families = bricks.map((b) => b.family || b.id).join(', ');
+  console.log(`🧩 Blocs agent : ${bricks.length} familles (${families})`);
 
   try {
     const { AgentBrickConfigService } = require('./AgentBrickConfigService');

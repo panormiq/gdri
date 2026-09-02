@@ -1,0 +1,80 @@
+.template-create-page {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: var(--spacing-md);
+}
+
+.template-create-back {
+  margin-bottom: var(--spacing-md);
+  padding: var(--spacing-xs) var(--spacing-sm);
+  border: 1px solid var(--color-light);
+  background: var(--color-light);
+  border-radius: var(--border-radius-sm);
+  cursor: pointer;
+}
+
+.template-create-page h1 {
+  text-align: center;
+  margin-bottom: var(--spacing-sm);
+}
+
+.template-create-hint {
+  text-align: center;
+  color: var(--color-gray);
+  margin-bottom: var(--spacing-lg);
+}
+
+.template-create-name {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+  max-width: 420px;
+  margin: 0 auto var(--spacing-lg);
+  font-weight: 600;
+}
+
+.template-create-name input {
+  padding: var(--spacing-xs) var(--spacing-sm);
+  border: 1px solid var(--color-gray);
+  border-radius: var(--border-radius-sm);
+  font-weight: 400;
+}
+
+.template-create-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: var(--spacing-md);
+}
+
+.template-create-card[data-kind="prompt"] {
+  border-color: #7dd3fc;
+  background: #f0f9ff;
+}
+
+.template-create-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+  text-align: left;
+  padding: var(--spacing-md);
+  border: 1px solid var(--color-light);
+  border-radius: var(--border-radius-md);
+  background: var(--color-white);
+  box-shadow: var(--shadow-md);
+  cursor: pointer;
+}
+
+.template-create-card:hover {
+  border-color: var(--color-primary);
+  transform: translateY(-2px);
+}
+
+.template-create-card strong {
+  font-size: var(--font-size-h3);
+  color: var(--color-dark);
+}
+
+.template-create-card span {
+  color: var(--color-gray);
+  line-height: 1.5;
+}

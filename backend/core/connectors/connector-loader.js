@@ -38,20 +38,16 @@ async function loadConnectors(app, database) {
 
       const messages = await runtime.ingestPush(instance, req);
 
-      // Dispatch vers agent-flows (même chemin que le poll)
-      if (messages.length && instance.connectorId === 'facebook' && scheduler) {
-        await scheduler.dispatchFacebookToFlows(instance, messages);
-      } else if (messages.length && instance.connectorId === 'facebook') {
-        const { ConnectorScheduler } = require('./ConnectorScheduler');
-        const tmp = new ConnectorScheduler(database);
-        await tmp.dispatchFacebookToFlows(instance, messages);
+      if (messages.length) {
+        const runner = scheduler || new ConnectorScheduler(database);
+        await runner.dispatchPushToFlows(instance, messages);
       }
 
       return res.json({
         success: true,
         count: messages.length,
         messages,
-        dispatched: instance.connectorId === 'facebook'
+        dispatched: messages.length > 0
       });
     } catch (error) {
       console.error('Webhook connecteur:', error.message);

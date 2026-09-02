@@ -44,6 +44,19 @@
         body: JSON.stringify(body)
       });
     },
+    getDataContracts() {
+      const base = (global.API_BASE_URL || '/api').replace(/\/$/, '');
+      return fetch(`${base}/agent-flows/data-contracts`, {
+        credentials: 'include',
+        headers: authHeaders()
+      }).then(async (res) => {
+        const data = await res.json();
+        if (!res.ok || data.success === false) {
+          throw new Error(data.error || data.message || `HTTP ${res.status}`);
+        }
+        return data;
+      });
+    },
     generateAi(namespace, body) {
       return api(`/templates/${encodeURIComponent(namespace)}/generate-ai`, {
         method: 'POST',

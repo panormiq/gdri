@@ -55,7 +55,13 @@ class PromptService {
     if (!result.success) {
       return { success: false, error: result.error || { message: 'Erreur IA' } };
     }
-    const raw = result.data && result.data.response != null ? String(result.data.response) : '';
+    const data = result.data || {};
+    const raw = String(
+      (data.response != null && String(data.response).trim() !== '' ? data.response : '')
+      || (data.message && data.message.content)
+      || data.thinking
+      || ''
+    );
     return {
       success: true,
       raw,

@@ -1,21 +1,17 @@
 /**
- * Registre des briques flow (orchestrateur type n8n).
+ * Registre des briques flow — familles génériques.
  * Fichier : backend/core/agent-flow/FlowBrickRegistry.js
  *
- * Découvre :
- * - backend/core/agent-flow/bricks/<id>/flow-node.json  (briques core, ex. triggers)
- * - modules/<module>/flow-node.json                     (briques modules, ex. data-backup)
- * - connectors/<id>/flow-node.json                      (briques connecteurs sortants)
+ * Découvre uniquement :
+ * - backend/core/agent-flow/bricks/<family>/flow-node.json
  */
 
 const fs = require('fs');
 const path = require('path');
 
-const BACKEND_ROOT = path.resolve(__dirname, '../..');
-const PROJECT_ROOT = path.resolve(BACKEND_ROOT, '..');
 const CORE_BRICKS_ROOT = path.join(__dirname, 'bricks');
-const MODULES_ROOT = path.join(PROJECT_ROOT, 'modules');
-const CONNECTORS_ROOT = path.join(PROJECT_ROOT, 'connectors');
+
+const FAMILY_ORDER = ['trigger', 'data', 'condition', 'loop', 'action', 'ia', 'validation', 'output'];
 
 class FlowBrickRegistry {
   constructor() {
@@ -25,8 +21,6 @@ class FlowBrickRegistry {
   discover() {
     this.bricks.clear();
     this.discoverCoreBricks();
-    this.discoverModuleBricks();
-    this.discoverConnectorBricks();
     return this.list();
   }
 
@@ -40,47 +34,14 @@ class FlowBrickRegistry {
     }
   }
 
-  discoverModuleBricks() {
-    if (!fs.existsSync(MODULES_ROOT)) return;
-    const modules = fs.readdirSync(MODULES_ROOT);
-    for (const moduleName of modules) {
-      const manifestPath = path.join(MODULES_ROOT, moduleName, 'flow-node.json');
-      if (!fs.existsSync(manifestPath)) continue;
-      this.registerFromFile(manifestPath, path.join(MODULES_ROOT, moduleName));
-    }
-  }
-
-  discoverConnectorBricks() {
-    if (!fs.existsSync(CONNECTORS_ROOT)) return;
-    const connectors = fs.readdirSync(CONNECTORS_ROOT);
-    for (const connectorId of connectors) {
-      if (connectorId.startsWith('_')) continue;
-      const manifestPath = path.join(CONNECTORS_ROOT, connectorId, 'flow-node.json');
-      if (!fs.existsSync(manifestPath)) continue;
-      this.registerFromFile(manifestPath, path.join(CONNECTORS_ROOT, connectorId));
-    }
-  }
-
-  resolveOrigin(basePath) {
-    const normalized = path.resolve(basePath);
-    if (normalized.startsWith(path.resolve(CONNECTORS_ROOT) + path.sep)
-      || normalized === path.resolve(CONNECTORS_ROOT)) {
-      return 'connector';
-    }
-    if (normalized.startsWith(path.resolve(MODULES_ROOT) + path.sep)
-      || normalized === path.resolve(MODULES_ROOT)) {
-      return 'module';
-    }
-    return 'core';
-  }
-
   registerFromFile(manifestPath, basePath) {
     try {
       const raw = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
       if (!raw.id) return;
       const brick = {
         ...raw,
-        origin: raw.origin || this.resolveOrigin(basePath),
+        family: raw.family || raw.id,
+        origin: 'core',
         _basePath: basePath,
         _manifestPath: manifestPath
       };
@@ -98,8 +59,7 @@ class FlowBrickRegistry {
   }
 
   /**
-   * Briques visibles dans l'orchestrateur uniquement.
-   * @param {{ kind?: string, category?: string }} filters
+   * @param {{ kind?: string, category?: string, family?: string }} filters
    */
   list(filters = {}) {
     let items = Array.from(this.bricks.values());
@@ -109,9 +69,17 @@ class FlowBrickRegistry {
     if (filters.category) {
       items = items.filter((b) => b.category === filters.category);
     }
+    if (filters.family) {
+      items = items.filter((b) => b.family === filters.family);
+    }
     if (filters.orchestratorOnly !== false) {
       items = items.filter((b) => b.visibility !== 'hidden');
     }
+    items.sort((a, b) => {
+      const ia = FAMILY_ORDER.indexOf(a.family || a.id);
+      const ib = FAMILY_ORDER.indexOf(b.family || b.id);
+      return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib);
+    });
     return items.map((b) => this.serialize(b));
   }
 
@@ -121,6 +89,10 @@ class FlowBrickRegistry {
 
   listActions() {
     return this.list({ kind: 'action' });
+  }
+
+  listFamilies() {
+    return FAMILY_ORDER.filter((id) => this.bricks.has(id)).map((id) => this.serialize(this.bricks.get(id)));
   }
 
   serialize(brick) {

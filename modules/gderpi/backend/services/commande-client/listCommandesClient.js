@@ -16,6 +16,10 @@ const flattenFacturesForList = require('../facturation/flattenFacturesForList');
 
 const { summarizeCommandesFournisseurByClient } = require('../commande-fournisseur/summarizeCommandesFournisseurByClient');
 const applyReceptionFournisseurSideEffects = require('./applyReceptionFournisseurSideEffects');
+const commandeNeedsDevSuiviRepair = require('./commandeNeedsDevSuiviRepair');
+const repairCommandeClientDevSuivi = require('./repairCommandeClientDevSuivi');
+const maybeMarkCommandeLivree = require('../workflow/maybeMarkCommandeLivree');
+const maybeRemapAchatsToPrestation = require('./maybeRemapAchatsToPrestation');
 
 const COLLECTION = 'gderpi_commandes_client';
 const REPAIR_STATUTS = new Set(['achats_en_cours', 'attente_livraison_frs']);
@@ -72,6 +76,7 @@ async function listCommandesClient(db, entrepriseId, opts = {}) {
 
     query.statut = {
       $in: [
+        'prestation_en_cours',
         'achats_en_cours',
         'attente_livraison_frs',
         'a_livrer',
@@ -99,9 +104,23 @@ async function listCommandesClient(db, entrepriseId, opts = {}) {
   for (const d of docs) {
     const id = String(d.commandeClientId || d.id || '').trim();
     const cfSummary = cfSummaryByClient.get(id);
-    if (!REPAIR_STATUTS.has(String(d.statut)) || !(Number(cfSummary?.commandesFournisseurCount) > 0)) continue;
-    await applyReceptionFournisseurSideEffects(db, entrepriseId, id);
-    repairedIds.push(id);
+    let touched = false;
+    if (commandeNeedsDevSuiviRepair(d)) {
+      await repairCommandeClientDevSuivi(db, entrepriseId, id);
+      touched = true;
+    }
+    if (String(d.statut) === 'achats_en_cours') {
+      await maybeRemapAchatsToPrestation(db, entrepriseId, id);
+      touched = true;
+    }
+    if (touched) {
+      await maybeMarkCommandeLivree(db, entrepriseId, id);
+    }
+    if (REPAIR_STATUTS.has(String(d.statut)) && Number(cfSummary?.commandesFournisseurCount) > 0) {
+      await applyReceptionFournisseurSideEffects(db, entrepriseId, id);
+      touched = true;
+    }
+    if (touched) repairedIds.push(id);
   }
 
   if (repairedIds.length) {
@@ -162,7 +181,7 @@ async function listCommandesClient(db, entrepriseId, opts = {}) {
 
     entries = entries.filter((c) => {
 
-      const hay = [c.numero, c.objet, c.factureNumero, c.clientId, c.documentClient, c.referenceClient, c.devisNumero].join(' ').toLowerCase();
+      const hay = [c.numero, c.objet, c.factureNumero, c.clientId, c.documentClient, c.referenceClient, c.devisNumero, c.contactNom].join(' ').toLowerCase();
 
       return hay.includes(q);
 

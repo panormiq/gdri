@@ -7,6 +7,7 @@ const getClientById = require('../clients/getClientById');
 const getDevisById = require('./getDevisById');
 const getDevisMailSettings = require('../mail/getDevisMailSettings');
 const { getMailService, resolveSmtpProfileForSender } = require('../mail/MailHelper');
+const { buildGderpiMailContext } = require('../mail/gderpiMailDocumentTypes');
 const resolveDevisContact = require('../pdf/resolveDevisContact');
 const resolveCgvEmailUrls = require('../mail/resolveCgvEmailUrls');
 const createGderpiPublicLink = require('../public/createGderpiPublicLink');
@@ -107,7 +108,13 @@ async function sendDevisOrderConfirmationEmail(db, entrepriseId, {
     profile,
     module_name: 'gderpi',
     entity_id: String(entrepriseId),
-    context: { commandeClientId: String(commandeClientId), action: 'devis_public_order_modified' }
+    context: buildGderpiMailContext({
+      action: 'devis_public_order_modified',
+      documentType: 'commande_client',
+      documentId: commandeClientId,
+      documentNumero: commande.numero,
+      extra: { commandeClientId: String(commandeClientId), devisId: String(devisId) }
+    })
   });
 
   if (!sendResult?.success) {

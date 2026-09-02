@@ -46,6 +46,8 @@ function normalizeCommandeFournisseur(raw) {
     lignes,
     totaux,
     historique: Array.isArray(c.historique) ? c.historique : [],
+    reglee: c.reglee === true,
+    regleeAt: c.regleeAt || null,
     createdAt: c.createdAt || null,
     updatedAt: c.updatedAt || null
   };

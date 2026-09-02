@@ -95,8 +95,12 @@ function renderOrderForm({ devis, boutique, acceptActionUrl, errorMessage }) {
           <p class="gderpi-accept-meta gderpi-order-total-hint">Montant devis initial : ${esc(initialTtc)} TTC</p>
         </div>
 
-        <label class="gderpi-order-ref-label" for="gderpi-ref-client">Votre référence commande (optionnel)</label>
-        <input type="text" id="gderpi-ref-client" name="referenceClient" class="gderpi-order-ref-input" maxlength="120" placeholder="Ex. BC-2026-0042">
+        <label class="gderpi-order-ref-label" for="gderpi-ref-client">Votre n° de bon de commande</label>
+        <input type="text" id="gderpi-ref-client" name="referenceClient" class="gderpi-order-ref-input" maxlength="120" placeholder="Ex. BC-2026-0042" value="${esc(String(devis?.documentClient || devis?.referenceClient || '').trim())}">
+        <label class="gderpi-order-ref-none" for="gderpi-ref-none">
+          <input type="checkbox" id="gderpi-ref-none" name="sansBonCommandeClient" value="1">
+          Je n'ai pas de n° de commande
+        </label>
 
         <button type="submit" class="gderpi-accept-btn" id="gderpi-submit-btn">Confirmer ma commande</button>
       </form>
@@ -215,10 +219,33 @@ function wrapPage(devis, content, withScript) {
     if (input) input.value = '0';
     recalc();
   });
-  document.getElementById('gderpi-order-form')?.addEventListener('submit', function () {
+  document.getElementById('gderpi-order-form')?.addEventListener('submit', function (e) {
     document.querySelectorAll('.gderpi-order-line--removed .gderpi-qty-input').forEach(function (input) {
       input.value = '0';
     });
+    const ref = document.getElementById('gderpi-ref-client');
+    const none = document.getElementById('gderpi-ref-none');
+    const hasRef = !!(ref && String(ref.value || '').trim());
+    const hasNone = !!(none && none.checked);
+    if (!hasRef && !hasNone) {
+      e.preventDefault();
+      if (ref) ref.focus();
+    }
+  });
+  document.getElementById('gderpi-ref-none')?.addEventListener('change', function () {
+    const ref = document.getElementById('gderpi-ref-client');
+    if (!ref) return;
+    if (this.checked) {
+      ref.value = '';
+      ref.disabled = true;
+    } else {
+      ref.disabled = false;
+      ref.focus();
+    }
+  });
+  document.getElementById('gderpi-ref-client')?.addEventListener('input', function () {
+    const none = document.getElementById('gderpi-ref-none');
+    if (none && String(this.value || '').trim()) none.checked = false;
   });
   recalc();
 })();
@@ -265,6 +292,8 @@ function wrapPage(devis, content, withScript) {
     .gderpi-order-total-hint{margin:8px 0 0;font-size:12px}
     .gderpi-order-ref-label{display:block;font-size:14px;color:#475569;margin:16px 0 6px}
     .gderpi-order-ref-input{width:100%;padding:10px 12px;border:1px solid #cbd5e1;border-radius:8px;font-size:14px}
+    .gderpi-order-ref-none{display:flex;align-items:center;gap:8px;margin:10px 0 0;font-size:14px;color:#475569;cursor:pointer}
+    .gderpi-order-ref-none input{width:16px;height:16px}
     .gderpi-accept-btn{width:100%;margin-top:16px;padding:14px 20px;border:0;border-radius:10px;background:#16a34a;color:#fff;font-size:16px;font-weight:600;cursor:pointer}
     .gderpi-accept-btn:hover:not(:disabled){background:#15803d}
     .gderpi-accept-btn:disabled{background:#94a3b8;cursor:not-allowed}

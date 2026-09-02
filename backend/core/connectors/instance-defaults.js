@@ -38,6 +38,16 @@ function getSchemaDefaults(configSchema) {
   return settings;
 }
 
+function getManifestSettingDefaults(manifest) {
+  try {
+    const { getSettingsFields, defaultsFromFields } = require('./connectorContract');
+    const fromFields = defaultsFromFields(getSettingsFields(manifest));
+    return { ...getSchemaDefaults(manifest?.configSchema), ...fromFields };
+  } catch (_) {
+    return getSchemaDefaults(manifest?.configSchema);
+  }
+}
+
 /**
  * @param {Object|null} manifest
  * @param {string|null} presetId
@@ -102,7 +112,7 @@ function listPresets(manifest) {
 function buildInstancePayload(manifest, userPayload = {}) {
   const presetId = userPayload.presetId != null ? String(userPayload.presetId) : null;
   const preset = resolvePreset(manifest, presetId);
-  const schemaDefaults = getSchemaDefaults(manifest?.configSchema);
+  const schemaDefaults = getManifestSettingDefaults(manifest);
   const instanceDefaults = manifest?.instanceDefaults || {};
 
   const mergedSettings = deepMerge(

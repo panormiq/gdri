@@ -1,0 +1,50 @@
+{
+  "id": "action",
+  "name": "Action",
+  "version": "4.0.0",
+  "family": "action",
+  "category": "action",
+  "kind": "action",
+  "visibility": "orchestrator-only",
+  "description": "Champs à préparer pour la suite (IA, mail…).",
+  "canvas": {
+    "iconEmoji": "⚙",
+    "color": "#7c3aed",
+    "borderRadius": 12,
+    "width": 220,
+    "inputs": [
+      { "id": "main", "label": "Entrée", "type": "main", "maxConnections": 0 }
+    ],
+    "outputs": [
+      { "id": "main", "label": "Suite", "type": "main", "maxConnections": 0 }
+    ]
+  },
+  "operations": {
+    "action.run": {
+      "label": "Exécuter",
+      "configSchema": {
+        "type": "object",
+        "properties": {
+          "writeMode": {
+            "type": "string",
+            "title": "Écriture dans le flux",
+            "enum": ["merge", "replace"],
+            "enumLabels": {
+              "merge": "Compléter le flux",
+              "replace": "Écraser le texte"
+            },
+            "default": "merge"
+          }
+        }
+      },
+      "outputMessage": {
+        "type": "action-result",
+        "fields": [
+          { "key": "success", "label": "Succès" }
+        ]
+      }
+    }
+  },
+  "permissions": ["network"],
+  "serviceRef": "backend/core/agent-flow/families"
+}

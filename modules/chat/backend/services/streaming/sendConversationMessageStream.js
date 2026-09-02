@@ -96,7 +96,8 @@ async function sendConversationMessageStream(database, req, res, conversationId,
   res.setHeader('X-Accel-Buffering', 'no');
   if (typeof res.flushHeaders === 'function') res.flushHeaders();
 
-  const timeoutMs = runtime.client.timeout || 120000;
+  const firstByteMs = Math.max(runtime.client.timeout || 120000, 10 * 60 * 1000);
+  const idleMs = runtime.client.timeout || 120000;
   const isHttps = streamUrl.protocol === 'https:';
   const lib = isHttps ? https : http;
 
@@ -105,6 +106,29 @@ async function sendConversationMessageStream(database, req, res, conversationId,
     let assistantAccum = '';
     let finalFull = null;
     let streamError = false;
+    let gotByte = false;
+    let settled = false;
+    let idleTimer = null;
+
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      if (idleTimer) clearTimeout(idleTimer);
+      resolve();
+    };
+    const armIdle = (ms, req) => {
+      if (idleTimer) clearTimeout(idleTimer);
+      idleTimer = setTimeout(() => {
+        req.destroy();
+        writeSseEvent(res, {
+          error: gotByte
+            ? `Flux IA interrompu (aucune donnée depuis ${ms}ms)`
+            : `Aucune réponse IA après ${ms}ms (chargement du modèle ?)`
+        });
+        res.end();
+        finish();
+      }, ms);
+    };
 
     const handleSseJson = (j) => {
       if (j.token !== undefined && j.token !== null && j.token !== '') {
@@ -127,8 +151,7 @@ async function sendConversationMessageStream(database, req, res, conversationId,
         port: streamUrl.port || (isHttps ? 443 : 80),
         path: streamUrl.pathname + (streamUrl.search || ''),
         method: 'POST',
-        headers: upstreamHeaders,
-        timeout: timeoutMs
+        headers: upstreamHeaders
       },
       (upRes) => {
         if (upRes.statusCode < 200 || upRes.statusCode >= 300) {
@@ -147,13 +170,15 @@ async function sendConversationMessageStream(database, req, res, conversationId,
             }
             writeSseEvent(res, { error: msg });
             res.end();
-            resolve();
+            finish();
           });
           return;
         }
 
         upRes.setEncoding('utf8');
         upRes.on('data', (chunk) => {
+          gotByte = true;
+          armIdle(idleMs, upstreamReq);
           buffer += chunk;
           buffer = consumeSseBuffer(buffer, handleSseJson);
         });
@@ -163,7 +188,7 @@ async function sendConversationMessageStream(database, req, res, conversationId,
 
           if (streamError) {
             res.end();
-            resolve();
+            finish();
             return;
           }
 
@@ -188,27 +213,22 @@ async function sendConversationMessageStream(database, req, res, conversationId,
             writeSseEvent(res, { error: e.message || 'Erreur persistance.' });
           }
           res.end();
-          resolve();
+          finish();
         });
 
         upRes.on('error', (e) => {
           writeSseEvent(res, { error: e.message || 'Flux interrompu' });
           res.end();
-          resolve();
+          finish();
         });
       }
     );
 
+    armIdle(firstByteMs, upstreamReq);
     upstreamReq.on('error', (e) => {
       writeSseEvent(res, { error: e.message || 'Connexion serveur IA impossible' });
       res.end();
-      resolve();
-    });
-    upstreamReq.on('timeout', () => {
-      upstreamReq.destroy();
-      writeSseEvent(res, { error: `Timeout après ${timeoutMs}ms` });
-      res.end();
-      resolve();
+      finish();
     });
     upstreamReq.write(body);
     upstreamReq.end();

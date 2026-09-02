@@ -7,6 +7,8 @@ import FormatTab from './components/rightPanel/FormatTab.js';
 import { extractStructureFromHTML } from './utils/templateRefactorer.js';
 import { flattenSections } from './utils/sectionHierarchy.js';
 import { formatHierarchicalNumbering } from './utils/numberingUtils.js';
+import { normalizeTemplateKind, editorPath } from '../template/templateKinds.js?v=tpl-kind-3';
+import { canvasEditorUrl, canvasNamespaceForTemplate } from '../app/canvasEditor.js';
 
 // Charger le CSS
 (function loadCSS() {
@@ -21,10 +23,11 @@ import { formatHierarchicalNumbering } from './utils/numberingUtils.js';
 })();
 
 export default class TemplateBuilderPage extends Page {
-  constructor(router, templateId = null) {
+  constructor(router, templateId = null, kind = 'word') {
     super(router);
     console.log('🏗️ TemplateBuilderPage constructor appelé, templateId:', templateId);
     this.templateId = templateId;
+    this.kind = kind || 'word';
     this.template = null;
     this.leftPanel = null;
     this.editor = null;
@@ -109,6 +112,7 @@ export default class TemplateBuilderPage extends Page {
       console.log('📥 Chargement du template avec ID:', this.templateId);
       try {
         await this.loadTemplate();
+        if (this._redirected) return;
         if (!this.template) {
           throw new Error('Le template n\'a pas pu être chargé');
         }
@@ -155,6 +159,20 @@ export default class TemplateBuilderPage extends Page {
     
     if (response.success && response.data) {
       this.template = response.data;
+      const kind = normalizeTemplateKind(this.template);
+      if (kind !== 'word') {
+        this._redirected = true;
+        if (kind === 'canvas') {
+          window.location.href = canvasEditorUrl({
+            template: canvasNamespaceForTemplate(this.template),
+          });
+        } else if (this.router) {
+          this.router.navigate(editorPath(kind, this.templateId));
+        }
+        return;
+      }
+      this.template.kind = 'word';
+      this.kind = 'word';
       console.log('✅ Template chargé depuis la base de données:', {
         id: this.template._id,
         name: this.template.name,
@@ -178,8 +196,18 @@ export default class TemplateBuilderPage extends Page {
   }
 
   createDefaultTemplate() {
+    let name = 'Nouveau Template';
+    try {
+      const pending = JSON.parse(sessionStorage.getItem('gdriNewTemplate') || 'null');
+      if (pending && pending.name) name = String(pending.name);
+      if (pending && pending.kind) this.kind = pending.kind;
+      sessionStorage.removeItem('gdriNewTemplate');
+    } catch (e) {
+      sessionStorage.removeItem('gdriNewTemplate');
+    }
     return {
-      name: 'Nouveau Template',
+      name,
+      kind: this.kind || 'word',
       generalStyles: {
         default: {
           fontFamily: 'Arial',
@@ -911,6 +939,7 @@ export default class TemplateBuilderPage extends Page {
         
         // Refactoriser avant sauvegarde
         const refactoredTemplate = this.refactorTemplate(this.template);
+        refactoredTemplate.kind = 'word';
         
         const { templateApi } = await import('../shared/api/TemplateApi.js');
         const createResponse = await templateApi.create(refactoredTemplate);
@@ -979,6 +1008,7 @@ export default class TemplateBuilderPage extends Page {
       
       // Refactoriser avant sauvegarde
       const refactoredTemplate = this.refactorTemplate(this.template);
+      refactoredTemplate.kind = 'word';
       
       const { templateApi } = await import('../shared/api/TemplateApi.js');
       const response = await templateApi.update(this.templateId, refactoredTemplate);

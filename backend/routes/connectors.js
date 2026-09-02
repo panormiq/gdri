@@ -9,6 +9,7 @@ const { connectorRegistry, getConnectorScheduler } = require('../core/connectors
 const { ConnectorInstanceService } = require('../core/connectors/ConnectorInstanceService');
 const { ConnectorRuntime } = require('../core/connectors/ConnectorRuntime');
 const { listPresets, resolveInstanceTemplate } = require('../core/connectors/instance-defaults');
+const { enrichManifest, fieldCatalog } = require('../core/connectors/connectorContract');
 
 function getEntrepriseId(req) {
   return req.user?.currentEntrepriseId || req.user?.entrepriseId || null;
@@ -37,6 +38,10 @@ function createConnectorsRouter(database) {
       const connectorId = req.query.connectorId ? String(req.query.connectorId).trim() : '';
       if (connectorId) {
         instances = instances.filter((i) => String(i.connectorId) === connectorId);
+      }
+      const ingest = req.query.ingest ? String(req.query.ingest).trim() : '';
+      if (ingest) {
+        instances = instances.filter((i) => Array.isArray(i.ingestModes) && i.ingestModes.includes(ingest));
       }
       res.json({ success: true, data: instances });
     } catch (error) {
@@ -142,6 +147,16 @@ function createConnectorsRouter(database) {
     }
   });
 
+  router.get('/field-types', (req, res) => {
+    res.json({
+      success: true,
+      data: {
+        types: fieldCatalog(),
+        description: 'Catalogue de champs (contrat collection) pour déclarer un connecteur.'
+      }
+    });
+  });
+
   router.get('/:connectorId/template', authenticateJWT, (req, res) => {
     const manifest = connectorRegistry.getManifest(req.params.connectorId);
     if (!manifest) {
@@ -149,11 +164,14 @@ function createConnectorsRouter(database) {
     }
 
     const presetId = req.query.presetId ? String(req.query.presetId) : null;
+    const enriched = enrichManifest(manifest);
     res.json({
       success: true,
       data: {
         connectorId: manifest.id,
         presets: listPresets(manifest),
+        settingsFields: enriched.settingsFields,
+        payloadKinds: enriched.payloadKinds,
         template: resolveInstanceTemplate(manifest, presetId)
       }
     });
@@ -164,10 +182,11 @@ function createConnectorsRouter(database) {
     if (!manifest) {
       return res.status(404).json({ success: false, message: 'Connecteur introuvable' });
     }
+    const enriched = enrichManifest(manifest);
     res.json({
       success: true,
       data: {
-        ...manifest,
+        ...enriched,
         presets: listPresets(manifest)
       }
     });

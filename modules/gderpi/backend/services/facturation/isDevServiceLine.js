@@ -1,6 +1,7 @@
+const isPrestationLine = require('../workflow/isPrestationLine');
+
 function isDevServiceLine(line) {
-  const t = String(line?.articleType || '').toLowerCase();
-  return t === 'developpement' || t === 'service';
+  return isPrestationLine(line);
 }
 
 module.exports = isDevServiceLine;

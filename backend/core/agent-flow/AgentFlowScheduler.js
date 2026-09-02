@@ -57,15 +57,31 @@ class AgentFlowScheduler {
       const now = new Date();
       const flows = await this.flowService.listCronFlows();
       for (const flow of flows) {
-        const config = (flow.trigger && flow.trigger.config) || {};
-        if (!shouldTriggerNow(config, now)) continue;
-        if (this.sameMinute(flow.lastTriggeredAt, now)) continue;
+        const triggers = this.flowService.getFlowTriggers(flow);
+        const cronTriggers = triggers.filter((t) => this.flowService.isCronTrigger(t));
+        const lastByNode = flow.lastTriggeredAtByNode && typeof flow.lastTriggeredAtByNode === 'object'
+          ? flow.lastTriggeredAtByNode
+          : {};
+        for (const cronTrigger of cronTriggers) {
+          const config = (cronTrigger && cronTrigger.config) || {};
+          if (!shouldTriggerNow(config, now)) continue;
+          const nodeId = String((cronTrigger && cronTrigger.id) || '').trim();
+          const last = (nodeId && lastByNode[nodeId]) || null;
+          if (this.sameMinute(last, now)) continue;
 
-        try {
-          console.log(`  🧩 Cron flow [${flow.name}] entité ${flow.entrepriseId}`);
-          await this.executor.execute(flow, { triggerMode: 'cron' });
-        } catch (error) {
-          console.error(`  ❌ Flow cron ${flow.name}:`, error.message);
+          try {
+            console.log(`  🧩 Cron flow [${flow.name}] entité ${flow.entrepriseId}${nodeId ? ` · ${nodeId}` : ''}`);
+            await this.executor.execute(flow, {
+              triggerMode: 'cron',
+              triggerPayload: {
+                triggerBrickId: 'trigger',
+                triggerNodeId: nodeId || undefined,
+                options: { channel: 'cron' }
+              }
+            });
+          } catch (error) {
+            console.error(`  ❌ Flow cron ${flow.name}:`, error.message);
+          }
         }
       }
     } finally {

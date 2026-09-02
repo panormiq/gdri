@@ -1,0 +1,52 @@
+{
+  "id": "validation",
+  "name": "Sous-agent",
+  "version": "3.1.0",
+  "family": "validation",
+  "category": "human",
+  "kind": "action",
+  "interaction": "human",
+  "visibility": "orchestrator-only",
+  "description": "Importe un agent GDRI (ex. Design page web) dans ce flux. Ce n’est pas une page cachée : l’agent existe dans Agents IA.",
+  "canvas": {
+    "iconEmoji": "⧉",
+    "color": "#0d9488",
+    "borderRadius": 12,
+    "width": 220,
+    "inputs": [
+      { "id": "main", "label": "Entrée", "type": "main", "maxConnections": 0 }
+    ],
+    "outputs": [
+      { "id": "main", "label": "Suite", "type": "main", "maxConnections": 0 }
+    ]
+  },
+  "operations": {
+    "validation.pause": {
+      "label": "Importer / exécuter un sous-agent",
+      "configSchema": {
+        "type": "object",
+        "properties": {
+          "subTemplateId": {
+            "type": "string",
+            "title": "Agent GDRI",
+            "default": "agent-design-page-web"
+          },
+          "subFlowId": {
+            "type": "string",
+            "title": "Instance importée",
+            "default": ""
+          }
+        }
+      },
+      "outputMessage": {
+        "type": "subagent-result",
+        "fields": [
+          { "key": "subFlowId", "label": "Sous-agent" },
+          { "key": "decision", "label": "Décision" }
+        ]
+      }
+    }
+  },
+  "permissions": [],
+  "serviceRef": "backend/core/agent-flow/families"
+}

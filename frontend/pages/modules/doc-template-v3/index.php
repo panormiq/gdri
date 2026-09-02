@@ -10,7 +10,7 @@ if (!isLoggedIn()) {
     redirect(url('auth/login-process.php'));
 }
 
-$page_title = 'Document Editor V3';
+$page_title = 'Documents';
 
 // Token JWT pour les appels API (généré depuis la session GDRI)
 $jwt_token = getJWTToken();
@@ -18,13 +18,17 @@ $api_base_url = getApiBaseUrl();
 
 // Scripts JS à charger (chemins relatifs depuis le module)
 $extra_scripts = [
-    url('pages/modules/doc-template-v3/app/app.js')
+    url('pages/modules/doc-template-v3/app/app.js') . '?v=tpl-loop-4'
 ];
 
 require_once '../../../includes/header.php';
 ?>
 
 <div id="app"></div>
+
+<script>
+    window.CANVAS_EDITOR_URL = <?= json_encode(url('pages/modules/document-agent-v2/editor.php'), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
+</script>
 
 <!-- Configuration de l'API backend -->
 <script type="module">
@@ -74,15 +78,13 @@ require_once '../../../includes/header.php';
 <style>
 #app {
     width: 100%;
-    min-height: calc(100vh - var(--header-height) - 20px);
+    min-height: calc(100vh - var(--header-height-minimal, var(--header-height, 140px)) - 20px);
 }
 
-/* Cacher le footer du template */
 footer.footer {
     display: none !important;
 }
 
-/* Footer personnalisé pour le template builder */
 .template-builder-page-footer {
     height: 20px;
     width: 100%;
@@ -92,7 +94,7 @@ footer.footer {
     bottom: 0;
     left: 0;
     right: 0;
-    z-index: 1000;
+    z-index: 50;
 }
 </style>
 

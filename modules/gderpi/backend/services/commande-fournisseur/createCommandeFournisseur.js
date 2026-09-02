@@ -91,6 +91,8 @@ async function createCommandeFournisseur(db, entrepriseId, data) {
     lignes,
     totaux,
     historique: [{ statut: 'brouillon', date: now }],
+    reglee: false,
+    regleeAt: null,
     createdAt: now,
     updatedAt: now
   };

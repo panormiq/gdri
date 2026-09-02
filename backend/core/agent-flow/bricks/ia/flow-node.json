@@ -1,0 +1,101 @@
+{
+  "id": "ia",
+  "name": "IA",
+  "version": "1.2.0",
+  "family": "ia",
+  "category": "ia",
+  "kind": "action",
+  "visibility": "orchestrator-only",
+  "description": "Exécute un prompt IA.",
+  "inputContract": {
+    "version": "1.1.0",
+    "fields": [
+      { "key": "prompt", "label": "Prompt", "required": true, "type": "textarea", "overlay": true, "description": "Instruction envoyée au modèle" },
+      { "key": "context", "label": "Contexte", "required": false, "type": "textarea", "overlay": true, "description": "Cadre métier, ton, règles" },
+      { "key": "rag", "label": "RAG", "required": false, "type": "textarea", "overlay": true, "description": "Extraits ou collection à injecter" },
+      { "key": "llmId", "label": "Modèle", "required": false, "type": "select", "overlay": false, "description": "Modèle du serveur IA de l’entité (modèles activés et attribués)." },
+      { "key": "temperature", "label": "Température", "required": false, "type": "number", "overlay": false, "advanced": true, "description": "Créativité (0 = déterministe). Vide = défaut du serveur." },
+      { "key": "maxTokens", "label": "Max tokens", "required": false, "type": "number", "overlay": false, "advanced": true, "description": "Longueur max de la réponse. Vide = 800." }
+    ]
+  },
+  "outputContract": {
+    "version": "1.0.0",
+    "fields": [
+      { "key": "response", "label": "Réponse IA", "type": "textarea" },
+      { "key": "rendered", "label": "Prompt envoyé", "type": "textarea" },
+      { "key": "success", "label": "Succès", "type": "boolean" },
+      { "key": "model", "label": "Modèle utilisé", "type": "text" }
+    ]
+  },
+  "canvas": {
+    "iconEmoji": "✦",
+    "color": "#0891b2",
+    "borderRadius": 12,
+    "width": 220,
+    "inputs": [
+      { "id": "main", "label": "Entrée", "type": "main", "maxConnections": 0 }
+    ],
+    "outputs": [
+      { "id": "main", "label": "Suite", "type": "main", "maxConnections": 0 }
+    ]
+  },
+  "operations": {
+    "ia.run": {
+      "label": "Exécuter le prompt",
+      "configSchema": {
+        "type": "object",
+        "properties": {
+          "source": {
+            "type": "string",
+            "title": "Prompt",
+            "enum": ["previous", "custom"],
+            "enumLabels": {
+              "previous": "Depuis le bloc Action amont",
+              "custom": "Prompt saisi ici"
+            },
+            "default": "previous"
+          },
+          "templateId": {
+            "type": "string",
+            "title": "Template",
+            "description": "Recouvre le contrat IA là où il a de l’info (souvent le prompt). Les slots non fournis restent à mapper. Les champs du template se mappent à part.",
+            "default": ""
+          },
+          "productionTemplateId": {
+            "type": "string",
+            "title": "Modèle de production",
+            "description": "Prompt plateforme (console super-admin). Aligné sur le format de sortie.",
+            "default": ""
+          },
+          "prompt": {
+            "type": "string",
+            "title": "Prompt (si saisi ici)",
+            "format": "textarea",
+            "default": ""
+          },
+          "writeMode": {
+            "type": "string",
+            "title": "Écriture dans le flux",
+            "enum": ["merge", "replace"],
+            "enumLabels": {
+              "merge": "Compléter (champ response)",
+              "replace": "Écraser le texte"
+            },
+            "default": "merge"
+          }
+        }
+      },
+      "outputMessage": {
+        "type": "ia-result",
+        "fields": [
+          { "key": "response", "label": "Réponse IA" },
+          { "key": "rendered", "label": "Prompt envoyé" },
+          { "key": "success", "label": "Succès" },
+          { "key": "model", "label": "Modèle utilisé" }
+        ]
+      }
+    }
+  },
+  "permissions": ["network"],
+  "serviceRef": "backend/core/agent-flow/families"
+}

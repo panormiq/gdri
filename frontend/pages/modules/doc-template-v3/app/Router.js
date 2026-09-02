@@ -214,12 +214,12 @@ export default class Router {
   }
 
   matchRoute(path) {
+    const normalized = String(path || '').replace(/\/+$/, '') || '/';
     for (const route of this.routes) {
-      const match = path.match(route.regex);
-      if (match && match[0] === path) { // match exact
-        // Extraire les paramètres depuis les groupes de capture
-        // Les routes utilisent des groupes numérotés (params[1], params[2], etc.)
-        const params = match.slice(1); // Retirer le premier élément qui est le match complet
+      const match = normalized.match(route.regex) || path.match(route.regex);
+      if (!match) continue;
+      if (match[0] === normalized || match[0] === path || normalized.endsWith(match[0])) {
+        const params = match.slice(1);
         return { route, params };
       }
     }

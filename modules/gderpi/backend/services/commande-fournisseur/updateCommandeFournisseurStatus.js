@@ -77,8 +77,9 @@ async function updateCommandeFournisseurStatus(db, entrepriseId, commandeFournis
 
   }
 
+  let sendResult = null;
   if (statut === 'envoyee' && existing.statut === 'brouillon' && options.sendEmail !== false) {
-    await sendCommandeFournisseurToFournisseur(
+    sendResult = await sendCommandeFournisseurToFournisseur(
       db,
       entrepriseId,
       commandeFournisseurId,
@@ -157,7 +158,9 @@ async function updateCommandeFournisseurStatus(db, entrepriseId, commandeFournis
 
 
 
-  return entry;
+  return sendResult
+    ? { ...entry, sent: true, sentTo: sendResult.sentTo || '', emailId: sendResult.emailId || null }
+    : entry;
 
 }
 

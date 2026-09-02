@@ -136,8 +136,9 @@ function renderAvoirHtml(context) {
   const motif = String(c.motif || '').trim();
   const documentClient = String(c.documentClient || '').trim();
   const referenceClient = String(c.referenceClient || '').trim();
-  const contact = resolveDevisContact(devis || {}, client);
-  const emetteurContact = resolveDevisEmetteurContact(devis || {}, boutique);
+  const party = { ...(devis || {}), ...c };
+  const contact = resolveDevisContact(party, client);
+  const emetteurContact = resolveDevisEmetteurContact(party, boutique);
   const cgvProfil = resolveCgvProfil(devis || {}, client);
   const cgvUrl = buildCgvPublicUrl(req, entrepriseId, boutique, cgvProfil);
   const pied = String(boutique?.piedDePage || '').trim();

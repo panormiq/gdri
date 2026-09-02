@@ -118,7 +118,12 @@ if ($currentEntreprise) {
                         credentials: 'include',
                         body: JSON.stringify({ token: jwtToken })
                     });
-                    const data = await response.json();
+                    const raw = await response.text();
+                    if (!response.ok) {
+                        console.warn('⚠️ API Node indisponible (HTTP ' + response.status + ') — cookie JWT non synchronisé. Redémarrer le backend sur le port 3000.');
+                        return false;
+                    }
+                    const data = raw ? JSON.parse(raw) : {};
                     if (data.success) {
                         window.GDRI_JWT = jwtToken;
                         console.log('✅ Cookie JWT synchronisé');

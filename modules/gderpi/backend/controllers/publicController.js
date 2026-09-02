@@ -398,7 +398,7 @@ async function submitDevisAccept(req, res) {
         return res.status(409).send(html);
       }
 
-      if (result.code === 'empty_order') {
+      if (result.code === 'empty_order' || result.code === 'missing_reference') {
         const devis = result.devis || await getDevisById(
           req.entrepriseDb,
           req.entrepriseId,

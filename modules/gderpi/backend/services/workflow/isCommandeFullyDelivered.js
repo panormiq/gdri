@@ -5,6 +5,7 @@
 
 const { commandeClientKind, filterLinesByKind } = require('./commandeClientKind');
 const remainingLineQty = require('./remainingLineQty');
+const isPrestationLine = require('./isPrestationLine');
 
 function isCommandeFullyDelivered(commande) {
   const kind = commandeClientKind(commande);
@@ -14,7 +15,7 @@ function isCommandeFullyDelivered(commande) {
   if (!lines.length && kind !== 'produit') {
     lines = (commande?.lignes || []).filter((l) => {
       const t = String(l.articleType || '').toLowerCase();
-      return t !== 'developpement' && t !== 'service';
+      return !isPrestationLine(l);
     });
   }
   if (!lines.length) return kind !== 'produit' && kind !== 'mixte';

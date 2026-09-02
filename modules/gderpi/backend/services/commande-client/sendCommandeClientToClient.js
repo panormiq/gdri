@@ -20,6 +20,7 @@ const { parseEmailRecipientsFromPayload } = require('../mail/parseEmailRecipient
 const resolveGderpiMailTemplate = require('../mail/resolveGderpiMailTemplate');
 
 const { getMailService, resolveSmtpProfileForSender } = require('../mail/MailHelper');
+const { buildGderpiMailContext } = require('../mail/gderpiMailDocumentTypes');
 
 const renderCommandeClientEmailHtml = require('./renderCommandeClientEmailHtml');
 
@@ -51,9 +52,11 @@ function resolveRecipient(commande, devis, client, payload) {
 
   if (override) return override;
 
-  if (devis?.contactEmail) return String(devis.contactEmail).trim();
+  const party = { ...(devis || {}), ...(commande || {}) };
 
-  const contact = resolveDevisContact(devis || {}, client);
+  if (party.contactEmail) return String(party.contactEmail).trim();
+
+  const contact = resolveDevisContact(party, client);
 
   if (contact?.email) return contact.email;
 
@@ -169,7 +172,7 @@ async function sendCommandeClientToClient(db, entrepriseId, commandeClientId, pa
 
   await mail.init();
 
-  const senderEmail = String(devis?.emetteurContactEmail || boutique?.email || '').trim();
+  const senderEmail = String(commande?.emetteurContactEmail || devis?.emetteurContactEmail || boutique?.email || '').trim();
 
   const profile = await resolveSmtpProfileForSender(entrepriseId, senderEmail, {
 
@@ -197,7 +200,13 @@ async function sendCommandeClientToClient(db, entrepriseId, commandeClientId, pa
 
     entity_id: String(entrepriseId),
 
-    context: { commandeClientId: String(commandeClientId), action: 'send_commande_client' }
+    context: buildGderpiMailContext({
+      action: 'send_commande_client',
+      documentType: 'commande_client',
+      documentId: commandeClientId,
+      documentNumero: commande.numero,
+      extra: { commandeClientId: String(commandeClientId) }
+    })
 
   });
 

@@ -63,6 +63,10 @@ const setCommandeClientStatut = require('./setCommandeClientStatut');
 const commandeNeedsAchats = require('../workflow/commandeNeedsAchats');
 
 const getCommandeClientById = require('./getCommandeClientById');
+const lineRequiresRecette = require('../workflow/lineRequiresRecette');
+const normalizeDevisContact = require('../devis/normalizeDevisContact');
+const normalizeDevisEmetteurContact = require('../devis/normalizeDevisEmetteurContact');
+const { requireBonCommandeClient } = require('../workflow/bonCommandeClient');
 
 
 
@@ -122,7 +126,10 @@ async function createFromDevis(db, entrepriseId, devisId, payload = {}) {
 
 
 
-  const lignes = copyDevisLinesToCommande(lignesSource);
+  const recetteAt = new Date();
+  const lignes = copyDevisLinesToCommande(lignesSource).map((line) => (
+    lineRequiresRecette(line) ? line : { ...line, recetteValideeAt: line.recetteValideeAt || recetteAt }
+  ));
 
 
 
@@ -166,7 +173,10 @@ async function createFromDevis(db, entrepriseId, devisId, payload = {}) {
 
 
 
-  const documentClient = String(devis.documentClient || devis.referenceClient || '').trim();
+  const contact = normalizeDevisContact({ ...devis, ...p });
+  const emetteur = normalizeDevisEmetteurContact({ ...devis, ...p });
+  const bonCommande = requireBonCommandeClient(p, devis);
+  const documentClient = String(p.documentClient != null ? p.documentClient : (devis.documentClient || bonCommande)).trim() || bonCommande;
 
 
 
@@ -203,9 +213,17 @@ async function createFromDevis(db, entrepriseId, devisId, payload = {}) {
 
 
     documentClient,
-
-
-
+    contactClientId: contact.contactClientId,
+    contactNom: contact.contactNom,
+    contactService: contact.contactService,
+    contactFonction: contact.contactFonction,
+    contactEmail: contact.contactEmail,
+    contactTelephone: contact.contactTelephone,
+    emetteurContactId: emetteur.emetteurContactId,
+    emetteurContactNom: emetteur.emetteurContactNom,
+    emetteurContactFonction: emetteur.emetteurContactFonction,
+    emetteurContactEmail: emetteur.emetteurContactEmail,
+    emetteurContactTelephone: emetteur.emetteurContactTelephone,
     numero,
 
 
@@ -230,15 +248,8 @@ async function createFromDevis(db, entrepriseId, devisId, payload = {}) {
 
 
 
-    referenceClient: p.referenceClient !== undefined
-
-
-
-      ? String(p.referenceClient || '').trim()
-
-
-
-      : '',
+    referenceClient: bonCommande,
+    sansBonCommandeClient: !bonCommande,
 
 
 

@@ -9,33 +9,18 @@ const { ObjectId } = require('mongodb');
 const database = require(path.join(__dirname, '../../../../backend/config/database'));
 const IAClient = require('./IAClient');
 const { buildClientConfigFromServer } = require('./ServerConfigHelper');
+const { resolveLlmDoc } = require('./AvailableModels');
 
-const COLLECTION_LLMS = 'ia_llms';
 const COLLECTION_SERVERS = 'ia_servers';
 
 /**
- * Charge le document LLM pour une entité (par id ou défaut).
+ * Charge le document LLM pour une entité (par id, ref serveur+modèle, ou défaut).
  * @param {string} entityId - ID de l'entité
- * @param {string} [llmId] - ID du LLM (optionnel) ; sinon utilise is_default ou le premier
- * @returns {Promise<object|null>} Document ia_llms ou null
+ * @param {string} [llmId] - ID ia_llms, ou ref srv:{serverId}:{model}
+ * @returns {Promise<object|null>} Document ia_llms ou synthétique serveur
  */
 async function getLLMConfigForEntity(entityId, llmId = null) {
-  const col = database.getCollection(COLLECTION_LLMS);
-  let doc = null;
-  if (llmId) {
-    try {
-      doc = await col.findOne({ _id: new ObjectId(llmId), entity_id: String(entityId) });
-    } catch (_) {
-      return null;
-    }
-  }
-  if (!doc) {
-    doc = await col.findOne({ entity_id: String(entityId), is_default: true });
-  }
-  if (!doc) {
-    doc = await col.findOne({ entity_id: String(entityId) }, { sort: { created_at: -1 } });
-  }
-  return doc;
+  return resolveLlmDoc(entityId, llmId);
 }
 
 /**
@@ -69,7 +54,7 @@ async function getIAClientForEntity(entityId, llmId = null) {
       serviceToken: flat.serviceToken,
       ollamaUrl: flat.ollamaUrl,
       model,
-      timeout: doc.timeout || 60000
+      timeout: doc.timeout || 120000
     });
   }
 

@@ -84,14 +84,35 @@ function isTrustedIP(ip) {
   return TRUSTED_IPS.some((entry) => isIPInCIDR(normalized, entry));
 }
 
+function isPrivateIP(ip) {
+  const normalized = normalizeClientIp(ip);
+  if (!normalized || normalized === 'unknown') return false;
+  if (normalized === '127.0.0.1') return true;
+  if (normalized.startsWith('10.')) return true;
+  if (normalized.startsWith('192.168.')) return true;
+  if (normalized.startsWith('172.')) {
+    const second = parseInt(normalized.split('.')[1], 10);
+    return Number.isFinite(second) && second >= 16 && second <= 31;
+  }
+  return false;
+}
+
+function hasSessionToken(req) {
+  const auth = String(req.headers.authorization || '');
+  if (/^Bearer\s+\S+\.\S+\.\S+/.test(auth)) return true;
+  const cookie = String(req.headers.cookie || '');
+  return /(?:^|;\s*)authToken=/.test(cookie);
+}
+
 const RATE_LIMIT_MAX = Math.max(
   1,
-  parseInt(process.env.RATE_LIMIT_MAX, 10) || 100
+  parseInt(process.env.RATE_LIMIT_MAX, 10) || 400
 );
 
 /**
  * Configuration du rate limiter global
- * Limite : RATE_LIMIT_MAX requêtes par minute par IP (défaut 100)
+ * S’applique surtout au trafic anonyme. Les sessions JWT (éditeur, agents, chat)
+ * ne sont pas comptées : un poll de run toutes les 500 ms dépassait 100/min à lui seul.
  */
 const globalLimiter = rateLimit({
   windowMs: 60 * 1000, // 1 minute
@@ -101,17 +122,12 @@ const globalLimiter = rateLimit({
     message: 'Trop de requêtes depuis cette adresse IP. Veuillez réessayer dans une minute.',
     retryAfter: 60
   },
-  standardHeaders: true, // Retourne les headers RateLimit-* dans la réponse
-  legacyHeaders: false, // Désactive les headers X-RateLimit-*
-  // Store par défaut (mémoire) - pour production, utiliser Redis avec store: new RedisStore()
-  // Fonction pour obtenir l'IP réelle (prend en compte le reverse proxy)
+  standardHeaders: true,
+  legacyHeaders: false,
   keyGenerator: (req) => ipKeyGenerator(getClientIp(req)),
-  // Handler personnalisé pour les requêtes bloquées
   handler: (req, res) => {
     const ip = getClientIp(req);
-    
     console.warn(`⚠️  Rate limit dépassé pour IP: ${ip} - ${req.method} ${req.path}`);
-    
     res.status(429).json({
       error: 'Too many requests',
       message: 'Trop de requêtes depuis cette adresse IP. Veuillez réessayer dans une minute.',
@@ -119,27 +135,16 @@ const globalLimiter = rateLimit({
       timestamp: new Date().toISOString()
     });
   },
-  // Skip certaines routes (health check, webhooks, OAuth callbacks, etc.)
   skip: (req) => {
-    if (isTrustedIP(getClientIp(req))) {
-      return true;
-    }
-    // Ne pas limiter les health checks
-    if (req.path === '/api/health') {
-      return true;
-    }
-    // Ne pas limiter les webhooks Facebook (appelés directement par Facebook)
-    if (req.path && req.path.includes('/facebook/webhook')) {
-      return true;
-    }
-    // Ne pas limiter les callbacks OAuth (appelés directement par Facebook)
-    if (req.path && req.path.includes('/facebook/oauth/callback')) {
-      return true;
-    }
-    // Test batch dataset (route authentifiée JWT, usage admin ponctuel)
-    if (req.path && req.path.includes('/facebook/test-dataset')) {
-      return true;
-    }
+    const ip = getClientIp(req);
+    if (isTrustedIP(ip) || isPrivateIP(ip)) return true;
+    if (hasSessionToken(req)) return true;
+    const p = String(req.path || req.originalUrl || '');
+    if (p === '/api/health' || p.endsWith('/health')) return true;
+    if (p.includes('/facebook/webhook')) return true;
+    if (p.includes('/facebook/oauth/callback')) return true;
+    if (p.includes('/facebook/test-dataset')) return true;
+    if (p.includes('/agent-flows/runs')) return true;
     return false;
   }
 });
